@@ -8,9 +8,47 @@ EasyPanel. Lo único que comparte con ClaUsina es el VPS.
 **No mezclar las dos.** Si una tarea es de ClaUsina, se hace parado en `/root/clausina`, con su
 propio CLAUDE.md. Acá no se leen contextos de marca de ClaUsina ni se tocan sus archivos.
 
-> **PENDIENTE:** falta definir qué hace ClauLogic. Hoy lo que está montado es la infraestructura
-> —base, despliegue, respaldo, migraciones—; el dominio del negocio todavía no se escribió.
-> Cuando se defina, documentarlo acá arriba y reemplazar esta nota.
+## Qué hace
+
+**Gestión de almacén y producción para un negocio gastronómico.** Identificación de productos,
+compras, control de stock, ingresos y egresos de mercadería, control de cámaras de frío, control
+de almacenamiento, gestión de recetas y producción.
+
+### Las cuatro decisiones del modelo (no las deshagas sin entender por qué están)
+
+1. **El stock NO se guarda: se deriva.** No hay ninguna columna `cantidad_actual`. El stock sale
+   de sumar `logic.movimiento`, que es un libro mayor inmutable. Guardar el stock como número es
+   cómodo el primer día y es el origen de todos los problemas después: dos operaciones simultáneas
+   lo pisan, una corrección a mano lo desvía, y cuando el número del sistema no coincide con el de
+   la estantería nadie puede saber cuál miente ni desde cuándo. Derivándolo, cada unidad tiene su
+   movimiento con fecha, motivo y responsable. Se consulta por `logic.stock` y `logic.stock_producto`.
+
+2. **El libro mayor es inmutable, y se hace cumplir en la BASE.** Triggers bloquean UPDATE, DELETE
+   y TRUNCATE sobre `logic.movimiento`. Para revertir algo se asienta un movimiento nuevo con
+   `anula_a`, y quedan los dos. No se reescribe el pasado — ni desde la app, ni desde pgadmin, ni
+   desde un script apurado.
+
+3. **Todo en la unidad base del producto.** Se compra en cajas, se cocina en gramos y se cuenta en
+   unidades. `logic.presentacion` convierte la presentación de compra a la base. `logic.unidad`
+   tiene la magnitud (masa/volumen/conteo) para que no se pueda convertir kg a litros.
+
+4. **Cantidades y plata en NUMERIC, nunca en float.** 0,1 + 0,2 en coma flotante no da 0,3, y un
+   inventario que no cierra por centésimas es un inventario que nadie vuelve a mirar.
+
+### Reglas que impone la base
+
+- Un producto **perecedero exige lote** en cada movimiento: sin lote no hay vencimiento ni
+  trazabilidad, que es lo que de verdad se le pide a un almacén gastronómico.
+- Un lote tiene que pertenecer al producto del movimiento.
+- Cantidades siempre positivas; el sentido lo dan `origen_id` y `destino_id`. Origen NULL = entra
+  al sistema, destino NULL = sale, los dos = traslado.
+- Una **cámara, heladera o freezer no se puede dar de alta sin rango de temperatura**: sin eso no
+  hay contra qué comparar y el control de frío no existe.
+
+### Lo que falta
+Pantallas (no hay ninguna todavía, sólo el esqueleto y `/salud`), recibir una compra generando los
+movimientos, producir una receta (consumir ingredientes por lote + dar de alta el elaborado), FEFO
+en la sugerencia de qué lote usar, y lectura de sensores de temperatura.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.
