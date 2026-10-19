@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ClauLogic</title>
+<style>
+  :root{color-scheme:light dark;--fg:#16161a;--mut:#6e6a62;--line:#e4e0d8;--bg:#faf9f6;}
+  @media (prefers-color-scheme:dark){:root{--fg:#f3f1ec;--mut:#95918a;--line:#2a2a26;--bg:#0f0f0e;}}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);
+    color:var(--fg);font:16px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .c{max-width:46ch;}
+  h1{font-size:2rem;letter-spacing:-.5px;margin:0 0 6px;}
+  p{color:var(--mut);margin:0 0 18px;}
+  .e{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;
+    padding:6px 13px;font-size:.85rem;color:var(--mut);}
+  .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;}
+  .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
+</style>
+</head>
+<body>
+  <div class="c">
+    <h1>ClauLogic</h1>
+    <p>Todavía sin funcionalidad: lo que está montado es la base, el despliegue y el respaldo.</p>
+    <span class="e"><span class="p" id="p"></span><span id="t">consultando…</span></span>
+  </div>
+<script>
+fetch('salud').then(r=>r.json()).then(d=>{
+  document.getElementById('p').className = 'p ' + (d.ok ? 'ok' : 'mal');
+  document.getElementById('t').textContent = d.ok
+    ? `base ${d.base} responde en ${d.ms} ms` : 'la base no responde';
+}).catch(()=>{
+  document.getElementById('p').className='p mal';
+  document.getElementById('t').textContent='sin respuesta del servidor';
+});
+</script>
+</body>
+</html>
