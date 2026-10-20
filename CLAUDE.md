@@ -101,6 +101,14 @@ productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, pr
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
+**Interfaz.** `comun.js` arma la navegación de todas las pantallas: barra lateral agrupada desde
+900 px; en el celular, barra inferior (Panel, Stock, Escanear, Productos, Más). **Escanear** es
+global: producto abre su ficha, lote su trazabilidad, código desconocido va al alta
+(`productos.html#nuevo/<gtin>`). Productos usa rutas en el `#` (`#p/<id>`, `#nuevo`) para que en
+el celular listado y ficha sean pantallas separadas con el botón atrás funcionando. Tipografía
+Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts. Campos a 16 px en
+el celular: con menos, el iPhone hace zoom al tocarlos.
+
 Falta: **autenticación** (la app está publicada sin login; sin datos reales hasta que la tenga, y
 `registrado_por` queda vacío), recepción parcial de compras, anular una compra recibida o una
 producción entera, y lectura de sensores de temperatura.

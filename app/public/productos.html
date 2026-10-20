@@ -6,157 +6,252 @@
 <title>Productos · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
 <style>
-  .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
-  .pg{width:150px;font-variant-numeric:tabular-nums;}
+  /* Dos paneles: listado y ficha. En la computadora van lado a lado; en el celular son dos
+     pantallas distintas (la ruta, en el #, dice cuál se ve, y el botón atrás funciona). */
+  .panes{display:grid;grid-template-columns:minmax(300px,380px) 1fr;min-height:100dvh;}
+  .p-lista{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;
+    position:sticky;top:0;height:100dvh;min-width:0;}
+  .p-lista .cab{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:24px 18px 14px;}
+  .p-lista .cab h1{margin:0;}
+  .buscador{padding:0 18px 14px;display:grid;gap:8px;border-bottom:1px solid var(--line);}
+  .buscador .ayuda{margin:0;}
+  .filtros-linea{display:flex;gap:14px;align-items:center;} .filtros-linea select{flex:1;}
+  .aviso-codigo{margin:12px 18px 0;padding:14px;border-radius:12px;background:var(--aviso-bg);display:grid;gap:10px;}
+  .aviso-codigo p{margin:0;} .aviso-codigo .botones{display:flex;gap:8px;flex-wrap:wrap;}
+  .lista{flex:1;overflow:auto;}
+  a.item{display:flex;gap:12px;align-items:center;text-decoration:none;color:inherit;padding:10px 18px;}
+  .item .mini{width:48px;height:48px;border-radius:8px;object-fit:cover;flex:none;background:var(--bg);border:1px solid var(--line);}
+  .item .m{display:flex;flex-wrap:wrap;gap:0 12px;}
+  .item .txt{min-width:0;}
+
+  .p-ficha{padding:28px 32px 60px;min-width:0;max-width:940px;}
+  .ficha-vacia{min-height:70dvh;display:grid;place-content:center;gap:10px;max-width:42ch;margin:0 auto;}
+  .ficha-vacia p{margin:0;color:var(--mut);} .ficha-vacia button{justify-self:start;margin-top:6px;}
+  .volver{display:none;align-items:center;gap:4px;font-weight:600;text-decoration:none;margin:0 0 14px;padding:6px 0;}
+  .volver svg{width:20px;height:20px;}
+  .ficha-cab{display:flex;gap:18px;align-items:flex-start;margin:0 0 22px;}
+  .ficha-cab .marco{width:112px;height:112px;border:1px solid var(--line);border-radius:12px;background:#fff;flex:none;
+    display:grid;place-items:center;overflow:hidden;color:var(--mut);font-size:.8rem;text-align:center;}
+  .ficha-cab .marco img{width:100%;height:100%;object-fit:contain;}
+  .ficha-cab .tit{min-width:0;flex:1;}
+  .ficha-cab h2{font-size:1.75rem;font-weight:750;margin:2px 0 4px;overflow-wrap:anywhere;}
+  .ficha-cab .sub{margin:0 0 10px;}
+  .datos-cab{display:flex;flex-wrap:wrap;gap:2px 16px;color:var(--mut);margin:0 0 10px;font-size:.92rem;}
+  .datos-cab strong{color:var(--fg);font-weight:600;}
+  .foto-acc{display:flex;gap:6px;flex-wrap:wrap;}
+  .atrib{font-size:.8rem;color:var(--mut);display:block;margin-top:6px;}
+  .gtin-int{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 0;font-size:.92rem;}
+  .gtin-int strong{font-variant-numeric:tabular-nums;}
+
+  .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:6px 6px;}
+  .pg{width:160px;font-variant-numeric:tabular-nums;}
   #pres select{min-width:72px;}
-  .foto{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:14px 0 0;}
-  .foto .marco{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:#fff;
-    display:grid;place-items:center;overflow:hidden;flex:none;color:var(--mut);font-size:.8rem;text-align:center;}
-  .foto .marco img{width:100%;height:100%;object-fit:contain;}
-  .foto .acc{display:grid;gap:8px;justify-items:start;}
-  .foto .atrib{font-size:.8rem;color:var(--mut);}
-  .item.con-mini{display:flex;gap:10px;align-items:center;}
-  .item .mini{width:40px;height:40px;border-radius:6px;object-fit:cover;flex:none;background:var(--line);}
-  .gtin-int{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;font-size:.9rem;}
-  /* En el celular cada presentación es una tarjeta: en tabla, los campos quedaban cortados y el
-     GTIN fuera de pantalla, justo donde más se carga escaneando. */
-  @media (max-width:760px){
+  #pres .pn{min-width:130px;} #pres .pc{min-width:80px;}
+
+  @media (max-width:899px){
+    .panes{display:block;min-height:0;}
+    .panes[data-vista=lista] .p-ficha{display:none;}
+    .panes[data-vista=ficha] .p-lista{display:none;}
+    .p-lista{position:static;height:auto;border-right:0;background:none;}
+    .p-lista .cab{padding:20px 16px 12px;}
+    .buscador{padding:0 16px 14px;border-bottom:0;}
+    .aviso-codigo{margin:0 16px 12px;}
+    .lista{background:var(--panel);border-top:1px solid var(--line);}
+    a.item{padding:10px 16px;}
+    .p-ficha{padding:10px 16px 24px;}
+    .volver{display:inline-flex;}
+    .ficha-cab{gap:14px;}
+    .ficha-cab .marco{width:88px;height:88px;}
+    .ficha-cab h2{font-size:1.45rem;}
+    /* Cada presentación es una tarjeta: en tabla los campos quedaban cortados y el código de
+       barras fuera de pantalla. */
     #pres thead{display:none;}
     #pres, #pres tbody{display:block;}
-    #pres tr{display:grid;grid-template-columns:1fr 1fr;gap:10px 10px;padding:12px;margin:0 0 10px;
-      border:1px solid var(--line);border-radius:10px;
+    #pres tr{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px;margin:0 0 10px;
+      border:1px solid var(--line);border-radius:12px;background:var(--bg);
       grid-template-areas:"nom nom" "cant uni" "gtin gtin" "def quitar";}
-    #pres td{padding:0;display:grid;gap:4px;}
-    #pres td[data-l]::before{content:attr(data-l);font-size:.8rem;color:var(--mut);}
+    #pres td{padding:0;display:grid;gap:5px;}
+    #pres td[data-l]::before{content:attr(data-l);font-size:.84rem;color:var(--mut);}
     #pres .c-nom{grid-area:nom;} #pres .c-cant{grid-area:cant;} #pres .c-uni{grid-area:uni;}
     #pres .c-gtin{grid-area:gtin;} #pres .c-gtin .pg{width:auto;flex:1;min-width:0;}
-    #pres .c-def{grid-area:def;display:flex;align-items:center;gap:8px;} #pres .c-def::after{content:'Habitual';font-size:.9rem;}
+    #pres .c-def{grid-area:def;display:flex;align-items:center;gap:8px;} #pres .c-def::after{content:'Habitual';font-size:.95rem;}
     #pres .c-quitar{grid-area:quitar;justify-items:end;align-items:center;}
   }
 </style>
 </head>
 <body>
-<div class="grid">
-  <aside>
-    <div class="filtros">
-      <div id="esc"></div>
-      <input id="q" type="search" placeholder="Buscar por nombre, SKU o GTIN" autocomplete="off">
-      <select id="fcat"><option value="">Todas las categorías</option></select>
-      <label class="check"><input id="finact" type="checkbox"> Mostrar inactivos</label>
-      <button class="prim" id="nuevo">Nuevo producto</button>
+<main class="panes" id="panes" data-vista="lista">
+  <section class="p-lista" aria-label="Listado de productos">
+    <div class="cab">
+      <h1>Productos</h1>
+      <button type="button" class="prim" id="nuevo">Nuevo producto</button>
     </div>
-    <div class="lista" id="lista"></div>
-  </aside>
-
-  <main>
-    <h1 id="titulo">Nuevo producto</h1>
-    <p class="sub" id="subtitulo">Los campos con * son obligatorios.</p>
-    <form id="f" novalidate>
-      <fieldset>
-        <legend>Identificación</legend>
-        <div class="fila">
-          <label>SKU *<input name="codigo" required maxlength="40" autocomplete="off" placeholder="código propio"></label>
-          <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
-        </div>
-        <div class="fila" style="margin-top:12px">
-          <label>Categoría *
-            <span class="con-boton">
-              <select name="categoria_id" required></select>
-              <button type="button" class="chico" id="catNueva">Nueva</button>
-            </span>
-          </label>
-          <label id="catAlta" hidden>Nombre de la categoría nueva
-            <span class="con-boton">
-              <input id="catNombre" maxlength="60">
-              <button type="button" class="chico prim" id="catGuardar">Crear</button>
-            </span>
-          </label>
-        </div>
-        <div class="gtin-int" id="gtinInterno" hidden>
-          <span>GTIN interno <strong id="gtinValor"></strong></span>
-          <a id="gtinEtiqueta" href="#">Imprimir etiquetas de góndola</a>
-        </div>
-        <div class="foto">
-          <div class="marco" id="fotoMarco">Sin foto</div>
-          <div class="acc">
-            <span class="con-boton">
-              <button type="button" class="chico" id="fotoSubir">Sacar o subir foto</button>
-              <button type="button" class="chico" id="fotoBuscar" hidden>Buscar en Open Food Facts</button>
-              <button type="button" class="chico" id="fotoQuitar" hidden>Quitar</button>
-            </span>
-            <span class="atrib" id="fotoAtrib"></span>
-            <input type="file" id="fotoArchivo" accept="image/*" hidden>
-          </div>
-        </div>
-        <p class="ayuda">El SKU es el código propio del negocio. Cada producto recibe además un GTIN interno GS1
-          (prefijo 040, válido sólo dentro del negocio) para etiquetar lo que no trae código de fabricante.</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>Medida</legend>
-        <div class="fila">
-          <label>Unidad base *<select name="unidad_base" required></select></label>
-        </div>
-        <p class="ayuda" id="ayudaBase">Todo el stock, las recetas y los movimientos se llevan en esta unidad.
-          Para masa conviene gramos y para volumen mililitros: las recetas se escriben así.</p>
-        <h3 style="font-size:.95rem;margin:16px 0 6px">Presentaciones de compra</h3>
-        <div style="overflow-x:auto"><table id="pres">
-          <thead><tr><th>Nombre</th><th>Contiene</th><th>Unidad</th><th>GTIN (código de barras)</th><th>Habitual</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-        <button type="button" class="chico" id="presAgregar" style="margin-top:8px">Agregar presentación</button>
-        <p class="ayuda">Cómo se compra: "caja x6" que contiene 6 kg. Se guarda convertido a la unidad base.
-          El GTIN es el del fabricante para ese empaque (el sachet y la caja tienen códigos distintos): se puede tipear o escanear.
-          Para un empaque propio, "interno" genera uno.</p>
-      </fieldset>
-
-      <fieldset>
-        <legend>Conservación</legend>
-        <label class="check"><input type="checkbox" name="perecedero" checked> Perecedero (se maneja por lote con vencimiento)</label>
-        <div class="fila" style="margin-top:12px">
-          <label>Vida útil (días)<input name="vida_util_dias" inputmode="numeric"></label>
-          <label>Temperatura mínima (°C)<input name="temp_min" inputmode="decimal"></label>
-          <label>Temperatura máxima (°C)<input name="temp_max" inputmode="decimal"></label>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Stock y costo</legend>
-        <div class="fila">
-          <label><span>Stock mínimo (<span class="ub">unidad base</span>)</span><input name="stock_minimo" inputmode="decimal"></label>
-          <label>Costo
-            <span class="con-boton">
-              <input name="costo" inputmode="decimal" placeholder="0">
-              <select name="costo_unidad" class="angosto"></select>
-            </span>
-          </label>
-        </div>
-        <p class="ayuda">Al recibir compras se compara el costo de la compra con éste y se decide si se actualiza.</p>
-        <div id="histCostos" hidden>
-          <h3 style="font-size:.95rem;margin:14px 0 4px">Últimos cambios de costo</h3>
-          <table class="hist"><tbody></tbody></table>
-        </div>
-        <label class="check" style="margin-top:12px" id="activoWrap" hidden><input type="checkbox" name="activo" checked> Activo</label>
-      </fieldset>
-
-      <div class="acciones">
-        <button type="submit" class="prim" id="guardar">Guardar</button>
-        <button type="button" id="cancelar">Descartar cambios</button>
-        <span class="msg" id="msg" role="status"></span>
+    <div class="buscador">
+      <div class="con-boton">
+        <input id="q" type="search" placeholder="Nombre, SKU o código de barras" autocomplete="off"
+          enterkeyhint="search" aria-label="Buscar productos">
+        <button type="button" class="icono" id="qCam" title="Escanear con la cámara" aria-label="Escanear con la cámara"></button>
       </div>
-    </form>
-  </main>
-</div>
+      <p class="ayuda">La lista se filtra mientras escribís. Un código escaneado abre su producto.</p>
+      <div class="filtros-linea">
+        <select id="fcat" aria-label="Categoría"><option value="">Todas las categorías</option></select>
+        <label class="check"><input id="finact" type="checkbox"> Inactivos</label>
+      </div>
+    </div>
+    <div class="aviso-codigo" id="avisoCodigo" role="status" hidden></div>
+    <div class="lista" id="lista"></div>
+  </section>
+
+  <section class="p-ficha" aria-label="Ficha del producto">
+    <div class="ficha-vacia" id="fichaVacia">
+      <h2>Elegí un producto de la lista</h2>
+      <p>O escaneá su código. Si todavía no está cargado, creá uno nuevo.</p>
+      <button type="button" class="prim" id="nuevo2">Nuevo producto</button>
+    </div>
+
+    <div id="ficha" hidden>
+      <a href="#" class="volver" id="volver"></a>
+      <header class="ficha-cab">
+        <div class="marco" id="fotoMarco">Sin foto</div>
+        <div class="tit">
+          <span class="tag" id="modo" hidden></span>
+          <h2 id="titulo">Nuevo producto</h2>
+          <div class="datos-cab" id="datosCab" hidden></div>
+          <p class="sub" id="subtitulo"></p>
+          <div class="foto-acc">
+            <button type="button" class="chico" id="fotoSubir">Sacar o subir foto</button>
+            <button type="button" class="chico" id="fotoBuscar" hidden>Buscar foto en Open Food Facts</button>
+            <button type="button" class="chico" id="fotoQuitar" hidden>Quitar foto</button>
+          </div>
+          <span class="atrib" id="fotoAtrib"></span>
+          <input type="file" id="fotoArchivo" accept="image/*" hidden>
+        </div>
+      </header>
+
+      <form id="f" novalidate>
+        <fieldset>
+          <legend>Identificación</legend>
+          <div class="fila">
+            <label>SKU *<input name="codigo" required maxlength="40" autocomplete="off" placeholder="código propio"></label>
+            <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
+          </div>
+          <div class="fila" style="margin-top:12px">
+            <label>Categoría *
+              <span class="con-boton">
+                <select name="categoria_id" required></select>
+                <button type="button" class="chico" id="catNueva">Nueva</button>
+              </span>
+            </label>
+            <label id="catAlta" hidden>Nombre de la categoría nueva
+              <span class="con-boton">
+                <input id="catNombre" maxlength="60">
+                <button type="button" class="chico prim" id="catGuardar">Crear</button>
+              </span>
+            </label>
+          </div>
+          <div class="gtin-int" id="gtinInterno" hidden>
+            <span>GTIN interno <strong id="gtinValor"></strong></span>
+            <a id="gtinEtiqueta" href="#">Imprimir etiquetas de góndola</a>
+          </div>
+          <p class="ayuda">El SKU es el código propio del negocio. Cada producto recibe además un GTIN interno GS1
+            (prefijo 040, válido sólo dentro del negocio) para etiquetar lo que no trae código de fabricante.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Medida y presentaciones</legend>
+          <div class="fila">
+            <label>Unidad base *<select name="unidad_base" required></select></label>
+          </div>
+          <p class="ayuda" id="ayudaBase">Todo el stock, las recetas y los movimientos se llevan en esta unidad.
+            Para masa conviene gramos y para volumen mililitros: las recetas se escriben así.</p>
+          <h3>Presentaciones de compra</h3>
+          <div style="overflow-x:auto"><table id="pres">
+            <thead><tr><th>Nombre</th><th>Contiene</th><th>Unidad</th><th>GTIN (código de barras)</th><th>Habitual</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <button type="button" class="chico" id="presAgregar" style="margin-top:10px">Agregar presentación</button>
+          <p class="ayuda">Cómo se compra: "caja x6" que contiene 6 kg. Se guarda convertido a la unidad base.
+            El GTIN es el del fabricante para ese empaque (el sachet y la caja tienen códigos distintos): se puede escanear con la cámara o tipear.
+            Para un empaque propio, "interno" genera uno.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Conservación</legend>
+          <label class="check"><input type="checkbox" name="perecedero" checked> Perecedero (se maneja por lote con vencimiento)</label>
+          <div class="fila" style="margin-top:12px">
+            <label>Vida útil (días)<input name="vida_util_dias" inputmode="numeric"></label>
+            <label>Temperatura mínima (°C)<input name="temp_min" inputmode="decimal"></label>
+            <label>Temperatura máxima (°C)<input name="temp_max" inputmode="decimal"></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Stock y costo</legend>
+          <div class="fila">
+            <label><span>Stock mínimo (<span class="ub">unidad base</span>)</span><input name="stock_minimo" inputmode="decimal"></label>
+            <label>Costo
+              <span class="con-boton">
+                <input name="costo" inputmode="decimal" placeholder="0">
+                <select name="costo_unidad" class="angosto"></select>
+              </span>
+            </label>
+          </div>
+          <p class="ayuda">Al recibir compras se compara el costo de la compra con éste y se decide si se actualiza.</p>
+          <div id="histCostos" hidden>
+            <h3>Últimos cambios de costo</h3>
+            <table class="hist"><tbody></tbody></table>
+          </div>
+          <label class="check" style="margin-top:14px" id="activoWrap" hidden><input type="checkbox" name="activo" checked> Activo</label>
+        </fieldset>
+
+        <div class="acciones">
+          <button type="submit" class="prim" id="guardar">Crear producto</button>
+          <button type="button" id="cancelar">Descartar</button>
+          <span class="msg" id="msg" role="status"></span>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
 
 <script src="comun.js"></script>
 <script>
 const f = $('#f');
-let unidades = [], categorias = [], actual = null, sucio = false;
+let unidades = [], categorias = [], actual = null, actualNombre = '', sucio = false;
 
 const magnitudDe = cod => (unidades.find(u => u.codigo === cod) || {}).magnitud;
 const compatibles = cod => unidades.filter(u => u.magnitud === magnitudDe(cod));
+$('#qCam').append(icono('camara'));
+{
+  const v = $('#volver'); v.append(icono('volver'), el('span', { textContent: 'Productos' }));
+}
 
-// ── Lista ──
+// ── Rutas ──
+// '' = listado · 'nuevo' = alta · 'nuevo/<gtin>' = alta con un código escaneado · 'p/<id>' = ficha.
+let ruta = null, ignorar = false;
+const vista = v => { $('#panes').dataset.vista = v; };
+const descartar = () => !sucio || confirm('Hay cambios sin guardar. ¿Descartarlos?');
+async function enrutar() {
+  const h = location.hash.slice(1);
+  if (ignorar) { ignorar = false; return; }
+  if (h !== ruta && !descartar()) { ignorar = true; location.hash = ruta || ''; return; }
+  ruta = h; sucio = false;
+  if (h.startsWith('p/')) { await abrir(h.slice(2)); vista('ficha'); }
+  else if (h.startsWith('nuevo')) {
+    limpiar(); vista('ficha');
+    const g = h.split('/')[1];
+    if (g) await agregarCodigo(g);
+  } else { mostrarVacia(); vista('lista'); }
+  if (matchMedia('(max-width:899px)').matches) scrollTo(0, 0);
+}
+addEventListener('hashchange', enrutar);
+function irNuevo() {
+  if (location.hash === '#nuevo') { if (descartar()) { limpiar(); } return; }
+  location.hash = 'nuevo';
+}
+$('#nuevo').onclick = $('#nuevo2').onclick = irNuevo;
+
+// ── Listado ──
 async function cargarLista() {
   const p = new URLSearchParams();
   if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
@@ -165,18 +260,54 @@ async function cargarLista() {
   const { productos } = await api('productos?' + p);
   const lista = $('#lista');
   if (!productos.length) return lista.replaceChildren(el('p', { className: 'vacio',
-    textContent: p.toString() ? 'Ningún producto coincide.' : 'Todavía no hay productos. Cargá el primero.' }));
-  lista.replaceChildren(...productos.map(x => {
-    const b = el('button', { type: 'button', className: 'item con-mini' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
-      x.foto_v ? el('img', { className: 'mini', alt: '', loading: 'lazy', src: `api/productos/${x.id}/foto?mini=1&v=${x.foto_v}` })
-               : el('span', { className: 'mini' }),
-      el('div', {}, el('div', { className: 'n', textContent: x.nombre }),
-        el('div', { className: 'm', textContent:
-          `SKU ${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
-          (x.costo != null ? ` · ${pesos(x.costo)}/${x.costo_unidad}` : '') })));
-    b.onclick = () => abrir(x.id);
-    return b;
-  }));
+    textContent: p.toString() ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos. Tocá Nuevo producto para cargar el primero.' }));
+  lista.replaceChildren(...productos.map(x => el('a', {
+      href: '#p/' + x.id, className: 'item' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
+    x.foto_v ? el('img', { className: 'mini', alt: '', loading: 'lazy', src: `api/productos/${x.id}/foto?mini=1&v=${x.foto_v}` })
+             : el('span', { className: 'mini' }),
+    el('div', { className: 'txt' }, el('div', { className: 'n', textContent: x.nombre }),
+      el('div', { className: 'm' }, el('span', { textContent: x.codigo }), el('span', { textContent: x.categoria }),
+        el('span', { textContent: 'stock ' + cant(x.stock, x.unidad_base) }))))));
+  marcarSel();
+}
+const marcarSel = () => $$('#lista a.item').forEach(a => a.classList.toggle('sel', a.getAttribute('href') === '#p/' + actual));
+
+let t;
+$('#q').oninput = () => { ocultarAviso(); clearTimeout(t); t = setTimeout(() => cargarLista().catch(e => msg(e.message, 'mal')), 250); };
+$('#fcat').onchange = $('#finact').onchange = () => cargarLista().catch(e => msg(e.message, 'mal'));
+
+// Enter en el buscador (lo manda también el lector de códigos): si lo escrito es un código o un
+// SKU exacto, abre ese producto; si es un código que no está cargado, ofrece darlo de alta. El
+// separador GS1 no se puede tipear: los lectores lo mandan como Ctrl+].
+$('#q').onkeydown = e => {
+  const q = $('#q');
+  if (e.ctrlKey && (e.key === ']' || e.code === 'BracketRight')) {
+    e.preventDefault();
+    const i = q.selectionStart;
+    q.value = q.value.slice(0, i) + '\x1d' + q.value.slice(q.selectionEnd);
+    q.selectionStart = q.selectionEnd = i + 1;
+  } else if (e.key === 'Enter') { e.preventDefault(); if (q.value.trim()) leerCodigo(q.value.trim(), { silencioso: !/^\d{8,}$/.test(q.value.trim()) }); }
+};
+$('#qCam').onclick = () => leerConCamara(c => leerCodigo(c)).catch(e => mostrarAviso(el('p', { textContent: e.message })));
+
+async function leerCodigo(codigo, { silencioso = false } = {}) {
+  ocultarAviso();
+  let d;
+  try { d = await api('gs1/leer?codigo=' + encodeURIComponent(codigo)); }
+  catch (e) { if (!silencioso) mostrarAviso(el('p', { textContent: e.message })); return; }
+  if (d.desconocido) return avisoDesconocido(d.lectura.gtin);
+  $('#q').value = ''; cargarLista().catch(() => {});
+  location.hash = 'p/' + d.producto.id;
+}
+function mostrarAviso(...hijos) { const a = $('#avisoCodigo'); a.replaceChildren(...hijos); a.hidden = false; }
+function ocultarAviso() { $('#avisoCodigo').hidden = true; }
+function avisoDesconocido(g) {
+  const botones = [el('button', { type: 'button', className: 'prim', textContent: 'Dar de alta con este código',
+    onclick: () => { ocultarAviso(); $('#q').value = ''; location.hash = 'nuevo/' + g; } })];
+  if (actual) botones.push(el('button', { type: 'button', textContent: `Agregarlo a ${actualNombre}`,
+    onclick: async () => { ocultarAviso(); $('#q').value = ''; vista('ficha'); await agregarCodigo(g); } }));
+  mostrarAviso(el('p', {}, 'El código ', el('strong', { textContent: g }), ' no está cargado en ningún producto.'),
+    el('div', { className: 'botones' }, ...botones));
 }
 
 // ── Categorías ──
@@ -219,17 +350,23 @@ function celda(clase, rotulo, ...hijos) {
 function filaPres(p = {}) {
   const unidad = el('select');
   // Un GTIN interno ya generado no se edita: puede estar impreso en etiquetas.
+  const fijo = p.gtin_origen === 'interno';
   const gtin = el('input', { className: 'pg', value: p.gtin || '', inputMode: 'numeric', placeholder: 'escanear o tipear',
-    disabled: p.gtin_origen === 'interno', title: p.gtin_origen === 'interno' ? 'GTIN interno generado por el sistema' : '' });
+    disabled: fijo, title: fijo ? 'GTIN interno generado por el sistema' : '' });
+  const camara = el('button', { type: 'button', className: 'icono', title: 'Escanear el código del empaque',
+    ariaLabel: 'Escanear el código del empaque', hidden: fijo,
+    onclick: () => leerConCamara(c => { gtin.value = c.replace(/\D/g, ''); sucio = true; }).catch(e => msg(e.message, 'mal')) },
+    icono('camara'));
   const interno = el('button', { type: 'button', className: 'chico', textContent: 'interno', hidden: !!p.gtin,
     title: 'Generar un GTIN interno para un empaque propio',
-    onclick: () => { tr.dataset.interno = '1'; gtin.value = ''; gtin.placeholder = 'se genera al guardar'; gtin.disabled = true; interno.hidden = true; sucio = true; } });
+    onclick: () => { tr.dataset.interno = '1'; gtin.value = ''; gtin.placeholder = 'se genera al guardar'; gtin.disabled = true;
+                     interno.hidden = true; camara.hidden = true; sucio = true; } });
   const tr = el('tr', {},
     celda('c-nom', 'Nombre', el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
     celda('c-cant', 'Contiene', el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
     celda('c-uni', 'Unidad', unidad),
-    celda('c-gtin', 'GTIN (código de barras)', el('span', { className: 'con-boton' }, gtin, interno)),
-    celda('c-def', null, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default })),
+    celda('c-gtin', 'GTIN (código de barras)', el('span', { className: 'con-boton' }, gtin, camara, interno)),
+    celda('c-def', null, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default, ariaLabel: 'Presentación habitual' })),
     celda('c-quitar', null, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
       onclick: () => { tr.remove(); sucio = true; } })));
   tr.dataset.id = p.id || '';
@@ -252,6 +389,7 @@ function mostrarFoto(src, atrib) {
   marco.replaceChildren(src ? el('img', { src, alt: 'Foto del producto' }) : 'Sin foto');
   $('#fotoQuitar').hidden = !src;
   $('#fotoBuscar').hidden = !!src || !gtinsFab.length;
+  $('#fotoSubir').textContent = src ? 'Cambiar foto' : 'Sacar o subir foto';
   const a = $('#fotoAtrib');
   a.replaceChildren(!atrib ? '' : atrib.url
     ? el('a', { href: atrib.url, target: '_blank', rel: 'noopener', textContent: atrib.texto }) : atrib.texto);
@@ -303,27 +441,44 @@ async function aplicarFoto(id) {
   else if (p.catalogo) await api(`productos/${id}/foto/catalogo`, { method: 'POST', body: { gtin: p.catalogo } });
 }
 
-// ── Formulario ──
+// ── Ficha ──
+function mostrarVacia() {
+  actual = null; actualNombre = '';
+  $('#ficha').hidden = true; $('#fichaVacia').hidden = false;
+  marcarSel();
+}
+// Alta: el título, la marca "Nuevo" y el botón "Crear producto" dicen que esto todavía no existe.
 function limpiar() {
-  actual = null; sucio = false; f.reset();
+  actual = null; actualNombre = ''; sucio = false; f.reset();
+  $('#ficha').hidden = false; $('#fichaVacia').hidden = true;
+  $('#modo').textContent = 'Nuevo'; $('#modo').className = 'tag aviso'; $('#modo').hidden = false;
   $('#titulo').textContent = 'Nuevo producto';
-  $('#subtitulo').textContent = 'Los campos con * son obligatorios.';
+  $('#datosCab').hidden = true;
+  $('#subtitulo').textContent = 'Completá los datos y tocá Crear producto. Lo marcado con * es obligatorio.';
+  $('#subtitulo').hidden = false;
+  $('#guardar').textContent = 'Crear producto';
   $('#pres tbody').replaceChildren();
   fotoPend = null; gtinsFab = []; mostrarFoto(null);
   $('#histCostos').hidden = true; $('#activoWrap').hidden = true; $('#gtinInterno').hidden = true;
   f.unidad_base.disabled = false;
   f.unidad_base.value = 'g'; alCambiarBase();
   msg('');
-  document.querySelectorAll('.item.sel').forEach(i => i.classList.remove('sel'));
-  f.codigo.focus();
+  marcarSel();
 }
 async function abrir(id) {
-  if (sucio && !confirm('Hay cambios sin guardar. ¿Descartarlos?')) return;
   try {
     const { producto: p } = await api('productos/' + id);
-    actual = p.id; sucio = false;
+    actual = p.id; actualNombre = p.nombre; sucio = false;
+    $('#ficha').hidden = false; $('#fichaVacia').hidden = true;
+    $('#modo').hidden = p.activo; $('#modo').textContent = 'Inactivo'; $('#modo').className = 'tag mal';
     $('#titulo').textContent = p.nombre;
-    $('#subtitulo').textContent = p.codigo + (p.activo ? '' : ' · inactivo');
+    const cat = (categorias.find(c => c.id === p.categoria_id) || {}).nombre;
+    $('#datosCab').replaceChildren(
+      el('span', {}, 'SKU ', el('strong', { textContent: p.codigo })),
+      cat ? el('span', { textContent: cat }) : '',
+      el('span', {}, 'Unidad ', el('strong', { textContent: p.unidad_base })));
+    $('#datosCab').hidden = false; $('#subtitulo').hidden = true;
+    $('#guardar').textContent = 'Guardar cambios';
     for (const k of ['codigo', 'nombre', 'vida_util_dias', 'temp_min', 'temp_max', 'stock_minimo', 'costo'])
       f[k].value = coma(p[k]);
     if (!categorias.some(c => c.id === p.categoria_id && c.activa)) await cargarCategorias();
@@ -347,12 +502,11 @@ async function abrir(id) {
       el('td', { textContent: fechaHora(c.cambiado_en) }),
       el('td', { textContent: (c.costo_anterior != null ? pesos(c.costo_anterior) + ' → ' : '') +
         (c.costo_nuevo != null ? pesos(c.costo_nuevo) : 'sin costo') + '/' + p.costo_unidad }),
-      el('td', { textContent: c.origen + (c.registrado_por ? ' · ' + c.registrado_por : '') }))));
+      el('td', { textContent: c.origen + (c.registrado_por ? ', ' + c.registrado_por : '') }))));
     $('#histCostos').hidden = !p.costos.length;
     msg('');
-    document.querySelectorAll('.item').forEach(i => i.classList.remove('sel'));
-    await cargarLista();
-  } catch (e) { msg(e.message, 'mal'); }
+    marcarSel();
+  } catch (e) { mostrarVacia(); msg(e.message, 'mal'); }
 }
 function leer() {
   return {
@@ -372,7 +526,7 @@ function leer() {
 f.oninput = () => { sucio = true; };
 f.onsubmit = async e => {
   e.preventDefault();
-  const b = $('#guardar'); b.disabled = true; msg('Guardando…');
+  const b = $('#guardar'), nuevo = !actual; b.disabled = true; msg('Guardando…');
   try {
     const d = await api(actual ? 'productos/' + actual : 'productos',
       { method: actual ? 'PUT' : 'POST', body: leer() });
@@ -381,28 +535,25 @@ f.onsubmit = async e => {
     // producto queda guardado igual y se avisa.
     let errFoto = null;
     try { await aplicarFoto(d.id); } catch (e) { errFoto = e.message; }
+    if (nuevo) { ruta = 'p/' + d.id; history.replaceState(null, '', '#' + ruta); }
     await abrir(d.id);
     await cargarLista();
-    errFoto ? msg('Producto guardado, pero la foto no: ' + errFoto, 'mal') : msg('Guardado.', 'ok');
+    errFoto ? msg('Producto guardado, pero la foto no: ' + errFoto, 'mal')
+            : msg(nuevo ? 'Producto creado.' : 'Cambios guardados.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }
   finally { b.disabled = false; }
 };
-$('#cancelar').onclick = () => { sucio = false; actual ? abrir(actual) : limpiar(); };
-$('#nuevo').onclick = () => { if (!sucio || confirm('Hay cambios sin guardar. ¿Descartarlos?')) limpiar(); };
-
-let t;
-$('#q').oninput = () => { clearTimeout(t); t = setTimeout(() => cargarLista().catch(e => msg(e.message, 'mal')), 250); };
-$('#fcat').onchange = $('#finact').onchange = () => cargarLista().catch(e => msg(e.message, 'mal'));
+$('#cancelar').onclick = () => {
+  if (!descartar()) return;
+  sucio = false;
+  actual ? abrir(actual) : (location.hash = '');
+};
 addEventListener('beforeunload', e => { if (sucio) e.preventDefault(); });
 
-// Escanear: un código conocido abre su producto. Uno desconocido se ofrece como presentación
-// nueva del producto abierto (o de uno nuevo): así se cargan los GTIN del fabricante sin tipearlos.
-// Si Open Food Facts conoce el código, se precompletan nombre, unidad base y contenido; queda todo
-// a la vista para revisar antes de guardar.
-$('#esc').append(escaner(async d => {
-  if (!d.desconocido) return abrir(d.producto.id);
-  const g = d.lectura.gtin;
-  if (!actual && !sucio) limpiar();
+// Un código de fabricante que no está cargado se agrega como presentación del producto abierto
+// (o del nuevo). Si Open Food Facts lo conoce, se precompletan nombre, unidad base, contenido y
+// foto; queda todo a la vista para revisar antes de guardar.
+async function agregarCodigo(g) {
   let c = null;
   msg(`Buscando ${g} en Open Food Facts…`);
   try { ({ catalogo: c } = await api('catalogo/' + g)); } catch {}
@@ -433,20 +584,19 @@ $('#esc').append(escaner(async d => {
     msg(`Datos de Open Food Facts (base pública, cargada por la comunidad): revisá nombre y contenido${actual ? '' : ', completá SKU y categoría'} y guardá.`, 'ok');
   } else {
     tr.querySelector('.pn').focus();
-    msg(`GTIN ${g} nuevo: completá el nombre y el contenido de la presentación y guardá.`, 'ok');
+    msg(`Código ${g} agregado. Completá el nombre y el contenido de la presentación y guardá.`, 'ok');
   }
-}, { placeholder: 'Escanear para buscar o cargar un GTIN' }));
+}
 
 (async () => {
   try {
     ({ unidades } = await api('unidades'));
     opciones(f.unidad_base, unidades.map(u => [u.codigo, `${u.nombre} (${u.codigo})`]));
     await cargarCategorias();
-    limpiar();
-    await cargarLista();
-    // Llegó desde el escáner del panel: se abre ese producto y, en el celular, se baja a la ficha.
+    // Enlaces viejos con ?id=: se pasan a la ruta nueva.
     const id = new URLSearchParams(location.search).get('id');
-    if (id) { await abrir(id); $('main').scrollIntoView(); }
+    if (id) history.replaceState(null, '', 'productos.html#p/' + id);
+    await Promise.all([cargarLista(), enrutar()]);
   } catch (e) { msg('No se pudo cargar: ' + e.message, 'mal'); }
 })();
 </script>

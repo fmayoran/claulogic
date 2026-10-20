@@ -90,22 +90,77 @@ function filas(tbody, items, fila, vacio, columnas) {
 }
 const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 
-const SECCIONES = [
-  ['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
-  ['compras.html', 'Compras'], ['produccion.html', 'Producción'], ['recetas.html', 'Recetas'],
-  ['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['productos.html', 'Productos'], ['almacenes.html', 'Almacenes'],
-  ['proveedores.html', 'Proveedores'], ['unidades.html', 'Unidades'],
+// Secciones agrupadas por para qué se usan. En el celular, las de `abajo` van en la barra
+// inferior; el resto, en "Más".
+const GRUPOS = [
+  ['Operación', [['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
+                 ['compras.html', 'Compras'], ['produccion.html', 'Producción']]],
+  ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
+  ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
+  ['Configuración', [['almacenes.html', 'Almacenes'], ['unidades.html', 'Unidades']]],
 ];
-function encabezado() {
-  const actual = location.pathname.split('/').pop() || 'index.html';
-  const top = el('header', { className: 'top' },
-    el('a', { className: 'marca', href: './', textContent: 'ClauLogic' }),
-    el('nav', {}, ...SECCIONES.map(([href, t]) =>
-      el('a', { href, textContent: t, className: href === actual ? 'act' : '' }))));
-  document.body.prepend(top);
-  const act = top.querySelector('a.act'); if (act) act.scrollIntoView({ inline: 'center', block: 'nearest' });
+const ICONOS = {
+  panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
+  stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
+  escanear: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/>',
+  productos: '<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  mas: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  volver: '<path d="M15 5l-7 7 7 7"/>',
+  camara: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+};
+function icono(nombre) {
+  const s = el('span', { className: 'ico' });
+  s.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[nombre]}</svg>`;
+  return s.firstChild;
 }
-encabezado();
+
+function navegacion() {
+  const actual = location.pathname.split('/').pop() || 'index.html';
+  const sec = ([href, t]) => el('a', { href, textContent: t, className: 'sec' + (href === actual ? ' act' : '') });
+  const grupos = () => GRUPOS.map(([g, secs]) => el('div', { className: 'grupo' }, el('span', { textContent: g }), ...secs.map(sec)));
+  const btnEsc = () => el('button', { type: 'button', className: 'btn-escanear', onclick: escanear,
+    ariaLabel: 'Escanear un código' }, icono('escanear'), el('span', { textContent: 'Escanear' }));
+
+  const lateral = el('nav', { className: 'lateral', ariaLabel: 'Secciones' },
+    el('a', { className: 'marca', href: './', textContent: 'ClauLogic' }), btnEsc(), ...grupos());
+
+  // Barra inferior del celular: lo de todos los días y Escanear al centro.
+  const abajo = [['index.html', 'Panel', 'panel'], ['stock.html', 'Stock', 'stock'], null,
+                 ['productos.html', 'Productos', 'productos']];
+  const enBarra = abajo.some(x => x && x[0] === actual);
+  const hoja = el('dialog', { className: 'hoja', ariaLabel: 'Todas las secciones' }, ...grupos());
+  hoja.addEventListener('click', e => { if (e.target === hoja) hoja.close(); });
+  const esc = btnEsc(); esc.lastChild.hidden = true;
+  const inferior = el('nav', { className: 'inferior', ariaLabel: 'Secciones' },
+    ...abajo.map(x => x ? el('a', { href: x[0], className: x[0] === actual ? 'act' : '' }, icono(x[2]), el('span', { textContent: x[1] })) : esc),
+    el('button', { type: 'button', className: enBarra ? '' : 'act', onclick: () => hoja.showModal() },
+      icono('mas'), el('span', { textContent: 'Más' })));
+  document.body.prepend(lateral);
+  document.body.append(inferior, hoja);
+}
+
+// Escanear desde cualquier pantalla: un producto abre su ficha, un lote su trazabilidad, y un
+// código que no está cargado lleva al alta con ese código. En el celular abre la cámara de una;
+// en la computadora espera el lector (que tipea el código y un Enter).
+function irALectura(d) {
+  if (d.desconocido) return void (location.href = 'productos.html#nuevo/' + d.lectura.gtin);
+  if (d.lote) return void (location.href = 'trazabilidad.html?lote_id=' + d.lote.id);
+  if (d.lectura.lote) throw new Error(`${d.producto.nombre}: el lote ${d.lectura.lote} no está registrado.`);
+  location.href = 'productos.html#p/' + d.producto.id;
+}
+function escanear() {
+  const caja = escaner(async d => { irALectura(d); dlg.close(); }, { placeholder: 'Escaneá o escribí el código' });
+  const dlg = el('dialog', {},
+    el('h2', { textContent: 'Escanear' }),
+    el('p', { className: 'ayuda', style: 'margin:0 0 14px',
+      textContent: 'Un producto abre su ficha y un lote, su trazabilidad. Con lector, escaneá directamente; si escribís el código, tocá Enter.' }),
+    caja,
+    el('div', { className: 'acciones' }, el('button', { type: 'button', textContent: 'Cerrar', onclick: () => dlg.close() })));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg); dlg.showModal(); caja.input.focus();
+  if (matchMedia('(pointer:coarse)').matches) caja.camara.click();
+}
+navegacion();
 
 // Cache de catálogos que usan varias pantallas.
 const catalogo = {
@@ -136,7 +191,7 @@ function unidadesCompatibles(unidades, base) {
 function escaner(onLeido, { placeholder = 'Escanear o tipear código (GTIN, SKU, lote)' } = {}) {
   const input = el('input', { type: 'text', placeholder, autocomplete: 'off', spellcheck: false });
   const aviso = el('span', { className: 'msg' });
-  const camara = el('button', { type: 'button', textContent: 'Cámara', title: 'Leer con la cámara' });
+  const camara = el('button', { type: 'button', className: 'icono', title: 'Leer con la cámara', ariaLabel: 'Leer con la cámara' }, icono('camara'));
   const caja = el('div', { className: 'escaner' }, el('div', { className: 'con-boton' }, input, camara), aviso);
 
   async function procesar(codigo) {
@@ -157,7 +212,7 @@ function escaner(onLeido, { placeholder = 'Escanear o tipear código (GTIN, SKU,
     } else if (e.key === 'Enter') { e.preventDefault(); procesar(input.value); }
   });
   camara.onclick = () => leerConCamara(procesar).catch(e => { aviso.textContent = e.message; aviso.className = 'msg mal'; });
-  caja.input = input;
+  caja.input = input; caja.camara = camara; caja.procesar = procesar;
   return caja;
 }
 
