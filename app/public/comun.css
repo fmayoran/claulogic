@@ -106,7 +106,12 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
 
 [hidden]{display:none!important;}
 @media (max-width:760px){
-  .top{padding:0 16px;gap:10px;}
+  /* En el celular el menú no se desliza: una tira con secciones fuera de pantalla y sin barra
+     esconde la mitad de la app. Se acomoda en varias líneas y se ve todo. */
+  .top{padding:0 16px;gap:10px;flex-wrap:wrap;position:static;}
+  .top .marca{padding:12px 0 2px;}
+  .top nav{flex-wrap:wrap;overflow:visible;gap:0 2px;margin:0 -8px;}
+  .top nav a{padding:8px;}
   .grid{grid-template-columns:1fr;} aside{border-right:0;border-bottom:1px solid var(--line);}
   .lista{max-height:40dvh;} .grid > main, main.ancho{padding:16px;}
   .barra input[type=search]{min-width:0;flex:1 1 100%;}

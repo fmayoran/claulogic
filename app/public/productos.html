@@ -298,6 +298,9 @@ $('#esc').append(escaner(async d => {
     await cargarCategorias();
     limpiar();
     await cargarLista();
+    // Llegó desde el escáner del panel: se abre ese producto y, en el celular, se baja a la ficha.
+    const id = new URLSearchParams(location.search).get('id');
+    if (id) { await abrir(id); $('main').scrollIntoView(); }
   } catch (e) { msg('No se pudo cargar: ' + e.message, 'mal'); }
 })();
 </script>

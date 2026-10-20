@@ -15,6 +15,7 @@
 <main class="ancho">
   <h1>Panel</h1>
   <p class="sub">Lo que hay que atender hoy en el almacén.</p>
+  <div id="esc" style="max-width:560px;margin:0 0 18px"></div>
   <div class="tarjetas">
     <a class="tarjeta" id="tMin" href="stock.html?bajo_minimo=1"><div class="v">–</div><div class="t">productos bajo el mínimo</div></a>
     <a class="tarjeta" id="tVence" href="stock.html?vence_dias=7"><div class="v">–</div><div class="t">lotes que vencen en 7 días</div></a>
@@ -43,6 +44,15 @@ function tarjeta(id, n, tipo) {
   const t = $(id); t.querySelector('.v').textContent = n;
   t.classList.toggle(tipo, n > 0);
 }
+// Escanear desde el inicio: un lote abre su trazabilidad; un producto, su ficha.
+const esc = escaner(d => {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está asignado a ningún producto. Cargalo desde Productos.`);
+  if (d.lote) return void (location.href = 'trazabilidad.html?lote_id=' + d.lote.id);
+  if (d.lectura.lote) throw new Error(`${d.producto.nombre}: el lote ${d.lectura.lote} no está registrado.`);
+  location.href = 'productos.html?id=' + d.producto.id;
+}, { placeholder: 'Escanear producto o lote' });
+$('#esc').append(esc);
+
 (async () => {
   try {
     const [{ productos }, { stock }, { equipos }, { compras }] = await Promise.all([
