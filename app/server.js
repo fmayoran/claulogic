@@ -46,7 +46,11 @@ app.get(/^\/01\/(\d{8,14})(?:\/10\/([^/?]+))?\/?$/, (req, res) => {
 // escritorio). Se sirve desde el propio paquete npm, con versión fija: nada de CDN en producción.
 app.use('/vendor/zxing', express.static(path.join(path.dirname(require.resolve('@zxing/library/package.json')), 'umd'), { maxAge: '7d' }));
 
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+// Las pantallas y sus helpers se revalidan en cada visita (304 si no cambiaron): con un max-age,
+// después de un deploy el navegador puede juntar un HTML nuevo con un comun.js viejo y la
+// pantalla se rompe sin aviso.
+app.use(express.static(path.join(__dirname, 'public'), { cacheControl: false,
+  setHeaders: res => res.setHeader('Cache-Control', 'no-cache') }));
 
 // Errores sin atrapar: se registran enteros del lado del servidor y al cliente le va un mensaje
 // escueto. Devolver el stack es regalarle al que prueba la puerta el plano de la casa.
