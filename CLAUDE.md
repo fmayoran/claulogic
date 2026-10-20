@@ -80,6 +80,12 @@ de almacenamiento, gestión de recetas y producción.
   lectores en modo teclado lo mandan como Ctrl+]), formato entre paréntesis y Digital Link. Cámara:
   BarcodeDetector si el navegador lo trae; si no, `@zxing/library`, servido desde la app.
 - La URL que va en los QR sale de `APP_URL` si está definida; si no, del pedido (`trust proxy`).
+- **Catálogo externo** (`app/catalogo.js`): al escanear en Productos un GTIN desconocido se consulta
+  **Open Food Facts** (base pública de la comunidad, 3 s de espera máxima) y se precompletan
+  nombre, unidad base y presentación. Es sugerencia: nada se guarda en el producto sin que el
+  encargado lo revise y guarde. Caché en `logic.catalogo_externo` (encontrados 180 días, no
+  encontrados 30). Es la única llamada de la app a un tercero; si algún día hay prefijo GS1,
+  la fuente oficial es Verified by GS1.
 
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con

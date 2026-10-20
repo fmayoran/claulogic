@@ -281,14 +281,39 @@ addEventListener('beforeunload', e => { if (sucio) e.preventDefault(); });
 
 // Escanear: un código conocido abre su producto. Uno desconocido se ofrece como presentación
 // nueva del producto abierto (o de uno nuevo): así se cargan los GTIN del fabricante sin tipearlos.
+// Si Open Food Facts conoce el código, se precompletan nombre, unidad base y contenido; queda todo
+// a la vista para revisar antes de guardar.
 $('#esc').append(escaner(async d => {
   if (!d.desconocido) return abrir(d.producto.id);
   const g = d.lectura.gtin;
   if (!actual && !sucio) limpiar();
+  let c = null;
+  msg(`Buscando ${g} en Open Food Facts…`);
+  try { ({ catalogo: c } = await api('catalogo/' + g)); } catch {}
+  const uc = c && c.unidad && unidades.find(u => u.codigo === c.unidad);
+  if (c && !actual && !f.nombre.value.trim()) {
+    const conMarca = c.marca && !c.nombre.toLowerCase().includes(c.marca.toLowerCase());
+    f.nombre.value = (conMarca ? `${c.nombre} ${c.marca}` : c.nombre).slice(0, 120);
+    // Masa en gramos y volumen en mililitros, como recomienda la ayuda: las recetas se escriben así.
+    if (uc && !f.unidad_base.disabled && !$('#pres tbody').children.length) {
+      f.unidad_base.value = { masa: 'g', volumen: 'ml' }[uc.magnitud] || 'u'; alCambiarBase();
+    }
+  }
   const tr = filaPres({});
   tr.querySelector('.pg').value = g; tr.querySelector('[title^="Generar"]').hidden = true;
-  tr.querySelector('.pn').focus(); sucio = true;
-  msg(`GTIN ${g} nuevo: completá el nombre y el contenido de la presentación y guardá.`, 'ok');
+  if (uc && compatibles(f.unidad_base.value).some(u => u.codigo === uc.codigo)) {
+    tr.querySelector('.pn').value = (c.contenido || `${coma(c.cantidad)} ${c.unidad}`).slice(0, 60);
+    tr.querySelector('.pc').value = coma(c.cantidad);
+    tr.querySelector('select').value = c.unidad;
+  }
+  sucio = true;
+  if (c) {
+    (actual ? tr.querySelector('.pn') : f.codigo).focus();
+    msg(`Datos de Open Food Facts (base pública, cargada por la comunidad): revisá nombre y contenido${actual ? '' : ', completá SKU y categoría'} y guardá.`, 'ok');
+  } else {
+    tr.querySelector('.pn').focus();
+    msg(`GTIN ${g} nuevo: completá el nombre y el contenido de la presentación y guardá.`, 'ok');
+  }
 }, { placeholder: 'Escanear para buscar o cargar un GTIN' }));
 
 (async () => {
