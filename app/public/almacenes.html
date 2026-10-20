@@ -22,7 +22,8 @@
           <label>Nombre *<input name="nombre" maxlength="80"></label>
           <label>Dirección<input name="direccion"></label>
         </div>
-        <div class="fila"><label>Notas<input name="notas"></label></div>
+        <div class="fila"><label>Notas<input name="notas"></label>
+          <label id="sedeWrap" hidden>Sede *<select name="sede_id"></select></label></div>
         <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
       </fieldset>
       <div class="acciones">
@@ -67,17 +68,21 @@
 <script>
 const TIPOS = { deposito: 'Depósito / estantería', camara: 'Cámara de frío', heladera: 'Heladera', freezer: 'Freezer', cocina: 'Cocina', salon: 'Salón' };
 const FRIO = ['camara', 'heladera', 'freezer'];
-let almacenes = [], actual = null, ubicActual = null;
+let almacenes = [], sedes = [], actual = null, ubicActual = null;
 const f = $('#f'), fu = $('#fu');
 
 async function cargar() {
-  ({ almacenes } = await api('almacenes'));
+  [{ almacenes }, { sedes }] = await Promise.all([api('almacenes'), api('sedes')]);
+  // La sede se elige sólo cuando hay más de una: mientras el grupo tenga un solo lugar, sobra.
+  sedes = sedes.filter(s => s.activa);
+  $('#sedeWrap').hidden = sedes.length < 2;
+  opciones(f.sede_id, sedes.map(s => [s.id, s.nombre]), f.sede_id.value || null, 'Elegir…');
   if (!almacenes.length) $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay almacenes.' }));
   else $('#lista').replaceChildren(...almacenes.map(a => {
     const frio = a.ubicaciones.filter(u => FRIO.includes(u.tipo)).length;
     const b = el('button', { type: 'button', className: 'item' + (a.id === actual ? ' sel' : '') + (a.activo ? '' : ' inactivo') },
       el('div', { className: 'n', textContent: a.nombre }),
-      el('div', { className: 'm', textContent: `${a.ubicaciones.length} ubicación(es)${frio ? ` · ${frio} de frío` : ''}` }));
+      el('div', { className: 'm', textContent: `${sedes.length > 1 ? a.sede + ' · ' : ''}${a.ubicaciones.length} ubicación(es)${frio ? ` · ${frio} de frío` : ''}` }));
     b.onclick = () => abrir(a.id);
     return b;
   }));
@@ -92,6 +97,7 @@ function abrir(id) {
   const a = almacenes.find(a => a.id === id); if (!a) return nuevo();
   actual = id; msg(''); $('#titulo').textContent = a.nombre;
   f.nombre.value = a.nombre; f.direccion.value = a.direccion || ''; f.notas.value = a.notas || ''; f.activo.checked = a.activo;
+  f.sede_id.value = a.sede_id;
   $('#activoWrap').hidden = false; $('#secUbic').hidden = false;
   filas($('#tUbic'), a.ubicaciones, u => el('tr', {},
     td(u.nombre), td(TIPOS[u.tipo] || u.tipo),
@@ -103,7 +109,8 @@ function abrir(id) {
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, direccion: f.direccion.value, notas: f.notas.value, activo: actual ? f.activo.checked : true };
+  const body = { nombre: f.nombre.value, direccion: f.direccion.value, notas: f.notas.value, activo: actual ? f.activo.checked : true,
+                 sede_id: f.sede_id.value || null };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'almacenes/' + actual : 'almacenes', { method: actual ? 'PUT' : 'POST', body });

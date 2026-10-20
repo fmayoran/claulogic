@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Entrar · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  body{min-height:100dvh;display:grid;place-items:center;padding:24px 16px;}
+  .caja{width:min(420px,100%);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 24px;}
+  .caja.ancha{width:min(640px,100%);}
+  .marca{font-weight:800;font-stretch:75%;font-size:1.6rem;margin:0 0 4px;}
+  form{display:grid;gap:14px;}
+  .personas{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin:14px 0 6px;}
+  .persona{padding:18px 10px;font-size:1.05rem;font-weight:650;border-radius:12px;background:var(--bg);}
+  .persona:hover{border-color:var(--acento);}
+  .pin-ver{font-size:2rem;letter-spacing:.5em;text-align:center;font-variant-numeric:tabular-nums;padding:8px 0 4px;min-height:3.2rem;}
+  .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0 4px;}
+  .teclado button{padding:16px 0;font-size:1.4rem;font-weight:650;border-radius:12px;background:var(--bg);}
+  .teclado .ok{background:var(--acento);color:var(--acento-fg);border-color:var(--acento);font-size:1.05rem;}
+  .enlace{background:none;border:0;padding:0;color:var(--acento);text-decoration:underline;font-size:.92rem;}
+  .pie{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px;}
+</style>
+</head>
+<body data-sin-nav>
+<!-- Tablet de cocina: cada uno toca su nombre y pone su PIN. -->
+<section class="caja ancha" id="cocina" hidden>
+  <p class="marca">ClauLogic</p>
+  <div id="elegir">
+    <h1>¿Quién sos?</h1>
+    <p class="sub" id="dispNombre" style="margin:0"></p>
+    <div class="personas" id="personas"></div>
+  </div>
+  <div id="pin" hidden>
+    <h1 id="pinQuien"></h1>
+    <p class="sub" style="margin:0">Ingresá tu PIN.</p>
+    <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="6"
+           style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none" aria-label="PIN">
+    <div class="pin-ver" id="pinVer" aria-hidden="true"></div>
+    <div class="teclado" id="teclado"></div>
+    <p class="msg" id="msgPin" role="alert"></p>
+  </div>
+  <div class="pie">
+    <button type="button" class="enlace" id="volverLista" hidden>Elegir otra persona</button>
+    <button type="button" class="enlace" id="conClave">Entrar con usuario y clave</button>
+  </div>
+</section>
+
+<section class="caja" id="normal" hidden>
+  <p class="marca">ClauLogic</p>
+  <h1>Entrar</h1>
+  <p class="sub" id="yaAdentro" hidden></p>
+  <form id="f" novalidate>
+    <label>Usuario<input name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>Clave<input name="clave" type="password" autocomplete="current-password" required></label>
+    <label class="check" id="habWrap"><input type="checkbox" name="habilitar_dispositivo"> Habilitar este dispositivo como tablet de cocina</label>
+    <div id="habDetalle" hidden>
+      <label>Nombre del dispositivo<input name="dispositivo" placeholder="Tablet de la cocina del centro" maxlength="80"></label>
+      <p class="ayuda">En una tablet de cocina cada uno entra tocando su nombre y su PIN, y la sesión se cierra sola
+        a los 30 minutos sin uso. Sólo un encargado o un administrador puede habilitarla; se revoca desde Usuarios.</p>
+    </div>
+    <button type="submit" class="prim" id="entrar">Entrar</button>
+    <p class="msg" id="msg" role="alert"></p>
+  </form>
+  <div class="pie"><button type="button" class="enlace" id="aCocina" hidden>Volver a la lista de la cocina</button></div>
+</section>
+
+<script src="comun.js"></script>
+<script>
+const volver = (() => {
+  // Sólo una página de la app: un ?volver= a otro sitio sería una puerta para el phishing.
+  const v = new URLSearchParams(location.search).get('volver') || '';
+  return /^[a-z]+\.html([?#].*)?$/.test(v) && !v.startsWith('login.html') ? v : 'index.html';
+})();
+const f = $('#f');
+let estado, elegido = null;
+
+function seguir() { location.href = volver; }
+
+function verNormal() {
+  $('#cocina').hidden = true; $('#normal').hidden = false;
+  $('#aCocina').hidden = !estado.dispositivo;
+  $('#habWrap').hidden = !!estado.dispositivo;
+  f.usuario.focus();
+}
+function verCocina() {
+  $('#normal').hidden = true; $('#cocina').hidden = false;
+  $('#elegir').hidden = false; $('#pin').hidden = true; $('#volverLista').hidden = true;
+  $('#dispNombre').textContent = estado.dispositivo.descripcion || '';
+  const gente = estado.dispositivo.usuarios;
+  $('#personas').replaceChildren(...(gente.length ? gente.map(u =>
+    el('button', { type: 'button', className: 'persona', textContent: u.nombre, onclick: () => elegir(u) }))
+    : [el('p', { className: 'ayuda', textContent: 'Nadie tiene PIN todavía. Cada uno lo configura en Mi cuenta después de entrar con su clave.' })]));
+}
+
+// PIN: teclado en pantalla (se usa con las manos ocupadas) y también el teclado físico.
+const pinIn = $('#pinIn');
+function pintarPin() { $('#pinVer').textContent = '•'.repeat(pinIn.value.length) || ' '; }
+function elegir(u) {
+  elegido = u; pinIn.value = ''; pintarPin(); msg('', '', '#msgPin');
+  $('#pinQuien').textContent = u.nombre;
+  $('#elegir').hidden = true; $('#pin').hidden = false; $('#volverLista').hidden = false;
+  pinIn.focus({ preventScroll: true });
+}
+$('#teclado').append(...['1','2','3','4','5','6','7','8','9','borrar','0','ok'].map(k =>
+  el('button', { type: 'button', className: k === 'ok' ? 'ok' : '', textContent: k === 'borrar' ? '⌫' : k === 'ok' ? 'Entrar' : k,
+    ...(k === 'borrar' ? { ariaLabel: 'Borrar' } : {}),
+    onclick: () => {
+      if (k === 'ok') return entrarPin();
+      if (k === 'borrar') pinIn.value = pinIn.value.slice(0, -1);
+      else if (pinIn.value.length < 6) pinIn.value += k;
+      pintarPin();
+    } })));
+pinIn.addEventListener('input', () => { pinIn.value = pinIn.value.replace(/\D/g, '').slice(0, 6); pintarPin(); });
+pinIn.addEventListener('keydown', e => { if (e.key === 'Enter') entrarPin(); });
+$('#pin').addEventListener('click', e => { if (e.target.tagName !== 'BUTTON') pinIn.focus({ preventScroll: true }); });
+
+async function entrarPin() {
+  if (pinIn.value.length < 4) return msg('El PIN tiene de 4 a 6 dígitos.', 'mal', '#msgPin');
+  try {
+    await api('sesion/pin', { method: 'POST', body: { usuario_id: elegido.id, pin: pinIn.value } });
+    seguir();
+  } catch (e) { pinIn.value = ''; pintarPin(); msg(e.message, 'mal', '#msgPin'); }
+}
+
+f.habilitar_dispositivo.onchange = () => { $('#habDetalle').hidden = !f.habilitar_dispositivo.checked; };
+f.onsubmit = async e => {
+  e.preventDefault();
+  $('#entrar').disabled = true; msg('');
+  try {
+    await api('sesion/entrar', { method: 'POST', body: { usuario: f.usuario.value, clave: f.clave.value,
+      habilitar_dispositivo: f.habilitar_dispositivo.checked, dispositivo: f.dispositivo.value } });
+    seguir();
+  } catch (e) { msg(e.message, 'mal'); f.clave.select(); }
+  finally { $('#entrar').disabled = false; }
+};
+$('#conClave').onclick = verNormal;
+$('#aCocina').onclick = verCocina;
+$('#volverLista').onclick = verCocina;
+
+api('sesion').then(d => {
+  estado = d;
+  if (d.usuario && !d.dispositivo) {
+    $('#yaAdentro').hidden = false;
+    $('#yaAdentro').replaceChildren(`Ya estás adentro como ${d.usuario.nombre}. `,
+      el('a', { href: volver, textContent: 'Seguir' }), ' o entrá con otro usuario.');
+  }
+  d.dispositivo ? verCocina() : verNormal();
+}).catch(e => { estado = { dispositivo: null }; verNormal(); msg(e.message, 'mal'); });
+</script>
+</body>
+</html>

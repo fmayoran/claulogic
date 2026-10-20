@@ -12,8 +12,16 @@ async function api(url, opt = {}) {
     body: opt.body ? JSON.stringify(opt.body) : undefined,
   });
   const d = await r.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor.' }));
+  // Sin sesión, al login; con clave temporal, a cambiarla. Vuelve a donde estaba después.
+  if (r.status === 401 && d.sesion === false) irA('login.html');
+  if (r.status === 403 && d.cambiar_clave) irA('cuenta.html');
   if (!d.ok) throw new Error(d.error || 'Error del servidor.');
   return d;
+}
+function irA(pagina) {
+  const aca = location.pathname.split('/').pop() || 'index.html';
+  if (aca === pagina) return;
+  location.href = pagina + '?volver=' + encodeURIComponent(aca + location.search + location.hash);
 }
 
 function el(tag, props = {}, ...hijos) {
@@ -97,8 +105,11 @@ const GRUPOS = [
                  ['compras.html', 'Compras'], ['produccion.html', 'Producción']]],
   ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
-  ['Configuración', [['almacenes.html', 'Almacenes'], ['unidades.html', 'Unidades']]],
+  ['Configuración', [['almacenes.html', 'Almacenes'], ['unidades.html', 'Unidades'], ['usuarios.html', 'Usuarios']]],
 ];
+// Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
+// no mostrar puertas que no abren.
+const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
@@ -106,6 +117,7 @@ const ICONOS = {
   productos: '<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   mas: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   volver: '<path d="M15 5l-7 7 7 7"/>',
+  usuario: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   camara: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
 };
 function icono(nombre) {
@@ -137,6 +149,34 @@ function navegacion() {
       icono('mas'), el('span', { textContent: 'Más' })));
   document.body.prepend(lateral);
   document.body.append(inferior, hoja);
+  cargarSesion().then(d => {
+    if (!d.usuario) return irA('login.html');
+    const u = sesion = d.usuario;
+    for (const [href, permiso] of Object.entries(PERMISO_SECCION))
+      if (!u.puede[permiso]) $$(`a[href="${href}"]`).forEach(a => a.remove());
+    $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });
+    // Quién está adentro, y las salidas: en la barra lateral abajo; en el celular, dentro de "Más".
+    const acciones = () => [
+      el('a', { href: 'cuenta.html', className: 'sec' + (actual === 'cuenta.html' ? ' act' : ''), textContent: 'Mi cuenta' }),
+      d.dispositivo ? el('a', { href: 'login.html', className: 'sec', textContent: 'Cambiar de usuario' }) : null,
+      el('a', { href: '#', className: 'sec', textContent: 'Salir', onclick: e => { e.preventDefault(); salir(); } })];
+    const quien = () => el('div', { className: 'quien' }, icono('usuario'),
+      el('div', {}, el('strong', { textContent: u.nombre }), el('span', { textContent: describirRoles(u) })));
+    lateral.append(el('div', { className: 'grupo cuenta' }, quien(), ...acciones()));
+    hoja.append(el('div', { className: 'grupo cuenta' }, quien(), ...acciones()));
+  }).catch(() => {});
+}
+
+let sesion = null, _sesion;
+const cargarSesion = () => _sesion ||= api('sesion');
+function describirRoles(u) {
+  if (u.es_admin) return 'Administrador';
+  const R = { encargado: 'encargado', operador: 'operador', consulta: 'consulta' };
+  return u.roles.map(r => `${r.sede}: ${R[r.rol]}`).join(' · ') || 'Sin sedes asignadas';
+}
+async function salir() {
+  await api('sesion/salir', { method: 'POST' }).catch(() => {});
+  location.href = 'login.html';
 }
 
 // Escanear desde cualquier pantalla: un producto abre su ficha, un lote su trazabilidad, y un
@@ -160,7 +200,8 @@ function escanear() {
   document.body.append(dlg); dlg.showModal(); caja.input.focus();
   if (matchMedia('(pointer:coarse)').matches) caja.camara.click();
 }
-navegacion();
+// El login no lleva navegación: no hay a dónde ir sin entrar.
+if (!document.body.hasAttribute('data-sin-nav')) navegacion();
 
 // Cache de catálogos que usan varias pantallas.
 const catalogo = {

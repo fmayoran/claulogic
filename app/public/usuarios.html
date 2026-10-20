@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Usuarios · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .roles{display:grid;gap:8px;margin-top:4px;}
+  .roles label{grid-template-columns:1fr minmax(150px,200px);align-items:center;color:var(--fg);font-size:.95rem;}
+  .temporal{font:700 1.4rem/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;padding:12px 14px;
+    background:var(--bg);border-radius:10px;text-align:center;user-select:all;margin:10px 0;}
+  section + section{margin-top:28px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Usuarios</h1>
+  <p class="sub">Quién entra y qué puede hacer en cada sede. El administrador puede todo en todas; el resto, según su rol en cada una.</p>
+
+  <section>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Nombre</th><th>Usuario</th><th>Acceso</th><th>Estado</th><th>Última entrada</th><th></th></tr></thead>
+      <tbody id="tU"></tbody></table></div>
+    <button class="prim" id="nuevo" style="margin-top:12px">Nuevo usuario</button>
+    <p class="ayuda"><strong>Encargado</strong>: opera y gestiona su sede (almacenes, ubicaciones, anulaciones); el del centro,
+      además, el catálogo, las recetas y las compras. <strong>Operador</strong>: registra conteos, egresos, recepciones,
+      producción y lecturas de frío. <strong>Consulta</strong>: mira.</p>
+  </section>
+
+  <section>
+    <h2>Dispositivos de cocina</h2>
+    <p class="ayuda" style="margin:0 0 10px">Tablets donde se cambia de usuario con PIN. Si se pierde una, revocala: deja de aceptar PIN y cierra sus sesiones.</p>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Dispositivo</th><th>Habilitado por</th><th>Desde</th><th>Último uso</th><th>Estado</th><th></th></tr></thead>
+      <tbody id="tD"></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Registro de accesos</h2>
+    <div class="barra"><label>Usuario<select id="filtroAcc"></select></label></div>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Cuándo</th><th>Usuario</th><th>Evento</th><th>Detalle</th><th>Por</th><th>IP</th></tr></thead>
+      <tbody id="tA"></tbody></table></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form id="f" novalidate>
+    <h2 id="titulo">Nuevo usuario</h2>
+    <div class="fila">
+      <label>Nombre *<input name="nombre" maxlength="80"></label>
+      <label>Usuario *<input name="usuario" maxlength="32" autocapitalize="none" spellcheck="false" placeholder="juan.perez"></label>
+    </div>
+    <p class="ayuda" id="ayudaUsuario">Es con lo que entra y lo que queda firmado en cada movimiento: no se puede cambiar después.</p>
+    <h3>Acceso por sede</h3>
+    <label class="check"><input type="checkbox" name="es_admin"> Administrador (todo, en todas las sedes)</label>
+    <div class="roles" id="roles"></div>
+    <label class="check" id="activoWrap" style="margin-top:14px"><input type="checkbox" name="activo" checked> Activo</label>
+    <div id="extra" hidden>
+      <h3>Acciones</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="chico" id="blanquear">Blanquear clave</button>
+        <button type="button" class="chico" id="desbloquear">Desbloquear</button>
+        <button type="button" class="chico" id="quitarPin">Quitar PIN</button>
+        <button type="button" class="chico" id="cerrarSes">Cerrar sesiones</button>
+      </div>
+    </div>
+    <div class="acciones">
+      <button type="submit" class="prim" id="guardar">Guardar</button>
+      <button type="button" id="cerrar">Cancelar</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgClave">
+  <h2>Clave temporal</h2>
+  <p id="claveDe"></p>
+  <div class="temporal" id="clave"></div>
+  <p class="ayuda">Se muestra una sola vez. Pasásela en persona; al entrar, el sistema le pide que elija la suya.</p>
+  <div class="acciones"><button type="button" class="prim" onclick="this.closest('dialog').close()">Listo</button></div>
+</dialog>
+
+<script src="comun.js"></script>
+<script>
+const ROL = { encargado: 'Encargado', operador: 'Operador', consulta: 'Consulta' };
+const EVENTO = {
+  entrada: 'Entró', entrada_pin: 'Entró con PIN', salida: 'Salió', clave_incorrecta: 'Clave incorrecta',
+  usuario_inexistente: 'Usuario inexistente', bloqueo: 'Bloqueado por intentos', bloqueado: 'Intento estando bloqueado',
+  inactivo: 'Intento estando desactivado', pin_incorrecto: 'PIN incorrecto', pin_inhabilitado: 'PIN inhabilitado',
+  clave_cambiada: 'Cambió la clave', clave_blanqueada: 'Clave blanqueada', pin_cambiado: 'Configuró PIN',
+  pin_quitado: 'PIN quitado', alta: 'Alta', permisos: 'Cambio de acceso', desbloqueo: 'Desbloqueado',
+  sesiones_cerradas: 'Sesiones cerradas', dispositivo_habilitado: 'Habilitó dispositivo', dispositivo_revocado: 'Dispositivo revocado',
+};
+let usuarios = [], sedes = [], actual = null;
+const f = $('#f');
+
+function acceso(u) {
+  if (u.es_admin) return 'Administrador';
+  return u.roles.map(r => `${(sedes.find(s => s.id === r.sede_id) || {}).nombre || '?'}: ${ROL[r.rol].toLowerCase()}`).join(' · ');
+}
+function estados(u) {
+  const t = (txt, cls = '') => el('span', { className: 'tag ' + cls, textContent: txt });
+  return [!u.activo && t('desactivado'), u.bloqueado && t('bloqueado', 'mal'), u.debe_cambiar_clave && t('clave temporal', 'aviso'),
+          u.tiene_pin && (u.pin_inhabilitado ? t('PIN inhabilitado', 'mal') : t('PIN', 'ok')),
+          u.sesiones > 0 && t(`${u.sesiones} sesión(es)`)].filter(Boolean);
+}
+
+async function cargar() {
+  [{ usuarios }, { sedes }] = await Promise.all([api('usuarios'), api('sedes')]);
+  filas($('#tU'), usuarios, u => el('tr', { className: 'clic', onclick: () => abrir(u) },
+    td(el('strong', { textContent: u.nombre })), td(u.usuario), el('td', { className: 'wrap', textContent: acceso(u) }),
+    el('td', {}, ...estados(u)), td(fechaHora(u.ultima_entrada)),
+    el('td', {}, el('button', { className: 'chico', textContent: 'Editar', onclick: e => { e.stopPropagation(); abrir(u); } }))),
+    'Sin usuarios.', 6);
+  opciones($('#filtroAcc'), usuarios.map(u => [u.usuario, u.nombre]), $('#filtroAcc').value || null, 'Todos');
+  cargarDispositivos(); cargarAccesos();
+}
+
+async function cargarDispositivos() {
+  const { dispositivos } = await api('dispositivos');
+  filas($('#tD'), dispositivos, d => el('tr', {},
+    td(d.descripcion || '(sin nombre)'), td(d.habilitado_por), td(fechaHora(d.creado_en)), td(fechaHora(d.usado_en)),
+    el('td', {}, d.vigente ? el('span', { className: 'tag ok', textContent: 'vigente' })
+      : el('span', { className: 'tag', textContent: d.revocado_en ? 'revocado' : 'vencido' })),
+    el('td', {}, d.vigente ? el('button', { className: 'chico peligro', textContent: 'Revocar', onclick: async () => {
+      if (!confirm(`¿Revocar "${d.descripcion || 'este dispositivo'}"? Deja de aceptar PIN y se cierran sus sesiones.`)) return;
+      try { await api(`dispositivos/${d.id}/revocar`, { method: 'POST' }); cargarDispositivos(); } catch (e) { alert(e.message); }
+    } }) : '')), 'Ningún dispositivo de cocina habilitado.', 6);
+}
+
+async function cargarAccesos() {
+  const q = $('#filtroAcc').value;
+  const { accesos } = await api('accesos' + (q ? '?usuario=' + encodeURIComponent(q) : ''));
+  const malos = ['clave_incorrecta', 'usuario_inexistente', 'bloqueo', 'bloqueado', 'inactivo', 'pin_incorrecto', 'pin_inhabilitado'];
+  filas($('#tA'), accesos, a => el('tr', {},
+    td(fechaHora(a.ocurrido_en)), td(a.usuario || ''),
+    el('td', {}, malos.includes(a.evento) ? el('span', { className: 'tag mal', textContent: EVENTO[a.evento] || a.evento })
+      : (EVENTO[a.evento] || a.evento)),
+    el('td', { className: 'wrap', textContent: a.detalle || '' }), td(a.por || ''), td(a.ip || '', 'mut')), 'Sin registros.', 6);
+}
+$('#filtroAcc').onchange = () => cargarAccesos().catch(e => alert(e.message));
+
+function pintarRoles(u) {
+  $('#roles').replaceChildren(...sedes.filter(s => s.activa || (u && u.roles.some(r => r.sede_id === s.id))).map(s => {
+    const sel = el('select', { name: 'rol_' + s.id });
+    opciones(sel, Object.entries(ROL), (u && (u.roles.find(r => r.sede_id === s.id) || {}).rol) || '', 'Sin acceso');
+    sel.dataset.sede = s.id;
+    return el('label', {}, el('span', { textContent: `${s.nombre} (${s.tipo === 'centro' ? 'centro' : 'local'})` }), sel);
+  }));
+}
+f.es_admin.onchange = () => { $$('#roles select').forEach(s => { s.disabled = f.es_admin.checked; }); };
+
+function abrir(u = null) {
+  actual = u; f.reset(); msg('');
+  $('#titulo').textContent = u ? u.nombre : 'Nuevo usuario';
+  f.usuario.disabled = !!u; $('#ayudaUsuario').hidden = !!u;
+  $('#activoWrap').hidden = !u; $('#extra').hidden = !u;
+  if (u) { f.nombre.value = u.nombre; f.usuario.value = u.usuario; f.es_admin.checked = u.es_admin; f.activo.checked = u.activo; }
+  pintarRoles(u); f.es_admin.onchange();
+  $('#desbloquear').hidden = !(u && (u.bloqueado || u.pin_inhabilitado));
+  $('#quitarPin').hidden = !(u && u.tiene_pin);
+  $('#cerrarSes').hidden = !(u && u.sesiones > 0);
+  $('#dlg').showModal();
+}
+function mostrarClave(nombre, clave) {
+  $('#claveDe').textContent = `Clave temporal de ${nombre}:`;
+  $('#clave').textContent = clave;
+  $('#dlgClave').showModal();
+}
+
+$('#nuevo').onclick = () => abrir();
+$('#cerrar').onclick = () => $('#dlg').close();
+f.onsubmit = async e => {
+  e.preventDefault();
+  const roles = f.es_admin.checked ? [] : $$('#roles select').filter(s => s.value).map(s => ({ sede_id: s.dataset.sede, rol: s.value }));
+  const body = { nombre: f.nombre.value, usuario: f.usuario.value, es_admin: f.es_admin.checked,
+                 activo: actual ? f.activo.checked : true, roles };
+  if (actual && actual.activo && !body.activo && !confirm(`¿Desactivar a ${actual.nombre}? Sale en el momento de todas sus sesiones.`)) return;
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'usuarios/' + actual.id : 'usuarios', { method: actual ? 'PUT' : 'POST', body });
+    $('#dlg').close(); await cargar();
+    if (d.clave_temporal) mostrarClave(body.nombre, d.clave_temporal);
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+
+async function accion(ruta, pregunta) {
+  if (pregunta && !confirm(pregunta)) return;
+  try {
+    const d = await api(`usuarios/${actual.id}/${ruta}`, { method: 'POST' });
+    $('#dlg').close(); await cargar();
+    if (d.clave_temporal) mostrarClave(actual.nombre, d.clave_temporal);
+  } catch (e) { msg(e.message, 'mal'); }
+}
+$('#blanquear').onclick = () => accion('clave', `¿Blanquear la clave de ${actual.nombre}? Se le genera una temporal y se cierran sus sesiones.`);
+$('#desbloquear').onclick = () => accion('desbloquear');
+$('#quitarPin').onclick = () => accion('quitar-pin', `¿Quitarle el PIN a ${actual.nombre}?`);
+$('#cerrarSes').onclick = () => accion('cerrar-sesiones', `¿Cerrar todas las sesiones de ${actual.nombre}?`);
+
+cargar().catch(e => alert(e.message));
+</script>
+</body>
+</html>

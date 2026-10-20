@@ -118,10 +118,39 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Su servidor de imágenes tarda 5-9 s: la vista previa la baja y la deja en la caché, y guardar
   la copia desde ahí.
 
+### Autenticación y permisos (fase 0, 20/10/2026)
+- Esquema `org`: `sede` (centro | local), `usuario`, `usuario_sede` (rol por sede), `sesion`,
+  `dispositivo`, `acceso` (registro inmutable de entradas, fallos y cambios de permisos).
+  `logic.almacen.sede_id` ata cada almacén a una sede; hoy hay una sola, "Centro".
+- **Roles por sede**: encargado, operador, consulta. El **administrador** es global. El catálogo
+  (productos, recetas, proveedores, unidades, compras) lo gestiona el **encargado del centro**.
+  Anular un movimiento y configurar almacenes o ubicaciones es de encargado de esa sede. Mover el
+  costo vigente al recibir una compra también es del catálogo: un operador recibe manteniendo costo.
+- **La firma y el permiso por sede los pone la BASE**: la app fija `logic.usuario` en cada conexión
+  que presta el pool (`db.js`, AsyncLocalStorage) y los triggers de `movimiento`, `ajuste` y
+  `lectura_temperatura` verifican rol de encargado u operador en la sede de la ubicación y escriben
+  `registrado_por`. Desde la app (`logic.origen=app` en la cadena de conexión) sin usuario, la base
+  rechaza: falla cerrado. Desde psql no se verifica.
+- Permiso por ruta en `app/auth.js` (`POLITICA`): una ruta que modifica y no está en la lista exige
+  `catalogo`. Una ruta nueva arranca cerrada.
+- Entrada con **usuario y clave** (scrypt N=2^15, ojo con la RAM antes de subirlo). Cookie HttpOnly,
+  SameSite=Lax, en la base sólo el sha256 del token. Las mutaciones exigen `application/json` (CSRF).
+  12 h de inactividad, 7 días como máximo. Al quinto fallo, 15 min de bloqueo; además, freno por IP.
+- **PIN** (4-6 dígitos, sin series) sólo en un **dispositivo de cocina** que habilitó un encargado o
+  admin entrando con su clave. Ahí las sesiones duran 30 min sin uso. Al quinto PIN malo se
+  inhabilita hasta entrar con clave. Los dispositivos se revocan desde Usuarios.
+- El nombre de usuario no cambia (firma el historial), un usuario no se borra (se desactiva) y la
+  base no deja quedar sin administrador activo.
+- **Primer administrador o recuperación** desde la consola del contenedor, que imprime una clave
+  temporal: `docker exec -it $(docker ps -q -f name=claulogic_app.1.) node admin.js admin <usuario> "<Nombre>"`
+  (o `... node admin.js clave <usuario>` para blanquear).
+- Pendiente para fase 1: las LECTURAS no se filtran por sede (con una sola sede no cambia nada).
+
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
-productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades.
+productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades,
+login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios.
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -133,8 +162,7 @@ el celular listado y ficha sean pantallas separadas con el botón atrás funcion
 Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts. Campos a 16 px en
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
-Falta: **autenticación** (la app está publicada sin login; sin datos reales hasta que la tenga, y
-`registrado_por` queda vacío), recepción parcial de compras, anular una compra recibida o una
+Falta: recepción parcial de compras, anular una compra recibida o una
 producción entera, y lectura de sensores de temperatura.
 
 ## Sobre Fer

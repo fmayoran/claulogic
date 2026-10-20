@@ -2,6 +2,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, h, enTransaccion } = require('./util');
+const { exigirEncargadoDe } = require('./auth');
 
 const r = express.Router();
 
@@ -81,7 +82,8 @@ const TIPOS_FRIO = ['camara', 'heladera', 'freezer'];
 
 r.get('/almacenes', h(async (req, res) => {
   const [{ rows: almacenes }, { rows: ubicaciones }] = await Promise.all([
-    pool.query('SELECT id, nombre, direccion, notas, activo FROM logic.almacen ORDER BY activo DESC, nombre'),
+    pool.query(`SELECT a.id, a.nombre, a.direccion, a.notas, a.activo, a.sede_id, s.nombre AS sede
+                  FROM logic.almacen a JOIN org.sede s ON s.id = a.sede_id ORDER BY a.activo DESC, a.nombre`),
     pool.query(
       `SELECT u.id, u.almacen_id, u.nombre, u.tipo, trim_scale(u.temp_min)::text AS temp_min,
               trim_scale(u.temp_max)::text AS temp_max, u.activa,
@@ -92,28 +94,59 @@ r.get('/almacenes', h(async (req, res) => {
   res.json({ ok: true, almacenes });
 }));
 
-function leerAlmacen(b) {
-  return {
+// Sin sede elegida y con una sola sede activa, va a ésa: mientras el grupo tenga un solo lugar,
+// la pantalla no tiene por qué preguntar.
+async function leerAlmacen(b) {
+  const a = {
     nombre: texto(b.nombre, { campo: 'el nombre del almacén', requerido: true }),
     direccion: texto(b.direccion), notas: texto(b.notas),
     activo: b.activo === undefined ? true : !!b.activo,
+    sede_id: texto(b.sede_id),
   };
+  if (!a.sede_id) {
+    const { rows } = await pool.query('SELECT id FROM org.sede WHERE activa');
+    if (rows.length !== 1) throw new ErrorUsuario('Falta la sede del almacén.');
+    a.sede_id = rows[0].id;
+  }
+  const { rows: [s] } = await pool.query('SELECT nombre FROM org.sede WHERE id = $1::uuid', [a.sede_id]);
+  if (!s) throw new ErrorUsuario('No existe esa sede.');
+  a.sede = s.nombre;
+  return a;
+}
+
+async function sedeDeAlmacen(c, almacenId) {
+  const { rows: [s] } = await c.query(
+    'SELECT s.id, s.nombre FROM logic.almacen a JOIN org.sede s ON s.id = a.sede_id WHERE a.id = $1::uuid', [almacenId]);
+  if (!s) throw new ErrorUsuario('No existe ese almacén.', 404);
+  return s;
 }
 
 r.post('/almacenes', h(async (req, res) => {
-  const a = leerAlmacen(req.body);
+  const a = await leerAlmacen(req.body);
+  exigirEncargadoDe(req, a.sede_id, a.sede);
   const { rows: [n] } = await pool.query(
-    'INSERT INTO logic.almacen (nombre, direccion, notas, activo) VALUES ($1,$2,$3,$4) RETURNING id',
-    [a.nombre, a.direccion, a.notas, a.activo]);
+    'INSERT INTO logic.almacen (nombre, direccion, notas, activo, sede_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [a.nombre, a.direccion, a.notas, a.activo, a.sede_id]);
   res.status(201).json({ ok: true, id: n.id });
 }));
 
+// Un almacén con stock no cambia de sede: el stock pasaría de un local a otro sin ningún
+// movimiento que lo explique.
 r.put('/almacenes/:id', h(async (req, res) => {
-  const a = leerAlmacen(req.body);
-  const { rowCount } = await pool.query(
-    'UPDATE logic.almacen SET nombre=$1, direccion=$2, notas=$3, activo=$4 WHERE id=$5',
-    [a.nombre, a.direccion, a.notas, a.activo, req.params.id]);
-  if (!rowCount) return res.status(404).json({ ok: false, error: 'No existe ese almacén.' });
+  const a = await leerAlmacen(req.body);
+  await enTransaccion(async c => {
+    const ant = await sedeDeAlmacen(c, req.params.id);
+    exigirEncargadoDe(req, ant.id, ant.nombre);
+    if (ant.id !== a.sede_id) {
+      exigirEncargadoDe(req, a.sede_id, a.sede);
+      const { rows: [s] } = await c.query(
+        `SELECT 1 FROM logic.stock s JOIN logic.ubicacion u ON u.id = s.ubicacion_id WHERE u.almacen_id = $1 LIMIT 1`,
+        [req.params.id]);
+      if (s) throw new ErrorUsuario('El almacén tiene stock: no puede cambiar de sede.');
+    }
+    await c.query('UPDATE logic.almacen SET nombre=$1, direccion=$2, notas=$3, activo=$4, sede_id=$5 WHERE id=$6',
+      [a.nombre, a.direccion, a.notas, a.activo, a.sede_id, req.params.id]);
+  });
   res.json({ ok: true, id: req.params.id });
 }));
 
@@ -134,6 +167,8 @@ function leerUbicacion(b) {
 
 r.post('/ubicaciones', h(async (req, res) => {
   const u = leerUbicacion(req.body);
+  const s = await sedeDeAlmacen(pool, u.almacen_id);
+  exigirEncargadoDe(req, s.id, s.nombre);
   const { rows: [n] } = await pool.query(
     `INSERT INTO logic.ubicacion (almacen_id, nombre, tipo, temp_min, temp_max, activa)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
@@ -148,6 +183,10 @@ r.put('/ubicaciones/:id', h(async (req, res) => {
   const ok = await enTransaccion(async c => {
     const { rows: [ant] } = await c.query('SELECT almacen_id FROM logic.ubicacion WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!ant) return false;
+    for (const alm of new Set([ant.almacen_id, u.almacen_id])) {
+      const s = await sedeDeAlmacen(c, alm);
+      exigirEncargadoDe(req, s.id, s.nombre);
+    }
     if (ant.almacen_id !== u.almacen_id) {
       const { rows: [s] } = await c.query('SELECT 1 FROM logic.stock WHERE ubicacion_id = $1 LIMIT 1', [req.params.id]);
       if (s) throw new ErrorUsuario('La ubicación tiene stock: no puede cambiar de almacén. Trasladá el stock primero.');

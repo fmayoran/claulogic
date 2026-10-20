@@ -4,6 +4,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef } = require('./util');
+const { puede } = require('./auth');
 
 const r = express.Router();
 
@@ -174,6 +175,9 @@ r.post('/compras/:id/recibir', h(async (req, res) => {
       if (it.costo_base !== null) {
         if (x.actualizar_costo === undefined || x.actualizar_costo === null)
           throw new ErrorUsuario(`Falta decidir si el costo de "${it.nombre}" actualiza el vigente.`);
+        // Recibir lo hace quien está en el depósito; mover el costo vigente es una decisión del catálogo.
+        if (x.actualizar_costo && !puede(req.usuario, 'catalogo'))
+          throw new ErrorUsuario(`Actualizar el costo de "${it.nombre}" lo decide el encargado del centro. Recibí manteniendo el costo vigente.`, 403);
         const decision = x.actualizar_costo ? 'actualizado' : 'mantenido';
         if (x.actualizar_costo) {
           // El trigger de costo lee este contexto y asienta el cambio como origen 'compra'.

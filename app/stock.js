@@ -3,6 +3,7 @@ const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote } = require('./util');
 
+const { exigirEncargadoDe } = require('./auth');
 const r = express.Router();
 
 // ── Consulta de stock ────────────────────────────────────────────────────────────────────────
@@ -182,6 +183,11 @@ r.post('/movimientos/:id/anular', h(async (req, res) => {
     if (m.anula_a) throw new ErrorUsuario('Es una anulación: no se anula una anulación. Registrá el movimiento de nuevo.');
     if (m.compra_item_id || m.produccion_id)
       throw new ErrorUsuario('Es parte de una compra o una producción: no se anula suelto.');
+    // Anular es de encargado, en cada sede que el movimiento toca.
+    const { rows: sedes } = await c.query(
+      `SELECT DISTINCT s.id, s.nombre FROM logic.ubicacion u JOIN logic.almacen a ON a.id = u.almacen_id
+         JOIN org.sede s ON s.id = a.sede_id WHERE u.id IN ($1, $2)`, [m.origen_id, m.destino_id]);
+    for (const s of sedes) exigirEncargadoDe(req, s.id, s.nombre);
     const { rows: [n] } = await c.query(
       `INSERT INTO logic.movimiento (tipo, producto_id, lote_id, cantidad_base, origen_id, destino_id,
                                      motivo, referencia, anula_a)

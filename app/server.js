@@ -26,6 +26,13 @@ app.get('/salud', async (req, res) => {
   }
 });
 
+// Sesión: entrar, salir y estado van sin usuario. Todo lo demás de /api pasa por exigirSesion,
+// que además aplica el permiso por ruta y deja el usuario en el contexto de la base.
+const auth = require('./auth');
+app.use('/api', auth.router);
+app.use('/api', auth.exigirSesion);
+app.use('/api', auth.cuenta);
+app.use('/api', require('./usuarios'));
 app.use('/api', require('./productos'));
 app.use('/api', require('./config'));
 app.use('/api', require('./stock'));

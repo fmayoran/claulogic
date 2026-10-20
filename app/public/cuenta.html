@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mi cuenta · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<main class="ancho" style="max-width:720px">
+  <h1>Mi cuenta</h1>
+  <p class="sub" id="quien"></p>
+
+  <p class="msg mal" id="forzado" hidden style="margin:0 0 16px">Entraste con una clave temporal. Elegí tu clave para seguir.</p>
+
+  <form id="fc" novalidate>
+    <fieldset>
+      <legend>Cambiar la clave</legend>
+      <div class="fila">
+        <label>Clave actual<input name="actual" type="password" autocomplete="current-password"></label>
+      </div>
+      <div class="fila">
+        <label>Clave nueva<input name="nueva" type="password" autocomplete="new-password"></label>
+        <label>Repetir la clave nueva<input name="repetir" type="password" autocomplete="new-password"></label>
+      </div>
+      <p class="ayuda">Al menos 8 caracteres. Mejor una frase que una palabra con símbolos: "cebolla morada al horno" es más
+        fuerte y más fácil de recordar que "C3b0ll@!". Al cambiarla se cierran tus otras sesiones abiertas.</p>
+      <div class="acciones fijo">
+        <button type="submit" class="prim" id="gc">Cambiar la clave</button>
+        <span class="msg" id="msgC"></span>
+      </div>
+    </fieldset>
+  </form>
+
+  <form id="fp" novalidate>
+    <fieldset>
+      <legend>PIN para la tablet de cocina</legend>
+      <p class="ayuda" id="pinEstado" style="margin:0 0 12px"></p>
+      <div class="fila">
+        <label>PIN nuevo (4 a 6 dígitos)<input name="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6"></label>
+        <label>Tu clave, para confirmar<input name="clave" type="password" autocomplete="current-password"></label>
+      </div>
+      <p class="ayuda">El PIN sólo sirve en un dispositivo de cocina que un encargado habilitó, para cambiar de usuario
+        rápido. Al quinto PIN equivocado se inhabilita hasta que vuelvas a entrar con tu clave. No uses series ni fechas.</p>
+      <div class="acciones fijo">
+        <button type="submit" class="prim" id="gp">Guardar PIN</button>
+        <button type="button" class="peligro" id="quitarPin" hidden>Quitar PIN</button>
+        <span class="msg" id="msgP"></span>
+      </div>
+    </fieldset>
+  </form>
+</main>
+
+<script src="comun.js"></script>
+<script>
+const fc = $('#fc'), fp = $('#fp');
+const volver = (() => {
+  const v = new URLSearchParams(location.search).get('volver') || '';
+  return /^[a-z]+\.html([?#].*)?$/.test(v) && !/^(login|cuenta)\.html/.test(v) ? v : 'index.html';
+})();
+let u;
+
+async function cargar() {
+  _sesion = null;
+  ({ usuario: u } = await cargarSesion());
+  if (!u) return;
+  $('#quien').textContent = `${u.nombre} (${u.usuario}) · ${describirRoles(u)}`;
+  $('#forzado').hidden = !u.debe_cambiar_clave;
+  fp.hidden = u.debe_cambiar_clave;
+  $('#pinEstado').textContent = u.tiene_pin ? 'Tenés un PIN configurado. Podés cambiarlo o quitarlo.' : 'No tenés PIN.';
+  $('#quitarPin').hidden = !u.tiene_pin;
+}
+
+fc.onsubmit = async e => {
+  e.preventDefault();
+  if (fc.nueva.value !== fc.repetir.value) return msg('Las dos claves nuevas no coinciden.', 'mal', '#msgC');
+  $('#gc').disabled = true;
+  try {
+    await api('cuenta/clave', { method: 'POST', body: { actual: fc.actual.value, nueva: fc.nueva.value } });
+    fc.reset();
+    if (u.debe_cambiar_clave) return void (location.href = volver);
+    msg('Clave cambiada.', 'ok', '#msgC'); cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgC'); }
+  finally { $('#gc').disabled = false; }
+};
+
+async function guardarPin(pin) {
+  try {
+    await api('cuenta/pin', { method: 'POST', body: { clave: fp.clave.value, pin } });
+    fp.reset(); msg(pin ? 'PIN guardado.' : 'PIN quitado.', 'ok', '#msgP'); cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgP'); }
+}
+fp.onsubmit = e => { e.preventDefault(); guardarPin(fp.pin.value); };
+$('#quitarPin').onclick = () => {
+  if (!fp.clave.value) return msg('Escribí tu clave para confirmar.', 'mal', '#msgP');
+  guardarPin(null);
+};
+cargar().catch(e => msg(e.message, 'mal', '#msgC'));
+</script>
+</body>
+</html>

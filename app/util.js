@@ -5,7 +5,11 @@
 // no usar float en la base no serviría de nada.
 const { pool } = require('./db');
 
-class ErrorUsuario extends Error {}
+// Error para mostrarle al usuario tal cual. `status` distingue un dato mal cargado (400) de un
+// permiso que falta (403) o un freno por intentos (429).
+class ErrorUsuario extends Error {
+  constructor(mensaje, status = 400) { super(mensaje); this.status = status; }
+}
 
 // Acepta coma o punto decimal (en Argentina se escribe "1,5"). Devuelve el texto normalizado o null.
 function numero(v, { campo, negativo = false, requerido = false, positivo = false } = {}) {
@@ -44,6 +48,8 @@ const UNICOS = {
   movimiento_anula_ux: 'Ese movimiento ya fue anulado.',
   receta_item_receta_id_producto_id_key: 'Un ingrediente está repetido en la receta.',
   gtin_pkey: 'Ese GTIN ya está asignado a otro producto o presentación.',
+  usuario_usuario_key: 'Ya existe un usuario con ese nombre de ingreso.',
+  sede_nombre_ux: 'Ya existe una sede con ese nombre.',
 };
 
 // Mensajes por restricción para los CHECK que el usuario puede violar con lo que tipea.
@@ -67,12 +73,13 @@ function errorBase(e) {
   return null;
 }
 
-// Envuelve un handler: errores del usuario -> 400 con mensaje; el resto sigue al manejador general.
+// Envuelve un handler: errores del usuario -> 400 (o su status) con mensaje; el resto sigue al
+// manejador general.
 const h = fn => async (req, res, next) => {
-  try { await fn(req, res); }
+  try { await fn(req, res, next); }
   catch (e) {
     const msg = errorBase(e);
-    if (msg) return res.status(400).json({ ok: false, error: msg });
+    if (msg) return res.status(e.status || 400).json({ ok: false, error: msg });
     next(e);
   }
 };
