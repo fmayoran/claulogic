@@ -86,6 +86,13 @@ de almacenamiento, gestión de recetas y producción.
   encargado lo revise y guarde. Caché en `logic.catalogo_externo` (encontrados 180 días, no
   encontrados 30). Es la única llamada de la app a un tercero; si algún día hay prefijo GS1,
   la fuente oficial es Verified by GS1.
+- **Foto de producto** (`app/fotos.js`, `logic.producto_foto`): una por producto, en la BASE (el
+  disco del contenedor se pierde en cada deploy). Propia (el navegador la achica a 800 px + miniatura
+  de 160 antes de subirla) o **copia** de Open Food Facts con atribución CC BY-SA obligatoria; nunca
+  se enlaza al servidor de ellos. Sólo JPEG/PNG/WebP verificados por contenido (un SVG ejecutaría
+  código). La descarga de afuera toma la URL de la caché, nunca del navegador, y exige el host.
+  Su servidor de imágenes tarda 5-9 s: la vista previa la baja y la deja en la caché, y guardar
+  la copia desde ahí.
 
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con

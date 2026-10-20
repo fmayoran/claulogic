@@ -31,7 +31,9 @@ r.get('/productos', h(async (req, res) => {
     `SELECT p.id, p.codigo, p.nombre, p.unidad_base, p.perecedero, p.vida_util_dias, p.activo,
             p.categoria_id, c.nombre AS categoria, ${COSTO_REF} AS costo, ${UNIDAD_REF} AS costo_unidad,
             trim_scale(COALESCE(s.cantidad, 0))::text AS stock,
-            (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin
+            (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin,
+            (SELECT (extract(epoch FROM f.actualizado_en) * 1000)::bigint::text
+               FROM logic.producto_foto f WHERE f.producto_id = p.id) AS foto_v
        FROM logic.producto p
        JOIN logic.categoria c ON c.id = p.categoria_id
        LEFT JOIN (SELECT producto_id, SUM(cantidad) AS cantidad FROM logic.stock GROUP BY producto_id) s
@@ -53,8 +55,11 @@ r.get('/productos/:id', h(async (req, res) => {
             trim_scale(stock_minimo)::text AS stock_minimo, activo,
             ${COSTO_REF} AS costo, ${UNIDAD_REF} AS costo_unidad,
             EXISTS (SELECT 1 FROM logic.movimiento m WHERE m.producto_id = p.id) AS tiene_movimientos,
-            (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin
-       FROM logic.producto p WHERE id = $1`, [req.params.id]);
+            (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin,
+            (extract(epoch FROM f.actualizado_en) * 1000)::bigint::text AS foto_v, f.origen AS foto_origen,
+            f.atribucion AS foto_atribucion, f.fuente_url AS foto_fuente
+       FROM logic.producto p LEFT JOIN logic.producto_foto f ON f.producto_id = p.id
+      WHERE p.id = $1`, [req.params.id]);
   if (!p) return res.status(404).json({ ok: false, error: 'No existe ese producto.' });
   const [{ rows: presentaciones }, { rows: costos }] = await Promise.all([
     pool.query(

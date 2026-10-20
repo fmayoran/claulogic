@@ -9,6 +9,7 @@ const express = require('express');
 const { pool } = require('./db');
 const gs1 = require('./gs1');
 const { ErrorUsuario, h } = require('./util');
+const { bajarCatalogo } = require('./fotos');
 
 const r = express.Router();
 
@@ -32,7 +33,7 @@ function leerContenido(p) {
 async function consultar(gtin) {
   // Open Food Facts indexa por el código tal como está impreso: EAN-13 sin el cero de relleno.
   const codigo = gtin.startsWith('0') ? gtin.slice(1) : gtin;
-  const campos = 'product_name,product_name_es,brands,quantity,product_quantity,product_quantity_unit,categories_tags_es,categories_tags';
+  const campos = 'product_name,product_name_es,brands,quantity,product_quantity,product_quantity_unit,categories_tags_es,categories_tags,image_front_url,image_front_thumb_url';
   const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json?fields=${campos}`,
     { headers: { 'User-Agent': AGENTE }, signal: AbortSignal.timeout(ESPERA_MS) });
   if (res.status === 404) return { encontrado: false };
@@ -44,14 +45,16 @@ async function consultar(gtin) {
   const marca = (p.brands || '').split(',')[0].trim() || null;
   const cats = p.categories_tags_es || p.categories_tags || [];
   return { encontrado: true, nombre, marca, contenido: (p.quantity || '').trim() || null,
-           ...leerContenido(p), categoria: cats.length ? cats[cats.length - 1].replace(/^\w\w:/, '') : null };
+           ...leerContenido(p), categoria: cats.length ? cats[cats.length - 1].replace(/^\w\w:/, '') : null,
+           imagen_url: p.image_front_url || null, miniatura_url: p.image_front_thumb_url || null };
 }
 
 r.get('/catalogo/:gtin', h(async (req, res) => {
   const gtin = gs1.normalizarGtin(req.params.gtin);
   if (!gtin) throw new ErrorUsuario('GTIN inválido.');
   const { rows: [c] } = await pool.query(
-    `SELECT encontrado, nombre, marca, contenido, trim_scale(cantidad)::text AS cantidad, unidad, categoria
+    `SELECT encontrado, nombre, marca, contenido, trim_scale(cantidad)::text AS cantidad, unidad, categoria,
+            imagen_url IS NOT NULL AS imagen
        FROM logic.catalogo_externo
       WHERE gtin = $1 AND consultado_en > now() - CASE WHEN encontrado THEN $2 ELSE $3 END::interval`,
     [gtin, VIGENCIA.true, VIGENCIA.false]);
@@ -62,13 +65,35 @@ r.get('/catalogo/:gtin', h(async (req, res) => {
   try { d = await consultar(gtin); }
   catch (e) { return res.json({ ok: true, fuente: FUENTE, catalogo: null, sin_respuesta: true }); }
   await pool.query(
-    `INSERT INTO logic.catalogo_externo (gtin, fuente, encontrado, nombre, marca, contenido, cantidad, unidad, categoria)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `INSERT INTO logic.catalogo_externo (gtin, fuente, encontrado, nombre, marca, contenido, cantidad, unidad, categoria,
+                                         imagen_url, miniatura_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (gtin) DO UPDATE SET fuente = EXCLUDED.fuente, encontrado = EXCLUDED.encontrado,
        nombre = EXCLUDED.nombre, marca = EXCLUDED.marca, contenido = EXCLUDED.contenido, cantidad = EXCLUDED.cantidad,
-       unidad = EXCLUDED.unidad, categoria = EXCLUDED.categoria, consultado_en = now()`,
-    [gtin, FUENTE, d.encontrado, d.nombre, d.marca, d.contenido, d.cantidad, d.unidad, d.categoria]);
+       unidad = EXCLUDED.unidad, categoria = EXCLUDED.categoria, imagen_url = EXCLUDED.imagen_url,
+       miniatura_url = EXCLUDED.miniatura_url, consultado_en = now()`,
+    [gtin, FUENTE, d.encontrado, d.nombre, d.marca, d.contenido, d.cantidad, d.unidad, d.categoria,
+     d.imagen_url || null, d.miniatura_url || null]);
+  if (d.encontrado) { d.imagen = !!d.imagen_url; delete d.imagen_url; delete d.miniatura_url; }
   res.json({ ok: true, fuente: FUENTE, catalogo: d.encontrado ? d : null });
+}));
+
+// Vista previa de la foto antes de guardar el producto. Pasa por el servidor para que el navegador
+// no le pida nada a un tercero. La primera vez la baja y la deja en la caché: al guardar el
+// producto (fotos.js) se copia desde ahí, sin volver a esperar a Open Food Facts.
+r.get('/catalogo/:gtin/imagen', h(async (req, res) => {
+  const gtin = gs1.normalizarGtin(req.params.gtin);
+  if (!gtin) throw new ErrorUsuario('GTIN inválido.');
+  const { rows: [c] } = await pool.query(
+    'SELECT imagen_url, miniatura_url, imagen, miniatura FROM logic.catalogo_externo WHERE gtin = $1', [gtin]);
+  if (!c || !c.imagen_url) return res.status(404).json({ ok: false, error: 'Sin foto.' });
+  let b = c.imagen;
+  if (!b || !c.miniatura) {
+    try { [b] = await bajarCatalogo(gtin, c); }
+    catch (e) { return res.status(502).json({ ok: false, error: 'No se pudo traer la foto.' }); }
+  }
+  res.set({ 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=3600' });
+  res.send(b);
 }));
 
 module.exports = r;

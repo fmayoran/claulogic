@@ -9,6 +9,14 @@
   .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
   .pg{width:150px;font-variant-numeric:tabular-nums;}
   #pres select{min-width:72px;}
+  .foto{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:14px 0 0;}
+  .foto .marco{width:120px;height:120px;border:1px solid var(--line);border-radius:10px;background:#fff;
+    display:grid;place-items:center;overflow:hidden;flex:none;color:var(--mut);font-size:.8rem;text-align:center;}
+  .foto .marco img{width:100%;height:100%;object-fit:contain;}
+  .foto .acc{display:grid;gap:8px;justify-items:start;}
+  .foto .atrib{font-size:.8rem;color:var(--mut);}
+  .item.con-mini{display:flex;gap:10px;align-items:center;}
+  .item .mini{width:40px;height:40px;border-radius:6px;object-fit:cover;flex:none;background:var(--line);}
   .gtin-int{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;font-size:.9rem;}
   /* En el celular cada presentación es una tarjeta: en tabla, los campos quedaban cortados y el
      GTIN fuera de pantalla, justo donde más se carga escaneando. */
@@ -67,6 +75,17 @@
         <div class="gtin-int" id="gtinInterno" hidden>
           <span>GTIN interno <strong id="gtinValor"></strong></span>
           <a id="gtinEtiqueta" href="#">Imprimir etiquetas de góndola</a>
+        </div>
+        <div class="foto">
+          <div class="marco" id="fotoMarco">Sin foto</div>
+          <div class="acc">
+            <span class="con-boton">
+              <button type="button" class="chico" id="fotoSubir">Sacar o subir foto</button>
+              <button type="button" class="chico" id="fotoQuitar" hidden>Quitar</button>
+            </span>
+            <span class="atrib" id="fotoAtrib"></span>
+            <input type="file" id="fotoArchivo" accept="image/*" hidden>
+          </div>
         </div>
         <p class="ayuda">El SKU es el código propio del negocio. Cada producto recibe además un GTIN interno GS1
           (prefijo 040, válido sólo dentro del negocio) para etiquetar lo que no trae código de fabricante.</p>
@@ -147,11 +166,13 @@ async function cargarLista() {
   if (!productos.length) return lista.replaceChildren(el('p', { className: 'vacio',
     textContent: p.toString() ? 'Ningún producto coincide.' : 'Todavía no hay productos. Cargá el primero.' }));
   lista.replaceChildren(...productos.map(x => {
-    const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
-      el('div', { className: 'n', textContent: x.nombre }),
-      el('div', { className: 'm', textContent:
-        `SKU ${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
-        (x.costo != null ? ` · ${pesos(x.costo)}/${x.costo_unidad}` : '') }));
+    const b = el('button', { type: 'button', className: 'item con-mini' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
+      x.foto_v ? el('img', { className: 'mini', alt: '', loading: 'lazy', src: `api/productos/${x.id}/foto?mini=1&v=${x.foto_v}` })
+               : el('span', { className: 'mini' }),
+      el('div', {}, el('div', { className: 'n', textContent: x.nombre }),
+        el('div', { className: 'm', textContent:
+          `SKU ${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
+          (x.costo != null ? ` · ${pesos(x.costo)}/${x.costo_unidad}` : '') })));
     b.onclick = () => abrir(x.id);
     return b;
   }));
@@ -220,12 +241,56 @@ function filaPres(p = {}) {
 $('#presAgregar').onclick = () => { filaPres(); sucio = true; };
 f.unidad_base.onchange = () => alCambiarBase();
 
+// ── Foto ──
+// Pendiente hasta guardar: { propia: {datos, miniatura} } | { catalogo: gtin } | { quitar: true }.
+let fotoPend = null;
+function mostrarFoto(src, atrib) {
+  const marco = $('#fotoMarco');
+  marco.replaceChildren(src ? el('img', { src, alt: 'Foto del producto' }) : 'Sin foto');
+  $('#fotoQuitar').hidden = !src;
+  const a = $('#fotoAtrib');
+  a.replaceChildren(!atrib ? '' : atrib.url
+    ? el('a', { href: atrib.url, target: '_blank', rel: 'noopener', textContent: atrib.texto }) : atrib.texto);
+}
+// La foto del celular pesa varios MB: se achica acá antes de subirla. La grande a 800 px y la
+// miniatura a 160 px, en JPEG. El navegador ya la endereza según la orientación de la cámara.
+function achicar(img, lado, calidad) {
+  const k = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
+  const cv = el('canvas', { width: Math.round(img.naturalWidth * k), height: Math.round(img.naturalHeight * k) });
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+  cx.drawImage(img, 0, 0, cv.width, cv.height);
+  return cv.toDataURL('image/jpeg', calidad);
+}
+$('#fotoSubir').onclick = () => $('#fotoArchivo').click();
+$('#fotoArchivo').onchange = async () => {
+  const archivo = $('#fotoArchivo').files[0]; $('#fotoArchivo').value = '';
+  if (!archivo) return;
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
+    const grande = achicar(img, 800, 0.82), mini = achicar(img, 160, 0.75);
+    fotoPend = { propia: { datos: grande.split(',')[1], miniatura: mini.split(',')[1] } };
+    mostrarFoto(grande, { texto: 'Foto propia. Se guarda con el producto.' });
+    sucio = true;
+  } catch { msg('No se pudo leer esa imagen.', 'mal'); }
+  finally { URL.revokeObjectURL(url); }
+};
+$('#fotoQuitar').onclick = () => { fotoPend = { quitar: true }; mostrarFoto(null); sucio = true; };
+async function aplicarFoto(id) {
+  const p = fotoPend; fotoPend = null;
+  if (!p) return;
+  if (p.quitar) await api(`productos/${id}/foto`, { method: 'DELETE' });
+  else if (p.propia) await api(`productos/${id}/foto`, { method: 'PUT', body: p.propia });
+  else if (p.catalogo) await api(`productos/${id}/foto/catalogo`, { method: 'POST', body: { gtin: p.catalogo } });
+}
+
 // ── Formulario ──
 function limpiar() {
   actual = null; sucio = false; f.reset();
   $('#titulo').textContent = 'Nuevo producto';
   $('#subtitulo').textContent = 'Los campos con * son obligatorios.';
   $('#pres tbody').replaceChildren();
+  fotoPend = null; mostrarFoto(null);
   $('#histCostos').hidden = true; $('#activoWrap').hidden = true; $('#gtinInterno').hidden = true;
   f.unidad_base.disabled = false;
   f.unidad_base.value = 'g'; alCambiarBase();
@@ -251,6 +316,9 @@ async function abrir(id) {
     $('#activoWrap').hidden = false;
     $('#gtinInterno').hidden = !p.gtin; $('#gtinValor').textContent = p.gtin || '';
     $('#gtinEtiqueta').href = 'etiquetas.html?producto=' + p.id;
+    fotoPend = null;
+    mostrarFoto(p.foto_v && `api/productos/${p.id}/foto?v=${p.foto_v}`,
+      p.foto_origen === 'openfoodfacts' ? { texto: 'Foto: ' + p.foto_atribucion, url: p.foto_fuente } : null);
     $('#pres tbody').replaceChildren();
     alCambiarBase(p.costo_unidad);
     for (const x of p.presentaciones) filaPres({ ...x, unidad: p.unidad_base });
@@ -289,8 +357,13 @@ f.onsubmit = async e => {
     const d = await api(actual ? 'productos/' + actual : 'productos',
       { method: actual ? 'PUT' : 'POST', body: leer() });
     sucio = false;
+    // La foto se guarda después que el producto (uno nuevo recién ahora tiene id). Si falla, el
+    // producto queda guardado igual y se avisa.
+    let errFoto = null;
+    try { await aplicarFoto(d.id); } catch (e) { errFoto = e.message; }
     await abrir(d.id);
-    msg('Guardado.', 'ok');
+    await cargarLista();
+    errFoto ? msg('Producto guardado, pero la foto no: ' + errFoto, 'mal') : msg('Guardado.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }
   finally { b.disabled = false; }
 };
@@ -330,6 +403,11 @@ $('#esc').append(escaner(async d => {
     tr.querySelector('select').value = c.unidad;
   }
   sucio = true;
+  // Foto del catálogo: sólo si el producto todavía no tiene una (no se pisa una foto propia).
+  if (c && c.imagen && !$('#fotoMarco img')) {
+    fotoPend = { catalogo: g };
+    mostrarFoto(`api/catalogo/${g}/imagen`, { texto: 'Foto: Open Food Facts (CC BY-SA). Se guarda con el producto.' });
+  }
   if (c) {
     (actual ? tr.querySelector('.pn') : f.codigo).focus();
     msg(`Datos de Open Food Facts (base pública, cargada por la comunidad): revisá nombre y contenido${actual ? '' : ', completá SKU y categoría'} y guardá.`, 'ok');
