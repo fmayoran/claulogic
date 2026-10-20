@@ -43,6 +43,12 @@ const UNICOS = {
   lote_producto_id_codigo_key: 'Ese producto ya tiene un lote con ese código.',
   movimiento_anula_ux: 'Ese movimiento ya fue anulado.',
   receta_item_receta_id_producto_id_key: 'Un ingrediente está repetido en la receta.',
+  gtin_pkey: 'Ese GTIN ya está asignado a otro producto o presentación.',
+};
+
+// Mensajes por restricción para los CHECK que el usuario puede violar con lo que tipea.
+const CHECKS = {
+  lote_codigo_gs1: 'El código de lote admite hasta 20 caracteres, sin espacios ni acentos (norma GS1).',
 };
 
 // Los errores de la base se traducen a algo que el encargado entienda. Los RAISE de nuestros
@@ -55,7 +61,7 @@ function errorBase(e) {
     return 'Una presentación que quitaste ya se usó en compras: no se puede borrar.';
   if (e.code === '23503' && /DELETE|delete/.test(e.message)) return 'No se puede borrar: está en uso.';
   if (e.code === '23503') return 'Alguno de los datos elegidos ya no existe. Recargá la página.';
-  if (e.code === '23514') return 'Algún valor está fuera de lo permitido (revisá temperaturas y cantidades).';
+  if (e.code === '23514') return CHECKS[e.constraint] || 'Algún valor está fuera de lo permitido (revisá temperaturas y cantidades).';
   if (e.code === '22P02' || e.code === '22007' || e.code === '22008') return 'Hay un dato con formato inválido.';
   if (e.code === '22003') return 'Hay un número demasiado grande.';
   return null;

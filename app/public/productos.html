@@ -7,13 +7,16 @@
 <link rel="stylesheet" href="comun.css">
 <style>
   .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
+  .pg{width:150px;font-variant-numeric:tabular-nums;}
+  .gtin-int{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;font-size:.9rem;}
 </style>
 </head>
 <body>
 <div class="grid">
   <aside>
     <div class="filtros">
-      <input id="q" type="search" placeholder="Buscar por nombre o código" autocomplete="off">
+      <div id="esc"></div>
+      <input id="q" type="search" placeholder="Buscar por nombre, SKU o GTIN" autocomplete="off">
       <select id="fcat"><option value="">Todas las categorías</option></select>
       <label class="check"><input id="finact" type="checkbox"> Mostrar inactivos</label>
       <button class="prim" id="nuevo">Nuevo producto</button>
@@ -28,7 +31,7 @@
       <fieldset>
         <legend>Identificación</legend>
         <div class="fila">
-          <label>Código *<input name="codigo" required maxlength="40" autocomplete="off"></label>
+          <label>SKU *<input name="codigo" required maxlength="40" autocomplete="off" placeholder="código propio"></label>
           <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
         </div>
         <div class="fila" style="margin-top:12px">
@@ -45,6 +48,12 @@
             </span>
           </label>
         </div>
+        <div class="gtin-int" id="gtinInterno" hidden>
+          <span>GTIN interno <strong id="gtinValor"></strong></span>
+          <a id="gtinEtiqueta" href="#">Imprimir etiquetas de góndola</a>
+        </div>
+        <p class="ayuda">El SKU es el código propio del negocio. Cada producto recibe además un GTIN interno GS1
+          (prefijo 040, válido sólo dentro del negocio) para etiquetar lo que no trae código de fabricante.</p>
       </fieldset>
 
       <fieldset>
@@ -55,12 +64,14 @@
         <p class="ayuda" id="ayudaBase">Todo el stock, las recetas y los movimientos se llevan en esta unidad.
           Para masa conviene gramos y para volumen mililitros: las recetas se escriben así.</p>
         <h3 style="font-size:.95rem;margin:16px 0 6px">Presentaciones de compra</h3>
-        <table id="pres">
-          <thead><tr><th>Nombre</th><th>Contiene</th><th>Unidad</th><th>Habitual</th><th></th></tr></thead>
+        <div style="overflow-x:auto"><table id="pres">
+          <thead><tr><th>Nombre</th><th>Contiene</th><th>Unidad</th><th>GTIN (código de barras)</th><th>Habitual</th><th></th></tr></thead>
           <tbody></tbody>
-        </table>
+        </table></div>
         <button type="button" class="chico" id="presAgregar" style="margin-top:8px">Agregar presentación</button>
-        <p class="ayuda">Cómo se compra: "caja x6" que contiene 6 kg. Se guarda convertido a la unidad base.</p>
+        <p class="ayuda">Cómo se compra: "caja x6" que contiene 6 kg. Se guarda convertido a la unidad base.
+          El GTIN es el del fabricante para ese empaque (el sachet y la caja tienen códigos distintos): se puede tipear o escanear.
+          Para un empaque propio, "interno" genera uno.</p>
       </fieldset>
 
       <fieldset>
@@ -123,7 +134,7 @@ async function cargarLista() {
     const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
       el('div', { className: 'n', textContent: x.nombre }),
       el('div', { className: 'm', textContent:
-        `${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
+        `SKU ${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
         (x.costo != null ? ` · ${pesos(x.costo)}/${x.costo_unidad}` : '') }));
     b.onclick = () => abrir(x.id);
     return b;
@@ -162,10 +173,17 @@ function alCambiarBase(costoUnidad) {
 }
 function filaPres(p = {}) {
   const unidad = el('select');
+  // Un GTIN interno ya generado no se edita: puede estar impreso en etiquetas.
+  const gtin = el('input', { className: 'pg', value: p.gtin || '', inputMode: 'numeric', placeholder: 'escanear o tipear',
+    disabled: p.gtin_origen === 'interno', title: p.gtin_origen === 'interno' ? 'GTIN interno generado por el sistema' : '' });
+  const interno = el('button', { type: 'button', className: 'chico', textContent: 'interno', hidden: !!p.gtin,
+    title: 'Generar un GTIN interno para un empaque propio',
+    onclick: () => { tr.dataset.interno = '1'; gtin.value = ''; gtin.placeholder = 'se genera al guardar'; gtin.disabled = true; interno.hidden = true; sucio = true; } });
   const tr = el('tr', {},
     el('td', {}, el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
     el('td', {}, el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
     el('td', {}, unidad),
+    el('td', {}, el('span', { className: 'con-boton' }, gtin, interno)),
     el('td', {}, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default })),
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
       onclick: () => { tr.remove(); sucio = true; } })));
@@ -174,6 +192,7 @@ function filaPres(p = {}) {
   // diciendo "6000 g" y el servidor la convierte bien.
   opciones(unidad, compatibles(f.unidad_base.value).map(u => [u.codigo, u.codigo]), p.id ? p.unidad : f.unidad_base.value);
   $('#pres tbody').append(tr);
+  return tr;
 }
 $('#presAgregar').onclick = () => { filaPres(); sucio = true; };
 f.unidad_base.onchange = () => alCambiarBase();
@@ -184,7 +203,7 @@ function limpiar() {
   $('#titulo').textContent = 'Nuevo producto';
   $('#subtitulo').textContent = 'Los campos con * son obligatorios.';
   $('#pres tbody').replaceChildren();
-  $('#histCostos').hidden = true; $('#activoWrap').hidden = true;
+  $('#histCostos').hidden = true; $('#activoWrap').hidden = true; $('#gtinInterno').hidden = true;
   f.unidad_base.disabled = false;
   f.unidad_base.value = 'g'; alCambiarBase();
   msg('');
@@ -207,6 +226,8 @@ async function abrir(id) {
     f.unidad_base.disabled = p.tiene_movimientos;
     f.perecedero.checked = p.perecedero; f.activo.checked = p.activo;
     $('#activoWrap').hidden = false;
+    $('#gtinInterno').hidden = !p.gtin; $('#gtinValor').textContent = p.gtin || '';
+    $('#gtinEtiqueta').href = 'etiquetas.html?producto=' + p.id;
     $('#pres tbody').replaceChildren();
     alCambiarBase(p.costo_unidad);
     for (const x of p.presentaciones) filaPres({ ...x, unidad: p.unidad_base });
@@ -233,6 +254,7 @@ function leer() {
       id: tr.dataset.id || null, nombre: tr.querySelector('.pn').value,
       cantidad: tr.querySelector('.pc').value, unidad: tr.querySelector('select').value,
       es_default: tr.querySelector('input[type=radio]').checked,
+      gtin: tr.querySelector('.pg').value, gtin_interno: tr.dataset.interno === '1',
     })),
   };
 }
@@ -256,6 +278,18 @@ let t;
 $('#q').oninput = () => { clearTimeout(t); t = setTimeout(() => cargarLista().catch(e => msg(e.message, 'mal')), 250); };
 $('#fcat').onchange = $('#finact').onchange = () => cargarLista().catch(e => msg(e.message, 'mal'));
 addEventListener('beforeunload', e => { if (sucio) e.preventDefault(); });
+
+// Escanear: un código conocido abre su producto. Uno desconocido se ofrece como presentación
+// nueva del producto abierto (o de uno nuevo): así se cargan los GTIN del fabricante sin tipearlos.
+$('#esc').append(escaner(async d => {
+  if (!d.desconocido) return abrir(d.producto.id);
+  const g = d.lectura.gtin;
+  if (!actual && !sucio) limpiar();
+  const tr = filaPres({});
+  tr.querySelector('.pg').value = g; tr.querySelector('[title^="Generar"]').hidden = true;
+  tr.querySelector('.pn').focus(); sucio = true;
+  msg(`GTIN ${g} nuevo: completá el nombre y el contenido de la presentación y guardá.`, 'ok');
+}, { placeholder: 'Escanear para buscar o cargar un GTIN' }));
 
 (async () => {
   try {

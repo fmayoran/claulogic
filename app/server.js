@@ -8,6 +8,9 @@ const app = express();
 const PUERTO = +(process.env.PORT || 3002);
 
 app.disable('x-powered-by');
+// Detrás de Traefik: req.protocol sale de X-Forwarded-Proto. Lo usan los QR, que llevan la URL
+// pública adentro; sin esto saldrían con http://.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 
 // Salud: lo primero que se mira cuando algo no anda, y lo que mira EasyPanel para saber si el
@@ -29,6 +32,19 @@ app.use('/api', require('./stock'));
 app.use('/api', require('./compras'));
 app.use('/api', require('./produccion'));
 app.use('/api', require('./frio'));
+app.use('/api', require('./codigos'));
+
+// GS1 Digital Link: el QR de una etiqueta es una URL /01/<GTIN>[/10/<lote>]. Al escanearla con un
+// celular, se abre la ficha de trazabilidad.
+app.get(/^\/01\/(\d{8,14})(?:\/10\/([^/?]+))?\/?$/, (req, res) => {
+  const q = new URLSearchParams({ gtin: req.params[0] });
+  if (req.params[1]) q.set('lote', decodeURIComponent(req.params[1]));
+  res.redirect(302, '/trazabilidad.html?' + q);
+});
+
+// Lector de códigos por cámara para navegadores sin BarcodeDetector (Safari, Chrome de
+// escritorio). Se sirve desde el propio paquete npm, con versión fija: nada de CDN en producción.
+app.use('/vendor/zxing', express.static(path.join(path.dirname(require.resolve('@zxing/library/package.json')), 'umd'), { maxAge: '7d' }));
 
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 

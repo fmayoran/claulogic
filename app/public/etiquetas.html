@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Etiquetas · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  /* Medidas en mm: lo que se ve en pantalla es lo que sale en la hoja. */
+  .hoja{width:210mm;height:297mm;background:#fff;color:#000;margin:0 auto 20px;box-shadow:0 1px 6px rgba(0,0,0,.2);
+    display:grid;box-sizing:border-box;overflow:hidden;}
+  .et{box-sizing:border-box;padding:2.5mm 3mm;display:flex;gap:2.5mm;align-items:center;overflow:hidden;
+    font:9pt/1.25 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;outline:1px dashed #ccc;outline-offset:-1px;}
+  .et.vacia{visibility:hidden;}
+  .et .qr{flex:none;height:100%;aspect-ratio:1;} .et .qr svg{width:100%;height:100%;display:block;}
+  .et .tx{min-width:0;display:grid;gap:.4mm;}
+  .et .n{font-weight:700;font-size:10pt;line-height:1.15;max-height:2.4em;overflow:hidden;}
+  .et .ch{font-size:7pt;color:#333;word-break:break-all;}
+  .et .grande{font-size:11pt;font-weight:700;}
+  .et.producto{flex-direction:column;justify-content:center;gap:1mm;text-align:center;}
+  .et.producto .ean{height:58%;} .et.producto .ean svg{height:100%;width:auto;display:block;margin:0 auto;}
+  .controles{max-width:210mm;margin:0 auto 16px;}
+  #hojas{overflow-x:auto;}
+  @media print{
+    @page{size:A4;margin:0;}
+    body{background:#fff;} .top,.controles{display:none!important;}
+    main.ancho{padding:0;max-width:none;} #hojas{overflow:visible;}
+    .hoja{margin:0;box-shadow:none;break-after:page;} .et{outline:none;}
+  }
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="controles">
+    <h1 id="titulo">Etiquetas</h1>
+    <p class="sub" id="sub"></p>
+    <div class="barra">
+      <label>Formato de hoja<select id="formato"></select></label>
+      <label>Cantidad<input id="cantidad" type="number" min="1" max="500" value="24"></label>
+      <label>Saltear las primeras<input id="saltear" type="number" min="0" value="0" title="Para aprovechar una plancha ya empezada"></label>
+      <button class="prim" onclick="print()">Imprimir</button>
+    </div>
+    <p class="ayuda">Imprimí al 100% (sin "ajustar a la página") para que las medidas coincidan con la plancha.
+      <span id="ayudaTipo"></span></p>
+    <span class="msg" id="msg"></span>
+  </div>
+  <div id="hojas"></div>
+</main>
+<script src="comun.js"></script>
+<script>
+// Planchas A4 comunes. Medidas en mm: márgenes, tamaño de etiqueta y separación.
+const FORMATOS = {
+  '24': { nombre: '24 por hoja · 70 × 37 mm', cols: 3, filas: 8, w: 70, h: 37, mx: 0, my: 0.5, gx: 0, gy: 0 },
+  '21': { nombre: '21 por hoja · 63,5 × 38,1 mm', cols: 3, filas: 7, w: 63.5, h: 38.1, mx: 7.2, my: 15.1, gx: 2.5, gy: 0 },
+  '14': { nombre: '14 por hoja · 99,1 × 38,1 mm', cols: 2, filas: 7, w: 99.1, h: 38.1, mx: 4.65, my: 15.1, gx: 2.5, gy: 0 },
+};
+const q = new URLSearchParams(location.search);
+let etiqueta = null, tipo = q.get('lote') ? 'lote' : 'producto';
+
+function svgNodo(txt) { const d = el('div'); d.innerHTML = txt; return d.firstElementChild; }
+
+function unaEtiqueta() {
+  const e = etiqueta;
+  if (tipo === 'lote') {
+    return el('div', { className: 'et' },
+      el('div', { className: 'qr' }, svgNodo(e.svg)),
+      el('div', { className: 'tx' },
+        el('div', { className: 'n', textContent: e.nombre }),
+        el('div', {}, 'Lote ', el('strong', { textContent: e.lote })),
+        e.vencimiento ? el('div', { className: 'grande', textContent: 'Vence ' + fecha(e.vencimiento) }) : '',
+        el('div', { className: 'ch', textContent: 'SKU ' + e.sku }),
+        el('div', { className: 'ch', textContent: e.legible })));
+  }
+  return el('div', { className: 'et producto' },
+    el('div', { className: 'n', textContent: e.nombre }),
+    el('div', { className: 'ean' }, svgNodo(e.svg)),
+    el('div', { className: 'ch', textContent: 'SKU ' + e.sku }));
+}
+
+function dibujar() {
+  const fmt = FORMATOS[$('#formato').value];
+  const porHoja = fmt.cols * fmt.filas;
+  const saltear = Math.max(0, parseInt($('#saltear').value, 10) || 0);
+  const cantidad = Math.min(500, Math.max(1, parseInt($('#cantidad').value, 10) || 1));
+  const total = saltear + cantidad;
+  const hojas = [];
+  for (let i = 0; i < total; i += porHoja) {
+    const hoja = el('div', { className: 'hoja' });
+    Object.assign(hoja.style, {
+      padding: `${fmt.my}mm ${fmt.mx}mm`, columnGap: fmt.gx + 'mm', rowGap: fmt.gy + 'mm',
+      gridTemplateColumns: `repeat(${fmt.cols}, ${fmt.w}mm)`, gridTemplateRows: `repeat(${fmt.filas}, ${fmt.h}mm)`,
+    });
+    for (let k = i; k < Math.min(i + porHoja, total); k++) {
+      const et = unaEtiqueta(); if (k < saltear) et.classList.add('vacia');
+      hoja.append(et);
+    }
+    hojas.push(hoja);
+  }
+  $('#hojas').replaceChildren(...hojas);
+}
+
+(async () => {
+  opciones($('#formato'), Object.entries(FORMATOS).map(([k, f]) => [k, f.nombre]), '24');
+  try {
+    if (tipo === 'lote') {
+      ({ etiqueta } = await api('etiquetas/lote/' + q.get('lote')));
+      $('#titulo').textContent = `Etiquetas del lote ${etiqueta.lote}`;
+      $('#sub').textContent = `${etiqueta.nombre} · ${etiqueta.legible}`;
+      $('#ayudaTipo').textContent = 'El QR sigue la norma GS1 Digital Link: lo lee cualquier celular y abre la trazabilidad del lote.';
+    } else if (q.get('producto')) {
+      ({ etiqueta } = await api('etiquetas/producto/' + q.get('producto')));
+      $('#titulo').textContent = `Etiquetas de ${etiqueta.nombre}`;
+      $('#sub').textContent = `EAN-13 ${etiqueta.gtin13} (código interno GS1, válido dentro del negocio)`;
+      $('#ayudaTipo').textContent = 'Lo lee cualquier lector de códigos de barras; sirve para góndola o estantería.';
+    } else throw new Error('Falta indicar el lote o el producto.');
+    if (q.get('n')) $('#cantidad').value = q.get('n');
+    dibujar();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+$('#formato').onchange = $('#cantidad').oninput = $('#saltear').oninput = dibujar;
+</script>
+</body>
+</html>

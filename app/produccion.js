@@ -234,7 +234,7 @@ r.post('/producciones', h(async (req, res) => {
       `INSERT INTO logic.movimiento (tipo, producto_id, lote_id, cantidad_base, destino_id, produccion_id, motivo)
        VALUES ('produccion', $1, $2, $3, $4, $5, $6)`,
       [p.receta.producto_id, loteId, ped.cantidad, destino, prod.id, 'Producción de ' + p.receta.nombre]);
-    return { id: prod.id, lote: loteCodigo, costo_total: costoTotal };
+    return { id: prod.id, lote_id: loteId, lote: loteCodigo, costo_total: costoTotal };
   });
   res.status(201).json({ ok: true, ...out });
 }));
@@ -242,7 +242,7 @@ r.post('/producciones', h(async (req, res) => {
 r.get('/producciones', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pr.id, pr.fecha, re.nombre AS receta, p.nombre AS elaborado, p.unidad_base,
-            trim_scale(pr.cantidad_base)::text AS cantidad, l.codigo AS lote, l.vencimiento,
+            trim_scale(pr.cantidad_base)::text AS cantidad, l.id AS lote_id, l.codigo AS lote, l.vencimiento,
             pr.costo_total::text, u.nombre AS ubicacion, a.nombre AS almacen
        FROM logic.produccion pr
        JOIN logic.receta re ON re.id = pr.receta_id

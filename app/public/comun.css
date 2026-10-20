@@ -101,6 +101,9 @@ dialog{border:1px solid var(--line);border-radius:12px;padding:18px 20px;backgro
 dialog::backdrop{background:rgba(0,0,0,.35);}
 dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;background:none;}
 
+.escaner{display:grid;gap:4px;} .escaner .con-boton button{flex:none;}
+.escaner .msg{font-size:.85rem;}
+
 [hidden]{display:none!important;}
 @media (max-width:760px){
   .top{padding:0 16px;gap:10px;}

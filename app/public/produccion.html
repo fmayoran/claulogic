@@ -108,8 +108,9 @@ f.onsubmit = async e => {
     const d = await api('producciones', { method: 'POST', body });
     const r = recSel();
     $('#resultado').hidden = false;
-    $('#resultado').textContent = `Listo: ${f.cantidad.value} ${f.unidad.value} de ${r.elaborado}` +
-      (d.lote ? `, lote ${d.lote}` : '') + (d.costo_total ? `, costo ${pesos(d.costo_total)}.` : '. Sin costo: a algún ingrediente le falta costo.');
+    $('#resultado').replaceChildren(`Listo: ${f.cantidad.value} ${f.unidad.value} de ${r.elaborado}` +
+      (d.lote ? `, lote ${d.lote}` : '') + (d.costo_total ? `, costo ${pesos(d.costo_total)}. ` : '. Sin costo: a algún ingrediente le falta costo. '),
+      d.lote_id ? el('a', { href: 'etiquetas.html?lote=' + d.lote_id, textContent: 'Imprimir etiquetas del lote' }) : '');
     $('#plan').hidden = true; f.lote_codigo.value = ''; f.notas.value = ''; msg('');
     cargarProducciones();
   } catch (e) { msg(e.message, 'mal'); $('#producir').disabled = false; }
@@ -119,7 +120,8 @@ async function cargarProducciones() {
   const { producciones } = await api('producciones');
   filas($('#tProd'), producciones, p => {
     const tr = el('tr', { className: 'clic' },
-      td(fechaHora(p.fecha)), td(p.receta), td(cant(p.cantidad, p.unidad_base), 'num'), td(p.lote),
+      td(fechaHora(p.fecha)), td(p.receta), td(cant(p.cantidad, p.unidad_base), 'num'),
+      el('td', {}, p.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + p.lote_id, textContent: p.lote, onclick: e => e.stopPropagation() }) : ''),
       td(fecha(p.vencimiento)), td(p.ubicacion ? `${p.almacen || ''} · ${p.ubicacion}` : ''), td(pesos(p.costo_total), 'num'));
     tr.onclick = async () => {
       if (tr.nextSibling && tr.nextSibling.classList && tr.nextSibling.classList.contains('traza')) return tr.nextSibling.remove();

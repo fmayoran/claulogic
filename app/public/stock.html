@@ -48,6 +48,7 @@
   <form id="f" method="dialog" novalidate>
     <h2>Registrar conteo</h2>
     <p class="ayuda" style="margin:0 0 12px">Cargá lo que contaste. Si no coincide con el sistema, se asienta un ajuste por la diferencia.</p>
+    <div id="escConteo" style="margin:0 0 12px"></div>
     <div class="fila"><label>Producto *<select name="producto_id" required></select></label></div>
     <div class="fila"><label>Ubicación *<select name="ubicacion_id" required></select></label></div>
     <div class="fila" id="filaLote">
@@ -106,11 +107,12 @@ async function cargar() {
       if ($('#fvence').value !== '') p.set('vence_dias', $('#fvence').value);
       const { stock } = await api('stock?' + p);
       filas($('#tDetalle'), stock, r => el('tr', { className: r.cantidad.startsWith('-') ? 'neg' : '' },
-        td(r.producto), td(r.lote || el('span', { className: 'mut', textContent: 'sin lote' })),
+        td(r.producto), td(r.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + r.lote_id, textContent: r.lote }) : el('span', { className: 'mut', textContent: 'sin lote' })),
         el('td', {}, fecha(r.vencimiento), ' ', tagVence(r.vencimiento)),
         td(r.almacen), td(r.ubicacion), td(cant(r.cantidad, r.unidad_base), 'num'),
         el('td', {}, el('button', { className: 'chico', textContent: 'Contar',
-          onclick: () => abrirConteo({ producto_id: r.producto_id, ubicacion_id: r.ubicacion_id, lote_id: r.lote_id }) }))),
+          onclick: () => abrirConteo({ producto_id: r.producto_id, ubicacion_id: r.ubicacion_id, lote_id: r.lote_id }) }),
+          r.lote_id ? el('a', { className: 'chico', href: 'etiquetas.html?lote=' + r.lote_id, textContent: ' Etiquetas' }) : '')),
         'No hay stock que coincida.', 7);
     } else {
       const { ajustes } = await api('ajustes');
@@ -161,6 +163,22 @@ async function abrirConteo(pre = {}) {
   $('#dlg').showModal();
 }
 $('#contar').onclick = () => abrirConteo();
+
+// Escanear en el conteo: elige producto y lote. Un lote leído que no existe se prepara como lote
+// nuevo con el código y el vencimiento de la etiqueta.
+$('#escConteo').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está cargado en ningún producto.`);
+  f.producto_id.value = d.producto.id;
+  await alCambiarProducto(d.lote && d.lote.id);
+  const p = prodSel();
+  if (p && p.perecedero && !d.lote && d.lectura.lote) {
+    f.lote_id.value = 'nuevo'; await alCambiarLote();
+    f.lote_codigo.value = d.lectura.lote; f.lote_vencimiento.value = d.lectura.vencimiento || '';
+  }
+  if (d.presentacion) { f.unidad.value = p.unidad_base; }
+  msg(describirLectura(d), 'ok', '#msgDlg');
+  f.contada.focus();
+}, { placeholder: 'Escanear producto o lote' }));
 $('#cerrar').onclick = () => $('#dlg').close();
 f.onsubmit = async e => {
   e.preventDefault();

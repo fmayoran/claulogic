@@ -93,7 +93,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 const SECCIONES = [
   ['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
   ['compras.html', 'Compras'], ['produccion.html', 'Producción'], ['recetas.html', 'Recetas'],
-  ['frio.html', 'Frío'], ['productos.html', 'Productos'], ['almacenes.html', 'Almacenes'],
+  ['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['productos.html', 'Productos'], ['almacenes.html', 'Almacenes'],
   ['proveedores.html', 'Proveedores'], ['unidades.html', 'Unidades'],
 ];
 function encabezado() {
@@ -123,4 +123,101 @@ function opcionesUbicacion(select, almacenes, valor, vacio = 'Elegir…', filtro
 function unidadesCompatibles(unidades, base) {
   const mag = (unidades.find(u => u.codigo === base) || {}).magnitud;
   return unidades.filter(u => u.magnitud === mag);
+}
+
+// ── Lectura de códigos ───────────────────────────────────────────────────────────────────────
+// Un campo que acepta lo que manda un lector USB o Bluetooth (tipea el código y un Enter) y un
+// botón para leer con la cámara. Lo leído se interpreta en el servidor (/api/gs1/leer), que
+// devuelve producto, presentación, lote y vencimiento según lo que traiga el código.
+//
+// El separador GS1 (GS) no es un carácter que se pueda tipear: los lectores en modo teclado lo
+// mandan como Ctrl+]. Se lo captura y se lo inserta, porque sin él no se pueden separar dos
+// campos de largo variable seguidos.
+function escaner(onLeido, { placeholder = 'Escanear o tipear código (GTIN, SKU, lote)' } = {}) {
+  const input = el('input', { type: 'text', placeholder, autocomplete: 'off', spellcheck: false });
+  const aviso = el('span', { className: 'msg' });
+  const camara = el('button', { type: 'button', textContent: 'Cámara', title: 'Leer con la cámara' });
+  const caja = el('div', { className: 'escaner' }, el('div', { className: 'con-boton' }, input, camara), aviso);
+
+  async function procesar(codigo) {
+    if (!codigo.trim()) return;
+    aviso.textContent = 'Leyendo…'; aviso.className = 'msg';
+    try {
+      const d = await api('gs1/leer?codigo=' + encodeURIComponent(codigo));
+      aviso.textContent = ''; input.value = '';
+      await onLeido(d);
+    } catch (e) { aviso.textContent = e.message; aviso.className = 'msg mal'; input.select(); }
+  }
+  input.addEventListener('keydown', e => {
+    if (e.ctrlKey && (e.key === ']' || e.code === 'BracketRight')) {
+      e.preventDefault();
+      const i = input.selectionStart;
+      input.value = input.value.slice(0, i) + '\x1d' + input.value.slice(input.selectionEnd);
+      input.selectionStart = input.selectionEnd = i + 1;
+    } else if (e.key === 'Enter') { e.preventDefault(); procesar(input.value); }
+  });
+  camara.onclick = () => leerConCamara(procesar).catch(e => { aviso.textContent = e.message; aviso.className = 'msg mal'; });
+  caja.input = input;
+  return caja;
+}
+
+// Cámara: BarcodeDetector donde el navegador lo trae (Chrome en Android, macOS); si no, zxing,
+// que se sirve desde la propia app. Se pide la cámara trasera.
+let _zxing;
+async function leerConCamara(onCodigo) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    throw new Error('Este navegador no da acceso a la cámara (hace falta https).');
+  const video = el('video', { playsInline: true, muted: true, style: 'width:100%;border-radius:8px;background:#000' });
+  const estado = el('p', { className: 'ayuda', textContent: 'Apuntá al código…' });
+  const cerrar = el('button', { type: 'button', textContent: 'Cancelar' });
+  const dlg = el('dialog', {}, el('h2', { textContent: 'Leer con la cámara' }), video, estado,
+    el('div', { className: 'acciones' }, cerrar));
+  document.body.append(dlg); dlg.showModal();
+  let detener = () => {};
+  const fin = () => { detener(); dlg.close(); dlg.remove(); };
+  cerrar.onclick = fin; dlg.addEventListener('cancel', fin);
+  const listo = texto => { fin(); onCodigo(texto); };
+
+  try {
+    const formatos = ['qr_code', 'data_matrix', 'ean_13', 'ean_8', 'upc_a', 'code_128', 'itf'];
+    const nativo = 'BarcodeDetector' in window &&
+      (await BarcodeDetector.getSupportedFormats()).some(f => formatos.includes(f));
+    if (nativo) {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream; await video.play();
+      const det = new BarcodeDetector({ formats: (await BarcodeDetector.getSupportedFormats()).filter(f => formatos.includes(f)) });
+      let vivo = true;
+      detener = () => { vivo = false; stream.getTracks().forEach(t => t.stop()); };
+      (async function ciclo() {
+        while (vivo) {
+          try { const r = await det.detect(video); if (r.length) return listo(r[0].rawValue); } catch {}
+          await new Promise(res => setTimeout(res, 200));
+        }
+      })();
+    } else {
+      if (!_zxing) _zxing = new Promise((res, rej) => {
+        const sc = el('script', { src: 'vendor/zxing/index.min.js', onload: res, onerror: () => rej(new Error('No se pudo cargar el lector.')) });
+        document.head.append(sc);
+      });
+      await _zxing;
+      const lector = new ZXing.BrowserMultiFormatReader();
+      detener = () => lector.reset();
+      await lector.decodeFromConstraints({ video: { facingMode: 'environment' } }, video, r => { if (r) listo(r.getText()); });
+    }
+  } catch (e) {
+    fin();
+    throw new Error(e && e.name === 'NotAllowedError' ? 'No se dio permiso para usar la cámara.' : 'No se pudo abrir la cámara: ' + (e.message || e));
+  }
+}
+
+// Describe una lectura en una línea, para avisar qué se reconoció.
+function describirLectura(d) {
+  if (d.desconocido) return `GTIN ${d.lectura.gtin} sin asignar a ningún producto.`;
+  const partes = [d.producto.nombre];
+  if (d.presentacion) partes.push(d.presentacion.nombre);
+  const lote = d.lote ? d.lote.codigo : d.lectura.lote;
+  if (lote) partes.push('lote ' + lote + (d.lote ? '' : ' (nuevo)'));
+  const venc = d.lote ? d.lote.vencimiento : d.lectura.vencimiento;
+  if (venc) partes.push('vence ' + fecha(venc));
+  return partes.join(' · ');
 }

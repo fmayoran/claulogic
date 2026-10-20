@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Trazabilidad · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .cab{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin:6px 0 18px;}
+  .cab .datos-lote{flex:1;min-width:240px;}
+  .cab dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:8px 0 0;}
+  .cab dt{color:var(--mut);font-size:.88rem;} .cab dd{margin:0;}
+  .secciones{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));margin-bottom:18px;}
+  .caja{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--panel);}
+  .caja h2{margin-bottom:6px;} .caja ul{margin:6px 0 0;padding-left:18px;} .caja li{margin:3px 0;}
+  #buscar{max-width:620px;margin:0 0 20px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Trazabilidad</h1>
+  <p class="sub">Escaneá la etiqueta de un lote (o la caja del proveedor) para ver de dónde vino, dónde está y en qué se usó.</p>
+  <div id="buscar"></div>
+  <div id="ficha" hidden></div>
+  <div id="lotesProducto" hidden></div>
+</main>
+<script src="comun.js"></script>
+<script>
+const TIPOS = { compra: 'Compra', produccion: 'Producción', consumo: 'Consumo', traslado: 'Traslado',
+  merma: 'Merma', vencimiento: 'Vencimiento', venta: 'Venta', ajuste: 'Ajuste' };
+const enlaceLote = (id, texto) => el('a', { href: 'trazabilidad.html?lote_id=' + id, textContent: texto });
+
+async function mostrarLote(id) {
+  const { lote: l } = await api('lotes/' + id);
+  history.replaceState(null, '', 'trazabilidad.html?lote_id=' + id);
+  $('#lotesProducto').hidden = true;
+  const f = $('#ficha'); f.hidden = false;
+  const u = l.unidad_base;
+  const origen = el('div', { className: 'caja' }, el('h2', { textContent: 'De dónde vino' }));
+  if (l.compra) origen.append(el('p', {}, `Compra a ${l.compra.proveedor}`, l.compra.numero ? `, remito ${l.compra.numero}` : '',
+    `, recibida el ${fechaHora(l.compra.recibida_en)}`));
+  if (l.produccion) {
+    origen.append(el('p', { textContent: `Producido con la receta "${l.produccion.receta}" el ${fechaHora(l.produccion.fecha)}, con:` }),
+      el('ul', {}, ...l.produccion.consumos.map(c => el('li', {}, `${cant(c.cantidad, c.unidad_base)} de ${c.producto}`,
+        c.lote_id ? el('span', {}, ' (lote ', enlaceLote(c.lote_id, c.lote), c.vencimiento ? `, vence ${fecha(c.vencimiento)}` : '', ')') : ''))));
+  }
+  if (!l.compra && !l.produccion) origen.append(el('p', { className: 'mut', textContent: 'Entró por un ajuste de stock (conteo), no por compra ni producción.' }));
+
+  const donde = el('div', { className: 'caja' }, el('h2', { textContent: 'Dónde está' }),
+    l.stock.length ? el('ul', {}, ...l.stock.map(s => el('li', {}, `${s.almacen} · ${s.ubicacion}: `, el('strong', { textContent: cant(s.cantidad, u) }))))
+      : el('p', { className: 'mut', textContent: 'No queda stock de este lote.' }));
+
+  const usos = el('div', { className: 'caja' }, el('h2', { textContent: 'En qué se usó' }),
+    l.usado_en.length ? el('ul', {}, ...l.usado_en.map(x => el('li', {}, `${cant(x.cantidad, u)} en "${x.receta}" el ${fechaHora(x.fecha)}`,
+      x.lote_id ? el('span', {}, ' → ', x.elaborado, ' lote ', enlaceLote(x.lote_id, x.lote)) : '')))
+      : el('p', { className: 'mut', textContent: 'Todavía no se usó en ninguna producción.' }));
+
+  const movs = el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos' },
+    el('thead', {}, el('tr', {}, ...['#', 'Fecha', 'Tipo', 'Cantidad', 'Desde', 'Hacia', 'Motivo'].map(t => el('th', { textContent: t })))),
+    el('tbody', {}, ...l.movimientos.map(m => el('tr', {},
+      td(m.id, 'mut'), td(fechaHora(m.ocurrido_en)),
+      el('td', {}, TIPOS[m.tipo] || m.tipo, m.anulado_por ? el('span', { className: 'tag mal', textContent: ' anulado' }) : ''),
+      td((m.sentido === 'entrada' ? '+' : m.sentido === 'salida' ? '−' : '') + cant(m.cantidad, u), 'num'),
+      td(m.origen ? `${m.origen_almacen} · ${m.origen}` : ''), td(m.destino ? `${m.destino_almacen} · ${m.destino}` : ''),
+      td([m.motivo, m.referencia].filter(Boolean).join(' · '), 'wrap'))))));
+
+  f.replaceChildren(
+    el('div', { className: 'cab' },
+      el('div', { className: 'datos-lote' },
+        el('h2', { style: 'font-size:1.3rem' }, `${l.nombre} · lote ${l.codigo} `, tagVence(l.vencimiento)),
+        el('dl', {},
+          el('dt', { textContent: 'SKU' }), el('dd', { textContent: l.sku }),
+          el('dt', { textContent: 'GTIN' }), el('dd', { textContent: l.gtin || '—' }),
+          el('dt', { textContent: 'Vencimiento' }), el('dd', { textContent: fecha(l.vencimiento) || 'sin vencimiento' }),
+          el('dt', { textContent: 'Proveedor' }), el('dd', { textContent: l.proveedor || '—' }),
+          el('dt', { textContent: 'Alta del lote' }), el('dd', { textContent: fechaHora(l.recibido_en) }))),
+      el('a', { href: `etiquetas.html?lote=${l.id}`, className: 'tarjeta', style: 'flex:none' }, 'Imprimir etiquetas')),
+    el('div', { className: 'secciones' }, origen, donde, usos),
+    el('h2', { textContent: 'Movimientos del lote' }), movs);
+}
+
+// Un código de producto sin lote: se listan sus lotes para elegir.
+async function mostrarProducto(productoId, nombre, unidad) {
+  const { lotes } = await api('lotes?producto=' + productoId);
+  $('#ficha').hidden = true;
+  const c = $('#lotesProducto'); c.hidden = false;
+  c.replaceChildren(el('h2', { textContent: `Lotes de ${nombre}` }),
+    lotes.length ? el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos' },
+      el('thead', {}, el('tr', {}, el('th', { textContent: 'Lote' }), el('th', { textContent: 'Vence' }), el('th', { className: 'num', textContent: 'Queda' }))),
+      el('tbody', {}, ...lotes.map(l => { const tr = el('tr', { className: 'clic' }, td(l.codigo), el('td', {}, fecha(l.vencimiento), ' ', tagVence(l.vencimiento)), td(unidad ? cant(l.cantidad, unidad) : num(l.cantidad), 'num')); tr.onclick = () => mostrarLote(l.id); return tr; }))))
+      : el('p', { className: 'mut', textContent: 'Este producto no maneja lotes o todavía no tiene ninguno.' }));
+}
+
+async function alLeer(d) {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está asignado a ningún producto.`);
+  if (d.lote) return mostrarLote(d.lote.id);
+  if (d.lectura.lote) throw new Error(`${d.producto.nombre}: el lote ${d.lectura.lote} no está registrado.`);
+  return mostrarProducto(d.producto.id, d.producto.nombre, d.producto.unidad_base);
+}
+
+const esc = escaner(d => alLeer(d).catch(e => msgEsc(e.message)));
+const msgEsc = t => { const m = esc.querySelector('.msg'); m.textContent = t; m.className = 'msg mal'; };
+$('#buscar').append(esc);
+
+(async () => {
+  const q = new URLSearchParams(location.search);
+  try {
+    if (q.get('lote_id')) await mostrarLote(q.get('lote_id'));
+    else if (q.get('gtin')) {
+      // Llegó desde un QR GS1 Digital Link.
+      const r = await api('lotes/buscar?' + new URLSearchParams({ gtin: q.get('gtin'), lote: q.get('lote') || '' }));
+      if (r.lote_id) await mostrarLote(r.lote_id);
+      else if (q.get('lote')) msgEsc(`${r.producto}: el lote ${q.get('lote')} no está registrado.`);
+      else await mostrarProducto(r.producto_id, r.producto, r.unidad_base);
+    } else esc.input.focus();
+  } catch (e) { msgEsc(e.message); }
+})();
+</script>
+</body>
+</html>

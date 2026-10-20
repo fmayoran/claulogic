@@ -35,7 +35,7 @@ r.get('/compras/:id', h(async (req, res) => {
             ${enRef('ci.costo_base')} AS costo_compra, ${enRef('p.costo_base')} AS costo_vigente,
             CASE WHEN p.costo_base > 0 AND ci.costo_base IS NOT NULL
                  THEN round((ci.costo_base / p.costo_base - 1) * 100, 1)::text END AS variacion_pct,
-            ci.costo_decision, l.codigo AS lote, l.vencimiento, u.nombre AS ubicacion
+            ci.costo_decision, l.id AS lote_id, l.codigo AS lote, l.vencimiento, u.nombre AS ubicacion
        FROM logic.compra_item ci
        JOIN logic.producto p ON p.id = ci.producto_id
        LEFT JOIN logic.presentacion pres ON pres.id = ci.presentacion_id

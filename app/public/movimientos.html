@@ -39,6 +39,7 @@
         <option value="vencimiento">Vencimiento</option><option value="venta">Venta</option>
         <option value="traslado">Traslado</option></select></label>
     </div>
+    <div id="escMov" style="margin:0 0 12px"></div>
     <div class="fila"><label>Producto *<select name="producto_id"></select></label></div>
     <div class="fila"><label>Desde *<select name="origen_id"></select></label></div>
     <div class="fila" id="filaLote"><label>Lote *<select name="lote_id"></select></label></div>
@@ -138,6 +139,20 @@ $('#nuevo').onclick = async () => {
   $('#dlg').showModal();
 };
 $('#cerrar').onclick = () => $('#dlg').close();
+
+// Escanear en el egreso: elige el producto y, si el origen ya está elegido, el lote leído.
+$('#escMov').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está cargado en ningún producto.`);
+  f.producto_id.value = d.producto.id;
+  await alCambiarProducto();
+  if (d.lote) {
+    if (![...f.lote_id.options].some(o => o.value === d.lote.id))
+      throw new Error(`No hay stock del lote ${d.lote.codigo} en el origen elegido.`);
+    f.lote_id.value = d.lote.id; alCambiarLote();
+  }
+  msg(describirLectura(d), 'ok', '#msgDlg');
+  f.cantidad.focus();
+}, { placeholder: 'Escanear producto o lote' }));
 f.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(new FormData(f));

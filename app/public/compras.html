@@ -43,6 +43,7 @@
         </fieldset>
         <fieldset>
           <legend>Renglones</legend>
+          <div id="escEditar" style="max-width:520px;margin:0 0 10px"></div>
           <div style="overflow-x:auto"><table class="edit" id="items">
             <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th>Precio total</th><th></th></tr></thead>
             <tbody></tbody></table></div>
@@ -64,7 +65,8 @@
     <section id="vRecibir" hidden>
       <h1>Recibir compra <span id="rTitulo"></span></h1>
       <p class="sub">Por cada renglón: dónde se guarda, el lote y vencimiento si es perecedero, y si su costo reemplaza al vigente.</p>
-      <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label></div>
+      <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label><div id="escRecibir" style="flex:1;min-width:280px"></div></div>
+      <p class="ayuda">Escaneá el código de cada caja (GS1-128, DataMatrix o QR): el lote y el vencimiento se completan solos en el renglón del producto.</p>
       <div class="tabla-wrap"><table class="datos edit">
         <thead><tr><th>Producto</th><th class="num">Cantidad</th><th>Ubicación</th><th>Lote</th><th>Vence</th>
           <th class="num">Costo compra</th><th class="num">Vigente</th><th>Costo vigente</th></tr></thead>
@@ -138,8 +140,20 @@ async function filaItem(x = {}) {
              cantidad: cantidad.value, precio_total: precio.value };
   };
   $('#items tbody').append(tr);
+  return tr;
 }
 $('#agregar').onclick = () => filaItem();
+
+// Escanear al cargar: agrega el renglón con el producto y, si el código era de un empaque, esa
+// presentación. Si la última fila está vacía, se usa esa.
+$('#escEditar').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está cargado: asignalo a una presentación en Productos.`);
+  const ultima = $$('#items tbody tr').at(-1);
+  if (ultima && !ultima.leer().producto_id) ultima.remove();
+  const tr = await filaItem({ producto_id: d.producto.id, presentacion_id: d.presentacion && d.presentacion.id });
+  tr.querySelectorAll('input')[0].focus();
+  msg(describirLectura(d), 'ok');
+}, { placeholder: 'Escanear producto para agregar renglón' }));
 
 function botones(estado) {
   const editable = !estado || estado === 'borrador' || estado === 'pedida';
@@ -234,13 +248,14 @@ function abrirRecepcion() {
     }
     const varCls = it.variacion_pct == null ? '' : it.variacion_pct.startsWith('-') ? 'costo-baja' : 'costo-sube';
     const tr = el('tr', {},
-      td(it.producto), td(cant(it.cantidad_base, it.unidad_base), 'num'),
+      td(it.producto, 'wrap'), td(cant(it.cantidad_base, it.unidad_base), 'num'),
       el('td', {}, ubic), el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })),
       el('td', {}, it.perecedero ? venc : ''),
       el('td', { className: 'num' }, tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}` : '—',
         it.variacion_pct != null ? el('div', { className: varCls, textContent: (it.variacion_pct.startsWith('-') ? '' : '+') + num(it.variacion_pct) + '%' }) : ''),
       td(it.costo_vigente != null ? `${pesos(it.costo_vigente)}/${it.unidad_ref}` : 'sin costo', 'num'),
       el('td', {}, decision));
+    Object.assign(tr, { it, lote, venc });
     tr.leer = () => {
       const r = tr.querySelector(`input[name="${nombre}"]:checked`);
       return { id: it.id, ubicacion_id: ubic.value || null, lote_codigo: lote.value, vencimiento: venc.value,
@@ -250,6 +265,19 @@ function abrirRecepcion() {
   }, 'La compra no tiene renglones.', 8);
   vistaActiva('#vRecibir');
 }
+// Escanear en la recepción: el renglón del producto toma lote y vencimiento del código de la caja.
+$('#escRecibir').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El GTIN ${d.lectura.gtin} no está cargado en ningún producto.`);
+  const filas = $$('#rItems tr').filter(tr => tr.it && tr.it.producto_id === d.producto.id);
+  if (!filas.length) throw new Error(`${d.producto.nombre} no está en esta compra.`);
+  // Si hay varios renglones del mismo producto, el primero que no tenga lote cargado.
+  const tr = filas.find(t => !t.lote.value) || filas[0];
+  if (!tr.it.perecedero) { msg(`${d.producto.nombre}: no es perecedero, no lleva lote.`, 'ok', '#msgR'); return; }
+  if (d.lectura.lote) tr.lote.value = d.lectura.lote;
+  if (d.lectura.vencimiento) tr.venc.value = d.lectura.vencimiento;
+  tr.style.background = 'var(--ok-bg)';
+  msg(describirLectura(d), 'ok', '#msgR');
+}, { placeholder: 'Escanear caja del proveedor' }));
 $('#rUbic').onchange = () => { if ($('#rUbic').value) $$('#rItems select').forEach(s => s.value = $('#rUbic').value); };
 $('#rVolver').onclick = () => abrir(actual);
 $('#rConfirmar').onclick = async () => {
@@ -273,7 +301,9 @@ function verCompra() {
     td(it.producto), td(cant(it.cantidad_base, it.unidad_base), 'num'), td(pesos(it.precio_total), 'num'),
     td(it.costo_compra != null ? `${pesos(it.costo_compra)}/${it.unidad_ref}` : '', 'num'),
     td(it.costo_decision === 'actualizado' ? 'actualizó el vigente' : it.costo_decision === 'mantenido' ? 'mantuvo el vigente' : ''),
-    td(it.lote), td(fecha(it.vencimiento)), td(it.ubicacion)), 'Sin renglones.', 8);
+    el('td', {}, it.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + it.lote_id, textContent: it.lote }) : '',
+      it.lote_id ? el('a', { href: 'etiquetas.html?lote=' + it.lote_id, textContent: ' etiquetas', className: 'mut' }) : ''),
+    td(fecha(it.vencimiento)), td(it.ubicacion)), 'Sin renglones.', 8);
   vistaActiva('#vVer');
 }
 
