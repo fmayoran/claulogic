@@ -14,6 +14,30 @@ propio CLAUDE.md. Acá no se leen contextos de marca de ClaUsina ni se tocan sus
 compras, control de stock, ingresos y egresos de mercadería, control de cámaras de frío, control
 de almacenamiento, gestión de recetas y producción.
 
+### Alcance ampliado (decidido el 20/10/2026)
+Un **grupo gastronómico** con varios **locales** (puntos de venta) y gestión centralizada: la
+administración financiera (tesorería, compras, pago a proveedores) y la logística, que opera desde
+un **centro de abastecimiento y producción** (puede tener varios almacenes y varias unidades
+productivas). ClauLogic NO es un punto de venta: se **integra** con los POS para traer las ventas,
+por el lado financiero (cobros por medio de pago) y por el de consumo (artículo vendido → receta de
+venta → descuento teórico de stock).
+
+Decisiones de Fer:
+- **Varios POS distintos** entre locales: formato de importación propio + un adaptador por sistema.
+  La importación entra a una tabla de recepción idempotente (reimportar un cierre no duplica).
+- **Stock por local**: cada local tiene almacén; centro → local es un traslado con remito interno.
+  Ventas descuentan consumo teórico; los conteos del local dan la diferencia teórico vs. real.
+- **Una sola razón social** (si aparecen más, se agrega con migración a facturas, cuentas y pagos).
+- **Contabilidad afuera**: exportaciones para el sistema del contador, sin plan de cuentas propio.
+- Los saldos financieros (cuenta corriente de proveedores, cajas y bancos) **se derivan de un libro
+  mayor inmutable**, como el stock.
+- Esquemas por área: `org` (sedes, usuarios), `logic` (lo existente), `fin` (proveedores, cuentas a
+  pagar, tesorería), `pos` (importación de ventas).
+
+Fases: 0 autenticación y permisos por sede → 1 sedes, almacenes por sede, unidades productivas,
+traslados → 2 facturas de proveedor y cuenta corriente → 3 tesorería (pagos, retenciones,
+conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs. real, flujo de caja).
+
 ### Las cuatro decisiones del modelo (no las deshagas sin entender por qué están)
 
 1. **El stock NO se guarda: se deriva.** No hay ninguna columna `cantidad_actual`. El stock sale
