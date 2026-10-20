@@ -23,6 +23,8 @@ app.get('/salud', async (req, res) => {
   }
 });
 
+app.use('/api', require('./productos'));
+
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
 // Errores sin atrapar: se registran enteros del lado del servidor y al cliente le va un mensaje

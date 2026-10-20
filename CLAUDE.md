@@ -45,10 +45,22 @@ de almacenamiento, gestión de recetas y producción.
 - Una **cámara, heladera o freezer no se puede dar de alta sin rango de temperatura**: sin eso no
   hay contra qué comparar y el control de frío no existe.
 
-### Lo que falta
-Pantallas (no hay ninguna todavía, sólo el esqueleto y `/salud`), recibir una compra generando los
-movimientos, producir una receta (consumir ingredientes por lote + dar de alta el elaborado), FEFO
-en la sugerencia de qué lote usar, y lectura de sensores de temperatura.
+- Todo producto pertenece a una **categoría**; toda ubicación (heladera, cámara) a un **almacén**.
+- Un **ajuste** no escribe el stock: se registra lo contado y `logic.ajustar_stock` asienta el
+  movimiento por la diferencia. El conteo queda en `logic.ajuste` aunque la diferencia sea cero.
+- El **costo vigente** sí se guarda (`producto.costo_base`, por unidad base): actualizarlo es una
+  decisión al recibir la compra (`compra_item.costo_decision`). Cada cambio lo asienta un trigger
+  en `logic.costo_historial`, inmutable.
+- El **stock puede quedar negativo** por ahora: decisión de Fer (20/10/2026), a revisar.
+
+### Lo que hay y lo que falta
+Hay: pantalla de productos (`/productos.html`, API en `app/productos.js`).
+
+Falta: **autenticación** (la app está publicada sin login; sin datos reales hasta que la tenga, y
+`registrado_por` queda vacío), pantallas de almacenes, ajustes e histórico, recibir una compra
+generando los movimientos y decidiendo el costo, producir una receta (consumir ingredientes por
+lote + dar de alta el elaborado), FEFO en la sugerencia de qué lote usar, y lectura de sensores de
+temperatura.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

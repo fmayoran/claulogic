@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Productos · ClauLogic</title>
+<style>
+  :root{color-scheme:light dark;--fg:#16161a;--mut:#6e6a62;--line:#e4e0d8;--bg:#faf9f6;--panel:#fff;
+    --acento:#2f5d50;--acento-fg:#fff;--mal:#b3261e;--sel:#eef3f0;}
+  @media (prefers-color-scheme:dark){:root{--fg:#f3f1ec;--mut:#95918a;--line:#2a2a26;--bg:#0f0f0e;
+    --panel:#171715;--acento:#7fb8a4;--acento-fg:#0f0f0e;--mal:#f2867d;--sel:#1f2a26;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{display:flex;align-items:baseline;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);}
+  header a{color:var(--mut);text-decoration:none;font-weight:600;}
+  header h1{font-size:1.15rem;margin:0;}
+  .grid{display:grid;grid-template-columns:minmax(280px,360px) 1fr;min-height:calc(100dvh - 53px);}
+  aside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;}
+  .filtros{padding:14px;display:grid;gap:8px;border-bottom:1px solid var(--line);}
+  .lista{overflow:auto;flex:1;}
+  .item{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);
+    padding:10px 14px;color:inherit;font:inherit;cursor:pointer;}
+  .item:hover{background:var(--sel);} .item.sel{background:var(--sel);box-shadow:inset 3px 0 var(--acento);}
+  .item .n{font-weight:600;} .item .m{color:var(--mut);font-size:.85rem;}
+  .item.inactivo .n{text-decoration:line-through;color:var(--mut);}
+  .vacio{color:var(--mut);padding:18px 14px;}
+  main{padding:20px 24px 60px;max-width:860px;}
+  h2{font-size:1.3rem;margin:0 0 4px;} .sub{color:var(--mut);margin:0 0 18px;}
+  fieldset{border:1px solid var(--line);border-radius:10px;padding:14px 16px 16px;margin:0 0 16px;background:var(--panel);}
+  legend{padding:0 6px;font-weight:600;font-size:.9rem;}
+  .fila{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));}
+  label{display:grid;gap:4px;font-size:.85rem;color:var(--mut);}
+  label.check{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:.95rem;}
+  input,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:7px;
+    padding:7px 9px;min-width:0;width:100%;}
+  input[type=checkbox],input[type=radio]{width:auto;}
+  input:focus,select:focus{outline:2px solid var(--acento);outline-offset:-1px;}
+  .con-boton{display:flex;gap:6px;}
+  button{font:inherit;cursor:pointer;border-radius:7px;padding:7px 12px;border:1px solid var(--line);
+    background:var(--panel);color:inherit;}
+  button.prim{background:var(--acento);color:var(--acento-fg);border-color:var(--acento);font-weight:600;}
+  button.chico{padding:4px 9px;font-size:.85rem;}
+  button:disabled{opacity:.6;cursor:default;}
+  table{width:100%;border-collapse:collapse;}
+  th{font-size:.8rem;color:var(--mut);font-weight:500;text-align:left;padding:0 6px 4px;}
+  td{padding:4px 6px;vertical-align:middle;}
+  .ayuda{color:var(--mut);font-size:.82rem;margin:6px 0 0;}
+  .acciones{display:flex;gap:10px;align-items:center;position:sticky;bottom:0;background:var(--bg);
+    padding:12px 0;border-top:1px solid var(--line);}
+  .msg{font-size:.9rem;} .msg.mal{color:var(--mal);} .msg.ok{color:var(--acento);}
+  .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
+  [hidden]{display:none!important;}
+  @media (max-width:760px){
+    .grid{grid-template-columns:1fr;} aside{border-right:0;border-bottom:1px solid var(--line);}
+    .lista{max-height:40dvh;} main{padding:16px;}
+  }
+</style>
+</head>
+<body>
+<header><a href="./">ClauLogic</a><h1>Productos</h1></header>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <input id="q" type="search" placeholder="Buscar por nombre o código" autocomplete="off">
+      <select id="fcat"><option value="">Todas las categorías</option></select>
+      <label class="check"><input id="finact" type="checkbox"> Mostrar inactivos</label>
+      <button class="prim" id="nuevo">Nuevo producto</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+
+  <main>
+    <h2 id="titulo">Nuevo producto</h2>
+    <p class="sub" id="subtitulo">Los campos con * son obligatorios.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Identificación</legend>
+        <div class="fila">
+          <label>Código *<input name="codigo" required maxlength="40" autocomplete="off"></label>
+          <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
+        </div>
+        <div class="fila" style="margin-top:12px">
+          <label>Categoría *
+            <span class="con-boton">
+              <select name="categoria_id" required></select>
+              <button type="button" class="chico" id="catNueva">Nueva</button>
+            </span>
+          </label>
+          <label id="catAlta" hidden>Nombre de la categoría nueva
+            <span class="con-boton">
+              <input id="catNombre" maxlength="60">
+              <button type="button" class="chico prim" id="catGuardar">Crear</button>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Medida</legend>
+        <div class="fila">
+          <label>Unidad base *<select name="unidad_base" required></select></label>
+        </div>
+        <p class="ayuda" id="ayudaBase">Todo el stock, las recetas y los movimientos se llevan en esta unidad.
+          Para masa conviene gramos y para volumen mililitros: las recetas se escriben así.</p>
+        <h3 style="font-size:.95rem;margin:16px 0 6px">Presentaciones de compra</h3>
+        <table id="pres">
+          <thead><tr><th>Nombre</th><th>Contiene</th><th>Unidad</th><th>Habitual</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <button type="button" class="chico" id="presAgregar" style="margin-top:8px">Agregar presentación</button>
+        <p class="ayuda">Cómo se compra: "caja x6" que contiene 6 kg. Se guarda convertido a la unidad base.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Conservación</legend>
+        <label class="check"><input type="checkbox" name="perecedero" checked> Perecedero (se maneja por lote con vencimiento)</label>
+        <div class="fila" style="margin-top:12px">
+          <label>Vida útil (días)<input name="vida_util_dias" inputmode="numeric"></label>
+          <label>Temperatura mínima (°C)<input name="temp_min" inputmode="decimal"></label>
+          <label>Temperatura máxima (°C)<input name="temp_max" inputmode="decimal"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Stock y costo</legend>
+        <div class="fila">
+          <label><span>Stock mínimo (<span class="ub">unidad base</span>)</span><input name="stock_minimo" inputmode="decimal"></label>
+          <label>Costo
+            <span class="con-boton">
+              <input name="costo" inputmode="decimal" placeholder="0">
+              <select name="costo_unidad" style="width:auto;flex:none"></select>
+            </span>
+          </label>
+        </div>
+        <p class="ayuda">Al recibir compras se compara el costo de la compra con éste y se decide si se actualiza.</p>
+        <div id="histCostos" hidden>
+          <h3 style="font-size:.95rem;margin:14px 0 4px">Últimos cambios de costo</h3>
+          <table class="hist"><tbody></tbody></table>
+        </div>
+        <label class="check" style="margin-top:12px" id="activoWrap" hidden><input type="checkbox" name="activo" checked> Activo</label>
+      </fieldset>
+
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <button type="button" id="cancelar">Descartar cambios</button>
+        <span class="msg" id="msg" role="status"></span>
+      </div>
+    </form>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const f = $('#f');
+let unidades = [], categorias = [], actual = null, sucio = false;
+
+async function api(url, opt = {}) {
+  const r = await fetch('api/' + url, {
+    ...opt, headers: { 'content-type': 'application/json' },
+    body: opt.body ? JSON.stringify(opt.body) : undefined,
+  });
+  const d = await r.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor.' }));
+  if (!d.ok) throw new Error(d.error || 'Error del servidor.');
+  return d;
+}
+function el(tag, props = {}, ...hijos) {
+  const e = Object.assign(document.createElement(tag), props);
+  for (const h of hijos) e.append(h);
+  return e;
+}
+function msg(t, tipo = '') { const m = $('#msg'); m.textContent = t; m.className = 'msg ' + tipo; }
+// Los números se muestran con coma decimal, como se escriben acá; la API acepta los dos.
+const coma = v => v == null ? '' : String(v).replace('.', ',');
+const magnitudDe = cod => (unidades.find(u => u.codigo === cod) || {}).magnitud;
+const compatibles = cod => unidades.filter(u => u.magnitud === magnitudDe(cod));
+
+function opciones(select, items, valor, vacio) {
+  select.replaceChildren(...(vacio ? [el('option', { value: '', textContent: vacio })] : []),
+    ...items.map(([v, t]) => el('option', { value: v, textContent: t })));
+  if (valor != null) select.value = valor;
+}
+
+// ── Lista ──
+async function cargarLista() {
+  const p = new URLSearchParams();
+  if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
+  if ($('#fcat').value) p.set('categoria', $('#fcat').value);
+  if ($('#finact').checked) p.set('inactivos', '1');
+  const { productos } = await api('productos?' + p);
+  const lista = $('#lista');
+  if (!productos.length) return lista.replaceChildren(el('p', { className: 'vacio',
+    textContent: p.toString() ? 'Ningún producto coincide.' : 'Todavía no hay productos. Cargá el primero.' }));
+  lista.replaceChildren(...productos.map(x => {
+    const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: x.nombre }),
+      el('div', { className: 'm', textContent:
+        `${x.codigo} · ${x.categoria} · stock ${coma(x.stock)} ${x.unidad_base}` +
+        (x.costo != null ? ` · $${coma(x.costo)}/${x.costo_unidad}` : '') }));
+    b.onclick = () => abrir(x.id);
+    return b;
+  }));
+}
+
+// ── Categorías ──
+async function cargarCategorias(seleccionar) {
+  ({ categorias } = await api('categorias'));
+  const activas = categorias.filter(c => c.activa).map(c => [c.id, c.nombre]);
+  opciones(f.categoria_id, activas, seleccionar ?? f.categoria_id.value, 'Elegir…');
+  opciones($('#fcat'), categorias.map(c => [c.id, `${c.nombre} (${c.productos})`]), $('#fcat').value, 'Todas las categorías');
+}
+$('#catNueva').onclick = () => { $('#catAlta').hidden = false; $('#catNombre').focus(); };
+$('#catGuardar').onclick = async () => {
+  try {
+    const { categoria } = await api('categorias', { method: 'POST', body: { nombre: $('#catNombre').value } });
+    await cargarCategorias(categoria.id);
+    $('#catNombre').value = ''; $('#catAlta').hidden = true; msg('');
+  } catch (e) { msg(e.message, 'mal'); }
+};
+$('#catNombre').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#catGuardar').click(); } };
+
+// ── Unidades y presentaciones ──
+function alCambiarBase(costoUnidad) {
+  const base = f.unidad_base.value;
+  document.querySelectorAll('.ub').forEach(s => s.textContent = base || 'unidad base');
+  const comp = compatibles(base).map(u => [u.codigo, u.codigo]);
+  // El costo se carga por la unidad mayor (kg, l, u): "$1.200 el kilo" y no "$1,2 el gramo".
+  const mayor = compatibles(base).at(-1);
+  opciones(f.costo_unidad, comp.map(([c]) => [c, 'por ' + c]), costoUnidad || (mayor && mayor.codigo));
+  for (const sel of document.querySelectorAll('#pres select')) {
+    const v = sel.value;
+    opciones(sel, comp, compatibles(base).some(u => u.codigo === v) ? v : base);
+  }
+}
+function filaPres(p = {}) {
+  const unidad = el('select');
+  const tr = el('tr', {},
+    el('td', {}, el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
+    el('td', {}, el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
+    el('td', {}, unidad),
+    el('td', {}, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default })),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
+      onclick: () => { tr.remove(); sucio = true; } })));
+  tr.dataset.id = p.id || '';
+  // Una presentación guardada viene en la unidad base: si después cambia la base, la fila sigue
+  // diciendo "6000 g" y el servidor la convierte bien.
+  opciones(unidad, compatibles(f.unidad_base.value).map(u => [u.codigo, u.codigo]), p.id ? p.unidad : f.unidad_base.value);
+  $('#pres tbody').append(tr);
+}
+$('#presAgregar').onclick = () => { filaPres(); sucio = true; };
+f.unidad_base.onchange = () => alCambiarBase();
+
+// ── Formulario ──
+function limpiar() {
+  actual = null; sucio = false; f.reset();
+  $('#titulo').textContent = 'Nuevo producto';
+  $('#subtitulo').textContent = 'Los campos con * son obligatorios.';
+  $('#pres tbody').replaceChildren();
+  $('#histCostos').hidden = true; $('#activoWrap').hidden = true;
+  f.unidad_base.disabled = false;
+  f.unidad_base.value = 'g'; alCambiarBase();
+  msg('');
+  document.querySelectorAll('.item.sel').forEach(i => i.classList.remove('sel'));
+  f.codigo.focus();
+}
+async function abrir(id) {
+  if (sucio && !confirm('Hay cambios sin guardar. ¿Descartarlos?')) return;
+  try {
+    const { producto: p } = await api('productos/' + id);
+    actual = p.id; sucio = false;
+    $('#titulo').textContent = p.nombre;
+    $('#subtitulo').textContent = p.codigo + (p.activo ? '' : ' · inactivo');
+    for (const k of ['codigo', 'nombre', 'vida_util_dias', 'temp_min', 'temp_max', 'stock_minimo', 'costo'])
+      f[k].value = coma(p[k]);
+    if (!categorias.some(c => c.id === p.categoria_id && c.activa)) await cargarCategorias();
+    f.categoria_id.value = p.categoria_id;
+    f.unidad_base.value = p.unidad_base;
+    // Con movimientos, la base rechaza el cambio de unidad: mejor no ofrecerlo.
+    f.unidad_base.disabled = p.tiene_movimientos;
+    f.perecedero.checked = p.perecedero; f.activo.checked = p.activo;
+    $('#activoWrap').hidden = false;
+    $('#pres tbody').replaceChildren();
+    alCambiarBase(p.costo_unidad);
+    for (const x of p.presentaciones) filaPres({ ...x, unidad: p.unidad_base });
+    const hist = $('#histCostos tbody');
+    hist.replaceChildren(...p.costos.map(c => el('tr', {},
+      el('td', { textContent: new Date(c.cambiado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) }),
+      el('td', { textContent: (c.costo_anterior != null ? '$' + coma(c.costo_anterior) + ' → ' : '') +
+        (c.costo_nuevo != null ? '$' + coma(c.costo_nuevo) : 'sin costo') + '/' + p.costo_unidad }),
+      el('td', { textContent: c.origen + (c.registrado_por ? ' · ' + c.registrado_por : '') }))));
+    $('#histCostos').hidden = !p.costos.length;
+    msg('');
+    document.querySelectorAll('.item').forEach(i => i.classList.remove('sel'));
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+function leer() {
+  return {
+    codigo: f.codigo.value, nombre: f.nombre.value, categoria_id: f.categoria_id.value,
+    unidad_base: f.unidad_base.value, perecedero: f.perecedero.checked,
+    vida_util_dias: f.vida_util_dias.value, temp_min: f.temp_min.value, temp_max: f.temp_max.value,
+    stock_minimo: f.stock_minimo.value, costo: f.costo.value, costo_unidad: f.costo_unidad.value,
+    activo: actual ? f.activo.checked : true,
+    presentaciones: [...document.querySelectorAll('#pres tbody tr')].map(tr => ({
+      id: tr.dataset.id || null, nombre: tr.querySelector('.pn').value,
+      cantidad: tr.querySelector('.pc').value, unidad: tr.querySelector('select').value,
+      es_default: tr.querySelector('input[type=radio]').checked,
+    })),
+  };
+}
+f.oninput = () => { sucio = true; };
+f.onsubmit = async e => {
+  e.preventDefault();
+  const b = $('#guardar'); b.disabled = true; msg('Guardando…');
+  try {
+    const d = await api(actual ? 'productos/' + actual : 'productos',
+      { method: actual ? 'PUT' : 'POST', body: leer() });
+    sucio = false;
+    await abrir(d.id);
+    msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { b.disabled = false; }
+};
+$('#cancelar').onclick = () => { sucio = false; actual ? abrir(actual) : limpiar(); };
+$('#nuevo').onclick = () => { if (!sucio || confirm('Hay cambios sin guardar. ¿Descartarlos?')) limpiar(); };
+
+let t;
+$('#q').oninput = () => { clearTimeout(t); t = setTimeout(() => cargarLista().catch(e => msg(e.message, 'mal')), 250); };
+$('#fcat').onchange = $('#finact').onchange = () => cargarLista().catch(e => msg(e.message, 'mal'));
+addEventListener('beforeunload', e => { if (sucio) e.preventDefault(); });
+
+(async () => {
+  try {
+    ({ unidades } = await api('unidades'));
+    opciones(f.unidad_base, unidades.map(u => [u.codigo, `${u.nombre} (${u.codigo})`]));
+    await cargarCategorias();
+    limpiar();
+    await cargarLista();
+  } catch (e) { msg('No se pudo cargar: ' + e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>
