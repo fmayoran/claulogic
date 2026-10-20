@@ -53,14 +53,25 @@ de almacenamiento, gestión de recetas y producción.
   en `logic.costo_historial`, inmutable.
 - El **stock puede quedar negativo** por ahora: decisión de Fer (20/10/2026), a revisar.
 
+- Las **compras recibidas** no se editan ni se borran, y sus movimientos (como los de una
+  producción) no se anulan sueltos. Recibir crea lote sólo para perecederos; los no perecederos se
+  mueven sin lote.
+- **Producir** recalcula el plan FEFO adentro de la transacción con los ingredientes bloqueados
+  (`logic.bloquear_stock`) y no produce si algo no alcanza. La merma de la receta se suma sobre la
+  cantidad neta: neto / (1 - merma).
+- Las **unidades del sistema** (g, kg, ml, l, u) no cambian de equivalencia; las demás tampoco si
+  son base de algún producto. La de **referencia** (una por magnitud) es la que muestra costos.
+- La conexión fija la zona horaria en `America/Argentina/Buenos_Aires`: "hoy" es el de la cocina.
+
 ### Lo que hay y lo que falta
-Hay: pantalla de productos (`/productos.html`, API en `app/productos.js`).
+Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
+recepción y decisión de costo, recetas, producción con FEFO y trazabilidad, frío, productos,
+almacenes, proveedores y unidades. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
+en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
 Falta: **autenticación** (la app está publicada sin login; sin datos reales hasta que la tenga, y
-`registrado_por` queda vacío), pantallas de almacenes, ajustes e histórico, recibir una compra
-generando los movimientos y decidiendo el costo, producir una receta (consumir ingredientes por
-lote + dar de alta el elaborado), FEFO en la sugerencia de qué lote usar, y lectura de sensores de
-temperatura.
+`registrado_por` queda vacío), recepción parcial de compras, anular una compra recibida o una
+producción entera, y lectura de sensores de temperatura.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

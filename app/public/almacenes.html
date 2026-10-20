@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Almacenes · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros"><button class="prim" id="nuevo">Nuevo almacén</button></div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nuevo almacén</h1>
+    <p class="sub">El almacén es el lugar físico; adentro están las ubicaciones: heladeras, cámaras, estanterías.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Almacén</legend>
+        <div class="fila">
+          <label>Nombre *<input name="nombre" maxlength="80"></label>
+          <label>Dirección<input name="direccion"></label>
+        </div>
+        <div class="fila"><label>Notas<input name="notas"></label></div>
+        <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+
+    <section id="secUbic" hidden>
+      <h2 style="margin-top:20px">Ubicaciones</h2>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>Rango</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tUbic"></tbody></table></div>
+      <button class="chico" id="nuevaUbic" style="margin-top:8px">Agregar ubicación</button>
+    </section>
+  </main>
+</div>
+
+<dialog id="dlg">
+  <form id="fu" novalidate>
+    <h2 id="uTitulo">Nueva ubicación</h2>
+    <div class="fila">
+      <label>Nombre *<input name="nombre" maxlength="80"></label>
+      <label>Tipo *<select name="tipo"></select></label>
+    </div>
+    <div class="fila">
+      <label>Temperatura mínima (°C)<input name="temp_min" inputmode="decimal"></label>
+      <label>Temperatura máxima (°C)<input name="temp_max" inputmode="decimal"></label>
+    </div>
+    <p class="ayuda" id="ayudaFrio">Cámaras, heladeras y freezers necesitan rango: es contra lo que se controla cada lectura.</p>
+    <div class="fila"><label>Almacén<select name="almacen_id"></select></label></div>
+    <label class="check" style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
+    <div class="acciones">
+      <button type="submit" class="prim" id="uGuardar">Guardar</button>
+      <button type="button" id="uCerrar">Cancelar</button>
+      <span class="msg" id="msgU"></span>
+    </div>
+  </form>
+</dialog>
+
+<script src="comun.js"></script>
+<script>
+const TIPOS = { deposito: 'Depósito / estantería', camara: 'Cámara de frío', heladera: 'Heladera', freezer: 'Freezer', cocina: 'Cocina', salon: 'Salón' };
+const FRIO = ['camara', 'heladera', 'freezer'];
+let almacenes = [], actual = null, ubicActual = null;
+const f = $('#f'), fu = $('#fu');
+
+async function cargar() {
+  ({ almacenes } = await api('almacenes'));
+  if (!almacenes.length) $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay almacenes.' }));
+  else $('#lista').replaceChildren(...almacenes.map(a => {
+    const frio = a.ubicaciones.filter(u => FRIO.includes(u.tipo)).length;
+    const b = el('button', { type: 'button', className: 'item' + (a.id === actual ? ' sel' : '') + (a.activo ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: a.nombre }),
+      el('div', { className: 'm', textContent: `${a.ubicaciones.length} ubicación(es)${frio ? ` · ${frio} de frío` : ''}` }));
+    b.onclick = () => abrir(a.id);
+    return b;
+  }));
+}
+
+function nuevo() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo almacén';
+  $('#activoWrap').hidden = true; $('#secUbic').hidden = true;
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+function abrir(id) {
+  const a = almacenes.find(a => a.id === id); if (!a) return nuevo();
+  actual = id; msg(''); $('#titulo').textContent = a.nombre;
+  f.nombre.value = a.nombre; f.direccion.value = a.direccion || ''; f.notas.value = a.notas || ''; f.activo.checked = a.activo;
+  $('#activoWrap').hidden = false; $('#secUbic').hidden = false;
+  filas($('#tUbic'), a.ubicaciones, u => el('tr', {},
+    td(u.nombre), td(TIPOS[u.tipo] || u.tipo),
+    td(u.temp_min != null || u.temp_max != null ? `${num(u.temp_min) || '–'} a ${num(u.temp_max) || '–'} °C` : ''),
+    el('td', {}, u.activa ? '' : el('span', { className: 'tag', textContent: 'inactiva' }), u.con_stock ? el('span', { className: 'tag ok', textContent: 'con stock' }) : ''),
+    el('td', {}, el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirUbic(u) }))),
+    'Sin ubicaciones todavía. Agregá la primera.', 5);
+  $$('.item').forEach(i => i.classList.toggle('sel', i.querySelector('.n').textContent === a.nombre));
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: f.nombre.value, direccion: f.direccion.value, notas: f.notas.value, activo: actual ? f.activo.checked : true };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'almacenes/' + actual : 'almacenes', { method: actual ? 'PUT' : 'POST', body });
+    await cargar(); abrir(d.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+
+function abrirUbic(u = null) {
+  ubicActual = u; fu.reset(); msg('', '', '#msgU');
+  $('#uTitulo').textContent = u ? 'Editar ubicación' : 'Nueva ubicación';
+  opciones(fu.tipo, Object.entries(TIPOS), u ? u.tipo : 'deposito');
+  opciones(fu.almacen_id, almacenes.map(a => [a.id, a.nombre]), u ? u.almacen_id : actual);
+  if (u) { fu.nombre.value = u.nombre; fu.temp_min.value = coma(u.temp_min); fu.temp_max.value = coma(u.temp_max); fu.activa.checked = u.activa; }
+  fu.tipo.onchange();
+  $('#dlg').showModal();
+}
+fu.tipo.onchange = () => { $('#ayudaFrio').style.fontWeight = FRIO.includes(fu.tipo.value) ? '600' : ''; };
+$('#nuevaUbic').onclick = () => abrirUbic();
+$('#uCerrar').onclick = () => $('#dlg').close();
+fu.onsubmit = async e => {
+  e.preventDefault();
+  const body = { ...Object.fromEntries(new FormData(fu)), activa: fu.activa.checked };
+  $('#uGuardar').disabled = true;
+  try {
+    await api(ubicActual ? 'ubicaciones/' + ubicActual.id : 'ubicaciones', { method: ubicActual ? 'PUT' : 'POST', body });
+    $('#dlg').close(); await cargar(); abrir(actual);
+  } catch (e) { msg(e.message, 'mal', '#msgU'); }
+  finally { $('#uGuardar').disabled = false; }
+};
+$('#nuevo').onclick = nuevo;
+cargar().then(() => almacenes.length ? abrir(almacenes[0].id) : nuevo()).catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>

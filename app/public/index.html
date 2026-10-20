@@ -4,36 +4,67 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
 <style>
-  :root{color-scheme:light dark;--fg:#16161a;--mut:#6e6a62;--line:#e4e0d8;--bg:#faf9f6;}
-  @media (prefers-color-scheme:dark){:root{--fg:#f3f1ec;--mut:#95918a;--line:#2a2a26;--bg:#0f0f0e;}}
-  *{box-sizing:border-box}
-  body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);
-    color:var(--fg);font:16px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-  .c{max-width:46ch;}
-  h1{font-size:2rem;letter-spacing:-.5px;margin:0 0 6px;}
-  p{color:var(--mut);margin:0 0 18px;}
-  .e{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;
-    padding:6px 13px;font-size:.85rem;color:var(--mut);}
-  .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;}
-  .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
+  .dos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
+  .salud{margin-top:28px;color:var(--mut);font-size:.85rem;display:flex;gap:8px;align-items:center;}
+  .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;} .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
 </style>
 </head>
 <body>
-  <div class="c">
-    <h1>ClauLogic</h1>
-    <p>Almacén y producción. <a href="productos.html">Productos</a></p>
-    <span class="e"><span class="p" id="p"></span><span id="t">consultando…</span></span>
+<main class="ancho">
+  <h1>Panel</h1>
+  <p class="sub">Lo que hay que atender hoy en el almacén.</p>
+  <div class="tarjetas">
+    <a class="tarjeta" id="tMin" href="stock.html?bajo_minimo=1"><div class="v">–</div><div class="t">productos bajo el mínimo</div></a>
+    <a class="tarjeta" id="tVence" href="stock.html?vence_dias=7"><div class="v">–</div><div class="t">lotes que vencen en 7 días</div></a>
+    <a class="tarjeta" id="tFrio" href="frio.html"><div class="v">–</div><div class="t">equipos de frío para revisar</div></a>
+    <a class="tarjeta" id="tCompras" href="compras.html"><div class="v">–</div><div class="t">compras por recibir</div></a>
   </div>
+  <div class="dos">
+    <section>
+      <h2>Próximos vencimientos</h2>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Producto</th><th>Lote</th><th>Dónde</th><th class="num">Cantidad</th><th>Vence</th></tr></thead>
+        <tbody id="vence"></tbody></table></div>
+    </section>
+    <section>
+      <h2>Bajo el mínimo</h2>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Producto</th><th class="num">Hay</th><th class="num">Mínimo</th></tr></thead>
+        <tbody id="minimo"></tbody></table></div>
+    </section>
+  </div>
+  <p class="salud"><span class="p" id="p"></span><span id="t">consultando…</span></p>
+</main>
+<script src="comun.js"></script>
 <script>
-fetch('salud').then(r=>r.json()).then(d=>{
-  document.getElementById('p').className = 'p ' + (d.ok ? 'ok' : 'mal');
-  document.getElementById('t').textContent = d.ok
-    ? `base ${d.base} responde en ${d.ms} ms` : 'la base no responde';
-}).catch(()=>{
-  document.getElementById('p').className='p mal';
-  document.getElementById('t').textContent='sin respuesta del servidor';
-});
+function tarjeta(id, n, tipo) {
+  const t = $(id); t.querySelector('.v').textContent = n;
+  t.classList.toggle(tipo, n > 0);
+}
+(async () => {
+  try {
+    const [{ productos }, { stock }, { equipos }, { compras }] = await Promise.all([
+      api('stock/productos?bajo_minimo=1'), api('stock?vence_dias=7'), api('frio'), api('compras')]);
+    const vence = stock.filter(s => !s.cantidad.startsWith('-') && s.vencimiento);
+    tarjeta('#tMin', productos.length, 'aviso');
+    tarjeta('#tVence', vence.length, 'mal');
+    tarjeta('#tFrio', equipos.filter(e => e.desvio || e.sin_lectura_reciente).length, 'mal');
+    tarjeta('#tCompras', compras.filter(c => c.estado === 'pedida' || c.estado === 'borrador').length, 'aviso');
+    filas($('#vence'), vence.slice(0, 12), s => el('tr', {},
+      td(s.producto), td(s.lote), td(`${s.almacen} · ${s.ubicacion}`),
+      td(cant(s.cantidad, s.unidad_base), 'num'), el('td', {}, fecha(s.vencimiento), ' ', tagVence(s.vencimiento))),
+      'Nada vence en los próximos 7 días.', 5);
+    filas($('#minimo'), productos, p => el('tr', {},
+      td(p.nombre), td(cant(p.cantidad, p.unidad_base), 'num'), td(cant(p.stock_minimo, p.unidad_base), 'num')),
+      'Ningún producto está bajo el mínimo.', 3);
+  } catch (e) { $('#t').textContent = 'Error: ' + e.message; }
+  fetch('salud').then(r => r.json()).then(d => {
+    $('#p').className = 'p ' + (d.ok ? 'ok' : 'mal');
+    $('#t').textContent = d.ok ? `base ${d.base} responde en ${d.ms} ms` : 'la base no responde';
+  }).catch(() => { $('#p').className = 'p mal'; $('#t').textContent = 'sin respuesta del servidor'; });
+})();
 </script>
 </body>
 </html>

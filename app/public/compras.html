@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Compras · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .edit select, .edit input{padding:5px 7px;}
+  .costo-sube{color:var(--mal);} .costo-baja{color:var(--acento);}
+  .decision{display:flex;gap:10px;white-space:nowrap;}
+  .decision label{display:flex;gap:4px;align-items:center;color:var(--fg);font-size:.85rem;}
+</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <select id="fest">
+        <option value="">Todas</option><option value="borrador">Borradores</option><option value="pedida">Pedidas</option>
+        <option value="recibida">Recibidas</option><option value="anulada">Anuladas</option>
+      </select>
+      <button class="prim" id="nueva">Nueva compra</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+
+  <main>
+    <!-- Edición (borrador o pedida) -->
+    <section id="vEditar">
+      <h1 id="titulo">Nueva compra</h1>
+      <p class="sub" id="subtitulo">Cargá lo que se pide. El stock se mueve recién al recibirla.</p>
+      <form id="f" novalidate>
+        <fieldset>
+          <legend>Datos</legend>
+          <div class="fila">
+            <label>Proveedor *<select name="proveedor_id"></select></label>
+            <label>Número / remito<input name="numero" maxlength="40"></label>
+            <label>Fecha<input name="fecha" type="date"></label>
+          </div>
+          <div class="fila"><label>Notas<input name="notas"></label></div>
+          <p class="ayuda" id="sinProv" hidden>No hay proveedores. <a href="proveedores.html">Cargá uno</a> primero.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Renglones</legend>
+          <div style="overflow-x:auto"><table class="edit" id="items">
+            <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th>Precio total</th><th></th></tr></thead>
+            <tbody></tbody></table></div>
+          <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
+          <p class="ayuda">El precio es el total del renglón; el costo por unidad lo calcula el sistema.</p>
+        </fieldset>
+        <div class="acciones">
+          <button type="submit" class="prim" id="guardar">Guardar</button>
+          <button type="button" id="pedir" hidden>Marcar como pedida</button>
+          <button type="button" id="irRecibir" hidden>Recibir…</button>
+          <button type="button" class="peligro" id="anular" hidden>Anular</button>
+          <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+          <span class="msg" id="msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <!-- Recepción -->
+    <section id="vRecibir" hidden>
+      <h1>Recibir compra <span id="rTitulo"></span></h1>
+      <p class="sub">Por cada renglón: dónde se guarda, el lote y vencimiento si es perecedero, y si su costo reemplaza al vigente.</p>
+      <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label></div>
+      <div class="tabla-wrap"><table class="datos edit">
+        <thead><tr><th>Producto</th><th class="num">Cantidad</th><th>Ubicación</th><th>Lote</th><th>Vence</th>
+          <th class="num">Costo compra</th><th class="num">Vigente</th><th>Costo vigente</th></tr></thead>
+        <tbody id="rItems"></tbody></table></div>
+      <div class="acciones">
+        <button type="button" class="prim" id="rConfirmar">Confirmar recepción</button>
+        <button type="button" id="rVolver">Volver</button>
+        <span class="msg" id="msgR"></span>
+      </div>
+    </section>
+
+    <!-- Lectura (recibida o anulada) -->
+    <section id="vVer" hidden>
+      <h1 id="vTitulo"></h1>
+      <p class="sub" id="vSub"></p>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Costo</th>
+          <th>Decisión de costo</th><th>Lote</th><th>Vence</th><th>Ubicación</th></tr></thead>
+        <tbody id="vItems"></tbody></table></div>
+    </section>
+  </main>
+</div>
+
+<script src="comun.js"></script>
+<script>
+const ESTADOS = { borrador: 'borrador', pedida: 'pedida', recibida: 'recibida', anulada: 'anulada' };
+let productos = [], proveedores = [], almacenes = [], unidades = [], actual = null, compra = null;
+const presCache = {};
+const f = $('#f');
+
+function vistaActiva(id) { for (const v of ['#vEditar', '#vRecibir', '#vVer']) $(v).hidden = v !== id; }
+
+async function cargarLista() {
+  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value);
+  const { compras } = await api('compras?' + p);
+  if (!compras.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay compras.' }));
+  $('#lista').replaceChildren(...compras.map(c => {
+    const b = el('button', { type: 'button', className: 'item' + (c.id === actual ? ' sel' : '') },
+      el('div', { className: 'n' }, c.proveedor, ' ', el('span', { className: 'tag ' + (c.estado === 'recibida' ? 'ok' : c.estado === 'anulada' ? '' : 'aviso'), textContent: c.estado })),
+      el('div', { className: 'm', textContent: `${fecha(c.fecha)}${c.numero ? ' · ' + c.numero : ''} · ${c.renglones} renglón(es)${c.total ? ' · ' + pesos(c.total) : ''}` }));
+    b.onclick = () => abrir(c.id);
+    return b;
+  }));
+}
+
+// ── Edición ──
+async function presentaciones(productoId) {
+  return presCache[productoId] ||= (await api('productos/' + productoId)).producto.presentaciones;
+}
+async function filaItem(x = {}) {
+  const prod = el('select'), en = el('select'), cantidad = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:90px' });
+  const precio = el('input', { inputMode: 'decimal', value: coma(x.precio_total), style: 'width:120px', placeholder: '$' });
+  opciones(prod, productos.filter(p => p.activo || p.id === x.producto_id).map(p => [p.id, `${p.nombre} (${p.codigo})`]), x.producto_id, 'Elegir…');
+  // "Se compra en": las presentaciones del producto o cualquier unidad compatible suelta.
+  async function llenarEn(valor) {
+    const p = productos.find(p => p.id === prod.value);
+    if (!p) return opciones(en, [], null, '—');
+    const pres = await presentaciones(p.id);
+    const items = [...pres.map(pr => ['p:' + pr.id, `${pr.nombre} (${cant(pr.cantidad_base, p.unidad_base)})`]),
+                   ...unidadesCompatibles(unidades, p.unidad_base).map(u => ['u:' + u.codigo, u.codigo + ' suelto'])];
+    const def = pres.find(pr => pr.es_default);
+    opciones(en, items, valor || (def ? 'p:' + def.id : 'u:' + p.unidad_base));
+  }
+  prod.onchange = () => llenarEn();
+  await llenarEn(x.presentacion_id ? 'p:' + x.presentacion_id : x.unidad ? 'u:' + x.unidad : null);
+  const tr = el('tr', {}, el('td', {}, prod), el('td', {}, en), el('td', {}, cantidad), el('td', {}, precio),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => tr.remove() })));
+  tr.leer = () => {
+    const [k, v] = (en.value || '').split(':');
+    return { producto_id: prod.value, presentacion_id: k === 'p' ? v : null, unidad: k === 'u' ? v : null,
+             cantidad: cantidad.value, precio_total: precio.value };
+  };
+  $('#items tbody').append(tr);
+}
+$('#agregar').onclick = () => filaItem();
+
+function botones(estado) {
+  const editable = !estado || estado === 'borrador' || estado === 'pedida';
+  $('#pedir').hidden = estado !== 'borrador';
+  $('#irRecibir').hidden = !estado || !editable;
+  $('#anular').hidden = !estado || !editable;
+  $('#borrar').hidden = !estado || !editable;
+}
+
+async function nueva() {
+  actual = null; compra = null; f.reset(); msg('');
+  $('#titulo').textContent = 'Nueva compra'; $('#subtitulo').textContent = 'Cargá lo que se pide. El stock se mueve recién al recibirla.';
+  opciones(f.proveedor_id, proveedores.map(p => [p.id, p.nombre]), null, 'Elegir…');
+  f.fecha.value = hoy();
+  $('#items tbody').replaceChildren(); await filaItem();
+  botones(null); vistaActiva('#vEditar');
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+
+async function abrir(id) {
+  try {
+    ({ compra } = await api('compras/' + id)); actual = id; msg('');
+    if (compra.estado === 'recibida' || compra.estado === 'anulada') verCompra();
+    else {
+      $('#titulo').textContent = `Compra a ${compra.proveedor}`;
+      $('#subtitulo').textContent = `Estado: ${compra.estado}${compra.numero ? ' · ' + compra.numero : ''}`;
+      opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === compra.proveedor_id).map(p => [p.id, p.nombre]), compra.proveedor_id, 'Elegir…');
+      f.numero.value = compra.numero || ''; f.fecha.value = compra.fecha; f.notas.value = compra.notas || '';
+      $('#items tbody').replaceChildren();
+      for (const it of compra.items) await filaItem({ ...it, unidad: it.presentacion_id ? null : it.unidad_base,
+        cantidad: it.presentacion_id ? it.cantidad : it.cantidad_base });
+      botones(compra.estado); vistaActiva('#vEditar');
+    }
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { proveedor_id: f.proveedor_id.value, numero: f.numero.value, fecha: f.fecha.value, notas: f.notas.value,
+                 items: $$('#items tbody tr').map(tr => tr.leer()) };
+  $('#guardar').disabled = true; msg('Guardando…');
+  try {
+    const d = await api(actual ? 'compras/' + actual : 'compras', { method: actual ? 'PUT' : 'POST', body });
+    await abrir(d.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+async function cambiarEstado(estado, pregunta) {
+  if (pregunta && !confirm(pregunta)) return;
+  try { await api(`compras/${actual}/estado`, { method: 'POST', body: { estado } }); await abrir(actual); }
+  catch (e) { msg(e.message, 'mal'); }
+}
+$('#pedir').onclick = () => cambiarEstado('pedida');
+$('#anular').onclick = () => cambiarEstado('anulada', 'La compra queda anulada y no se podrá recibir. ¿Seguir?');
+$('#borrar').onclick = async () => {
+  if (!confirm('¿Borrar esta compra? No se puede deshacer.')) return;
+  try { await api('compras/' + actual, { method: 'DELETE' }); await cargarLista(); nueva(); }
+  catch (e) { msg(e.message, 'mal'); }
+};
+
+// ── Recepción ──
+// Se recibe lo GUARDADO: si hay cambios sin guardar en el formulario, primero se guardan.
+$('#irRecibir').onclick = async () => {
+  try {
+    await f.onsubmit(new Event('submit'));
+    if ($('#msg').classList.contains('mal')) return;
+    abrirRecepcion();
+  } catch (e) { msg(e.message, 'mal'); }
+};
+function abrirRecepcion() {
+  $('#rTitulo').textContent = `a ${compra.proveedor}${compra.numero ? ' · ' + compra.numero : ''}`;
+  opcionesUbicacion($('#rUbic'), almacenes, null, 'Elegir por renglón…');
+  msg('', '', '#msgR');
+  filas($('#rItems'), compra.items, it => {
+    const ubic = el('select'); opcionesUbicacion(ubic, almacenes, null, 'Elegir…');
+    const lote = el('input', { placeholder: 'automático', style: 'width:120px', disabled: !it.perecedero });
+    const venc = el('input', { type: 'date', disabled: !it.perecedero });
+    if (it.perecedero && it.vida_util_dias) {
+      const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() + Number(it.vida_util_dias));
+      venc.value = d.toISOString().slice(0, 10);
+    }
+    const nombre = 'dec-' + it.id;
+    const tieneCosto = it.costo_compra != null;
+    let decision = el('span', { className: 'mut', textContent: 'sin precio' });
+    if (tieneCosto) {
+      // Sin costo vigente no hay nada que comparar: se propone tomar el de la compra.
+      const sinVigente = it.costo_vigente == null;
+      decision = el('div', { className: 'decision' },
+        el('label', {}, el('input', { type: 'radio', name: nombre, value: '1', checked: sinVigente }), 'Actualizar'),
+        el('label', {}, el('input', { type: 'radio', name: nombre, value: '0' }), 'Mantener'));
+    }
+    const varCls = it.variacion_pct == null ? '' : it.variacion_pct.startsWith('-') ? 'costo-baja' : 'costo-sube';
+    const tr = el('tr', {},
+      td(it.producto), td(cant(it.cantidad_base, it.unidad_base), 'num'),
+      el('td', {}, ubic), el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })),
+      el('td', {}, it.perecedero ? venc : ''),
+      el('td', { className: 'num' }, tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}` : '—',
+        it.variacion_pct != null ? el('div', { className: varCls, textContent: (it.variacion_pct.startsWith('-') ? '' : '+') + num(it.variacion_pct) + '%' }) : ''),
+      td(it.costo_vigente != null ? `${pesos(it.costo_vigente)}/${it.unidad_ref}` : 'sin costo', 'num'),
+      el('td', {}, decision));
+    tr.leer = () => {
+      const r = tr.querySelector(`input[name="${nombre}"]:checked`);
+      return { id: it.id, ubicacion_id: ubic.value || null, lote_codigo: lote.value, vencimiento: venc.value,
+               actualizar_costo: tieneCosto ? (r ? r.value === '1' : null) : null };
+    };
+    return tr;
+  }, 'La compra no tiene renglones.', 8);
+  vistaActiva('#vRecibir');
+}
+$('#rUbic').onchange = () => { if ($('#rUbic').value) $$('#rItems select').forEach(s => s.value = $('#rUbic').value); };
+$('#rVolver').onclick = () => abrir(actual);
+$('#rConfirmar').onclick = async () => {
+  const items = $$('#rItems tr').filter(tr => tr.leer).map(tr => tr.leer());
+  if (!confirm('Al confirmar se asientan los movimientos de entrada y la compra queda cerrada. ¿Seguir?')) return;
+  $('#rConfirmar').disabled = true;
+  try {
+    await api(`compras/${actual}/recibir`, { method: 'POST', body: { items } });
+    catalogo._p = null; productos = await catalogo.productos();
+    await abrir(actual);
+  } catch (e) { msg(e.message, 'mal', '#msgR'); }
+  finally { $('#rConfirmar').disabled = false; }
+};
+
+// ── Lectura ──
+function verCompra() {
+  $('#vTitulo').textContent = `Compra a ${compra.proveedor}`;
+  $('#vSub').textContent = `${compra.estado === 'recibida' ? 'Recibida el ' + fechaHora(compra.recibida_en) : 'Anulada'}` +
+    ` · fecha ${fecha(compra.fecha)}${compra.numero ? ' · ' + compra.numero : ''}${compra.notas ? ' · ' + compra.notas : ''}`;
+  filas($('#vItems'), compra.items, it => el('tr', {},
+    td(it.producto), td(cant(it.cantidad_base, it.unidad_base), 'num'), td(pesos(it.precio_total), 'num'),
+    td(it.costo_compra != null ? `${pesos(it.costo_compra)}/${it.unidad_ref}` : '', 'num'),
+    td(it.costo_decision === 'actualizado' ? 'actualizó el vigente' : it.costo_decision === 'mantenido' ? 'mantuvo el vigente' : ''),
+    td(it.lote), td(fecha(it.vencimiento)), td(it.ubicacion)), 'Sin renglones.', 8);
+  vistaActiva('#vVer');
+}
+
+$('#nueva').onclick = nueva;
+$('#fest').onchange = cargarLista;
+
+(async () => {
+  try {
+    [productos, almacenes, unidades, { proveedores }] = await Promise.all([
+      catalogo.productos(), catalogo.almacenes(), catalogo.unidades(), api('proveedores')]);
+    $('#sinProv').hidden = proveedores.length > 0;
+    await nueva(); await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

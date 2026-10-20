@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stock · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .pestanas{display:flex;gap:4px;margin:0 0 14px;border-bottom:1px solid var(--line);}
+  .pestanas button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:8px 12px;}
+  .pestanas button.act{color:var(--fg);border-bottom-color:var(--acento);font-weight:600;}
+  tr.neg td.num{color:var(--mal);}
+  .resultado{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:12px 0 0;background:var(--panel);}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Stock</h1>
+  <p class="sub">El stock no se escribe: sale de sumar los movimientos. Para corregirlo se cuenta, y el sistema asienta la diferencia.</p>
+  <div class="pestanas">
+    <button type="button" data-v="productos" class="act">Por producto</button>
+    <button type="button" data-v="detalle">Por lote y ubicación</button>
+    <button type="button" data-v="ajustes">Conteos recientes</button>
+  </div>
+  <div class="barra">
+    <input id="q" type="search" placeholder="Buscar producto">
+    <select id="falm" data-solo="detalle"><option value="">Todos los almacenes</option></select>
+    <select id="fvence" data-solo="detalle">
+      <option value="">Cualquier vencimiento</option><option value="0">Vencidos o vencen hoy</option>
+      <option value="3">Vencen en 3 días</option><option value="7">Vencen en 7 días</option><option value="30">Vencen en 30 días</option>
+    </select>
+    <label class="check" data-solo="productos"><input id="fmin" type="checkbox"> Sólo bajo el mínimo</label>
+    <button class="prim" id="contar">Registrar conteo</button>
+  </div>
+
+  <div class="tabla-wrap" data-vista="productos"><table class="datos">
+    <thead><tr><th>Producto</th><th>Categoría</th><th class="num">Hay</th><th class="num">Mínimo</th><th>Vence primero</th><th></th></tr></thead>
+    <tbody id="tProductos"></tbody></table></div>
+  <div class="tabla-wrap" data-vista="detalle" hidden><table class="datos">
+    <thead><tr><th>Producto</th><th>Lote</th><th>Vence</th><th>Almacén</th><th>Ubicación</th><th class="num">Cantidad</th><th></th></tr></thead>
+    <tbody id="tDetalle"></tbody></table></div>
+  <div class="tabla-wrap" data-vista="ajustes" hidden><table class="datos">
+    <thead><tr><th>Fecha</th><th>Producto</th><th>Lote</th><th>Dónde</th><th class="num">Sistema</th><th class="num">Contado</th><th class="num">Diferencia</th><th>Motivo</th></tr></thead>
+    <tbody id="tAjustes"></tbody></table></div>
+</main>
+
+<dialog id="dlg">
+  <form id="f" method="dialog" novalidate>
+    <h2>Registrar conteo</h2>
+    <p class="ayuda" style="margin:0 0 12px">Cargá lo que contaste. Si no coincide con el sistema, se asienta un ajuste por la diferencia.</p>
+    <div class="fila"><label>Producto *<select name="producto_id" required></select></label></div>
+    <div class="fila"><label>Ubicación *<select name="ubicacion_id" required></select></label></div>
+    <div class="fila" id="filaLote">
+      <label>Lote *<select name="lote_id"></select></label>
+    </div>
+    <div class="fila" id="loteNuevo" hidden>
+      <label>Código del lote nuevo<input name="lote_codigo" placeholder="se genera si lo dejás vacío"></label>
+      <label>Vencimiento<input name="lote_vencimiento" type="date"></label>
+    </div>
+    <div class="fila">
+      <label>Cantidad contada *
+        <span class="con-boton"><input name="contada" inputmode="decimal" required><select name="unidad" class="angosto"></select></span>
+      </label>
+      <label>En el sistema<input id="sistema" disabled></label>
+    </div>
+    <div class="fila"><label>Motivo *<input name="motivo" required placeholder="conteo semanal, rotura, error de carga…"></label></div>
+    <div id="resultado" class="resultado" hidden></div>
+    <div class="acciones">
+      <button type="submit" class="prim" id="guardar" value="">Asentar conteo</button>
+      <button type="button" id="cerrar">Cerrar</button>
+      <span class="msg" id="msgDlg"></span>
+    </div>
+  </form>
+</dialog>
+
+<script src="comun.js"></script>
+<script>
+let vista = 'productos', productos = [], almacenes = [], unidades = [];
+const f = $('#f');
+const params = new URLSearchParams(location.search);
+
+function mostrarVista(v) {
+  vista = v;
+  $$('.pestanas button').forEach(b => b.classList.toggle('act', b.dataset.v === v));
+  $$('[data-vista]').forEach(x => x.hidden = x.dataset.vista !== v);
+  $$('[data-solo]').forEach(x => x.hidden = x.dataset.solo !== v);
+  cargar();
+}
+$$('.pestanas button').forEach(b => b.onclick = () => mostrarVista(b.dataset.v));
+
+async function cargar() {
+  try {
+    const q = $('#q').value.trim();
+    if (vista === 'productos') {
+      const p = new URLSearchParams(); if (q) p.set('q', q); if ($('#fmin').checked) p.set('bajo_minimo', '1');
+      const { productos: rows } = await api('stock/productos?' + p);
+      filas($('#tProductos'), rows, r => el('tr', { className: r.cantidad.startsWith('-') ? 'neg' : '' },
+        td(el('span', {}, r.nombre, ' ', el('span', { className: 'mut', textContent: r.codigo }))), td(r.categoria),
+        td(cant(r.cantidad, r.unidad_base), 'num'), td(cant(r.stock_minimo, r.unidad_base), 'num'),
+        el('td', {}, fecha(r.vence_primero), ' ', tagVence(r.vence_primero), r.bajo_minimo ? el('span', { className: 'tag aviso', textContent: 'bajo mínimo' }) : ''),
+        el('td', {}, el('button', { className: 'chico', textContent: 'Ver lotes', onclick: () => { $('#q').value = r.codigo; mostrarVista('detalle'); } }))),
+        'No hay productos que coincidan.', 6);
+    } else if (vista === 'detalle') {
+      const p = new URLSearchParams(); if (q) p.set('q', q);
+      if ($('#falm').value) p.set('almacen', $('#falm').value);
+      if ($('#fvence').value !== '') p.set('vence_dias', $('#fvence').value);
+      const { stock } = await api('stock?' + p);
+      filas($('#tDetalle'), stock, r => el('tr', { className: r.cantidad.startsWith('-') ? 'neg' : '' },
+        td(r.producto), td(r.lote || el('span', { className: 'mut', textContent: 'sin lote' })),
+        el('td', {}, fecha(r.vencimiento), ' ', tagVence(r.vencimiento)),
+        td(r.almacen), td(r.ubicacion), td(cant(r.cantidad, r.unidad_base), 'num'),
+        el('td', {}, el('button', { className: 'chico', textContent: 'Contar',
+          onclick: () => abrirConteo({ producto_id: r.producto_id, ubicacion_id: r.ubicacion_id, lote_id: r.lote_id }) }))),
+        'No hay stock que coincida.', 7);
+    } else {
+      const { ajustes } = await api('ajustes');
+      filas($('#tAjustes'), ajustes, a => el('tr', {},
+        td(fechaHora(a.ocurrido_en)), td(a.producto), td(a.lote), td(`${a.almacen} · ${a.ubicacion}`),
+        td(cant(a.sistema, a.unidad_base), 'num'), td(cant(a.contada, a.unidad_base), 'num'),
+        td(a.diferencia === '0' ? 'cerraba' : (a.diferencia.startsWith('-') ? '' : '+') + cant(a.diferencia, a.unidad_base), 'num'),
+        td(a.motivo, 'wrap')), 'Todavía no hay conteos.', 8);
+    }
+  } catch (e) { alert(e.message); }
+}
+
+// ── Conteo ──
+const prodSel = () => productos.find(p => p.id === f.producto_id.value);
+async function alCambiarProducto(loteId) {
+  const p = prodSel();
+  $('#filaLote').hidden = !p || !p.perecedero; $('#loteNuevo').hidden = true;
+  if (p) {
+    opciones(f.unidad, unidadesCompatibles(unidades, p.unidad_base).map(u => [u.codigo, u.codigo]), p.unidad_base);
+    if (p.perecedero) {
+      const { lotes } = await api('lotes?producto=' + p.id);
+      opciones(f.lote_id, [...lotes.map(l => [l.id, `${l.codigo} · vence ${fecha(l.vencimiento)} · quedan ${cant(l.cantidad, p.unidad_base)}`]),
+                           ['nuevo', 'Lote nuevo…']], loteId, 'Elegir…');
+    }
+  }
+  await alCambiarLote();
+}
+async function alCambiarLote() {
+  $('#loteNuevo').hidden = f.lote_id.value !== 'nuevo';
+  const p = prodSel(); $('#sistema').value = '';
+  if (!p || !f.ubicacion_id.value || (p.perecedero && (!f.lote_id.value || f.lote_id.value === 'nuevo'))) {
+    if (p && f.lote_id.value === 'nuevo') $('#sistema').value = '0 ' + p.unidad_base;
+    return;
+  }
+  const qs = new URLSearchParams({ producto: p.id, ubicacion: f.ubicacion_id.value });
+  const { stock } = await api('stock?' + qs);
+  const s = stock.find(x => (x.lote_id || '') === (p.perecedero ? f.lote_id.value : ''));
+  $('#sistema').value = cant(s ? s.cantidad : '0', p.unidad_base);
+}
+f.producto_id.onchange = () => alCambiarProducto();
+f.ubicacion_id.onchange = f.lote_id.onchange = () => alCambiarLote();
+
+async function abrirConteo(pre = {}) {
+  f.reset(); $('#resultado').hidden = true; msg('', '', '#msgDlg');
+  opciones(f.producto_id, productos.filter(p => p.activo).map(p => [p.id, `${p.nombre} (${p.codigo})`]), pre.producto_id, 'Elegir…');
+  opcionesUbicacion(f.ubicacion_id, almacenes, pre.ubicacion_id);
+  await alCambiarProducto(pre.lote_id);
+  $('#dlg').showModal();
+}
+$('#contar').onclick = () => abrirConteo();
+$('#cerrar').onclick = () => $('#dlg').close();
+f.onsubmit = async e => {
+  e.preventDefault();
+  const p = prodSel();
+  const body = {
+    producto_id: f.producto_id.value, ubicacion_id: f.ubicacion_id.value,
+    contada: f.contada.value, unidad: f.unidad.value, motivo: f.motivo.value,
+  };
+  if (p && p.perecedero) {
+    if (f.lote_id.value === 'nuevo') body.lote_nuevo = { codigo: f.lote_codigo.value, vencimiento: f.lote_vencimiento.value };
+    else body.lote_id = f.lote_id.value;
+  }
+  $('#guardar').disabled = true;
+  try {
+    const { ajuste: a } = await api('ajustes', { method: 'POST', body });
+    const r = $('#resultado'); r.hidden = false;
+    r.textContent = a.diferencia === '0'
+      ? `Cerraba: el sistema tenía ${cant(a.sistema, p.unidad_base)}. Quedó registrado el conteo.`
+      : `Sistema ${cant(a.sistema, p.unidad_base)}, contado ${cant(a.contada, p.unidad_base)}: se asentó un ajuste de ` +
+        `${a.diferencia.startsWith('-') ? '' : '+'}${cant(a.diferencia, p.unidad_base)} (movimiento #${a.movimiento_id}).`;
+    msg('', '', '#msgDlg');
+    await alCambiarProducto(f.lote_id.value === 'nuevo' ? undefined : f.lote_id.value);
+    cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgDlg'); }
+  finally { $('#guardar').disabled = false; }
+};
+
+let t;
+$('#q').oninput = () => { clearTimeout(t); t = setTimeout(cargar, 250); };
+$('#falm').onchange = $('#fvence').onchange = $('#fmin').onchange = cargar;
+
+(async () => {
+  try {
+    [productos, almacenes, unidades] = await Promise.all([catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
+    opciones($('#falm'), almacenes.map(a => [a.id, a.nombre]), null, 'Todos los almacenes');
+    if (params.get('bajo_minimo')) $('#fmin').checked = true;
+    if (params.get('vence_dias')) { $('#fvence').value = params.get('vence_dias'); return mostrarVista('detalle'); }
+    mostrarVista('productos');
+  } catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

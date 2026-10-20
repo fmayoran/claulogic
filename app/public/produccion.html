@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Producción · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .plan td{vertical-align:top;}
+  .lotes{margin:0;padding:0;list-style:none;font-size:.88rem;}
+  .falta{color:var(--mal);font-weight:600;}
+  tr.traza td{background:var(--sel);font-size:.88rem;}
+  .resultado{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:0 0 16px;background:var(--ok-bg);}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Producción</h1>
+  <p class="sub">Producir consume los ingredientes por lote, primero lo que vence primero, y da de alta el elaborado con su lote y su costo.</p>
+  <div id="resultado" class="resultado" hidden></div>
+  <form id="f" novalidate>
+    <fieldset>
+      <legend>Qué se produce</legend>
+      <div class="fila">
+        <label>Receta *<select name="receta_id"></select></label>
+        <label>Cantidad *<span class="con-boton"><input name="cantidad" inputmode="decimal"><select name="unidad" class="angosto"></select></span></label>
+      </div>
+      <div class="fila">
+        <label>Ingredientes desde el almacén *<select name="almacen_id"></select></label>
+        <label>Guardar lo elaborado en *<select name="ubicacion_id"></select></label>
+      </div>
+      <div class="fila">
+        <label>Código de lote<input name="lote_codigo" placeholder="automático"></label>
+        <label>Vence<input name="vencimiento" type="date"></label>
+        <label>Notas<input name="notas"></label>
+      </div>
+    </fieldset>
+    <div class="acciones fijo" style="margin:0 0 12px">
+      <button type="button" id="verPlan">Ver qué se va a usar</button>
+      <button type="submit" class="prim" id="producir" disabled>Producir</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </form>
+
+  <section id="plan" hidden>
+    <h2>Plan de consumo</h2>
+    <div class="tabla-wrap"><table class="datos plan">
+      <thead><tr><th>Ingrediente</th><th class="num">Hace falta</th><th>De qué lote sale (FEFO)</th></tr></thead>
+      <tbody id="tPlan"></tbody></table></div>
+    <p class="ayuda">No se proponen lotes vencidos. Si algo no alcanza, no se puede producir: un consumo sin lote rompería la trazabilidad.</p>
+  </section>
+
+  <h2 style="margin-top:28px">Producciones recientes</h2>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Fecha</th><th>Receta</th><th class="num">Cantidad</th><th>Lote</th><th>Vence</th><th>Dónde</th><th class="num">Costo</th></tr></thead>
+    <tbody id="tProd"></tbody></table></div>
+  <p class="ayuda">Tocá una producción para ver con qué lotes se hizo.</p>
+</main>
+<script src="comun.js"></script>
+<script>
+let recetas = [], productos = [], almacenes = [], unidades = [];
+const f = $('#f');
+const recSel = () => recetas.find(r => r.id === f.receta_id.value);
+
+function alCambiarReceta() {
+  const r = recSel(); $('#plan').hidden = true; $('#producir').disabled = true;
+  if (!r) return opciones(f.unidad, [], null);
+  opciones(f.unidad, unidadesCompatibles(unidades, r.unidad_base).map(u => [u.codigo, u.codigo]), r.unidad_base);
+  if (!f.cantidad.value) f.cantidad.value = coma(r.rinde);
+  const p = productos.find(p => p.id === r.producto_id);
+  f.vencimiento.value = '';
+  if (p && p.perecedero && p.vida_util_dias) {
+    const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() + Number(p.vida_util_dias));
+    f.vencimiento.value = d.toISOString().slice(0, 10);
+  }
+}
+f.receta_id.onchange = alCambiarReceta;
+for (const n of ['cantidad', 'unidad', 'almacen_id']) f[n].addEventListener('change', () => { $('#plan').hidden = true; $('#producir').disabled = true; });
+
+function pedido() {
+  return { receta_id: f.receta_id.value, cantidad: f.cantidad.value, unidad: f.unidad.value, almacen_id: f.almacen_id.value };
+}
+$('#verPlan').onclick = async () => {
+  msg('');
+  try {
+    const { plan } = await api('produccion/plan?' + new URLSearchParams(pedido()));
+    filas($('#tPlan'), plan.ingredientes, i => el('tr', {},
+      td(i.producto), el('td', { className: 'num' }, cant(i.necesario, i.unidad_base),
+        i.faltante !== '0' ? el('div', { className: 'falta', textContent: 'faltan ' + cant(i.faltante, i.unidad_base) }) : ''),
+      el('td', { className: 'wrap' }, i.lotes.length ? el('ul', { className: 'lotes' }, ...i.lotes.map(l => el('li', {},
+        `${cant(l.tomar, i.unidad_base)} de ${l.lote || 'sin lote'}`, l.vencimiento ? ` (vence ${fecha(l.vencimiento)})` : '',
+        el('span', { className: 'mut', textContent: ` · ${l.ubicacion}` }))))
+        : el('span', { className: 'falta', textContent: 'sin stock en el almacén' }))),
+      'La receta no tiene ingredientes.', 3);
+    $('#plan').hidden = false;
+    $('#producir').disabled = plan.faltantes;
+    if (plan.faltantes) msg('No alcanza el stock para producir esa cantidad.', 'mal');
+  } catch (e) { msg(e.message, 'mal'); }
+};
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  if (!confirm('Se asientan los consumos y la entrada del elaborado. ¿Producir?')) return;
+  $('#producir').disabled = true;
+  try {
+    const body = { ...pedido(), ubicacion_id: f.ubicacion_id.value, lote_codigo: f.lote_codigo.value,
+                   vencimiento: f.vencimiento.value, notas: f.notas.value };
+    const d = await api('producciones', { method: 'POST', body });
+    const r = recSel();
+    $('#resultado').hidden = false;
+    $('#resultado').textContent = `Listo: ${f.cantidad.value} ${f.unidad.value} de ${r.elaborado}` +
+      (d.lote ? `, lote ${d.lote}` : '') + (d.costo_total ? `, costo ${pesos(d.costo_total)}.` : '. Sin costo: a algún ingrediente le falta costo.');
+    $('#plan').hidden = true; f.lote_codigo.value = ''; f.notas.value = ''; msg('');
+    cargarProducciones();
+  } catch (e) { msg(e.message, 'mal'); $('#producir').disabled = false; }
+};
+
+async function cargarProducciones() {
+  const { producciones } = await api('producciones');
+  filas($('#tProd'), producciones, p => {
+    const tr = el('tr', { className: 'clic' },
+      td(fechaHora(p.fecha)), td(p.receta), td(cant(p.cantidad, p.unidad_base), 'num'), td(p.lote),
+      td(fecha(p.vencimiento)), td(p.ubicacion ? `${p.almacen || ''} · ${p.ubicacion}` : ''), td(pesos(p.costo_total), 'num'));
+    tr.onclick = async () => {
+      if (tr.nextSibling && tr.nextSibling.classList && tr.nextSibling.classList.contains('traza')) return tr.nextSibling.remove();
+      const { consumos } = await api('producciones/' + p.id);
+      tr.after(el('tr', { className: 'traza' }, el('td', { colSpan: 7, className: 'wrap' },
+        el('strong', { textContent: 'Se hizo con: ' }),
+        consumos.map(c => `${cant(c.cantidad, c.unidad_base)} de ${c.producto}` +
+          (c.lote ? ` (lote ${c.lote}${c.proveedor ? ', ' + c.proveedor : ''}${c.vencimiento ? ', vence ' + fecha(c.vencimiento) : ''})` : '')).join('; ') || 'sin consumos')));
+    };
+    return tr;
+  }, 'Todavía no hay producciones.', 7);
+}
+
+(async () => {
+  try {
+    [{ recetas }, productos, almacenes, unidades] = await Promise.all([api('recetas'), catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
+    opciones(f.receta_id, recetas.map(r => [r.id, `${r.nombre} → ${r.elaborado}`]), new URLSearchParams(location.search).get('receta'), 'Elegir…');
+    opciones(f.almacen_id, almacenes.filter(a => a.activo).map(a => [a.id, a.nombre]), null, 'Elegir…');
+    opcionesUbicacion(f.ubicacion_id, almacenes);
+    alCambiarReceta();
+    if (!recetas.length) msg('Todavía no hay recetas: cargá una en Recetas.', 'mal');
+    cargarProducciones();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

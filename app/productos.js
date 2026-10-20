@@ -1,94 +1,12 @@
-// API de productos, categorías y unidades: lo que necesita la pantalla de alta de productos.
-//
-// Las cantidades, temperaturas y costos viajan como TEXTO y llegan a la base como texto: Postgres
-// los convierte a NUMERIC. Si pasaran por un Number de JavaScript serían float, y la decisión de
-// no usar float en la base no serviría de nada.
+// API de productos y categorías: lo que necesita la pantalla de productos.
 const express = require('express');
 const { pool } = require('./db');
+const { ErrorUsuario, numero, texto, h, enTransaccion, aBase, UNIDAD_REF, enRef } = require('./util');
+const COSTO_REF = enRef('p.costo_base');
 
 const r = express.Router();
 
-// ── Validación ───────────────────────────────────────────────────────────────────────────────
-class ErrorUsuario extends Error {}
-
-// Acepta coma o punto decimal (en Argentina se escribe "1,5"). Devuelve el texto normalizado o null.
-function numero(v, { campo, negativo = false, requerido = false, positivo = false } = {}) {
-  if (v === undefined || v === null || String(v).trim() === '') {
-    if (requerido) throw new ErrorUsuario(`Falta ${campo}.`);
-    return null;
-  }
-  const s = String(v).trim().replace(',', '.');
-  const re = negativo ? /^-?\d+(\.\d+)?$/ : /^\d+(\.\d+)?$/;
-  if (!re.test(s)) throw new ErrorUsuario(`${campo}: "${v}" no es un número válido.`);
-  if (positivo && /^0+(\.0+)?$/.test(s)) throw new ErrorUsuario(`${campo} tiene que ser mayor que cero.`);
-  return s;
-}
-
-function texto(v, { campo, requerido = false } = {}) {
-  const s = v === undefined || v === null ? '' : String(v).trim();
-  if (!s && requerido) throw new ErrorUsuario(`Falta ${campo}.`);
-  return s || null;
-}
-
-// Los errores de la base se traducen a algo que el encargado entienda. Los RAISE de nuestros
-// triggers ya vienen redactados para una persona (P0001); el resto se nombra por la restricción.
-function errorBase(e) {
-  if (e instanceof ErrorUsuario) return e.message;
-  if (e.code === 'P0001') return e.message;
-  const c = e.constraint || '';
-  if (e.code === '23505') {
-    if (c === 'producto_codigo_key') return 'Ya existe un producto con ese código.';
-    if (c === 'categoria_nombre_ux') return 'Ya existe una categoría con ese nombre.';
-    if (c === 'presentacion_producto_id_nombre_key') return 'Hay dos presentaciones con el mismo nombre.';
-  }
-  if (e.code === '23503' && e.table === 'compra_item')
-    return 'Una presentación que quitaste ya se usó en compras: no se puede borrar.';
-  if (e.code === '23503') return 'Alguno de los datos elegidos ya no existe. Recargá la página.';
-  if (e.code === '23514') return 'Algún valor está fuera de lo permitido (revisá temperaturas y cantidades).';
-  if (e.code === '22P02') return 'Hay un dato con formato inválido.';
-  return null;
-}
-
-// Envuelve un handler: errores del usuario -> 400 con mensaje; el resto sigue al manejador general.
-const h = fn => async (req, res, next) => {
-  try { await fn(req, res); }
-  catch (e) {
-    const msg = errorBase(e);
-    if (msg) return res.status(400).json({ ok: false, error: msg });
-    next(e);
-  }
-};
-
-async function enTransaccion(fn) {
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-    const out = await fn(c);
-    await c.query('COMMIT');
-    return out;
-  } catch (e) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw e;
-  } finally {
-    c.release();
-  }
-}
-
-// Unidad de REFERENCIA para mostrar costos: la mayor de la magnitud del producto (kg, l, u). Un
-// costo se guarda por unidad base, pero "$0,0012 el gramo" no lo lee nadie; "$1.200 el kilo" sí.
-const UNIDAD_REF = `(SELECT r.codigo FROM logic.unidad r JOIN logic.unidad b ON b.magnitud = r.magnitud
-                      WHERE b.codigo = p.unidad_base ORDER BY r.factor_si DESC LIMIT 1)`;
-const COSTO_REF = `(SELECT trim_scale((p.costo_base * r.factor_si / b.factor_si)::numeric(16,4))::text
-                      FROM logic.unidad r, logic.unidad b
-                     WHERE r.codigo = ${UNIDAD_REF} AND b.codigo = p.unidad_base)`;
-
-// ── Unidades y categorías ────────────────────────────────────────────────────────────────────
-r.get('/unidades', h(async (req, res) => {
-  const { rows } = await pool.query(
-    'SELECT codigo, nombre, magnitud, factor_si::text FROM logic.unidad ORDER BY magnitud, factor_si');
-  res.json({ ok: true, unidades: rows });
-}));
-
+// ── Categorías ───────────────────────────────────────────────────────────────────────────────
 r.get('/categorias', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.nombre, c.activa, COUNT(p.id)::int AS productos
@@ -109,7 +27,7 @@ r.get('/productos', h(async (req, res) => {
   const q = texto(req.query.q);
   const categoria = texto(req.query.categoria);
   const { rows } = await pool.query(
-    `SELECT p.id, p.codigo, p.nombre, p.unidad_base, p.perecedero, p.activo,
+    `SELECT p.id, p.codigo, p.nombre, p.unidad_base, p.perecedero, p.vida_util_dias, p.activo,
             p.categoria_id, c.nombre AS categoria, ${COSTO_REF} AS costo, ${UNIDAD_REF} AS costo_unidad,
             trim_scale(COALESCE(s.cantidad, 0))::text AS stock
        FROM logic.producto p
@@ -179,9 +97,6 @@ function leerProducto(b) {
   return p;
 }
 
-// Las presentaciones se cargan en la unidad que le resulte cómoda al usuario ("6 kg") y se
-// guardan en la unidad base del producto (6000 g). La conversión la hace la base, en NUMERIC, y
-// se niega si las magnitudes no coinciden: una caja no puede pesar 6 litros de un producto en g.
 // Costo cargado por la unidad que eligió el usuario -> costo por unidad base, en NUMERIC.
 async function costoBase(c, p) {
   if (p.costo === null) return null;
@@ -194,32 +109,25 @@ async function costoBase(c, p) {
   return r.base;
 }
 
+// Las presentaciones se cargan en la unidad que le resulte cómoda al usuario ("6 kg") y se
+// guardan en la unidad base del producto (6000 g).
 async function guardarPresentaciones(c, productoId, unidadBase, pres) {
   const conservar = pres.filter(x => x.id).map(x => x.id);
   await c.query(
     'DELETE FROM logic.presentacion WHERE producto_id = $1 AND NOT (id = ANY($2::uuid[]))',
     [productoId, conservar]);
   for (const x of pres) {
-    const { rows: [conv] } = await c.query(
-      `SELECT ($1::numeric * u.factor_si / b.factor_si)::numeric(16,4)::text AS base,
-              u.magnitud = b.magnitud AS compatible
-         FROM logic.unidad u, logic.unidad b WHERE u.codigo = $2 AND b.codigo = $3`,
-      [x.cantidad, x.unidad, unidadBase]);
-    if (!conv) throw new ErrorUsuario(`Unidad desconocida en "${x.nombre}".`);
-    if (!conv.compatible)
-      throw new ErrorUsuario(`"${x.nombre}" está en ${x.unidad}, que no se puede convertir a ${unidadBase}.`);
-    if (/^0+(\.0+)?$/.test(conv.base))
-      throw new ErrorUsuario(`"${x.nombre}" queda en cero al pasarla a ${unidadBase}.`);
+    const base = await aBase(c, x.cantidad, x.unidad, unidadBase, `"${x.nombre}"`);
     if (x.id) {
       const { rowCount } = await c.query(
         `UPDATE logic.presentacion SET nombre = $1, cantidad_base = $2, es_default = $3
           WHERE id = $4 AND producto_id = $5`,
-        [x.nombre, conv.base, x.es_default, x.id, productoId]);
+        [x.nombre, base, x.es_default, x.id, productoId]);
       if (!rowCount) throw new ErrorUsuario('Una presentación ya no existe. Recargá la página.');
     } else {
       await c.query(
         `INSERT INTO logic.presentacion (producto_id, nombre, cantidad_base, es_default)
-         VALUES ($1, $2, $3, $4)`, [productoId, x.nombre, conv.base, x.es_default]);
+         VALUES ($1, $2, $3, $4)`, [productoId, x.nombre, base, x.es_default]);
     }
   }
 }

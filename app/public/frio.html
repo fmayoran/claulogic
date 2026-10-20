@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Frío · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .equipo .v{font-size:2rem;}
+  .equipo.mal{border-color:var(--mal);} .equipo.aviso{border-color:var(--aviso);}
+  .equipo .rango{color:var(--mut);font-size:.82rem;}
+  tr.fuera td{color:var(--mal);}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Cadena de frío</h1>
+  <p class="sub">Cada lectura queda registrada y no se borra. La serie es el control: un pico de media hora se ve acá, no en una foto del momento.</p>
+  <div class="tarjetas" id="equipos"></div>
+
+  <fieldset>
+    <legend>Registrar lectura</legend>
+    <form id="f" novalidate>
+      <div class="fila">
+        <label>Equipo *<select name="ubicacion_id"></select></label>
+        <label>Temperatura (°C) *<input name="celsius" inputmode="decimal" placeholder="3,5"></label>
+        <label>Medida a las<input name="medido_en" type="datetime-local"></label>
+        <label>Notas<input name="notas"></label>
+      </div>
+      <div class="acciones fijo">
+        <button type="submit" class="prim" id="guardar">Registrar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </fieldset>
+
+  <h2>Lecturas</h2>
+  <div class="barra">
+    <select id="fequipo"><option value="">Todos los equipos</option></select>
+    <label>Desde<input id="fdesde" type="date"></label>
+    <label class="check"><input id="falertas" type="checkbox"> Sólo fuera de rango</label>
+  </div>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Medida</th><th>Equipo</th><th class="num">°C</th><th>Estado</th><th>Notas</th></tr></thead>
+    <tbody id="t"></tbody></table></div>
+</main>
+<script src="comun.js"></script>
+<script>
+const f = $('#f');
+const grados = v => v == null ? '–' : num(v) + ' °C';
+
+async function cargarEquipos() {
+  const { equipos } = await api('frio');
+  if (!equipos.length) {
+    $('#equipos').replaceChildren(el('p', { className: 'vacio' }, 'No hay cámaras, heladeras ni freezers. Se dan de alta en ', el('a', { href: 'almacenes.html', textContent: 'Almacenes' }), '.'));
+  } else {
+    $('#equipos').replaceChildren(...equipos.map(e => {
+      const estado = e.desvio ? 'mal' : e.sin_lectura_reciente ? 'aviso' : '';
+      return el('div', { className: 'tarjeta equipo ' + estado },
+        el('div', { className: 't', textContent: `${e.almacen} · ${e.nombre}` }),
+        el('div', { className: 'v', textContent: grados(e.celsius) }),
+        el('div', { className: 'rango', textContent: `rango ${num(e.temp_min)} a ${num(e.temp_max)} °C` }),
+        el('div', {},
+          e.desvio ? el('span', { className: 'tag mal', textContent: e.desvio === 'alto' ? 'por encima del rango' : 'por debajo del rango' }) : '',
+          e.sin_lectura_reciente ? el('span', { className: 'tag aviso', textContent: e.medido_en ? 'sin lectura hace más de 12 h' : 'nunca se midió' }) : '',
+          !estado ? el('span', { className: 'tag ok', textContent: 'en rango' }) : ''),
+        el('div', { className: 'rango', textContent: (e.medido_en ? 'última: ' + fechaHora(e.medido_en) : '') +
+          (e.alertas_7d ? ` · ${e.alertas_7d} fuera de rango en 7 días` : '') }));
+    }));
+  }
+  const items = equipos.map(e => [e.id, `${e.almacen} · ${e.nombre}`]);
+  opciones(f.ubicacion_id, items, f.ubicacion_id.value || null, 'Elegir…');
+  opciones($('#fequipo'), items, $('#fequipo').value || null, 'Todos los equipos');
+}
+
+async function cargarLecturas() {
+  const p = new URLSearchParams();
+  if ($('#fequipo').value) p.set('ubicacion', $('#fequipo').value);
+  if ($('#fdesde').value) p.set('desde', $('#fdesde').value);
+  if ($('#falertas').checked) p.set('solo_alertas', '1');
+  const { lecturas } = await api('lecturas?' + p);
+  filas($('#t'), lecturas, l => el('tr', { className: l.desvio ? 'fuera' : '' },
+    td(fechaHora(l.medido_en)), td(`${l.almacen} · ${l.ubicacion}`), td(grados(l.celsius), 'num'),
+    td(l.desvio === 'alto' ? 'por encima' : l.desvio === 'bajo' ? 'por debajo' : 'en rango'), td(l.notas, 'wrap')),
+    'No hay lecturas.', 5);
+}
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(f));
+  // datetime-local no trae zona: se manda con la del navegador para que la base la guarde bien.
+  if (body.medido_en) body.medido_en = new Date(body.medido_en).toISOString();
+  $('#guardar').disabled = true;
+  try {
+    await api('lecturas', { method: 'POST', body });
+    f.celsius.value = ''; f.notas.value = ''; f.medido_en.value = ''; msg('Registrada.', 'ok');
+    await Promise.all([cargarEquipos(), cargarLecturas()]);
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#fequipo').onchange = $('#fdesde').onchange = $('#falertas').onchange = () => cargarLecturas().catch(e => alert(e.message));
+Promise.all([cargarEquipos(), cargarLecturas()]).catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Movimientos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  tr.anulado td{color:var(--mut);} tr.anulado td.cant{text-decoration:line-through;}
+  .sent-entrada{color:var(--acento);} .sent-salida{color:var(--mal);}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Movimientos</h1>
+  <p class="sub">El histórico completo. Ningún movimiento se borra ni se edita: para revertir uno se anula, y quedan los dos.</p>
+  <div class="barra">
+    <input id="q" type="search" placeholder="Producto, lote o referencia">
+    <label>Desde<input id="desde" type="date"></label>
+    <label>Hasta<input id="hasta" type="date"></label>
+    <select id="tipo"><option value="">Todos los tipos</option></select>
+    <select id="alm"><option value="">Todos los almacenes</option></select>
+    <button class="prim" id="nuevo">Registrar egreso o traslado</button>
+  </div>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>#</th><th>Fecha</th><th>Tipo</th><th>Producto</th><th>Lote</th><th class="num">Cantidad</th>
+      <th>Desde</th><th>Hacia</th><th>Motivo / referencia</th><th></th></tr></thead>
+    <tbody id="t"></tbody></table></div>
+  <p class="ayuda">Se muestran hasta 500 movimientos; afiná con los filtros para ver más atrás.</p>
+</main>
+
+<dialog id="dlg">
+  <form id="f" novalidate>
+    <h2>Registrar egreso o traslado</h2>
+    <p class="ayuda" style="margin:0 0 12px">Las entradas no se cargan acá: entran por compra, por producción o por conteo.</p>
+    <div class="fila">
+      <label>Tipo *<select name="tipo">
+        <option value="consumo">Consumo</option><option value="merma">Merma</option>
+        <option value="vencimiento">Vencimiento</option><option value="venta">Venta</option>
+        <option value="traslado">Traslado</option></select></label>
+    </div>
+    <div class="fila"><label>Producto *<select name="producto_id"></select></label></div>
+    <div class="fila"><label>Desde *<select name="origen_id"></select></label></div>
+    <div class="fila" id="filaLote"><label>Lote *<select name="lote_id"></select></label></div>
+    <div class="fila" id="filaDestino" hidden><label>Hacia *<select name="destino_id"></select></label></div>
+    <div class="fila">
+      <label>Cantidad *<span class="con-boton"><input name="cantidad" inputmode="decimal"><select name="unidad" class="angosto"></select></span></label>
+      <label>Hay en el origen<input id="hay" disabled></label>
+    </div>
+    <div class="fila">
+      <label>Motivo<input name="motivo" placeholder="obligatorio para mermas"></label>
+      <label>Referencia<input name="referencia" placeholder="comanda, remito…"></label>
+    </div>
+    <div class="acciones">
+      <button type="submit" class="prim" id="guardar">Registrar</button>
+      <button type="button" id="cerrar">Cancelar</button>
+      <span class="msg" id="msgDlg"></span>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgAnular">
+  <form id="fa" novalidate>
+    <h2>Anular movimiento <span id="anId"></span></h2>
+    <p id="anDesc" class="ayuda" style="margin:0 0 12px"></p>
+    <div class="fila"><label>Motivo de la anulación *<input name="motivo"></label></div>
+    <div class="acciones">
+      <button type="submit" class="prim peligro" id="anGuardar">Anular</button>
+      <button type="button" id="anCerrar">Cancelar</button>
+      <span class="msg" id="msgAn"></span>
+    </div>
+  </form>
+</dialog>
+
+<script src="comun.js"></script>
+<script>
+const TIPOS = { compra: 'Compra', produccion: 'Producción', consumo: 'Consumo', traslado: 'Traslado',
+  merma: 'Merma', vencimiento: 'Vencimiento', venta: 'Venta', ajuste: 'Ajuste' };
+let productos = [], almacenes = [], unidades = [], stockOrigen = [];
+const f = $('#f'), fa = $('#fa');
+
+async function cargar() {
+  const p = new URLSearchParams();
+  for (const [k, sel] of [['q', '#q'], ['desde', '#desde'], ['hasta', '#hasta'], ['tipo', '#tipo'], ['almacen', '#alm']])
+    if ($(sel).value.trim()) p.set(k, $(sel).value.trim());
+  try {
+    const { movimientos } = await api('movimientos?' + p);
+    filas($('#t'), movimientos, m => {
+      const anulable = !m.anula_a && !m.anulado_por && !m.de_compra && !m.de_produccion;
+      const signo = m.sentido === 'entrada' ? '+' : m.sentido === 'salida' ? '−' : '';
+      return el('tr', { className: m.anulado_por ? 'anulado' : '' },
+        td(m.id, 'mut'), td(fechaHora(m.ocurrido_en)),
+        el('td', {}, TIPOS[m.tipo] || m.tipo, ' ',
+          m.anula_a ? el('span', { className: 'tag', textContent: 'anula #' + m.anula_a }) : '',
+          m.anulado_por ? el('span', { className: 'tag mal', textContent: 'anulado por #' + m.anulado_por }) : ''),
+        td(m.producto), td(m.lote),
+        el('td', { className: 'num cant sent-' + m.sentido }, signo + cant(m.cantidad, m.unidad_base)),
+        td(m.origen ? `${m.origen_almacen} · ${m.origen}` : ''), td(m.destino ? `${m.destino_almacen} · ${m.destino}` : ''),
+        td([m.motivo, m.referencia].filter(Boolean).join(' · '), 'wrap'),
+        el('td', {}, anulable ? el('button', { className: 'chico', textContent: 'Anular', onclick: () => abrirAnular(m) }) : ''));
+    }, 'No hay movimientos que coincidan.', 10);
+  } catch (e) { alert(e.message); }
+}
+
+// ── Egreso / traslado ──
+const prodSel = () => productos.find(p => p.id === f.producto_id.value);
+async function alCambiarProducto() {
+  const p = prodSel();
+  if (p) opciones(f.unidad, unidadesCompatibles(unidades, p.unidad_base).map(u => [u.codigo, u.codigo]), p.unidad_base);
+  await alCambiarOrigen();
+}
+// Los lotes que se ofrecen son los que tienen stock en el origen elegido, en orden FEFO.
+async function alCambiarOrigen() {
+  const p = prodSel();
+  $('#filaLote').hidden = !p || !p.perecedero;
+  stockOrigen = [];
+  if (p && f.origen_id.value) ({ stock: stockOrigen } = await api('stock?' + new URLSearchParams({ producto: p.id, ubicacion: f.origen_id.value })));
+  if (p && p.perecedero)
+    opciones(f.lote_id, stockOrigen.filter(s => s.lote_id).map(s =>
+      [s.lote_id, `${s.lote} · vence ${fecha(s.vencimiento)} · hay ${cant(s.cantidad, s.unidad_base)}`]), null, 'Elegir…');
+  alCambiarLote();
+}
+function alCambiarLote() {
+  const p = prodSel();
+  const s = p && stockOrigen.find(x => (x.lote_id || '') === (p.perecedero ? f.lote_id.value : ''));
+  $('#hay').value = p ? cant(s ? s.cantidad : '0', p.unidad_base) : '';
+}
+f.tipo.onchange = () => { $('#filaDestino').hidden = f.tipo.value !== 'traslado'; };
+f.producto_id.onchange = alCambiarProducto;
+f.origen_id.onchange = alCambiarOrigen;
+f.lote_id.onchange = alCambiarLote;
+
+$('#nuevo').onclick = async () => {
+  f.reset(); msg('', '', '#msgDlg'); $('#filaDestino').hidden = true;
+  opciones(f.producto_id, productos.filter(p => p.activo).map(p => [p.id, `${p.nombre} (${p.codigo})`]), null, 'Elegir…');
+  opcionesUbicacion(f.origen_id, almacenes); opcionesUbicacion(f.destino_id, almacenes);
+  await alCambiarProducto();
+  $('#dlg').showModal();
+};
+$('#cerrar').onclick = () => $('#dlg').close();
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(f));
+  if (body.tipo !== 'traslado') delete body.destino_id;
+  $('#guardar').disabled = true;
+  try {
+    await api('movimientos', { method: 'POST', body });
+    $('#dlg').close(); cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgDlg'); }
+  finally { $('#guardar').disabled = false; }
+};
+
+// ── Anulación ──
+let anulando = null;
+function abrirAnular(m) {
+  anulando = m; fa.reset(); msg('', '', '#msgAn');
+  $('#anId').textContent = '#' + m.id;
+  $('#anDesc').textContent = `${TIPOS[m.tipo]} de ${cant(m.cantidad, m.unidad_base)} de ${m.producto}. ` +
+    'Se va a asentar el movimiento inverso; el original queda en el histórico marcado como anulado.';
+  $('#dlgAnular').showModal();
+}
+$('#anCerrar').onclick = () => $('#dlgAnular').close();
+fa.onsubmit = async e => {
+  e.preventDefault();
+  $('#anGuardar').disabled = true;
+  try {
+    await api(`movimientos/${anulando.id}/anular`, { method: 'POST', body: { motivo: fa.motivo.value } });
+    $('#dlgAnular').close(); cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgAn'); }
+  finally { $('#anGuardar').disabled = false; }
+};
+
+let t;
+$('#q').oninput = () => { clearTimeout(t); t = setTimeout(cargar, 250); };
+for (const s of ['#desde', '#hasta', '#tipo', '#alm']) $(s).onchange = cargar;
+
+(async () => {
+  try {
+    opciones($('#tipo'), Object.entries(TIPOS), null, 'Todos los tipos');
+    [productos, almacenes, unidades] = await Promise.all([catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
+    opciones($('#alm'), almacenes.map(a => [a.id, a.nombre]), null, 'Todos los almacenes');
+    cargar();
+  } catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

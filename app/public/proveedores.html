@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Proveedores · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <label class="check"><input id="finact" type="checkbox"> Mostrar inactivos</label>
+      <button class="prim" id="nuevo">Nuevo proveedor</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nuevo proveedor</h1>
+    <p class="sub">Los proveedores se usan en las compras y quedan asociados a cada lote que entregan.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Datos</legend>
+        <div class="fila">
+          <label>Nombre *<input name="nombre" maxlength="120"></label>
+          <label>CUIT<input name="cuit" placeholder="30-12345678-9"></label>
+        </div>
+        <div class="fila">
+          <label>Contacto<input name="contacto"></label>
+          <label>Teléfono<input name="telefono" type="tel"></label>
+          <label>Email<input name="email" type="email"></label>
+        </div>
+        <div class="fila"><label>Notas<input name="notas" placeholder="días de entrega, condiciones…"></label></div>
+        <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let proveedores = [], actual = null;
+const f = $('#f');
+const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas'];
+
+async function cargar() {
+  ({ proveedores } = await api('proveedores' + ($('#finact').checked ? '?inactivos=1' : '')));
+  if (!proveedores.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay proveedores.' }));
+  $('#lista').replaceChildren(...proveedores.map(p => {
+    const b = el('button', { type: 'button', className: 'item' + (p.id === actual ? ' sel' : '') + (p.activo ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: p.nombre }),
+      el('div', { className: 'm', textContent: [p.contacto, p.telefono, p.cuit].filter(Boolean).join(' · ') || '—' }));
+    b.onclick = () => abrir(p.id);
+    return b;
+  }));
+}
+function nuevo() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo proveedor'; $('#activoWrap').hidden = true;
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+function abrir(id) {
+  const p = proveedores.find(p => p.id === id); if (!p) return nuevo();
+  actual = id; msg(''); $('#titulo').textContent = p.nombre;
+  for (const c of CAMPOS) f[c].value = p[c] || '';
+  f.activo.checked = p.activo; $('#activoWrap').hidden = false;
+  cargar();
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(CAMPOS.map(c => [c, f[c].value]));
+  body.activo = actual ? f.activo.checked : true;
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'proveedores/' + actual : 'proveedores', { method: actual ? 'PUT' : 'POST', body });
+    $('#finact').checked = $('#finact').checked || !body.activo;
+    await cargar(); abrir(d.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nuevo').onclick = nuevo;
+$('#finact').onchange = cargar;
+cargar().then(nuevo).catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>

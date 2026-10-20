@@ -4,61 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Productos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
 <style>
-  :root{color-scheme:light dark;--fg:#16161a;--mut:#6e6a62;--line:#e4e0d8;--bg:#faf9f6;--panel:#fff;
-    --acento:#2f5d50;--acento-fg:#fff;--mal:#b3261e;--sel:#eef3f0;}
-  @media (prefers-color-scheme:dark){:root{--fg:#f3f1ec;--mut:#95918a;--line:#2a2a26;--bg:#0f0f0e;
-    --panel:#171715;--acento:#7fb8a4;--acento-fg:#0f0f0e;--mal:#f2867d;--sel:#1f2a26;}}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--fg);
-    font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-  header{display:flex;align-items:baseline;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);}
-  header a{color:var(--mut);text-decoration:none;font-weight:600;}
-  header h1{font-size:1.15rem;margin:0;}
-  .grid{display:grid;grid-template-columns:minmax(280px,360px) 1fr;min-height:calc(100dvh - 53px);}
-  aside{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;}
-  .filtros{padding:14px;display:grid;gap:8px;border-bottom:1px solid var(--line);}
-  .lista{overflow:auto;flex:1;}
-  .item{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);
-    padding:10px 14px;color:inherit;font:inherit;cursor:pointer;}
-  .item:hover{background:var(--sel);} .item.sel{background:var(--sel);box-shadow:inset 3px 0 var(--acento);}
-  .item .n{font-weight:600;} .item .m{color:var(--mut);font-size:.85rem;}
-  .item.inactivo .n{text-decoration:line-through;color:var(--mut);}
-  .vacio{color:var(--mut);padding:18px 14px;}
-  main{padding:20px 24px 60px;max-width:860px;}
-  h2{font-size:1.3rem;margin:0 0 4px;} .sub{color:var(--mut);margin:0 0 18px;}
-  fieldset{border:1px solid var(--line);border-radius:10px;padding:14px 16px 16px;margin:0 0 16px;background:var(--panel);}
-  legend{padding:0 6px;font-weight:600;font-size:.9rem;}
-  .fila{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));}
-  label{display:grid;gap:4px;font-size:.85rem;color:var(--mut);}
-  label.check{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:.95rem;}
-  input,select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:7px;
-    padding:7px 9px;min-width:0;width:100%;}
-  input[type=checkbox],input[type=radio]{width:auto;}
-  input:focus,select:focus{outline:2px solid var(--acento);outline-offset:-1px;}
-  .con-boton{display:flex;gap:6px;}
-  button{font:inherit;cursor:pointer;border-radius:7px;padding:7px 12px;border:1px solid var(--line);
-    background:var(--panel);color:inherit;}
-  button.prim{background:var(--acento);color:var(--acento-fg);border-color:var(--acento);font-weight:600;}
-  button.chico{padding:4px 9px;font-size:.85rem;}
-  button:disabled{opacity:.6;cursor:default;}
-  table{width:100%;border-collapse:collapse;}
-  th{font-size:.8rem;color:var(--mut);font-weight:500;text-align:left;padding:0 6px 4px;}
-  td{padding:4px 6px;vertical-align:middle;}
-  .ayuda{color:var(--mut);font-size:.82rem;margin:6px 0 0;}
-  .acciones{display:flex;gap:10px;align-items:center;position:sticky;bottom:0;background:var(--bg);
-    padding:12px 0;border-top:1px solid var(--line);}
-  .msg{font-size:.9rem;} .msg.mal{color:var(--mal);} .msg.ok{color:var(--acento);}
   .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
-  [hidden]{display:none!important;}
-  @media (max-width:760px){
-    .grid{grid-template-columns:1fr;} aside{border-right:0;border-bottom:1px solid var(--line);}
-    .lista{max-height:40dvh;} main{padding:16px;}
-  }
 </style>
 </head>
 <body>
-<header><a href="./">ClauLogic</a><h1>Productos</h1></header>
 <div class="grid">
   <aside>
     <div class="filtros">
@@ -71,7 +22,7 @@
   </aside>
 
   <main>
-    <h2 id="titulo">Nuevo producto</h2>
+    <h1 id="titulo">Nuevo producto</h1>
     <p class="sub" id="subtitulo">Los campos con * son obligatorios.</p>
     <form id="f" novalidate>
       <fieldset>
@@ -129,7 +80,7 @@
           <label>Costo
             <span class="con-boton">
               <input name="costo" inputmode="decimal" placeholder="0">
-              <select name="costo_unidad" style="width:auto;flex:none"></select>
+              <select name="costo_unidad" class="angosto"></select>
             </span>
           </label>
         </div>
@@ -150,36 +101,13 @@
   </main>
 </div>
 
+<script src="comun.js"></script>
 <script>
-const $ = s => document.querySelector(s);
 const f = $('#f');
 let unidades = [], categorias = [], actual = null, sucio = false;
 
-async function api(url, opt = {}) {
-  const r = await fetch('api/' + url, {
-    ...opt, headers: { 'content-type': 'application/json' },
-    body: opt.body ? JSON.stringify(opt.body) : undefined,
-  });
-  const d = await r.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor.' }));
-  if (!d.ok) throw new Error(d.error || 'Error del servidor.');
-  return d;
-}
-function el(tag, props = {}, ...hijos) {
-  const e = Object.assign(document.createElement(tag), props);
-  for (const h of hijos) e.append(h);
-  return e;
-}
-function msg(t, tipo = '') { const m = $('#msg'); m.textContent = t; m.className = 'msg ' + tipo; }
-// Los números se muestran con coma decimal, como se escriben acá; la API acepta los dos.
-const coma = v => v == null ? '' : String(v).replace('.', ',');
 const magnitudDe = cod => (unidades.find(u => u.codigo === cod) || {}).magnitud;
 const compatibles = cod => unidades.filter(u => u.magnitud === magnitudDe(cod));
-
-function opciones(select, items, valor, vacio) {
-  select.replaceChildren(...(vacio ? [el('option', { value: '', textContent: vacio })] : []),
-    ...items.map(([v, t]) => el('option', { value: v, textContent: t })));
-  if (valor != null) select.value = valor;
-}
 
 // ── Lista ──
 async function cargarLista() {
@@ -195,8 +123,8 @@ async function cargarLista() {
     const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') + (x.activo ? '' : ' inactivo') },
       el('div', { className: 'n', textContent: x.nombre }),
       el('div', { className: 'm', textContent:
-        `${x.codigo} · ${x.categoria} · stock ${coma(x.stock)} ${x.unidad_base}` +
-        (x.costo != null ? ` · $${coma(x.costo)}/${x.costo_unidad}` : '') }));
+        `${x.codigo} · ${x.categoria} · stock ${cant(x.stock, x.unidad_base)}` +
+        (x.costo != null ? ` · ${pesos(x.costo)}/${x.costo_unidad}` : '') }));
     b.onclick = () => abrir(x.id);
     return b;
   }));
@@ -224,9 +152,9 @@ function alCambiarBase(costoUnidad) {
   const base = f.unidad_base.value;
   document.querySelectorAll('.ub').forEach(s => s.textContent = base || 'unidad base');
   const comp = compatibles(base).map(u => [u.codigo, u.codigo]);
-  // El costo se carga por la unidad mayor (kg, l, u): "$1.200 el kilo" y no "$1,2 el gramo".
-  const mayor = compatibles(base).at(-1);
-  opciones(f.costo_unidad, comp.map(([c]) => [c, 'por ' + c]), costoUnidad || (mayor && mayor.codigo));
+  // El costo se carga por la unidad de referencia (kg, l, u): "$1.200 el kilo" y no "$1,2 el gramo".
+  const ref = compatibles(base).find(u => u.es_referencia);
+  opciones(f.costo_unidad, comp.map(([c]) => [c, 'por ' + c]), costoUnidad || (ref && ref.codigo));
   for (const sel of document.querySelectorAll('#pres select')) {
     const v = sel.value;
     opciones(sel, comp, compatibles(base).some(u => u.codigo === v) ? v : base);
@@ -284,9 +212,9 @@ async function abrir(id) {
     for (const x of p.presentaciones) filaPres({ ...x, unidad: p.unidad_base });
     const hist = $('#histCostos tbody');
     hist.replaceChildren(...p.costos.map(c => el('tr', {},
-      el('td', { textContent: new Date(c.cambiado_en).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) }),
-      el('td', { textContent: (c.costo_anterior != null ? '$' + coma(c.costo_anterior) + ' → ' : '') +
-        (c.costo_nuevo != null ? '$' + coma(c.costo_nuevo) : 'sin costo') + '/' + p.costo_unidad }),
+      el('td', { textContent: fechaHora(c.cambiado_en) }),
+      el('td', { textContent: (c.costo_anterior != null ? pesos(c.costo_anterior) + ' → ' : '') +
+        (c.costo_nuevo != null ? pesos(c.costo_nuevo) : 'sin costo') + '/' + p.costo_unidad }),
       el('td', { textContent: c.origen + (c.registrado_por ? ' · ' + c.registrado_por : '') }))));
     $('#histCostos').hidden = !p.costos.length;
     msg('');

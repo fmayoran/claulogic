@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Unidades · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<main class="ancho" style="max-width:900px">
+  <h1>Unidades</h1>
+  <p class="sub">Cada unidad se define contra la patrón de su magnitud: gramo para masa, mililitro para volumen, unidad para conteo.
+    Con eso el sistema convierte entre cualquier par, y se niega a convertir entre magnitudes distintas.</p>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Código</th><th>Nombre</th><th>Magnitud</th><th class="num">Equivale a</th><th></th><th></th></tr></thead>
+    <tbody id="t"></tbody></table></div>
+  <button class="prim" id="nueva" style="margin-top:12px">Nueva unidad</button>
+  <p class="ayuda">La unidad de <strong>referencia</strong> es la que se usa para mostrar y cargar costos ("$1.200 por kg"). Hay una por magnitud.</p>
+</main>
+
+<dialog id="dlg">
+  <form id="f" novalidate>
+    <h2 id="titulo">Nueva unidad</h2>
+    <div class="fila">
+      <label>Código *<input name="codigo" maxlength="12" placeholder="docena"></label>
+      <label>Nombre *<input name="nombre" placeholder="docena"></label>
+    </div>
+    <div class="fila">
+      <label>Magnitud *<select name="magnitud">
+        <option value="masa">Masa</option><option value="volumen">Volumen</option><option value="conteo">Conteo</option></select></label>
+      <label>Equivale a *<span class="con-boton"><input name="factor_si" inputmode="decimal" placeholder="12"><span id="patron" style="align-self:center;color:var(--fg)">u</span></span></label>
+    </div>
+    <label class="check" style="margin-top:12px"><input type="checkbox" name="es_referencia"> Usar como referencia para costos</label>
+    <p class="ayuda" id="bloqueo" hidden>Es la base de algún producto: no se le cambia magnitud ni equivalencia, porque las cantidades guardadas pasarían a significar otra cosa.</p>
+    <div class="acciones">
+      <button type="submit" class="prim" id="guardar">Guardar</button>
+      <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+      <button type="button" id="cerrar">Cancelar</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </form>
+</dialog>
+
+<script src="comun.js"></script>
+<script>
+const PATRON = { masa: 'g', volumen: 'ml', conteo: 'u' };
+const SISTEMA = ['g', 'kg', 'ml', 'l', 'u'];
+const MAG = { masa: 'Masa', volumen: 'Volumen', conteo: 'Conteo' };
+let unidades = [], actual = null;
+const f = $('#f');
+
+async function cargar() {
+  ({ unidades } = await api('unidades'));
+  filas($('#t'), unidades, u => el('tr', {},
+    td(el('strong', { textContent: u.codigo })), td(u.nombre), td(MAG[u.magnitud]),
+    td(u.factor_si === '1' ? 'patrón' : `${num(u.factor_si)} ${PATRON[u.magnitud]}`, 'num'),
+    el('td', {}, u.es_referencia ? el('span', { className: 'tag ok', textContent: 'referencia' }) : '',
+      u.productos ? el('span', { className: 'tag', textContent: `base de ${u.productos} producto(s)` }) : ''),
+    el('td', {}, el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrir(u) }))), 'Sin unidades.', 6);
+}
+f.magnitud.onchange = () => { $('#patron').textContent = PATRON[f.magnitud.value]; };
+function abrir(u = null) {
+  actual = u; f.reset(); msg('');
+  $('#titulo').textContent = u ? `Unidad ${u.codigo}` : 'Nueva unidad';
+  f.codigo.disabled = !!u;
+  if (u) { f.codigo.value = u.codigo; f.nombre.value = u.nombre; f.magnitud.value = u.magnitud; f.factor_si.value = coma(u.factor_si); f.es_referencia.checked = u.es_referencia; }
+  const sistema = u && SISTEMA.includes(u.codigo);
+  f.magnitud.disabled = f.factor_si.disabled = u && (u.productos > 0 || sistema);
+  $('#bloqueo').hidden = !(u && (u.productos > 0 || sistema));
+  $('#bloqueo').textContent = sistema ? 'Es una unidad del sistema: su equivalencia no se cambia.'
+    : 'Es la base de algún producto: no se le cambia magnitud ni equivalencia, porque las cantidades guardadas pasarían a significar otra cosa.';
+  $('#borrar').hidden = !u || u.productos > 0 || u.es_referencia || sistema;
+  f.magnitud.onchange();
+  $('#dlg').showModal();
+}
+$('#nueva').onclick = () => abrir();
+$('#cerrar').onclick = () => $('#dlg').close();
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { codigo: f.codigo.value, nombre: f.nombre.value, magnitud: f.magnitud.value,
+                 factor_si: f.factor_si.value, es_referencia: f.es_referencia.checked };
+  $('#guardar').disabled = true;
+  try {
+    await api(actual ? 'unidades/' + encodeURIComponent(actual.codigo) : 'unidades', { method: actual ? 'PUT' : 'POST', body });
+    $('#dlg').close(); cargar();
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#borrar').onclick = async () => {
+  if (!confirm(`¿Borrar la unidad ${actual.codigo}?`)) return;
+  try { await api('unidades/' + encodeURIComponent(actual.codigo), { method: 'DELETE' }); $('#dlg').close(); cargar(); }
+  catch (e) { msg(e.message, 'mal'); }
+};
+cargar().catch(e => alert(e.message));
+</script>
+</body>
+</html>

@@ -3,7 +3,11 @@
 //
 // El esquema es `logic`, no `public`. Eso hace que un dump, un GRANT o un DROP sean quirúrgicos
 // en vez de "todo o nada", y es la misma convención que `contenido` en ClaUsina.
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Las columnas DATE vuelven como texto 'AAAA-MM-DD'. Convertidas a Date de JavaScript quedan a la
+// medianoche UTC, y un navegador en Argentina (UTC-3) muestra el vencimiento un día antes.
+types.setTypeParser(1082, v => v);
 
 const pool = new Pool({
   host: process.env.PGHOST,
@@ -11,6 +15,9 @@ const pool = new Pool({
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
   database: process.env.PGDATABASE,
+  // "Hoy" es el de la cocina, no el de Greenwich: a las 22 h de acá en UTC ya es mañana, y los
+  // vencimientos, los códigos de lote y los filtros de "vence en N días" se correrían un día.
+  options: '-c timezone=America/Argentina/Buenos_Aires',
   max: 10,
   idleTimeoutMillis: 30000,
   // Si la base no contesta, fallar rápido y ruidoso. Sin esto el pedido queda colgado y el

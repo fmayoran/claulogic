@@ -24,6 +24,11 @@ app.get('/salud', async (req, res) => {
 });
 
 app.use('/api', require('./productos'));
+app.use('/api', require('./config'));
+app.use('/api', require('./stock'));
+app.use('/api', require('./compras'));
+app.use('/api', require('./produccion'));
+app.use('/api', require('./frio'));
 
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
