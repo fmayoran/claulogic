@@ -1,5 +1,6 @@
 // Fotos de producto: una por producto, con su miniatura para las listas. Propia (sacada o subida
 // desde el celular, achicada en el navegador) o copiada de Open Food Facts con su atribución.
+const https = require('https');
 const express = require('express');
 const { pool } = require('./db');
 const gs1 = require('./gs1');
@@ -12,6 +13,7 @@ const ATRIBUCION_OFF = 'Open Food Facts (CC BY-SA)';
 // Sólo se descarga de acá: la URL sale de la caché del catálogo, nunca del navegador, y además
 // se exige el host. Así el servidor no puede usarse para pedir cualquier dirección.
 const HOST_OFF = 'images.openfoodfacts.org';
+const AGENTE = 'ClauLogic/1.0 (+https://claulogic.clausina.ar)';
 
 // El tipo se decide por el contenido, no por lo que diga quien sube el archivo: sólo imágenes
 // de mapa de bits. Un SVG o un HTML servido desde la app podría ejecutar código en ella.
@@ -41,15 +43,28 @@ async function guardar(productoId, f) {
   if (!rowCount) throw new ErrorUsuario('No existe ese producto.');
 }
 
-async function descargar(url, max) {
+// Con https y no con fetch: fetch (undici) corta la CONEXIÓN a los 10 s por su cuenta, y el servidor
+// de imágenes de Open Food Facts llegó a tardar más que eso sólo en el saludo TLS (medido el
+// 20/10/2026: 11-15 s). Acá el único límite es el nuestro: 30 s sin actividad.
+const ESPERA_FOTO_MS = 30000;
+function descargar(url, max) {
   const u = new URL(url);
-  if (u.protocol !== 'https:' || u.hostname !== HOST_OFF) throw new Error('origen de imagen no permitido');
-  // Su servidor de imágenes puede tardar varios segundos en el saludo TLS: se le da margen.
-  const res = await fetch(u, { signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const b = Buffer.from(await res.arrayBuffer());
-  if (b.length > max || !tipoImagen(b)) throw new Error('imagen inválida');
-  return b;
+  if (u.protocol !== 'https:' || u.hostname !== HOST_OFF) return Promise.reject(new Error('origen de imagen no permitido'));
+  return new Promise((ok, mal) => {
+    // agent:false: el agente global de Node (20+) le pone 5 s de timeout al socket y corta antes.
+    const req = https.get(u, { agent: false, headers: { 'User-Agent': AGENTE } }, res => {
+      if (res.statusCode !== 200) { res.resume(); return mal(new Error('HTTP ' + res.statusCode)); }
+      const partes = []; let largo = 0;
+      res.on('data', d => { largo += d.length; if (largo > max) req.destroy(new Error('imagen demasiado grande')); else partes.push(d); });
+      res.on('end', () => {
+        const b = Buffer.concat(partes);
+        tipoImagen(b) ? ok(b) : mal(new Error('imagen inválida'));
+      });
+      res.on('error', mal);
+    });
+    req.setTimeout(ESPERA_FOTO_MS, () => req.destroy(new Error('sin respuesta')));
+    req.on('error', mal);
+  });
 }
 
 // La URL lleva ?v=<versión>: cuando la foto cambia, cambia la URL, así que se puede cachear para siempre.
