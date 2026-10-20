@@ -8,7 +8,23 @@
 <style>
   .hist td{font-size:.85rem;border-top:1px solid var(--line);padding:5px 6px;}
   .pg{width:150px;font-variant-numeric:tabular-nums;}
+  #pres select{min-width:72px;}
   .gtin-int{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;font-size:.9rem;}
+  /* En el celular cada presentación es una tarjeta: en tabla, los campos quedaban cortados y el
+     GTIN fuera de pantalla, justo donde más se carga escaneando. */
+  @media (max-width:760px){
+    #pres thead{display:none;}
+    #pres, #pres tbody{display:block;}
+    #pres tr{display:grid;grid-template-columns:1fr 1fr;gap:10px 10px;padding:12px;margin:0 0 10px;
+      border:1px solid var(--line);border-radius:10px;
+      grid-template-areas:"nom nom" "cant uni" "gtin gtin" "def quitar";}
+    #pres td{padding:0;display:grid;gap:4px;}
+    #pres td[data-l]::before{content:attr(data-l);font-size:.8rem;color:var(--mut);}
+    #pres .c-nom{grid-area:nom;} #pres .c-cant{grid-area:cant;} #pres .c-uni{grid-area:uni;}
+    #pres .c-gtin{grid-area:gtin;} #pres .c-gtin .pg{width:auto;flex:1;min-width:0;}
+    #pres .c-def{grid-area:def;display:flex;align-items:center;gap:8px;} #pres .c-def::after{content:'Habitual';font-size:.9rem;}
+    #pres .c-quitar{grid-area:quitar;justify-items:end;align-items:center;}
+  }
 </style>
 </head>
 <body>
@@ -171,6 +187,13 @@ function alCambiarBase(costoUnidad) {
     opciones(sel, comp, compatibles(base).some(u => u.codigo === v) ? v : base);
   }
 }
+// Celda de presentación con su rótulo: en el celular la fila se muestra como tarjeta y el rótulo
+// reemplaza al encabezado de la tabla.
+function celda(clase, rotulo, ...hijos) {
+  const td = el('td', { className: clase }, ...hijos);
+  if (rotulo) td.dataset.l = rotulo;
+  return td;
+}
 function filaPres(p = {}) {
   const unidad = el('select');
   // Un GTIN interno ya generado no se edita: puede estar impreso en etiquetas.
@@ -180,12 +203,12 @@ function filaPres(p = {}) {
     title: 'Generar un GTIN interno para un empaque propio',
     onclick: () => { tr.dataset.interno = '1'; gtin.value = ''; gtin.placeholder = 'se genera al guardar'; gtin.disabled = true; interno.hidden = true; sucio = true; } });
   const tr = el('tr', {},
-    el('td', {}, el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
-    el('td', {}, el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
-    el('td', {}, unidad),
-    el('td', {}, el('span', { className: 'con-boton' }, gtin, interno)),
-    el('td', {}, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default })),
-    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
+    celda('c-nom', 'Nombre', el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
+    celda('c-cant', 'Contiene', el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
+    celda('c-uni', 'Unidad', unidad),
+    celda('c-gtin', 'GTIN (código de barras)', el('span', { className: 'con-boton' }, gtin, interno)),
+    celda('c-def', null, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default })),
+    celda('c-quitar', null, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
       onclick: () => { tr.remove(); sucio = true; } })));
   tr.dataset.id = p.id || '';
   // Una presentación guardada viene en la unidad base: si después cambia la base, la fila sigue
