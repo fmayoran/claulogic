@@ -81,6 +81,7 @@
           <div class="acc">
             <span class="con-boton">
               <button type="button" class="chico" id="fotoSubir">Sacar o subir foto</button>
+              <button type="button" class="chico" id="fotoBuscar" hidden>Buscar en Open Food Facts</button>
               <button type="button" class="chico" id="fotoQuitar" hidden>Quitar</button>
             </span>
             <span class="atrib" id="fotoAtrib"></span>
@@ -244,10 +245,13 @@ f.unidad_base.onchange = () => alCambiarBase();
 // ── Foto ──
 // Pendiente hasta guardar: { propia: {datos, miniatura} } | { catalogo: gtin } | { quitar: true }.
 let fotoPend = null;
+// GTIN de fabricante del producto abierto: con ellos se puede buscar la foto sin volver a escanear.
+let gtinsFab = [];
 function mostrarFoto(src, atrib) {
   const marco = $('#fotoMarco');
   marco.replaceChildren(src ? el('img', { src, alt: 'Foto del producto' }) : 'Sin foto');
   $('#fotoQuitar').hidden = !src;
+  $('#fotoBuscar').hidden = !!src || !gtinsFab.length;
   const a = $('#fotoAtrib');
   a.replaceChildren(!atrib ? '' : atrib.url
     ? el('a', { href: atrib.url, target: '_blank', rel: 'noopener', textContent: atrib.texto }) : atrib.texto);
@@ -275,6 +279,21 @@ $('#fotoArchivo').onchange = async () => {
   } catch { msg('No se pudo leer esa imagen.', 'mal'); }
   finally { URL.revokeObjectURL(url); }
 };
+// Prueba los GTIN de fabricante del producto hasta encontrar uno con foto en Open Food Facts.
+$('#fotoBuscar').onclick = async () => {
+  const b = $('#fotoBuscar'); b.disabled = true; msg('Buscando foto en Open Food Facts…');
+  try {
+    for (const g of gtinsFab) {
+      const { catalogo: c } = await api('catalogo/' + g);
+      if (!c || !c.imagen) continue;
+      fotoPend = { catalogo: g }; sucio = true;
+      mostrarFoto(`api/catalogo/${g}/imagen`, { texto: 'Foto: Open Food Facts (CC BY-SA). Se guarda con el producto.' });
+      return msg('Foto encontrada (puede tardar unos segundos en verse). Revisala y guardá.', 'ok');
+    }
+    msg('Open Food Facts no tiene foto para los códigos de este producto. Podés sacar una.', 'mal');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { b.disabled = false; }
+};
 $('#fotoQuitar').onclick = () => { fotoPend = { quitar: true }; mostrarFoto(null); sucio = true; };
 async function aplicarFoto(id) {
   const p = fotoPend; fotoPend = null;
@@ -290,7 +309,7 @@ function limpiar() {
   $('#titulo').textContent = 'Nuevo producto';
   $('#subtitulo').textContent = 'Los campos con * son obligatorios.';
   $('#pres tbody').replaceChildren();
-  fotoPend = null; mostrarFoto(null);
+  fotoPend = null; gtinsFab = []; mostrarFoto(null);
   $('#histCostos').hidden = true; $('#activoWrap').hidden = true; $('#gtinInterno').hidden = true;
   f.unidad_base.disabled = false;
   f.unidad_base.value = 'g'; alCambiarBase();
@@ -317,6 +336,7 @@ async function abrir(id) {
     $('#gtinInterno').hidden = !p.gtin; $('#gtinValor').textContent = p.gtin || '';
     $('#gtinEtiqueta').href = 'etiquetas.html?producto=' + p.id;
     fotoPend = null;
+    gtinsFab = p.presentaciones.filter(x => x.gtin && x.gtin_origen === 'fabricante').map(x => x.gtin);
     mostrarFoto(p.foto_v && `api/productos/${p.id}/foto?v=${p.foto_v}`,
       p.foto_origen === 'openfoodfacts' ? { texto: 'Foto: ' + p.foto_atribucion, url: p.foto_fuente } : null);
     $('#pres tbody').replaceChildren();
