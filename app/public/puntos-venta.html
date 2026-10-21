@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Puntos de venta · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>.datos select{padding:4px 6px;max-width:260px;}</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros"><button class="prim" id="nueva">Nueva integración</button></div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nueva integración</h1>
+    <p class="sub">El POS de un local: de dónde vienen sus ventas (Fudo por API; Maxirest y otros por archivo) y de qué almacén se descuenta lo que se vende.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Integración</legend>
+        <div class="fila">
+          <label>Nombre *<input name="nombre" placeholder="Fudo Palermo"></label>
+          <label>Local *<select name="sede_id"></select></label>
+        </div>
+        <div class="fila">
+          <label>Sistema *<select name="sistema"><option value="fudo">Fudo</option><option value="maxirest">Maxirest</option><option value="otro">Otro</option></select></label>
+          <label>Las ventas llegan *<select name="modo"><option value="api">Por API (automático a pedido)</option><option value="archivo">Por archivo exportado</option></select></label>
+        </div>
+        <div class="fila">
+          <label>Descontar del almacén *<select name="almacen_id"></select></label>
+          <label>Si no alcanza, queda en negativo en *<select name="ubicacion_id"></select></label>
+        </div>
+        <div class="fila" id="filaCred">
+          <label>API Key de Fudo<input name="apiKey" autocomplete="off"></label>
+          <label>API Secret de Fudo<input name="apiSecret" type="password" autocomplete="new-password"></label>
+        </div>
+        <p class="ayuda" id="ayudaCred">En Fudo (plan Pro): Aplicaciones externas &gt; API Pública General, y un usuario propio para la API en Administración &gt; Usuarios.
+          Las credenciales se guardan cifradas y no se vuelven a mostrar; para cambiarlas, cargalas de nuevo.</p>
+        <label class="check" id="activaWrap" hidden><input type="checkbox" name="activa" checked> Activa</label>
+      </fieldset>
+      <div class="acciones"><button type="submit" class="prim" id="guardar">Guardar</button><a id="irVentas" href="ventas.html" hidden>Ir a sus ventas</a><span class="msg" id="msg"></span></div>
+    </form>
+
+    <section id="secArt" hidden>
+      <h2 style="margin-top:22px">Artículos del POS</h2>
+      <p class="ayuda">Cada artículo que se vende tiene que decir qué plato es (su receta de venta) o que no consume stock (servicio de mesa, propinas).
+        Los que faltan aparecen primero, con lo vendido que todavía no se descontó. <a href="platos.html">Platos de carta</a></p>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Artículo</th><th>Código</th><th class="num">Vendido sin descontar</th><th>Plato</th><th>No consume stock</th><th></th></tr></thead>
+        <tbody id="art"></tbody></table></div>
+    </section>
+    <section id="secMed" hidden>
+      <h2 style="margin-top:22px">Medios de cobro</h2>
+      <p class="ayuda">A qué cuenta entra lo cobrado con cada medio: el efectivo a la caja del local; tarjetas y QR a una cuenta de cobranza, que pasa al banco cuando se acredita.</p>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Medio en el POS</th><th>Cuenta</th><th></th></tr></thead>
+        <tbody id="med"></tbody></table></div>
+    </section>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let integraciones = [], almacenes = [], sedes = [], platos = [], cuentas = [], actual = null, sesionU = null;
+const f = $('#f');
+async function cargar() {
+  ({ integraciones } = await api('pos/integraciones'));
+  if (!integraciones.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay integraciones.' }));
+  $('#lista').replaceChildren(...integraciones.map(i => {
+    const b = el('button', { type: 'button', className: 'item' + (i.id === actual ? ' sel' : '') + (i.activa ? '' : ' inactivo') },
+      el('div', { className: 'n' }, i.nombre, ' ', i.articulos_sin_receta ? el('span', { className: 'tag aviso', textContent: `${i.articulos_sin_receta} sin receta` }) : ''),
+      el('div', { className: 'm', textContent: `${i.sede} · ${{ fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro' }[i.sistema]} por ${i.modo}` }));
+    b.onclick = () => abrir(i.id);
+    return b;
+  }));
+}
+function llenarAlmacenes(alm, ubic) {
+  opciones(f.almacen_id, almacenes.filter(a => a.sede_id === f.sede_id.value && a.activo).map(a => [a.id, a.nombre]), alm);
+  const a = almacenes.find(x => x.id === f.almacen_id.value);
+  opciones(f.ubicacion_id, a ? a.ubicaciones.filter(u => u.activa).map(u => [u.id, u.nombre]) : [], ubic);
+}
+f.sede_id.onchange = () => llenarAlmacenes();
+f.almacen_id.onchange = () => llenarAlmacenes(f.almacen_id.value);
+f.sistema.onchange = f.modo.onchange = () => {
+  if (f.sistema.value !== 'fudo') f.modo.value = 'archivo';
+  $('#filaCred').hidden = $('#ayudaCred').hidden = f.modo.value !== 'api';
+};
+function nueva() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva integración';
+  opciones(f.sede_id, sedes.filter(s => ['admin', 'encargado'].includes(s.rol)).map(s => [s.id, s.nombre]));
+  f.sede_id.disabled = false; llenarAlmacenes(); f.sistema.onchange();
+  f.apiKey.placeholder = f.apiSecret.placeholder = '';
+  $('#activaWrap').hidden = true; $('#secArt').hidden = $('#secMed').hidden = true; $('#irVentas').hidden = true;
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+async function abrir(id) {
+  const i = integraciones.find(x => x.id === id); if (!i) return nueva();
+  actual = id; msg(''); $('#titulo').textContent = i.nombre;
+  opciones(f.sede_id, sedes.map(s => [s.id, s.nombre]), i.sede_id); f.sede_id.disabled = true;
+  f.nombre.value = i.nombre; f.sistema.value = i.sistema; f.modo.value = i.modo; f.activa.checked = i.activa;
+  llenarAlmacenes(i.almacen_id, i.ubicacion_id); f.sistema.onchange();
+  f.apiKey.value = f.apiSecret.value = '';
+  f.apiKey.placeholder = f.apiSecret.placeholder = i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
+  $('#activaWrap').hidden = false; $('#irVentas').hidden = false; $('#irVentas').href = 'ventas.html#' + i.id;
+  await Promise.all([cargarArticulos(), cargarMedios()]);
+  await cargar();
+}
+const esEncargado = i => sedes.some(s => s.id === i.sede_id && ['admin', 'encargado'].includes(s.rol));
+async function cargarArticulos() {
+  const i = integraciones.find(x => x.id === actual);
+  const { articulos } = await api(`pos/integraciones/${actual}/articulos`);
+  $('#secArt').hidden = false;
+  const editable = esEncargado(i) || sesionU.puede.catalogo;
+  filas($('#art'), articulos, a => {
+    const pl = el('select', { disabled: !editable || a.sin_consumo }); opciones(pl, platos.map(p => [p.id, p.nombre]), a.plato_id, 'Sin receta');
+    const sc = el('input', { type: 'checkbox', checked: a.sin_consumo, disabled: !editable });
+    const est = el('span', { className: 'msg' });
+    const guardar = async () => {
+      try { await api('pos/articulos/' + a.id, { method: 'PUT', body: { plato_id: pl.value || null, sin_consumo: sc.checked } });
+            pl.disabled = sc.checked; est.textContent = 'guardado'; est.className = 'msg ok'; }
+      catch (e) { est.textContent = e.message; est.className = 'msg mal'; }
+    };
+    pl.onchange = sc.onchange = guardar;
+    const pend = a.pendiente && !a.plato_id && !a.sin_consumo;
+    return el('tr', {}, td(a.nombre), td(a.codigo_externo, 'mut'), td(pend ? `${num(a.pendiente)} en ${a.tickets} ticket(s)` : '', 'num'),
+      el('td', {}, pl), el('td', {}, sc), el('td', {}, est));
+  }, 'Todavía no se importó ninguna venta: los artículos aparecen con la primera importación.', 6);
+}
+async function cargarMedios() {
+  if (!sesionU.puede.finanzas) return;
+  const { medios } = await api(`pos/integraciones/${actual}/medios`);
+  $('#secMed').hidden = false;
+  filas($('#med'), medios, m => {
+    const s = el('select'); opciones(s, cuentas.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), m.cuenta_id, 'Sin cuenta');
+    const est = el('span', { className: 'msg' });
+    s.onchange = async () => {
+      try { await api('pos/medios/' + m.id, { method: 'PUT', body: { cuenta_id: s.value || null } }); est.textContent = 'guardado'; est.className = 'msg ok'; }
+      catch (e) { est.textContent = e.message; est.className = 'msg mal'; }
+    };
+    return el('tr', {}, td(m.nombre), el('td', {}, s), el('td', {}, est));
+  }, 'Los medios aparecen con la primera importación.', 3);
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: f.nombre.value, sede_id: f.sede_id.value, sistema: f.sistema.value, modo: f.modo.value,
+                 almacen_id: f.almacen_id.value, ubicacion_id: f.ubicacion_id.value, activa: actual ? f.activa.checked : true,
+                 apiKey: f.apiKey.value, apiSecret: f.apiSecret.value };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'pos/integraciones/' + actual : 'pos/integraciones', { method: actual ? 'PUT' : 'POST', body });
+    await cargar(); await abrir(d.id); msg('Guardada.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nueva').onclick = nueva;
+(async () => {
+  try {
+    sesionU = (await cargarSesion()).usuario;
+    [almacenes, sedes, { platos }] = await Promise.all([catalogo.almacenes(), misSedes(), api('platos')]);
+    if (sesionU.puede.finanzas) cuentas = (await api('fin/cuentas')).cuentas.filter(c => c.activa && c.tipo !== 'cartera');
+    $('#nueva').hidden = !sedes.some(s => ['admin', 'encargado'].includes(s.rol));
+    await cargar();
+    const id = location.hash.slice(1);
+    if (id) await abrir(id); else if (integraciones.length) await abrir(integraciones[0].id); else nueva();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

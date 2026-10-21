@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Platos de carta · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>.edit select, .edit input{padding:5px 7px;}</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <input id="q" type="search" placeholder="Buscar plato">
+      <label class="check"><input id="ftodos" type="checkbox"> Mostrar inactivos</label>
+      <button class="prim" id="nuevo">Nuevo plato</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nuevo plato</h1>
+    <p class="sub">La receta de venta: qué consume una porción de lo que se vende. Cuando el POS informa la venta, se descuenta del stock del local.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Plato</legend>
+        <div class="fila"><label>Nombre *<input name="nombre" maxlength="120" placeholder="Café con leche"></label>
+          <label class="check" id="activoWrap" hidden style="align-self:end"><input type="checkbox" name="activo" checked> Activo</label></div>
+        <div class="fila"><label>Notas<input name="notas"></label></div>
+      </fieldset>
+      <fieldset>
+        <legend>Una porción lleva</legend>
+        <div style="overflow-x:auto"><table class="edit" id="items">
+          <thead><tr><th>Producto o elaborado</th><th>Cantidad neta</th><th>Unidad</th><th>Merma %</th><th class="num">Costo</th><th></th></tr></thead>
+          <tbody></tbody></table></div>
+        <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar ingrediente</button>
+        <p class="ayuda" id="costo"></p>
+        <p class="ayuda">Puede llevar insumos (leche, café) o elaborados de producción (masa, salsa). La merma se suma como en las recetas de producción.</p>
+      </fieldset>
+      <fieldset id="fsArt" hidden>
+        <legend>Artículos del POS que lo usan</legend>
+        <ul id="articulos" style="margin:0;padding-left:18px"></ul>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let platos = [], productos = [], unidades = [], actual = null;
+const f = $('#f');
+async function cargarLista() {
+  ({ platos } = await api('platos' + ($('#ftodos').checked ? '?todos=1' : '')));
+  const q = $('#q').value.trim().toLowerCase();
+  const vis = platos.filter(p => !q || p.nombre.toLowerCase().includes(q));
+  if (!vis.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: platos.length ? 'Ninguno coincide.' : 'Todavía no hay platos.' }));
+  $('#lista').replaceChildren(...vis.map(p => {
+    const b = el('button', { type: 'button', className: 'item' + (p.id === actual ? ' sel' : '') + (p.activo ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: p.nombre }),
+      el('div', { className: 'm', textContent: `${p.ingredientes} ingrediente(s)` + (p.articulos ? ` · ${p.articulos} artículo(s) de POS` : ' · sin artículo de POS') }));
+    b.onclick = () => abrir(p.id);
+    return b;
+  }));
+}
+function filaItem(x = {}) {
+  const prod = el('select'), unidad = el('select');
+  const cant_ = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:100px' });
+  const merma = el('input', { inputMode: 'decimal', value: coma(x.merma_pct ?? '0'), style: 'width:70px' });
+  opciones(prod, productos.filter(p => p.activo || p.id === x.producto_id).map(p => [p.id, `${p.nombre} (${p.codigo})`]), x.producto_id, 'Elegir…');
+  const llenar = v => { const p = productos.find(p => p.id === prod.value);
+    opciones(unidad, p ? unidadesCompatibles(unidades, p.unidad_base).map(u => [u.codigo, u.codigo]) : [], v || (p && p.unidad_base)); };
+  prod.onchange = () => llenar(); llenar(x.unidad_base);
+  const tr = el('tr', {}, el('td', {}, prod), el('td', {}, cant_), el('td', {}, unidad), el('td', {}, merma),
+    td(x.costo ? pesos(x.costo) : '', 'num'),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => tr.remove() })));
+  tr.leer = () => ({ producto_id: prod.value, cantidad: cant_.value, unidad: unidad.value, merma_pct: merma.value });
+  $('#items tbody').append(tr);
+}
+$('#agregar').onclick = () => filaItem();
+function nuevo() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo plato'; $('#activoWrap').hidden = true; $('#fsArt').hidden = true;
+  $('#costo').textContent = ''; $('#items tbody').replaceChildren(); filaItem();
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+async function abrir(id) {
+  try {
+    const { plato: p } = await api('platos/' + id);
+    actual = id; msg(''); $('#titulo').textContent = p.nombre;
+    f.nombre.value = p.nombre; f.notas.value = p.notas || ''; f.activo.checked = p.activo; $('#activoWrap').hidden = false;
+    $('#items tbody').replaceChildren(); p.items.forEach(filaItem);
+    $('#costo').textContent = p.costo ? `Costo teórico de una porción con el costo vigente de cada ingrediente: ${pesos(p.costo)}.`
+      : 'Sin costo: a algún ingrediente le falta el costo vigente.';
+    $('#fsArt').hidden = !p.articulos.length;
+    $('#articulos').replaceChildren(...p.articulos.map(a => el('li', { textContent: `${a.nombre} (${a.integracion})` })));
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+f.onsubmit = async e => {
+  e.preventDefault(); $('#guardar').disabled = true;
+  try {
+    const body = { nombre: f.nombre.value, notas: f.notas.value, activo: actual ? f.activo.checked : true,
+                   items: $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.producto_id) };
+    const d = await api(actual ? 'platos/' + actual : 'platos', { method: actual ? 'PUT' : 'POST', body });
+    await abrir(d.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nuevo').onclick = nuevo;
+$('#ftodos').onchange = cargarLista;
+let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(cargarLista, 200); };
+(async () => {
+  try { [productos, unidades] = await Promise.all([catalogo.productos(), catalogo.unidades()]); nuevo(); await cargarLista();
+        const id = location.hash.slice(1); if (id) abrir(id); }
+  catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

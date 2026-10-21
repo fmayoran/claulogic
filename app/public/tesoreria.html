@@ -42,7 +42,7 @@
 <dialog id="dCuenta"><form id="fc" novalidate>
   <h2 id="dcTitulo">Nueva cuenta</h2>
   <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label>
-    <label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option></select></label></div>
+    <label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label></div>
   <div class="fila" id="fcSede"><label>Sede *<select name="sede_id"></select></label></div>
   <div class="fila" id="fcBanco"><label>Banco<input name="banco"></label><label>Número de cuenta<input name="numero"></label></div>
   <div class="fila" id="fcCbu"><label>CBU<input name="cbu" inputmode="numeric" maxlength="22"></label><label>Alias<input name="alias"></label></div>
@@ -78,7 +78,7 @@
 
 <script src="comun.js"></script>
 <script>
-const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques' };
+const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobranza: 'Cobranza a acreditar' };
 const MOV = { pago: 'Pago', transferencia: 'Transferencia', ingreso: 'Ingreso', egreso: 'Egreso', arqueo: 'Arqueo',
   alta_cheque: 'Alta de cheque', endoso: 'Endoso', deposito_cheque: 'Depósito de cheque', debito_cheque: 'Débito de cheque', anulacion: 'Anulación' };
 let cuentas = [], sedes = [], actual = null;
@@ -137,7 +137,7 @@ function abrirCuenta(c = null) {
   fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
   $('#dCuenta').showModal();
 }
-fc.tipo.onchange = () => { const banco = fc.tipo.value === 'banco'; $('#fcSede').hidden = banco; $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco; };
+fc.tipo.onchange = () => { const banco = fc.tipo.value === 'banco'; $('#fcSede').hidden = fc.tipo.value !== 'caja'; $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco; };
 fc.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));

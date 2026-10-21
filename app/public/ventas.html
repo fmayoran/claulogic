@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ventas · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;}
+  .cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:0 0 16px;}
+  .cifras div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);}
+  .cifras span{display:block;color:var(--mut);font-size:.82rem;} .cifras strong{font-size:1.15rem;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Ventas de los locales</h1>
+  <p class="sub">Lo que vendió cada local según su POS. Importar sólo guarda los tickets; después se descuenta el consumo teórico del stock del local y, por separado, finanzas procesa los cobros.</p>
+  <div class="barra"><label>Punto de venta<select id="integ"></select></label><a id="config" href="puntos-venta.html">Configurar</a></div>
+
+  <fieldset id="fsImportar">
+    <legend>Importar</legend>
+    <div id="porApi" hidden>
+      <div class="barra"><label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
+        <button class="prim" id="sincronizar">Traer ventas de Fudo</button></div>
+      <p class="ayuda">Trae las ventas cerradas y anuladas del rango (hasta un mes). Las que ya estaban no se duplican.</p>
+    </div>
+    <div id="porArchivo" hidden>
+      <div class="barra">
+        <label>Ventas (un renglón por artículo) *<input type="file" id="archVentas" accept=".csv,.txt,text/csv"></label>
+        <label>Pagos (opcional)<input type="file" id="archPagos" accept=".csv,.txt,text/csv"></label>
+        <label>Decimales<select id="decimal"><option value=",">coma (1.234,56)</option><option value=".">punto (1,234.56)</option></select></label>
+        <label class="check"><input type="checkbox" id="encabezado" checked> Primera fila = encabezado</label>
+      </div>
+      <div id="mapaVentas" hidden><h3>Columnas de ventas</h3><div class="tabla-wrap"><table class="datos mapa"><thead></thead><tbody></tbody></table></div></div>
+      <div id="mapaPagos" hidden><h3>Columnas de pagos</h3><div class="tabla-wrap"><table class="datos mapa"><thead></thead><tbody></tbody></table></div></div>
+      <div class="acciones fijo" id="accArchivo" hidden><button type="button" class="prim" id="importar">Importar</button></div>
+      <p class="ayuda">Exportá desde el POS el detalle de ventas por ticket (en Maxirest: Ventas &gt; Informes, salida a Excel, guardado como CSV).
+        Hace falta el número de ticket, la fecha y el artículo; las columnas elegidas se recuerdan para la próxima vez.</p>
+    </div>
+    <span class="msg" id="msgI"></span>
+  </fieldset>
+
+  <h2>Importaciones</h2>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Importada</th><th>Período</th><th>Origen</th><th class="num">Tickets</th><th class="num">Vendido</th><th class="num">Cobrado</th><th>Pendiente</th></tr></thead>
+    <tbody id="imps"></tbody></table></div>
+
+  <section id="detalle" hidden style="margin-top:22px">
+    <h2 id="dTitulo"></h2>
+    <div class="cifras" id="cifras"></div>
+    <div class="acciones fijo" style="margin:0 0 14px">
+      <button type="button" class="prim" id="consumo" hidden>Descontar consumo del stock</button>
+      <button type="button" class="prim" id="cobros" hidden>Procesar cobros</button>
+      <button type="button" id="verTickets">Ver tickets</button>
+      <button type="button" class="peligro" id="anular" hidden>Anular importación</button>
+      <span class="msg" id="msgD"></span>
+    </div>
+    <div class="secciones" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+      <div><h3>Artículos vendidos</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Artículo</th><th class="num">Cantidad</th><th>Receta</th></tr></thead><tbody id="dArt"></tbody></table></div></div>
+      <div><h3>Cobros por medio</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Medio</th><th class="num">Importe</th><th>Cuenta</th></tr></thead><tbody id="dMed"></tbody></table></div>
+        <h3>Procesado</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Cuándo</th><th>Qué</th><th>Por</th></tr></thead><tbody id="dProc"></tbody></table></div></div>
+    </div>
+    <div id="tickets" hidden><h3>Tickets</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Ticket</th><th>Cerrado</th><th>Artículos</th><th>Pagos</th><th class="num">Total</th></tr></thead><tbody id="dTk"></tbody></table></div></div>
+  </section>
+</main>
+<script src="comun.js"></script>
+<script>
+const ROLES_V = [['', 'ignorar'], ['ticket', 'Nº de ticket'], ['fecha', 'Fecha y hora'], ['codigo', 'Código de artículo'], ['articulo', 'Artículo'],
+  ['cantidad', 'Cantidad'], ['precio', 'Precio unitario'], ['importe', 'Importe'], ['anulado', 'Renglón anulado'], ['ticket_anulado', 'Ticket anulado']];
+const ROLES_P = [['', 'ignorar'], ['ticket', 'Nº de ticket'], ['medio', 'Medio de cobro'], ['importe', 'Importe']];
+let integraciones = [], integ = null, actual = null, archivos = { ventas: null, pagos: null };
+const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
+
+// ── Importar ──
+function adivinarV(n) {
+  n = (n || '').toLowerCase();
+  if (/ticket|comprob|n[uú]mero|mesa ?n|orden/.test(n)) return 'ticket';
+  if (/fecha|hora|cierre/.test(n)) return 'fecha';
+  if (/c[oó]d/.test(n)) return 'codigo';
+  if (/art[ií]culo|producto|descrip|plato|item/.test(n)) return 'articulo';
+  if (/cant/.test(n)) return 'cantidad';
+  if (/unit|precio/.test(n)) return 'precio';
+  if (/importe|total|monto|subtotal/.test(n)) return 'importe';
+  if (/anul|cancel/.test(n)) return 'anulado';
+  return '';
+}
+function adivinarP(n) {
+  n = (n || '').toLowerCase();
+  if (/ticket|comprob|n[uú]mero|orden/.test(n)) return 'ticket';
+  if (/medio|forma|pago|tarjeta/.test(n)) return 'medio';
+  if (/importe|monto|total/.test(n)) return 'importe';
+  return '';
+}
+function pintarMapa(tipo) {
+  const a = archivos[tipo], cont = $(tipo === 'ventas' ? '#mapaVentas' : '#mapaPagos');
+  if (!a) { cont.hidden = true; return; }
+  const enc = $('#encabezado').checked, cols = Math.max(...a.filas.map(f => f.length));
+  const guardado = (integ.mapeo || {})[tipo] || {};
+  const roles = tipo === 'ventas' ? ROLES_V : ROLES_P, adiv = tipo === 'ventas' ? adivinarV : adivinarP;
+  cont.querySelector('thead').replaceChildren(el('tr', {}, ...Array.from({ length: cols }, (_, i) => {
+    const nombre = enc ? a.filas[0][i] || '' : `Columna ${i + 1}`;
+    // Primero lo recordado de la vez anterior (por nombre de columna); si no, lo que sugiere el nombre.
+    const rec = Object.entries(guardado).find(([, col]) => col === nombre);
+    const s = el('select'); opciones(s, roles, rec ? rec[0] : enc ? adiv(nombre) : ''); s.dataset.col = i; s.dataset.nombre = nombre;
+    return el('th', {}, el('div', { className: 'mut', textContent: nombre }), s);
+  })));
+  cont.querySelector('tbody').replaceChildren(...a.filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 5).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
+  cont.hidden = false; $('#accArchivo').hidden = !archivos.ventas;
+}
+async function leerArchivo(tipo, input) {
+  const a = input.files[0];
+  archivos[tipo] = a ? { nombre: a.name, filas: parsearCSV(await leerTexto(a)) } : null;
+  pintarMapa(tipo);
+}
+$('#archVentas').onchange = () => leerArchivo('ventas', $('#archVentas'));
+$('#archPagos').onchange = () => leerArchivo('pagos', $('#archPagos'));
+$('#encabezado').onchange = () => { pintarMapa('ventas'); pintarMapa('pagos'); };
+function filasMapeadas(tipo) {
+  const a = archivos[tipo]; if (!a) return { filas: [], mapeo: {} };
+  const sels = $$((tipo === 'ventas' ? '#mapaVentas' : '#mapaPagos') + ' thead select').filter(s => s.value);
+  const mapeo = Object.fromEntries(sels.map(s => [s.value, s.dataset.nombre]));
+  const filas = a.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(sels.map(s => [s.value, f[+s.dataset.col] ?? ''])));
+  return { filas, mapeo };
+}
+$('#importar').onclick = async () => {
+  const v = filasMapeadas('ventas'), p = filasMapeadas('pagos');
+  if (!v.mapeo.ticket || !v.mapeo.fecha || !(v.mapeo.articulo || v.mapeo.codigo))
+    return msg('En ventas hacen falta el número de ticket, la fecha y el artículo (o su código).', 'mal', '#msgI');
+  if (archivos.pagos && (!p.mapeo.ticket || !p.mapeo.medio || !p.mapeo.importe))
+    return msg('En pagos hacen falta el número de ticket, el medio y el importe.', 'mal', '#msgI');
+  $('#importar').disabled = true; msg('Importando…', '', '#msgI');
+  try {
+    const d = await api(`pos/integraciones/${integ.id}/importar`, { method: 'POST', body: {
+      archivo: archivos.ventas.nombre, decimal: $('#decimal').value, ventas: v.filas, pagos: p.filas, mapeo: { ventas: v.mapeo, pagos: p.mapeo } } });
+    resultado(d);
+    archivos = { ventas: null, pagos: null }; $('#archVentas').value = $('#archPagos').value = ''; pintarMapa('ventas'); pintarMapa('pagos');
+    await cargarIntegraciones(); await cargar(d.id);
+  } catch (e) { msg(e.message, 'mal', '#msgI'); }
+  finally { $('#importar').disabled = false; }
+};
+$('#sincronizar').onclick = async () => {
+  $('#sincronizar').disabled = true; msg('Consultando Fudo…', '', '#msgI');
+  try {
+    const d = await api(`pos/integraciones/${integ.id}/sincronizar`, { method: 'POST', body: { desde: $('#desde').value, hasta: $('#hasta').value } });
+    resultado(d); await cargar(d.id);
+  } catch (e) { msg(e.message, 'mal', '#msgI'); }
+  finally { $('#sincronizar').disabled = false; }
+};
+const resultado = d => msg(d.nuevos ? `Importados ${d.nuevos} ticket(s)` + (d.repetidos ? `; ${d.repetidos} ya estaban.` : '.')
+  : `No había nada nuevo: los ${d.repetidos} ticket(s) ya estaban importados.`, d.nuevos ? 'ok' : '', '#msgI');
+
+// ── Importaciones ──
+async function cargar(abrirId) {
+  const { importaciones } = await api('pos/importaciones?integracion=' + integ.id);
+  filas($('#imps'), importaciones, im => {
+    const pend = im.estado === 'anulada' ? [el('span', { className: 'tag', textContent: 'anulada' })] : [
+      im.renglones_pendientes - im.renglones_sin_receta > 0 ? el('span', { className: 'tag aviso', textContent: 'consumo sin descontar' }) : '',
+      im.renglones_sin_receta ? el('span', { className: 'tag mal', textContent: `${im.renglones_sin_receta} sin receta` }) : '',
+      im.pagos_pendientes ? el('span', { className: 'tag aviso', textContent: 'cobros sin procesar' }) : ''];
+    const tr = el('tr', { className: 'clic' + (im.estado === 'anulada' ? ' inactivo' : '') }, td(fechaHora(im.creado_en)),
+      td(im.desde ? fecha(im.desde) + (im.hasta && im.hasta !== im.desde ? ' al ' + fecha(im.hasta) : '') : ''),
+      td(im.origen === 'api' ? 'API' : im.archivo || 'archivo'), td(im.tickets, 'num'), td(pesos(im.vendido), 'num'), td(pesos(im.cobrado), 'num'),
+      el('td', {}, ...pend));
+    tr.onclick = () => abrir(im.id);
+    return tr;
+  }, 'Todavía no se importó nada de este punto de venta.', 7);
+  if (abrirId) abrir(abrirId);
+}
+async function abrir(id) {
+  actual = id; msg('', '', '#msgD'); $('#tickets').hidden = true;
+  const { importacion: im } = await api('pos/importaciones/' + id);
+  $('#detalle').hidden = false;
+  $('#dTitulo').textContent = `Importación del ${fechaHora(im.creado_en)}` + (im.estado === 'anulada' ? ` · ANULADA: ${im.motivo_anulacion}` : '');
+  const cifra = (t, v) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }));
+  $('#cifras').replaceChildren(cifra('Tickets', `${im.tickets}` + (im.anulados ? ` (${im.anulados} anulados)` : '')),
+    cifra('Vendido', pesos(im.vendido)), cifra('Cobrado', pesos(im.cobrado)),
+    cifra('Renglones sin descontar', String(im.renglones_pendientes)), cifra('Pagos sin procesar', String(im.pagos_pendientes)));
+  const viva = im.estado !== 'anulada';
+  $('#consumo').hidden = !(viva && im.puede.consumo && im.renglones_pendientes - im.renglones_sin_receta > 0);
+  $('#cobros').hidden = !(viva && im.puede.cobros && im.pagos_pendientes - im.pagos_sin_cuenta > 0);
+  $('#anular').hidden = !(viva && im.puede.anular);
+  filas($('#dArt'), im.articulos, a => el('tr', {}, td(a.nombre), td(num(a.cantidad), 'num'),
+    el('td', {}, a.sin_consumo ? el('span', { className: 'tag', textContent: 'no consume' }) : a.plato ? a.plato
+      : sesion && sesion.puede.gestionar ? el('a', { href: 'puntos-venta.html#' + integ.id, className: 'tag mal', textContent: 'sin receta' })
+      : el('span', { className: 'tag mal', textContent: 'sin receta' }),
+      a.pendiente && (a.plato || a.sin_consumo) ? el('span', { className: 'tag aviso', textContent: ' sin descontar' }) : '')), 'Sin artículos.', 3);
+  filas($('#dMed'), im.medios, m => el('tr', {}, td(m.nombre), td(pesos(m.importe), 'num'),
+    el('td', {}, m.cuenta || el('span', { className: 'tag mal', textContent: 'sin cuenta' }), m.pendiente && m.cuenta ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : '')), 'Sin cobros.', 3);
+  filas($('#dProc'), im.procesos, p => el('tr', {}, td(fechaHora(p.creado_en)),
+    td((p.tipo === 'consumo' ? `Consumo: ${p.cantidad} renglón(es)` : `Cobros: ${p.cantidad} pago(s)`) + (p.estado === 'anulado' ? ' (anulado)' : '')), td(p.creado_por)),
+    'Todavía no se procesó nada.', 3);
+}
+$('#consumo').onclick = async () => {
+  if (!confirm('Se descuenta del stock del local lo que llevan los platos vendidos. Lo que no alcance queda en negativo. ¿Seguir?')) return;
+  try {
+    const d = await api(`pos/importaciones/${actual}/consumo`, { method: 'POST' });
+    await cargar(); await abrir(actual);
+    msg(`Descontados ${d.renglones} renglón(es), ${d.productos} producto(s).` + (d.negativos.length ? ' Quedó en negativo: ' + d.negativos.join(', ') + '.' : ''), d.negativos.length ? '' : 'ok', '#msgD');
+  } catch (e) { msg(e.message, 'mal', '#msgD'); }
+};
+$('#cobros').onclick = async () => {
+  try { const d = await api(`pos/importaciones/${actual}/cobros`, { method: 'POST' }); await cargar(); await abrir(actual);
+        msg(`Procesados ${d.pagos} pago(s) en ${d.movimientos} movimiento(s).`, 'ok', '#msgD'); }
+  catch (e) { msg(e.message, 'mal', '#msgD'); }
+};
+$('#anular').onclick = async () => {
+  const motivo = prompt('Motivo (se revierte lo descontado y lo cobrado, y se borran sus tickets para poder importarlos bien):');
+  if (!motivo) return;
+  try { await api(`pos/importaciones/${actual}/anular`, { method: 'POST', body: { motivo } }); await cargar(); await abrir(actual); }
+  catch (e) { msg(e.message, 'mal', '#msgD'); }
+};
+$('#verTickets').onclick = async () => {
+  const { tickets } = await api(`pos/importaciones/${actual}/tickets`);
+  $('#tickets').hidden = false;
+  filas($('#dTk'), tickets, t => el('tr', { className: t.estado === 'anulado' ? 'inactivo' : '' },
+    td(t.id_externo + (t.estado === 'anulado' ? ' (anulado)' : '')), td(fechaHora(t.cerrado_en)),
+    td(t.items.map(i => `${num(i.cantidad)} ${i.articulo}${i.anulado ? ' (anulado)' : ''}`).join(', '), 'wrap'),
+    td(t.pagos.map(p => `${p.medio} ${pesos(p.importe)}`).join(', '), 'wrap'), td(pesos(t.total), 'num')), 'Sin tickets.', 5);
+};
+
+// ── Integración elegida ──
+async function cargarIntegraciones() { ({ integraciones } = await api('pos/integraciones')); }
+function elegir() {
+  integ = integraciones.find(i => i.id === $('#integ').value);
+  $('#detalle').hidden = true; msg('', '', '#msgI');
+  if (!integ) return;
+  history.replaceState(null, '', 'ventas.html#' + integ.id);
+  $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo';
+  // El enlace no está si el usuario no puede configurar (lo quita la navegación común).
+  if ($('#config')) $('#config').href = 'puntos-venta.html#' + integ.id;
+  cargar().catch(e => alert(e.message));
+}
+$('#integ').onchange = elegir;
+(async () => {
+  try {
+    await cargarIntegraciones();
+    if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Configuración > Puntos de venta.'))); return; }
+    opciones($('#integ'), integraciones.filter(i => i.activa).map(i => [i.id, `${i.nombre} (${i.sede})`]), location.hash.slice(1) || null);
+    $('#desde').value = $('#hasta').value = hoy();
+    elegir();
+  } catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

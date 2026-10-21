@@ -118,15 +118,17 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // inferior; el resto, en "Más".
 const GRUPOS = [
   ['Operación', [['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
-                 ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
+                 ['ventas.html', 'Ventas'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
                  ['produccion.html', 'Producción']]],
-  ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
+  ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['platos.html', 'Platos de carta'],
+                ['proveedores.html', 'Proveedores']]],
   ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['ordenes-pago.html', 'Órdenes de pago'],
                 ['cuenta-corriente.html', 'Cuenta corriente'], ['tesoreria.html', 'Tesorería'], ['cheques.html', 'Cheques'],
                 ['conciliacion.html', 'Conciliación']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
   ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
-                     ['unidades-productivas.html', 'Unidades productivas'], ['unidades.html', 'Unidades de medida'],
+                     ['unidades-productivas.html', 'Unidades productivas'], ['puntos-venta.html', 'Puntos de venta'],
+                     ['unidades.html', 'Unidades de medida'],
                      ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
@@ -179,8 +181,10 @@ function navegacion() {
     const u = sesion = d.usuario;
     for (const [href, permiso] of Object.entries(PERMISO_SECCION))
       if (!u.puede[permiso]) $$(`a[href="${href}"]`).forEach(a => a.remove());
+    // Puntos de venta: los configura el encargado y finanzas les asigna las cuentas de cobro.
+    if (!u.puede.gestionar && !u.puede.finanzas) $$('a[href="puntos-venta.html"]').forEach(a => a.remove());
     // Las compras son del centro: quien sólo tiene rol en locales no las ve.
-    if (!u.es_admin && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
+    if (!u.es_admin && !u.finanzas && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
     $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });
     // Quién está adentro, y las salidas: en la barra lateral abajo; en el celular, dentro de "Más".
     const acciones = () => [
@@ -363,4 +367,38 @@ function describirLectura(d) {
   const venc = d.lote ? d.lote.vencimiento : d.lectura.vencimiento;
   if (venc) partes.push('vence ' + fecha(venc));
   return partes.join(' · ');
+}
+
+// ── Archivos CSV ─────────────────────────────────────────────────────────────────────────────
+// Los usan la conciliación bancaria y la importación de ventas de los POS.
+// Separador detectado de la primera línea (; , o tabulación) y comillas respetadas.
+function parsearCSV(texto) {
+  texto = texto.replace(/^﻿/, '');
+  const primera = texto.split(/\r?\n/)[0];
+  const sep = ['\t', ';', ','].map(s => [s, primera.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const filas = []; let fila = [], campo = '', comillas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (comillas) {
+      if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
+      else if (ch === '"') comillas = false;
+      else campo += ch;
+    } else if (ch === '"') comillas = true;
+    else if (ch === sep) { fila.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && texto[i + 1] === '\n') i++;
+      fila.push(campo); campo = '';
+      if (fila.some(x => x.trim())) filas.push(fila);
+      fila = [];
+    } else campo += ch;
+  }
+  fila.push(campo); if (fila.some(x => x.trim())) filas.push(fila);
+  return filas;
+}
+
+// Texto de un archivo. Bancos y sistemas viejos exportan en Latin-1: si al leerlo como UTF-8
+// aparecen caracteres de reemplazo, se relee con esa codificación.
+async function leerTexto(archivo) {
+  const texto = await archivo.text();
+  return texto.includes('\ufffd') ? new TextDecoder('latin1').decode(await archivo.arrayBuffer()) : texto;
 }

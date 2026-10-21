@@ -35,9 +35,11 @@ function leerCuenta(b) {
     cbu: texto(b.cbu) && texto(b.cbu).replace(/\D/g, ''), alias: texto(b.alias),
     activa: b.activa === undefined ? true : !!b.activa,
   };
-  if (!['banco', 'caja'].includes(c.tipo)) throw new ErrorUsuario('El tipo es banco o caja (la cartera de cheques ya existe).');
+  // Cobranza: tarjetas, QR y billeteras a acreditar. Lo cobrado por el POS entra ahí y pasa al banco
+  // con una transferencia cuando se acredita.
+  if (!['banco', 'caja', 'cobranza'].includes(c.tipo)) throw new ErrorUsuario('El tipo es banco, caja o cobranza (la cartera de cheques ya existe).');
   if (c.tipo === 'caja' && !c.sede_id) throw new ErrorUsuario('Una caja es de una sede: elegila.');
-  if (c.tipo === 'banco') c.sede_id = null;
+  if (c.tipo !== 'caja') c.sede_id = null;
   if (c.cbu && c.cbu.length !== 22) throw new ErrorUsuario('El CBU tiene 22 dígitos.');
   return c;
 }

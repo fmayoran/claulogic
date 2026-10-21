@@ -200,8 +200,8 @@ r.post('/movimientos/:id/anular', h(async (req, res) => {
     const { rows: [m] } = await c.query('SELECT * FROM logic.movimiento WHERE id = $1', [req.params.id]);
     if (!m) throw new ErrorUsuario('No existe ese movimiento.');
     if (m.anula_a) throw new ErrorUsuario('Es una anulación: no se anula una anulación. Registrá el movimiento de nuevo.');
-    if (m.compra_item_id || m.produccion_id || m.remito_id)
-      throw new ErrorUsuario('Es parte de una compra, una producción o un remito: no se anula suelto.');
+    if (m.compra_item_id || m.produccion_id || m.remito_id || m.pos_consumo_id)
+      throw new ErrorUsuario('Es parte de una compra, una producción, un remito o las ventas de un POS: no se anula suelto.');
     // Anular es de encargado, en cada sede que el movimiento toca.
     const { rows: sedes } = await c.query(
       `SELECT DISTINCT s.id, s.nombre FROM logic.ubicacion u JOIN logic.almacen a ON a.id = u.almacen_id

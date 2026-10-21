@@ -220,13 +220,41 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Retenciones practicadas** del mes en CSV para el contador.
 - Números tipeados: con coma decimal, los puntos son de miles ("41.000,50"); sin coma no se tocan.
 
+### Puntos de venta (fase 4, 21/10/2026)
+- Esquema `pos`. Fer: **Fudo y Maxirest**, por **API o archivo según haya**, **ticket por ticket**, y lo que
+  no alcanza **queda en negativo**.
+- **Fudo por API** (`app/fudo.js`): token en `auth.fu.do/api` (apiKey + apiSecret, 24 h), ventas de
+  `api.fu.do/v1alpha1/sales` con `filter[closedAt]`, `include=items.product,payments.paymentMethod`,
+  páginas de 500. Requiere plan Pro y habilitar "API Pública General". Su OpenAPI no es del todo
+  JSON:API (las relaciones a veces vienen como lista de `{data}`): el adaptador acepta las dos formas.
+  **Probado sólo contra un simulador** hecho según la especificación: hay que verificarlo con una cuenta
+  real. `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas. Credenciales cifradas con `crypto.js`.
+- **Maxirest no tiene API pública**: va por archivo (sus informes de ventas salen a Excel; se guardan
+  como CSV). La importación por archivo sirve para cualquier POS: renglones de venta y pagos, con mapeo
+  de columnas que se recuerda por integración (`pos.integracion.mapeo`).
+- **Recepción idempotente**: `pos.ticket` único por (integración, id del POS); reimportar no duplica y
+  una importación sin tickets nuevos no se guarda.
+- **Plato de carta** (`logic.plato`): la receta de venta, lo que consume una porción (insumos o
+  elaborados, con merma). `pos.articulo` lo vincula con el artículo del POS, o lo marca sin consumo.
+- **Procesar es aparte y en dos partes**: el **consumo** (operación, permiso en la sede) descuenta del
+  almacén del local por FEFO sin lotes vencidos, un movimiento `venta` por producto y lote (no por
+  ticket), y lo que falta va en negativo: en el último lote conocido si es perecedero, sin lote si no.
+  Un perecedero que nunca tuvo lote frena el proceso. Los **cobros** (finanzas) entran por cuenta y por
+  día a la cuenta de cada medio (`pos.medio.cuenta_id`): efectivo a la caja del local, tarjetas y QR
+  a una cuenta de tipo **cobranza**, que pasa al banco con una transferencia cuando se acredita.
+- Anular una importación revierte consumo y cobros y borra sus tickets para reimportar. Con cobros
+  procesados, la anula finanzas. Finanzas ve las integraciones de todos los locales.
+- Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
+  (subitems), propinas.
+
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
 productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades,
 login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios,
 sedes, notas de pedido, remitos internos y unidades productivas, comprobantes de proveedor,
-cuenta corriente, libro IVA compras, órdenes de pago, tesorería, cheques y conciliación bancaria.
+cuenta corriente, libro IVA compras, órdenes de pago, tesorería, cheques, conciliación bancaria,
+platos de carta, integración con POS (Fudo por API, archivo para cualquiera) y consumo teórico.
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -240,7 +268,7 @@ el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción parcial de compras, anular una compra recibida o una
 producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
-extractos en Excel, cheques de terceros rechazados, y las fases 4 y 5.
+extractos en Excel, cheques de terceros rechazados, sincronización automática de POS, y la fase 5.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

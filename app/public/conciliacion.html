@@ -54,30 +54,6 @@ const cuenta = () => $('#cuenta').value;
 const conSigno = v => el('span', { className: String(v).startsWith('-') ? 'neg' : '', textContent: pesos(v) });
 
 // ── CSV ──
-// Separador detectado de la primera línea (; , o tabulación) y comillas respetadas.
-function parsearCSV(texto) {
-  texto = texto.replace(/^﻿/, '');
-  const primera = texto.split(/\r?\n/)[0];
-  const sep = ['\t', ';', ','].map(s => [s, primera.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
-  const filas = []; let fila = [], campo = '', comillas = false;
-  for (let i = 0; i < texto.length; i++) {
-    const ch = texto[i];
-    if (comillas) {
-      if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
-      else if (ch === '"') comillas = false;
-      else campo += ch;
-    } else if (ch === '"') comillas = true;
-    else if (ch === sep) { fila.push(campo); campo = ''; }
-    else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && texto[i + 1] === '\n') i++;
-      fila.push(campo); campo = '';
-      if (fila.some(x => x.trim())) filas.push(fila);
-      fila = [];
-    } else campo += ch;
-  }
-  fila.push(campo); if (fila.some(x => x.trim())) filas.push(fila);
-  return filas;
-}
 const ROLES = [['', 'ignorar'], ['fecha', 'Fecha'], ['concepto', 'Concepto'], ['referencia', 'Referencia'], ['importe', 'Importe (con signo)'], ['debito', 'Débito'], ['credito', 'Crédito']];
 // Propuesta por el nombre de la columna: es lo que más se repite entre bancos.
 function adivinar(n) {
@@ -92,10 +68,7 @@ function adivinar(n) {
 }
 $('#archivo').onchange = async () => {
   const a = $('#archivo').files[0]; if (!a) return;
-  let texto = await a.text();
-  // Bancos que exportan en Latin-1: si hay caracteres de reemplazo, se relee con esa codificación.
-  if (texto.includes('�')) texto = new TextDecoder('latin1').decode(await a.arrayBuffer());
-  csv = { nombre: a.name, filas: parsearCSV(texto) };
+  csv = { nombre: a.name, filas: parsearCSV(await leerTexto(a)) };
   pintarMapa();
 };
 $('#encabezado').onchange = () => csv && pintarMapa();

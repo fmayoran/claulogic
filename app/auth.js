@@ -256,6 +256,15 @@ const POLITICA = [
   // Remitos y pedidos: la sede concreta (despacha, pide o recibe) la verifica cada handler, y los
   // traslados, además, la base.
   [/^\/(remitos|pedidos)(\/|$)/, 'operar'],
+  // POS: la sede concreta la verifica cada handler. Configurar la integración y las equivalencias
+  // de artículos es de encargado; importar y descontar el consumo, de quien opera; los cobros y la
+  // cuenta de cada medio, de finanzas.
+  [/^\/pos\/integraciones(\/[^/]+)?$/, 'gestionar'],
+  [/^\/pos\/integraciones\/[^/]+\/(sincronizar|importar)$/, 'operar'],
+  [/^\/pos\/importaciones\/[^/]+\/(consumo|anular)$/, 'operar'],
+  [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
+  [/^\/pos\/articulos\//, 'gestionar'],
+  [/^\/pos\/medios\//, 'finanzas'],
 ];
 const SOLO_ADMIN_LECTURA = /^\/(usuarios|dispositivos|accesos)(\/|$)/;
 
