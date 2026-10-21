@@ -4,6 +4,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote } = require('./util');
+const { filtroSedes } = require('./auth');
 
 const r = express.Router();
 
@@ -11,12 +12,14 @@ const r = express.Router();
 r.get('/recetas', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT re.id, re.nombre, re.vigente, re.producto_id, p.nombre AS elaborado, p.unidad_base,
-            trim_scale(re.rinde_base)::text AS rinde, COUNT(ri.id)::int AS ingredientes
+            trim_scale(re.rinde_base)::text AS rinde, COUNT(ri.id)::int AS ingredientes,
+            re.unidad_productiva_id, up.nombre AS unidad_productiva
        FROM logic.receta re
        JOIN logic.producto p ON p.id = re.producto_id
        LEFT JOIN logic.receta_item ri ON ri.receta_id = re.id
+       LEFT JOIN logic.unidad_productiva up ON up.id = re.unidad_productiva_id
       WHERE ($1 OR re.vigente)
-      GROUP BY re.id, p.nombre, p.unidad_base ORDER BY re.vigente DESC, re.nombre`,
+      GROUP BY re.id, p.nombre, p.unidad_base, up.nombre ORDER BY re.vigente DESC, re.nombre`,
     [req.query.todas === '1']);
   res.json({ ok: true, recetas: rows });
 }));
@@ -24,7 +27,7 @@ r.get('/recetas', h(async (req, res) => {
 r.get('/recetas/:id', h(async (req, res) => {
   const { rows: [re] } = await pool.query(
     `SELECT re.id, re.nombre, re.producto_id, p.unidad_base, trim_scale(re.rinde_base)::text AS rinde,
-            re.instrucciones, re.vigente
+            re.instrucciones, re.vigente, re.unidad_productiva_id
        FROM logic.receta re JOIN logic.producto p ON p.id = re.producto_id WHERE re.id = $1`, [req.params.id]);
   if (!re) return res.status(404).json({ ok: false, error: 'No existe esa receta.' });
   const { rows: items } = await pool.query(
@@ -43,6 +46,7 @@ function leerReceta(b) {
     rinde_unidad: texto(b.rinde_unidad),
     instrucciones: texto(b.instrucciones),
     vigente: b.vigente === undefined ? true : !!b.vigente,
+    unidad_productiva_id: texto(b.unidad_productiva_id),
   };
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) throw new ErrorUsuario('La receta no tiene ingredientes.');
@@ -70,14 +74,14 @@ async function guardarReceta(c, id, re) {
   const rinde = await aBase(c, re.rinde, re.rinde_unidad, await unidadBase(c, re.producto_id, 'el elaborado'), 'El rinde');
   if (id) {
     const { rowCount } = await c.query(
-      'UPDATE logic.receta SET nombre=$1, producto_id=$2, rinde_base=$3, instrucciones=$4, vigente=$5 WHERE id=$6',
-      [re.nombre, re.producto_id, rinde, re.instrucciones, re.vigente, id]);
+      'UPDATE logic.receta SET nombre=$1, producto_id=$2, rinde_base=$3, instrucciones=$4, vigente=$5, unidad_productiva_id=$7 WHERE id=$6',
+      [re.nombre, re.producto_id, rinde, re.instrucciones, re.vigente, id, re.unidad_productiva_id]);
     if (!rowCount) throw new ErrorUsuario('No existe esa receta.');
     await c.query('DELETE FROM logic.receta_item WHERE receta_id = $1', [id]);
   } else {
     ({ rows: [{ id }] } = await c.query(
-      'INSERT INTO logic.receta (nombre, producto_id, rinde_base, instrucciones, vigente) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [re.nombre, re.producto_id, rinde, re.instrucciones, re.vigente]));
+      'INSERT INTO logic.receta (nombre, producto_id, rinde_base, instrucciones, vigente, unidad_productiva_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [re.nombre, re.producto_id, rinde, re.instrucciones, re.vigente, re.unidad_productiva_id]));
   }
   for (const [i, x] of re.items.entries()) {
     const ub = await unidadBase(c, x.producto_id, `el ingrediente ${i + 1}`);
@@ -180,6 +184,18 @@ r.get('/produccion/plan', h(async (req, res) => {
   res.json({ ok: true, plan: vistaPlan(await plan(pool, ped.recetaId, ped.cantidad, ped.almacenId)) });
 }));
 
+// La unidad productiva es de la sede del almacén de insumos: producir en la pastelería del centro
+// con insumos de un local sería mover stock entre sedes sin remito.
+async function unidadProductiva(c, b, almacenId) {
+  const id = texto(b.unidad_productiva_id);
+  if (!id) return null;
+  const { rows: [u] } = await c.query(
+    `SELECT up.id FROM logic.unidad_productiva up JOIN logic.almacen a ON a.id = $2::uuid
+      WHERE up.id = $1::uuid AND up.sede_id = a.sede_id AND up.activa`, [id, almacenId]);
+  if (!u) throw new ErrorUsuario('La unidad productiva no es de la sede del almacén de insumos, o está inactiva.');
+  return u.id;
+}
+
 // ── Producir ─────────────────────────────────────────────────────────────────────────────────
 // El plan se vuelve a calcular adentro de la transacción, con los ingredientes bloqueados: el que
 // se mostró en pantalla puede haber quedado viejo. Si falta algo, no se produce: un consumo sin
@@ -206,9 +222,9 @@ r.post('/producciones', h(async (req, res) => {
     const costoTotal = sin_costo || p.ingredientes.some(i => i.sin_costo) ? null : costo_total;
 
     const { rows: [prod] } = await c.query(
-      `INSERT INTO logic.produccion (receta_id, cantidad_base, ubicacion_id, almacen_id, costo_total, notas)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [ped.recetaId, ped.cantidad, destino, ped.almacenId, costoTotal, texto(b.notas)]);
+      `INSERT INTO logic.produccion (receta_id, cantidad_base, ubicacion_id, almacen_id, costo_total, notas, unidad_productiva_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [ped.recetaId, ped.cantidad, destino, ped.almacenId, costoTotal, texto(b.notas), await unidadProductiva(c, b, ped.almacenId)]);
 
     const { rows: [el] } = await c.query('SELECT perecedero FROM logic.producto WHERE id = $1', [p.receta.producto_id]);
     let loteId = null, loteCodigo = null;
@@ -243,14 +259,18 @@ r.get('/producciones', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pr.id, pr.fecha, re.nombre AS receta, p.nombre AS elaborado, p.unidad_base,
             trim_scale(pr.cantidad_base)::text AS cantidad, l.id AS lote_id, l.codigo AS lote, l.vencimiento,
-            pr.costo_total::text, u.nombre AS ubicacion, a.nombre AS almacen
+            pr.costo_total::text, u.nombre AS ubicacion, a.nombre AS almacen, up.nombre AS unidad_productiva
        FROM logic.produccion pr
        JOIN logic.receta re ON re.id = pr.receta_id
        JOIN logic.producto p ON p.id = re.producto_id
        LEFT JOIN logic.lote l ON l.id = pr.lote_salida_id
        LEFT JOIN logic.ubicacion u ON u.id = pr.ubicacion_id
        LEFT JOIN logic.almacen a ON a.id = u.almacen_id
-      ORDER BY pr.fecha DESC LIMIT 200`);
+       LEFT JOIN logic.almacen ai ON ai.id = pr.almacen_id
+       LEFT JOIN logic.unidad_productiva up ON up.id = pr.unidad_productiva_id
+      WHERE ($1::uuid[] IS NULL OR COALESCE(a.sede_id, ai.sede_id) = ANY($1))
+        AND ($2::uuid IS NULL OR pr.unidad_productiva_id = $2)
+      ORDER BY pr.fecha DESC LIMIT 200`, [filtroSedes(req), texto(req.query.unidad)]);
   res.json({ ok: true, producciones: rows });
 }));
 

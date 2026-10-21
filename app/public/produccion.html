@@ -21,6 +21,9 @@
   <form id="f" novalidate>
     <fieldset>
       <legend>Qué se produce</legend>
+      <div class="fila" id="filaUnidad">
+        <label>Unidad productiva<select name="unidad_productiva_id"></select></label>
+      </div>
       <div class="fila">
         <label>Receta *<select name="receta_id"></select></label>
         <label>Cantidad *<span class="con-boton"><input name="cantidad" inputmode="decimal"><select name="unidad" class="angosto"></select></span></label>
@@ -58,7 +61,7 @@
 </main>
 <script src="comun.js"></script>
 <script>
-let recetas = [], productos = [], almacenes = [], unidades = [];
+let recetas = [], productos = [], almacenes = [], unidades = [], unidadesProd = [];
 const f = $('#f');
 const recSel = () => recetas.find(r => r.id === f.receta_id.value);
 
@@ -75,6 +78,20 @@ function alCambiarReceta() {
   }
 }
 f.receta_id.onchange = alCambiarReceta;
+
+// La unidad productiva propone de dónde salen los insumos y dónde queda lo elaborado, y muestra
+// primero sus recetas (las demás siguen disponibles).
+function llenarRecetas(valor) {
+  const up = f.unidad_productiva_id.value;
+  const orden = [...recetas].sort((a, b) => (b.unidad_productiva_id === up) - (a.unidad_productiva_id === up));
+  opciones(f.receta_id, orden.map(r => [r.id, `${r.nombre} → ${r.elaborado}` + (up && r.unidad_productiva_id !== up && r.unidad_productiva ? ` (${r.unidad_productiva})` : '')]),
+    valor ?? f.receta_id.value, 'Elegir…');
+}
+f.unidad_productiva_id.onchange = () => {
+  const u = unidadesProd.find(x => x.id === f.unidad_productiva_id.value);
+  if (u) { f.almacen_id.value = u.almacen_id; if (u.ubicacion_salida_id) f.ubicacion_id.value = u.ubicacion_salida_id; }
+  llenarRecetas(); $('#plan').hidden = true; $('#producir').disabled = true;
+};
 for (const n of ['cantidad', 'unidad', 'almacen_id']) f[n].addEventListener('change', () => { $('#plan').hidden = true; $('#producir').disabled = true; });
 
 function pedido() {
@@ -104,7 +121,7 @@ f.onsubmit = async e => {
   $('#producir').disabled = true;
   try {
     const body = { ...pedido(), ubicacion_id: f.ubicacion_id.value, lote_codigo: f.lote_codigo.value,
-                   vencimiento: f.vencimiento.value, notas: f.notas.value };
+                   vencimiento: f.vencimiento.value, notas: f.notas.value, unidad_productiva_id: f.unidad_productiva_id.value || null };
     const d = await api('producciones', { method: 'POST', body });
     const r = recSel();
     $('#resultado').hidden = false;
@@ -120,7 +137,7 @@ async function cargarProducciones() {
   const { producciones } = await api('producciones');
   filas($('#tProd'), producciones, p => {
     const tr = el('tr', { className: 'clic' },
-      td(fechaHora(p.fecha)), td(p.receta), td(cant(p.cantidad, p.unidad_base), 'num'),
+      td(fechaHora(p.fecha)), td(p.receta + (p.unidad_productiva ? ` · ${p.unidad_productiva}` : '')), td(cant(p.cantidad, p.unidad_base), 'num'),
       el('td', {}, p.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + p.lote_id, textContent: p.lote, onclick: e => e.stopPropagation() }) : ''),
       td(fecha(p.vencimiento)), td(p.ubicacion ? `${p.almacen || ''} · ${p.ubicacion}` : ''), td(pesos(p.costo_total), 'num'));
     tr.onclick = async () => {
@@ -137,9 +154,14 @@ async function cargarProducciones() {
 
 (async () => {
   try {
-    [{ recetas }, productos, almacenes, unidades] = await Promise.all([api('recetas'), catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
-    opciones(f.receta_id, recetas.map(r => [r.id, `${r.nombre} → ${r.elaborado}`]), new URLSearchParams(location.search).get('receta'), 'Elegir…');
-    opciones(f.almacen_id, almacenes.filter(a => a.activo).map(a => [a.id, a.nombre]), null, 'Elegir…');
+    [{ recetas }, productos, almacenes, unidades, { unidades: unidadesProd }] = await Promise.all([api('recetas'),
+      catalogo.productos(), catalogo.almacenes(), catalogo.unidades(), api('unidades-productivas')]);
+    unidadesProd = unidadesProd.filter(u => u.activa);
+    opciones(f.unidad_productiva_id, unidadesProd.map(u => [u.id, `${u.nombre} (${u.sede})`]), null, 'Sin unidad');
+    $('#filaUnidad').hidden = !unidadesProd.length;
+    llenarRecetas(new URLSearchParams(location.search).get('receta'));
+    const multi = new Set(almacenes.map(a => a.sede_id)).size > 1;
+    opciones(f.almacen_id, almacenes.filter(a => a.activo).map(a => [a.id, (multi ? a.sede + ' · ' : '') + a.nombre]), null, 'Elegir…');
     opcionesUbicacion(f.ubicacion_id, almacenes);
     alCambiarReceta();
     if (!recetas.length) msg('Todavía no hay recetas: cargá una en Recetas.', 'mal');

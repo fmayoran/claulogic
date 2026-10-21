@@ -2,7 +2,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, h, enTransaccion } = require('./util');
-const { exigirEncargadoDe } = require('./auth');
+const { exigirEncargadoDe, filtroSedes } = require('./auth');
 
 const r = express.Router();
 
@@ -82,8 +82,10 @@ const TIPOS_FRIO = ['camara', 'heladera', 'freezer'];
 
 r.get('/almacenes', h(async (req, res) => {
   const [{ rows: almacenes }, { rows: ubicaciones }] = await Promise.all([
-    pool.query(`SELECT a.id, a.nombre, a.direccion, a.notas, a.activo, a.sede_id, s.nombre AS sede
-                  FROM logic.almacen a JOIN org.sede s ON s.id = a.sede_id ORDER BY a.activo DESC, a.nombre`),
+    pool.query(`SELECT a.id, a.nombre, a.direccion, a.notas, a.activo, a.sede_id, s.nombre AS sede, s.tipo AS sede_tipo
+                  FROM logic.almacen a JOIN org.sede s ON s.id = a.sede_id
+                 WHERE s.activa AND ($1::uuid[] IS NULL OR a.sede_id = ANY($1))
+                 ORDER BY a.activo DESC, s.nombre, a.nombre`, [filtroSedes(req)]),
     pool.query(
       `SELECT u.id, u.almacen_id, u.nombre, u.tipo, trim_scale(u.temp_min)::text AS temp_min,
               trim_scale(u.temp_max)::text AS temp_max, u.activa,

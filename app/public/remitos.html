@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Remitos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .edit select, .edit input{padding:5px 7px;}
+  .dif-mal{color:var(--mal);font-weight:600;} .dif-mas{color:var(--aviso);font-weight:600;}
+  .cab-remito{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 18px;margin:0 0 16px;}
+  .cab-remito div span{display:block;color:var(--mut);font-size:.82rem;}
+  .firmas{display:none;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px;}
+  .firmas div{border-top:1px solid #000;padding-top:6px;font-size:.9rem;}
+  @media print{
+    .lateral,.inferior,aside,.acciones,.no-imprimir,#msgV{display:none!important;}
+    body{padding:0!important;background:#fff;color:#000;} .grid{display:block;} .grid > main{max-width:none;padding:0;}
+    .tabla-wrap{border:0;overflow:visible;} .firmas{display:grid;}
+  }
+</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <select id="fest">
+        <option value="">Todos</option><option value="borrador">Borradores</option><option value="enviado">Despachados (por recibir)</option>
+        <option value="recibido">Recibidos</option><option value="anulado">Anulados</option>
+      </select>
+      <button class="prim" id="nuevo" hidden>Nuevo remito</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <!-- Borrador -->
+    <section id="vEditar">
+      <h1 id="titulo">Nuevo remito</h1>
+      <p class="sub" id="subtitulo">Mercadería de una sede a otra. Al despacharlo sale de acá y entra en la sede de destino; ellos confirman lo que llegó.</p>
+      <form id="f" novalidate>
+        <fieldset>
+          <legend>De dónde a dónde</legend>
+          <div class="fila">
+            <label>Despacha desde *<select name="origen_almacen_id"></select></label>
+            <label>Para *<select name="destino_sede_id"></select></label>
+            <label>Entra en<select name="destino_ubicacion_id"></select></label>
+          </div>
+          <div class="fila"><label>Notas<input name="notas" placeholder="chofer, vehículo, horario…"></label></div>
+        </fieldset>
+        <fieldset>
+          <legend>Qué se manda</legend>
+          <div style="overflow-x:auto"><table class="edit" id="items">
+            <thead><tr><th>Producto</th><th>Cantidad</th><th>Unidad</th><th>Lote y ubicación</th><th></th></tr></thead>
+            <tbody></tbody></table></div>
+          <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
+          <p class="ayuda">Con "automático", al guardar se reparte entre los lotes del almacén, primero lo que vence primero.</p>
+          <div id="sinEnviar" hidden></div>
+        </fieldset>
+        <div class="acciones">
+          <button type="submit" class="prim" id="guardar">Guardar</button>
+          <button type="button" id="despachar" hidden>Despachar</button>
+          <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+          <span class="msg" id="msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <!-- Despachado, recibido o anulado -->
+    <section id="vVer" hidden>
+      <h1 id="vTitulo"></h1>
+      <div class="cab-remito" id="vCab"></div>
+      <div class="tabla-wrap"><table class="datos">
+        <thead id="vHead"></thead><tbody id="vItems"></tbody></table></div>
+      <div id="vSinEnviar"></div>
+      <p class="ayuda no-imprimir" id="ayudaRecibir" hidden>Cargá lo que llegó de cada renglón (si llegó todo, dejalo como está).
+        Una diferencia necesita motivo: un faltante queda asentado como merma del remito.</p>
+      <div class="firmas"><div>Entregó (firma y aclaración)</div><div>Recibió (firma y aclaración)</div></div>
+      <div class="acciones">
+        <button type="button" class="prim" id="recibir" hidden>Confirmar recepción</button>
+        <button type="button" onclick="print()">Imprimir</button>
+        <button type="button" class="peligro" id="anular" hidden>Anular</button>
+        <span class="msg" id="msgV"></span>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+const TAG = { borrador: '', enviado: 'aviso', recibido: 'ok', anulado: '' };
+const ESTADO = { borrador: 'borrador', enviado: 'despachado', recibido: 'recibido', anulado: 'anulado' };
+let remitos = [], productos = [], unidades = [], almacenes = [], sedes = [], todas = [], actual = null, remito = null;
+const f = $('#f');
+const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
+
+async function cargarLista() {
+  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value);
+  ({ remitos } = await api('remitos?' + p));
+  if (!remitos.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay remitos.' }));
+  $('#lista').replaceChildren(...remitos.map(x => {
+    const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') },
+      el('div', { className: 'n' }, `${x.nro} · ${x.destino}`, ' ', el('span', { className: 'tag ' + TAG[x.estado], textContent: ESTADO[x.estado] }),
+        x.con_diferencias ? el('span', { className: 'tag mal', textContent: 'con diferencias' }) : ''),
+      el('div', { className: 'm', textContent: `desde ${x.origen} · ${x.renglones} renglón(es)` + (x.pedido ? ` · ${x.pedido}` : '')
+        + ' · ' + fechaHora(x.enviado_en || x.creado_en) }));
+    b.onclick = () => abrir(x.id);
+    return b;
+  }));
+}
+
+// ── Borrador ──
+const almOrigen = () => almacenes.find(a => a.id === f.origen_almacen_id.value);
+async function llenarDestinos(sedeId, ubicId) {
+  const a = almOrigen();
+  const dest = todas.filter(s => s.activa && (!a || s.id !== a.sede_id));
+  opciones(f.destino_sede_id, dest.map(s => [s.id, s.nombre]), sedeId || (dest.find(s => s.tipo === 'local') || {}).id, 'Elegir…');
+  await llenarUbicDestino(ubicId);
+}
+async function llenarUbicDestino(ubicId) {
+  if (!f.destino_sede_id.value) return opciones(f.destino_ubicacion_id, [], null, '—');
+  const { ubicaciones } = await api('remitos/destinos?sede=' + f.destino_sede_id.value);
+  opciones(f.destino_ubicacion_id, ubicaciones.map(u => [u.id, `${u.almacen} · ${u.nombre}`]), ubicId);
+}
+f.origen_almacen_id.onchange = () => { llenarDestinos(f.destino_sede_id.value); $$('#items tbody tr').forEach(tr => tr.refrescar()); };
+f.destino_sede_id.onchange = () => llenarUbicDestino();
+
+// Opciones de lote: "automático" (FEFO al guardar) o un lote concreto en una ubicación del almacén.
+async function lotesDe(productoId) {
+  if (!productoId || !f.origen_almacen_id.value) return [];
+  const { stock } = await api('stock?' + new URLSearchParams({ producto: productoId, almacen: f.origen_almacen_id.value }));
+  return stock.filter(s => !s.cantidad.startsWith('-') && s.cantidad !== '0');
+}
+function filaItem(x = {}) {
+  const prod = el('select'), unidad = el('select'), lote = el('select');
+  const cant_ = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:100px' });
+  opciones(prod, productos.filter(p => p.activo || p.id === x.producto_id).map(p => [p.id, `${p.nombre} (${p.codigo})`]), x.producto_id, 'Elegir…');
+  async function refrescar(loteVal) {
+    const p = productos.find(p => p.id === prod.value);
+    opciones(unidad, p ? unidadesCompatibles(unidades, p.unidad_base).map(u => [u.codigo, u.codigo]) : [], unidad.value || (p && p.unidad_base));
+    const ls = await lotesDe(prod.value);
+    opciones(lote, [['', 'Automático (FEFO)'], ...ls.map(s => [`${s.lote_id || ''}|${s.ubicacion_id}`,
+      `${s.lote || 'sin lote'} · ${s.ubicacion}${s.vencimiento ? ' · vence ' + fecha(s.vencimiento) : ''} · hay ${cant(s.cantidad, s.unidad_base)}`])], loteVal || '');
+  }
+  prod.onchange = () => { unidad.value = ''; refrescar(); };
+  const tr = el('tr', {}, el('td', {}, prod), el('td', {}, cant_), el('td', {}, unidad), el('td', {}, lote),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => tr.remove() })));
+  tr.refrescar = () => refrescar(lote.value);
+  tr.leer = () => { const [l, u] = lote.value ? lote.value.split('|') : [null, null];
+    return { producto_id: prod.value, cantidad: cant_.value, unidad: unidad.value, lote_id: l || null, origen_ubicacion_id: u || null,
+             pedido_item_id: x.pedido_item_id || null }; };
+  $('#items tbody').append(tr);
+  if (x.unidad_base) unidad.value = x.unidad_base;
+  refrescar(x.origen_ubicacion_id ? `${x.lote_id || ''}|${x.origen_ubicacion_id}` : '').then(() => { if (x.unidad_base) unidad.value = x.unidad_base; });
+  return tr;
+}
+$('#agregar').onclick = () => filaItem();
+
+function llenarOrigen(valor) {
+  const mias = new Set(sedes.filter(operaEn).map(s => s.id));
+  const multi = new Set(almacenes.map(a => a.sede_id)).size > 1;
+  opciones(f.origen_almacen_id, almacenes.filter(a => a.activo && mias.has(a.sede_id)).map(a => [a.id, (multi ? a.sede + ' · ' : '') + a.nombre]), valor);
+}
+
+async function nuevo() {
+  actual = null; remito = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo remito';
+  llenarOrigen(); f.destino_sede_id.disabled = false; await llenarDestinos();
+  $('#items tbody').replaceChildren(); filaItem();
+  $('#despachar').hidden = true; $('#borrar').hidden = true; $('#sinEnviar').hidden = true;
+  vista('editar'); history.replaceState(null, '', 'remitos.html');
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+
+function tablaSinEnviar(cont, filas_) {
+  cont.hidden = !filas_.length;
+  cont.replaceChildren(...(filas_.length ? [el('h3', { textContent: 'Pedido y no enviado' }),
+    el('ul', {}, ...filas_.map(s => el('li', { textContent: `${s.producto}: pedido ${cant(s.pedido, s.unidad_base)}, va ${cant(s.enviado, s.unidad_base)}` })))] : []));
+}
+
+async function abrir(id) {
+  try {
+    ({ remito } = await api('remitos/' + id)); actual = id; msg(''); msg('', '', '#msgV');
+    history.replaceState(null, '', 'remitos.html#' + id);
+    if (remito.estado === 'borrador' && remito.puede.despachar) {
+      $('#titulo').textContent = `Remito ${remito.nro}` + (remito.pedido ? ` · ${remito.pedido}` : '');
+      $('#subtitulo').textContent = 'Borrador: revisalo y despachalo. Hasta entonces no mueve stock.';
+      llenarOrigen(remito.origen_almacen_id);
+      await llenarDestinos(remito.destino_sede_id, remito.destino_ubicacion_id);
+      f.destino_sede_id.disabled = !!remito.pedido_id;
+      f.notas.value = remito.notas || '';
+      $('#items tbody').replaceChildren(); remito.items.forEach(filaItem);
+      tablaSinEnviar($('#sinEnviar'), remito.sin_enviar);
+      $('#despachar').hidden = false; $('#borrar').hidden = false;
+      vista('editar');
+    } else ver();
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+
+// ── Lectura y recepción ──
+function ver() {
+  const x = remito;
+  const recibiendo = x.estado === 'enviado' && x.puede.recibir;
+  $('#vTitulo').textContent = `Remito ${x.nro}`;
+  const dato = (t, v) => v ? el('div', {}, el('span', { textContent: t }), v) : '';
+  $('#vCab').replaceChildren(
+    dato('Estado', ESTADO[x.estado]), dato('Desde', `${x.origen} · ${x.origen_almacen}`), dato('Para', `${x.destino} · ${x.destino_ubicacion}`),
+    dato('Pedido', x.pedido), dato('Armó', x.creado_por), dato('Despachó', x.enviado_en && `${x.enviado_por || '—'} · ${fechaHora(x.enviado_en)}`),
+    dato('Recibió', x.recibido_en && `${x.recibido_por || '—'} · ${fechaHora(x.recibido_en)}`),
+    dato('Anulado', x.anulado_en && `${x.anulado_por || '—'} · ${fechaHora(x.anulado_en)} · ${x.motivo_anulacion}`), dato('Notas', x.notas));
+  const conPedido = x.items.some(i => i.pedido);
+  const recibido = x.estado === 'recibido';
+  $('#vHead').replaceChildren(el('tr', {}, ...['Producto', 'Lote', 'Vence', 'Sale de', ...(conPedido ? ['Pedido'] : []), 'Enviado',
+    ...(recibiendo || recibido ? ['Recibido', 'Motivo de la diferencia'] : [])].map(t => el('th', { textContent: t, className: ['Pedido', 'Enviado', 'Recibido'].includes(t) ? 'num' : '' }))));
+  filas($('#vItems'), x.items, i => {
+    const tr = el('tr', {}, td(i.producto, 'wrap'), td(i.lote), td(fecha(i.vencimiento)), td(i.origen_ubicacion),
+      ...(conPedido ? [td(i.pedido ? cant(i.pedido, i.unidad_base) : '', 'num')] : []), td(cant(i.cantidad, i.unidad_base), 'num'));
+    if (recibiendo) {
+      const rec = el('input', { inputMode: 'decimal', value: coma(i.cantidad), style: 'width:110px', title: 'En ' + i.unidad_base });
+      const mot = el('input', { placeholder: 'sólo si hay diferencia' });
+      tr.append(el('td', { className: 'num' }, rec, ' ', i.unidad_base), el('td', {}, mot));
+      tr.leer = () => ({ id: i.id, recibida: rec.value, motivo: mot.value });
+    } else if (recibido) {
+      const d = i.diferencia || '0';
+      tr.append(el('td', { className: 'num' }, cant(i.recibida, i.unidad_base),
+        d !== '0' ? el('div', { className: d.startsWith('-') ? 'dif-mal' : 'dif-mas', textContent: (d.startsWith('-') ? '' : '+') + cant(d, i.unidad_base) }) : ''),
+        td(i.motivo_diferencia, 'wrap'));
+    }
+    return tr;
+  }, 'Sin renglones.', 8);
+  tablaSinEnviar($('#vSinEnviar'), x.sin_enviar);
+  // Al confirmar se redibuja la tabla, y conservaría el desplazamiento de cuando se cargaban las
+  // cantidades: queda corrida y parece que falta la columna del producto.
+  $('#vVer .tabla-wrap').scrollLeft = 0;
+  $('#ayudaRecibir').hidden = !recibiendo; $('#recibir').hidden = !recibiendo;
+  $('#anular').hidden = !((x.estado === 'enviado' && x.puede.anular_enviado) || (x.estado === 'borrador' && x.puede.despachar));
+  vista('ver');
+}
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { origen_almacen_id: f.origen_almacen_id.value, destino_sede_id: f.destino_sede_id.value,
+                 destino_ubicacion_id: f.destino_ubicacion_id.value || null, notas: f.notas.value,
+                 items: $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.producto_id) };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'remitos/' + actual : 'remitos', { method: actual ? 'PUT' : 'POST', body });
+    await abrir(d.id); msg('Guardado. Revisá los lotes y despachalo.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#despachar').onclick = async () => {
+  if (!confirm(`Al despachar, la mercadería sale de ${remito.origen} y entra en ${remito.destino}. ¿Despachar?`)) return;
+  try {
+    await f.onsubmit(new Event('submit')); if ($('#msg').classList.contains('mal')) return;
+    await api(`remitos/${actual}/enviar`, { method: 'POST' }); await abrir(actual);
+  } catch (e) { msg(e.message, 'mal'); }
+};
+$('#borrar').onclick = async () => {
+  if (!confirm('¿Borrar este borrador?')) return;
+  try { await api('remitos/' + actual, { method: 'DELETE' }); await cargarLista(); nuevo(); } catch (e) { msg(e.message, 'mal'); }
+};
+$('#recibir').onclick = async () => {
+  const items = $$('#vItems tr').filter(tr => tr.leer).map(tr => tr.leer());
+  if (!confirm('¿Confirmar la recepción? Las diferencias quedan asentadas y el remito se cierra.')) return;
+  $('#recibir').disabled = true;
+  try {
+    const d = await api(`remitos/${actual}/recibir`, { method: 'POST', body: { items } });
+    await abrir(actual); msg(d.diferencias ? `Recibido con ${d.diferencias} diferencia(s).` : 'Recibido completo.', 'ok', '#msgV');
+  } catch (e) { msg(e.message, 'mal', '#msgV'); }
+  finally { $('#recibir').disabled = false; }
+};
+$('#anular').onclick = async () => {
+  const motivo = prompt(remito.estado === 'enviado'
+    ? 'Motivo de la anulación (la mercadería vuelve a su ubicación de origen):' : 'Motivo de la anulación:');
+  if (!motivo) return;
+  try { await api(`remitos/${actual}/anular`, { method: 'POST', body: { motivo } }); await abrir(actual); }
+  catch (e) { msg(e.message, 'mal', '#msgV'); }
+};
+$('#nuevo').onclick = nuevo;
+$('#fest').onchange = cargarLista;
+(async () => {
+  try {
+    [productos, unidades, almacenes, sedes, { sedes: todas }] = await Promise.all([
+      catalogo.productos(), catalogo.unidades(), catalogo.almacenes(), misSedes(), api('sedes')]);
+    $('#nuevo').hidden = !sedes.some(operaEn);
+    await cargarLista();
+    const id = location.hash.slice(1);
+    if (id) await abrir(id);
+    else if (sedes.some(operaEn)) await nuevo();
+    else vista('');
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

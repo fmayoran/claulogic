@@ -102,14 +102,18 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // inferior; el resto, en "Más".
 const GRUPOS = [
   ['Operación', [['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
-                 ['compras.html', 'Compras'], ['produccion.html', 'Producción']]],
+                 ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
+                 ['produccion.html', 'Producción']]],
   ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
-  ['Configuración', [['almacenes.html', 'Almacenes'], ['unidades.html', 'Unidades'], ['usuarios.html', 'Usuarios']]],
+  ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
+                     ['unidades-productivas.html', 'Unidades productivas'], ['unidades.html', 'Unidades de medida'],
+                     ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin' };
+const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin',
+  'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
@@ -154,6 +158,8 @@ function navegacion() {
     const u = sesion = d.usuario;
     for (const [href, permiso] of Object.entries(PERMISO_SECCION))
       if (!u.puede[permiso]) $$(`a[href="${href}"]`).forEach(a => a.remove());
+    // Las compras son del centro: quien sólo tiene rol en locales no las ve.
+    if (!u.es_admin && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
     $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });
     // Quién está adentro, y las salidas: en la barra lateral abajo; en el celular, dentro de "Más".
     const acciones = () => [
@@ -203,6 +209,24 @@ function escanear() {
 // El login no lleva navegación: no hay a dónde ir sin entrar.
 if (!document.body.hasAttribute('data-sin-nav')) navegacion();
 
+// Las sedes con las que el usuario trabaja: todas las activas si es administrador; si no, las de
+// sus roles. `rol` dice qué puede hacer en cada una ('admin' para el administrador).
+async function misSedes() {
+  const { usuario: u } = await cargarSesion();
+  if (u.es_admin) return (await api('sedes')).sedes.filter(s => s.activa).map(s => ({ ...s, rol: 'admin' }));
+  return u.roles.map(r => ({ id: r.sede_id, nombre: r.sede, tipo: r.tipo, rol: r.rol }));
+}
+const operaEn = s => ['admin', 'encargado', 'operador'].includes(s.rol);
+
+// Filtro de sede para pantallas de consulta: sólo aparece si el usuario ve más de una.
+async function filtroSede(select, alCambiar) {
+  const sedes = await misSedes();
+  opciones(select, sedes.map(s => [s.id, s.nombre]), null, 'Todas las sedes');
+  select.hidden = sedes.length < 2;
+  select.onchange = alCambiar;
+  return sedes;
+}
+
 // Cache de catálogos que usan varias pantallas.
 const catalogo = {
   async productos() { return this._p ||= (await api('productos')).productos; },
@@ -210,10 +234,12 @@ const catalogo = {
   async unidades() { return this._u ||= (await api('unidades')).unidades; },
 };
 // Opciones de ubicación agrupadas por almacén ("Depósito central · Cámara 1").
+// Con más de una sede a la vista, se antepone la sede: "Depósito · General" existe en cada local.
 function opcionesUbicacion(select, almacenes, valor, vacio = 'Elegir…', filtro = () => true) {
-  const items = [];
+  const items = [], multi = new Set(almacenes.map(a => a.sede_id)).size > 1;
   for (const a of almacenes.filter(a => a.activo))
-    for (const u of a.ubicaciones.filter(u => u.activa && filtro(u, a))) items.push([u.id, `${a.nombre} · ${u.nombre}`]);
+    for (const u of a.ubicaciones.filter(u => u.activa && filtro(u, a)))
+      items.push([u.id, `${multi ? a.sede + ' · ' : ''}${a.nombre} · ${u.nombre}`]);
   opciones(select, items, valor, vacio);
 }
 function unidadesCompatibles(unidades, base) {

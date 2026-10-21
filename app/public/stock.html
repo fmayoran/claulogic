@@ -24,6 +24,7 @@
   </div>
   <div class="barra">
     <input id="q" type="search" placeholder="Buscar producto">
+    <select id="fsede" hidden></select>
     <select id="falm" data-solo="detalle"><option value="">Todos los almacenes</option></select>
     <select id="fvence" data-solo="detalle">
       <option value="">Cualquier vencimiento</option><option value="0">Vencidos o vencen hoy</option>
@@ -89,11 +90,20 @@ function mostrarVista(v) {
 }
 $$('.pestanas button').forEach(b => b.onclick = () => mostrarVista(b.dataset.v));
 
+let varias = false;
+// Los almacenes del filtro siguen a la sede elegida.
+function llenarAlmacenes() {
+  const sede = $('#fsede').value;
+  opciones($('#falm'), almacenes.filter(a => !sede || a.sede_id === sede).map(a => [a.id, (varias && !sede ? a.sede + ' · ' : '') + a.nombre]),
+    null, 'Todos los almacenes');
+}
+
 async function cargar() {
   try {
     const q = $('#q').value.trim();
     if (vista === 'productos') {
       const p = new URLSearchParams(); if (q) p.set('q', q); if ($('#fmin').checked) p.set('bajo_minimo', '1');
+      if ($('#fsede').value) p.set('sede', $('#fsede').value);
       const { productos: rows } = await api('stock/productos?' + p);
       filas($('#tProductos'), rows, r => el('tr', { className: r.cantidad.startsWith('-') ? 'neg' : '' },
         td(el('span', {}, r.nombre, ' ', el('span', { className: 'mut', textContent: r.codigo }))), td(r.categoria),
@@ -104,18 +114,19 @@ async function cargar() {
     } else if (vista === 'detalle') {
       const p = new URLSearchParams(); if (q) p.set('q', q);
       if ($('#falm').value) p.set('almacen', $('#falm').value);
+      if ($('#fsede').value) p.set('sede', $('#fsede').value);
       if ($('#fvence').value !== '') p.set('vence_dias', $('#fvence').value);
       const { stock } = await api('stock?' + p);
       filas($('#tDetalle'), stock, r => el('tr', { className: r.cantidad.startsWith('-') ? 'neg' : '' },
         td(r.producto), td(r.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + r.lote_id, textContent: r.lote }) : el('span', { className: 'mut', textContent: 'sin lote' })),
         el('td', {}, fecha(r.vencimiento), ' ', tagVence(r.vencimiento)),
-        td(r.almacen), td(r.ubicacion), td(cant(r.cantidad, r.unidad_base), 'num'),
+        td(varias ? `${r.sede} · ${r.almacen}` : r.almacen), td(r.ubicacion), td(cant(r.cantidad, r.unidad_base), 'num'),
         el('td', {}, el('button', { className: 'chico', textContent: 'Contar',
           onclick: () => abrirConteo({ producto_id: r.producto_id, ubicacion_id: r.ubicacion_id, lote_id: r.lote_id }) }),
           r.lote_id ? el('a', { className: 'chico', href: 'etiquetas.html?lote=' + r.lote_id, textContent: ' Etiquetas' }) : '')),
         'No hay stock que coincida.', 7);
     } else {
-      const { ajustes } = await api('ajustes');
+      const { ajustes } = await api('ajustes' + ($('#fsede').value ? '?sede=' + $('#fsede').value : ''));
       filas($('#tAjustes'), ajustes, a => el('tr', {},
         td(fechaHora(a.ocurrido_en)), td(a.producto), td(a.lote), td(`${a.almacen} · ${a.ubicacion}`),
         td(cant(a.sistema, a.unidad_base), 'num'), td(cant(a.contada, a.unidad_base), 'num'),
@@ -213,7 +224,8 @@ $('#falm').onchange = $('#fvence').onchange = $('#fmin').onchange = cargar;
 (async () => {
   try {
     [productos, almacenes, unidades] = await Promise.all([catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
-    opciones($('#falm'), almacenes.map(a => [a.id, a.nombre]), null, 'Todos los almacenes');
+    varias = (await filtroSede($('#fsede'), () => { llenarAlmacenes(); cargar(); })).length > 1;
+    llenarAlmacenes();
     if (params.get('bajo_minimo')) $('#fmin').checked = true;
     if (params.get('vence_dias')) { $('#fvence').value = params.get('vence_dias'); return mostrarVista('detalle'); }
     mostrarVista('productos');

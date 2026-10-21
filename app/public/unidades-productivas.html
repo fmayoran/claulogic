@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Unidades productivas · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros"><button class="prim" id="nueva">Nueva unidad productiva</button></div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nueva unidad productiva</h1>
+    <p class="sub">Un sector de producción de una sede: pastelería, cocina fría, panadería. Toma los insumos de un almacén
+      y deja lo elaborado en una ubicación. Las recetas y las producciones se asignan a una unidad.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Datos</legend>
+        <div class="fila"><label>Nombre *<input name="nombre" maxlength="80" placeholder="Pastelería"></label></div>
+        <div class="fila">
+          <label>Toma los insumos de *<select name="almacen_id"></select></label>
+          <label>Deja lo elaborado en<select name="ubicacion_salida_id"></select></label>
+        </div>
+        <p class="ayuda">Los dos tienen que ser de la misma sede: producir con insumos de otra sede sería mover mercadería sin remito.</p>
+        <label class="check" id="activaWrap" hidden style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let unidades = [], almacenes = [], sedes = [], actual = null;
+const f = $('#f');
+
+async function cargar() {
+  ({ unidades } = await api('unidades-productivas'));
+  if (!unidades.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay unidades productivas.' }));
+  $('#lista').replaceChildren(...unidades.map(u => {
+    const b = el('button', { type: 'button', className: 'item' + (u.id === actual ? ' sel' : '') + (u.activa ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: u.nombre }),
+      el('div', { className: 'm', textContent: `${u.sede} · insumos de ${u.almacen} · ${u.recetas} receta(s)` }));
+    b.onclick = () => abrir(u.id);
+    return b;
+  }));
+}
+// Sólo los almacenes de las sedes donde el usuario es encargado: es quien configura.
+function llenarAlmacenes(valor) {
+  const puede = new Set(sedes.filter(s => ['admin', 'encargado'].includes(s.rol)).map(s => s.id));
+  const multi = new Set(almacenes.map(a => a.sede_id)).size > 1;
+  opciones(f.almacen_id, almacenes.filter(a => a.activo && puede.has(a.sede_id)).map(a => [a.id, (multi ? a.sede + ' · ' : '') + a.nombre]), valor, 'Elegir…');
+}
+function llenarSalida(valor) {
+  const a = almacenes.find(x => x.id === f.almacen_id.value);
+  opcionesUbicacion(f.ubicacion_salida_id, almacenes.filter(x => a && x.sede_id === a.sede_id), valor, 'Elegir al producir');
+}
+f.almacen_id.onchange = () => llenarSalida();
+function nueva() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva unidad productiva'; $('#activaWrap').hidden = true;
+  llenarAlmacenes(); llenarSalida();
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+function abrir(id) {
+  const u = unidades.find(x => x.id === id); if (!u) return nueva();
+  actual = id; msg(''); $('#titulo').textContent = u.nombre;
+  f.nombre.value = u.nombre; llenarAlmacenes(u.almacen_id); llenarSalida(u.ubicacion_salida_id);
+  f.activa.checked = u.activa; $('#activaWrap').hidden = false;
+  cargar();
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: f.nombre.value, almacen_id: f.almacen_id.value, ubicacion_salida_id: f.ubicacion_salida_id.value || null,
+                 activa: actual ? f.activa.checked : true };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'unidades-productivas/' + actual : 'unidades-productivas', { method: actual ? 'PUT' : 'POST', body });
+    actual = d.id; await cargar(); abrir(d.id); msg('Guardada.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nueva').onclick = nueva;
+(async () => {
+  try { [almacenes, sedes] = await Promise.all([catalogo.almacenes(), misSedes()]); await cargar(); nueva(); }
+  catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

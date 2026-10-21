@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pedidos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>.edit select, .edit input{padding:5px 7px;}</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <select id="fest">
+        <option value="">Todos</option><option value="borrador">Borradores</option><option value="enviado">Enviados (por armar)</option>
+        <option value="remitido">Remitidos</option><option value="anulado">Anulados</option>
+      </select>
+      <button class="prim" id="nuevo" hidden>Nuevo pedido</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <section id="vEditar">
+      <h1 id="titulo">Nuevo pedido</h1>
+      <p class="sub" id="subtitulo">El local le pide al centro. Cuando lo enviás, el centro lo arma y lo despacha con un remito.</p>
+      <form id="f" novalidate>
+        <fieldset>
+          <legend>Pedido</legend>
+          <div class="fila">
+            <label>Pide *<select name="sede_id"></select></label>
+            <label>A *<select name="proveedora_sede_id"></select></label>
+            <label>Para el<input name="necesario_para" type="date"></label>
+          </div>
+          <div class="fila"><label>Notas<input name="notas"></label></div>
+        </fieldset>
+        <fieldset>
+          <legend>Qué se pide</legend>
+          <div style="overflow-x:auto"><table class="edit" id="items">
+            <thead><tr><th>Producto</th><th>Cantidad</th><th>Unidad</th><th>Nota</th><th></th></tr></thead>
+            <tbody></tbody></table></div>
+          <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
+        </fieldset>
+        <div class="acciones">
+          <button type="submit" class="prim" id="guardar">Guardar borrador</button>
+          <button type="button" id="enviar" hidden>Enviar al centro</button>
+          <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+          <span class="msg" id="msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="vVer" hidden>
+      <h1 id="vTitulo"></h1>
+      <p class="sub" id="vSub"></p>
+      <div class="tabla-wrap"><table class="datos">
+        <thead><tr><th>Producto</th><th class="num">Cantidad</th><th>Nota</th></tr></thead>
+        <tbody id="vItems"></tbody></table></div>
+      <div id="armar" hidden style="margin-top:16px">
+        <fieldset>
+          <legend>Armar el remito</legend>
+          <div class="fila"><label>Despachar desde *<select id="almOrigen"></select></label></div>
+          <p class="ayuda">Los lotes se eligen solos, primero lo que vence primero. Si algo no alcanza, se arma con lo que hay
+            y el remito queda en borrador para revisarlo antes de despachar.</p>
+        </fieldset>
+      </div>
+      <div class="acciones">
+        <button type="button" class="prim" id="btnArmar" hidden>Armar remito</button>
+        <a id="verRemito" hidden>Ver el remito</a>
+        <button type="button" class="peligro" id="anular" hidden>Anular pedido</button>
+        <span class="msg" id="msgV"></span>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+const EST = { borrador: 'borrador', enviado: 'enviado', remitido: 'remitido', anulado: 'anulado' };
+const TAG = { borrador: '', enviado: 'aviso', remitido: 'ok', anulado: '' };
+let pedidos = [], productos = [], unidades = [], almacenes = [], sedes = [], todas = [], actual = null, pedido = null;
+const f = $('#f');
+const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
+
+async function cargarLista() {
+  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value);
+  ({ pedidos } = await api('pedidos?' + p));
+  if (!pedidos.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay pedidos.' }));
+  $('#lista').replaceChildren(...pedidos.map(x => {
+    const b = el('button', { type: 'button', className: 'item' + (x.id === actual ? ' sel' : '') },
+      el('div', { className: 'n' }, `${x.nro} · ${x.sede}`, ' ', el('span', { className: 'tag ' + TAG[x.estado], textContent: x.estado })),
+      el('div', { className: 'm', textContent: `a ${x.proveedora} · ${x.renglones} renglón(es)` + (x.necesario_para ? ` · para el ${fecha(x.necesario_para)}` : '') }));
+    b.onclick = () => abrir(x.id);
+    return b;
+  }));
+}
+
+function filaItem(x = {}) {
+  const prod = el('select'), unidad = el('select');
+  const cant_ = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:100px' });
+  const nota = el('input', { value: x.notas || '', placeholder: 'opcional' });
+  opciones(prod, productos.filter(p => p.activo || p.id === x.producto_id).map(p => [p.id, `${p.nombre} (${p.codigo})`]), x.producto_id, 'Elegir…');
+  const llenar = v => { const p = productos.find(p => p.id === prod.value);
+    opciones(unidad, p ? unidadesCompatibles(unidades, p.unidad_base).map(u => [u.codigo, u.codigo]) : [], v || (p && p.unidad_base)); };
+  prod.onchange = () => llenar(); llenar(x.unidad_base);
+  const tr = el('tr', {}, el('td', {}, prod), el('td', {}, cant_), el('td', {}, unidad), el('td', {}, nota),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => tr.remove() })));
+  tr.leer = () => ({ producto_id: prod.value, cantidad: cant_.value, unidad: unidad.value, notas: nota.value });
+  $('#items tbody').append(tr);
+}
+$('#agregar').onclick = () => filaItem();
+
+function llenarSedes(sedeId, proveedoraId) {
+  opciones(f.sede_id, sedes.filter(operaEn).map(s => [s.id, s.nombre]), sedeId);
+  // Se le pide al centro; si hubiera más de uno, se elige.
+  const prov = todas.filter(s => s.activa && s.id !== f.sede_id.value);
+  opciones(f.proveedora_sede_id, prov.map(s => [s.id, s.nombre]), proveedoraId || (prov.find(s => s.tipo === 'centro') || {}).id);
+}
+f.sede_id.onchange = () => llenarSedes(f.sede_id.value);
+
+function nuevo() {
+  actual = null; pedido = null; f.reset(); msg(''); f.sede_id.disabled = false;
+  $('#titulo').textContent = 'Nuevo pedido';
+  const locales = sedes.filter(s => operaEn(s) && s.tipo === 'local');
+  llenarSedes((locales[0] || sedes.find(operaEn) || {}).id);
+  $('#items tbody').replaceChildren(); filaItem();
+  $('#enviar').hidden = true; $('#borrar').hidden = true;
+  vista('editar'); $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+
+async function abrir(id) {
+  try {
+    ({ pedido } = await api('pedidos/' + id)); actual = id; msg(''); msg('', '', '#msgV');
+    const mia = sedes.find(s => s.id === pedido.sede_id && operaEn(s));
+    if (pedido.estado === 'borrador' && mia) {
+      $('#titulo').textContent = `Pedido ${pedido.nro}`;
+      $('#subtitulo').textContent = 'Borrador: todavía no lo ve el centro.';
+      llenarSedes(pedido.sede_id, pedido.proveedora_sede_id); f.sede_id.disabled = true;
+      f.necesario_para.value = pedido.necesario_para || ''; f.notas.value = pedido.notas || '';
+      $('#items tbody').replaceChildren(); pedido.items.forEach(filaItem);
+      $('#enviar').hidden = false; $('#borrar').hidden = false;
+      vista('editar');
+    } else ver(mia);
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+
+function ver(mia) {
+  const p = pedido;
+  $('#vTitulo').textContent = `Pedido ${p.nro} de ${p.sede}`;
+  $('#vSub').textContent = `A ${p.proveedora} · ${p.estado}` + (p.enviado_en ? ` · enviado ${fechaHora(p.enviado_en)} por ${p.enviado_por || '—'}` : '')
+    + (p.necesario_para ? ` · para el ${fecha(p.necesario_para)}` : '') + (p.notas ? ` · ${p.notas}` : '');
+  filas($('#vItems'), p.items, i => el('tr', {}, td(i.producto), td(cant(i.cantidad, i.unidad_base), 'num'), td(i.notas, 'wrap')), 'Sin renglones.', 3);
+  const provee = sedes.find(s => s.id === p.proveedora_sede_id && operaEn(s));
+  const armable = p.estado === 'enviado' && provee;
+  $('#armar').hidden = !armable; $('#btnArmar').hidden = !armable;
+  if (armable) opciones($('#almOrigen'), almacenes.filter(a => a.activo && a.sede_id === p.proveedora_sede_id).map(a => [a.id, a.nombre]));
+  $('#verRemito').hidden = !p.remito_id; if (p.remito_id) $('#verRemito').href = 'remitos.html#' + p.remito_id;
+  const encProv = sedes.find(s => s.id === p.proveedora_sede_id && ['admin', 'encargado'].includes(s.rol));
+  $('#anular').hidden = !(['borrador', 'enviado'].includes(p.estado) && (mia || encProv));
+  vista('ver');
+}
+
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { sede_id: f.sede_id.value, proveedora_sede_id: f.proveedora_sede_id.value, necesario_para: f.necesario_para.value,
+                 notas: f.notas.value, items: $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.producto_id) };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'pedidos/' + actual : 'pedidos', { method: actual ? 'PUT' : 'POST', body });
+    await abrir(d.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#enviar').onclick = async () => {
+  if (!confirm('Al enviarlo, el centro lo ve y ya no se puede editar. ¿Enviar?')) return;
+  try { await f.onsubmit(new Event('submit')); if ($('#msg').classList.contains('mal')) return;
+        await api(`pedidos/${actual}/enviar`, { method: 'POST' }); await abrir(actual); msg('', '', '#msgV'); }
+  catch (e) { msg(e.message, 'mal'); }
+};
+$('#borrar').onclick = async () => {
+  if (!confirm('¿Borrar este borrador?')) return;
+  try { await api('pedidos/' + actual, { method: 'DELETE' }); await cargarLista(); nuevo(); } catch (e) { msg(e.message, 'mal'); }
+};
+$('#anular').onclick = async () => {
+  if (!confirm('¿Anular el pedido?')) return;
+  try { await api(`pedidos/${actual}/anular`, { method: 'POST' }); await abrir(actual); } catch (e) { msg(e.message, 'mal', '#msgV'); }
+};
+$('#btnArmar').onclick = async () => {
+  $('#btnArmar').disabled = true;
+  try {
+    const d = await api(`pedidos/${actual}/remito`, { method: 'POST', body: { origen_almacen_id: $('#almOrigen').value } });
+    if (d.faltan.length) alert('Se armó con lo que hay. No alcanza: ' + d.faltan.join(', ') + '.');
+    location.href = 'remitos.html#' + d.id;
+  } catch (e) { msg(e.message, 'mal', '#msgV'); }
+  finally { $('#btnArmar').disabled = false; }
+};
+$('#nuevo').onclick = nuevo;
+$('#fest').onchange = cargarLista;
+(async () => {
+  try {
+    [productos, unidades, almacenes, sedes, { sedes: todas }] = await Promise.all([
+      catalogo.productos(), catalogo.unidades(), catalogo.almacenes(), misSedes(), api('sedes')]);
+    $('#nuevo').hidden = !sedes.some(operaEn);
+    await cargarLista();
+    const id = location.hash.slice(1);
+    if (id) await abrir(id);
+    else if (sedes.some(operaEn)) nuevo();
+    else vista('');
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

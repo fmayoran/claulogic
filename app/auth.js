@@ -221,6 +221,26 @@ function exigirEncargadoDe(req, sedeId, nombreSede) {
   if (!['admin', 'encargado'].includes(rolEn(req.usuario, sedeId)))
     throw new ErrorUsuario(`Hace falta ser encargado de ${nombreSede || 'esa sede'} para esto.`, 403);
 }
+function exigirOperarEn(req, sedeId, nombreSede) {
+  if (!['admin', 'encargado', 'operador'].includes(rolEn(req.usuario, sedeId)))
+    throw new ErrorUsuario(`No tenés permiso para operar en ${nombreSede || 'esa sede'}.`, 403);
+}
+
+// ── Lo que cada uno ve ───────────────────────────────────────────────────────────────────────
+// Stock, movimientos, frío, producciones, remitos y pedidos se ven sólo de las sedes donde el
+// usuario tiene rol; el administrador ve todo. El catálogo (productos, recetas, proveedores) es del
+// grupo entero y lo ven todos. Las consultas reciben un arreglo de sedes, o null para "todas".
+function sedesVisibles(u) {
+  return u.es_admin ? null : (u.roles || []).map(r => r.sede_id);
+}
+// Las visibles, o sólo la pedida en `?sede=` si el usuario la puede ver.
+function filtroSedes(req) {
+  const visibles = sedesVisibles(req.usuario);
+  const pedida = texto(req.query.sede);
+  if (!pedida) return visibles;
+  if (visibles && !visibles.includes(pedida)) throw new ErrorUsuario('No tenés acceso a esa sede.', 403);
+  return [pedida];
+}
 
 // Permiso por ruta, para lo que modifica. Lo que no está en la lista exige `catalogo`: una ruta
 // nueva arranca cerrada, no abierta.
@@ -229,7 +249,10 @@ const POLITICA = [
   [/^\/(ajustes|movimientos|lecturas|producciones)$/, 'operar'],
   [/^\/compras\/[^/]+\/recibir$/, 'operar'],
   [/^\/movimientos\/\d+\/anular$/, 'gestionar'],
-  [/^\/(almacenes|ubicaciones)(\/|$)/, 'gestionar'],
+  [/^\/(almacenes|ubicaciones|unidades-productivas)(\/|$)/, 'gestionar'],
+  // Remitos y pedidos: la sede concreta (despacha, pide o recibe) la verifica cada handler, y los
+  // traslados, además, la base.
+  [/^\/(remitos|pedidos)(\/|$)/, 'operar'],
 ];
 const SOLO_ADMIN_LECTURA = /^\/(usuarios|dispositivos|accesos)(\/|$)/;
 
@@ -422,6 +445,6 @@ cuenta.post('/cuenta/pin', h(async (req, res) => {
 }));
 
 module.exports = {
-  router: r, cuenta, exigirSesion, puede, exigir, rolEn, exigirEncargadoDe,
+  router: r, cuenta, exigirSesion, puede, exigir, rolEn, exigirEncargadoDe, exigirOperarEn, sedesVisibles, filtroSedes,
   hashClave, claveTemporal, validarPin, registrarAcceso,
 };

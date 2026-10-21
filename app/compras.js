@@ -6,9 +6,13 @@ const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef } = require('./util');
 const { puede } = require('./auth');
 
+// Las compras las hace y las recibe el centro: un usuario que sólo tiene rol en locales no las ve.
+const veCompras = u => u.es_admin || (u.roles || []).some(x => x.tipo === 'centro');
+
 const r = express.Router();
 
 r.get('/compras', h(async (req, res) => {
+  if (!veCompras(req.usuario)) return res.json({ ok: true, compras: [] });
   const { rows } = await pool.query(
     `SELECT c.id, c.numero, c.fecha, c.estado, c.recibida_en, pr.nombre AS proveedor,
             COUNT(ci.id)::int AS renglones, SUM(ci.precio_total)::text AS total
@@ -22,6 +26,7 @@ r.get('/compras', h(async (req, res) => {
 }));
 
 r.get('/compras/:id', h(async (req, res) => {
+  if (!veCompras(req.usuario)) return res.status(403).json({ ok: false, error: 'Las compras son del centro.' });
   const { rows: [c] } = await pool.query(
     `SELECT c.id, c.proveedor_id, pr.nombre AS proveedor, c.numero, c.fecha, c.estado, c.notas, c.recibida_en
        FROM logic.compra c JOIN logic.proveedor pr ON pr.id = c.proveedor_id WHERE c.id = $1`, [req.params.id]);

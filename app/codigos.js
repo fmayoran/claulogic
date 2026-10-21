@@ -5,6 +5,7 @@ const bwipjs = require('bwip-js');
 const { pool } = require('./db');
 const gs1 = require('./gs1');
 const { ErrorUsuario, texto, h } = require('./util');
+const { filtroSedes } = require('./auth');
 
 const r = express.Router();
 
@@ -89,6 +90,9 @@ r.get('/lotes/:id', h(async (req, res) => {
        LEFT JOIN logic.gtin g ON g.producto_id = p.id AND g.presentacion_id IS NULL
       WHERE l.id = $1`, [req.params.id]);
   if (!l) return res.status(404).json({ ok: false, error: 'No existe ese lote.' });
+  // El origen (compra o producción) y en qué se usó se ven completos: es la trazabilidad, y la pide
+  // cualquiera que tenga el lote en la mano. Dónde está y sus movimientos, sólo de las sedes propias.
+  const sedes = filtroSedes(req);
   const [compra, produccion, stock, movimientos, usos] = await Promise.all([
     pool.query(
       `SELECT c.id, c.numero, c.fecha, c.recibida_en, pv.nombre AS proveedor
@@ -113,11 +117,15 @@ r.get('/lotes/:id', h(async (req, res) => {
     pool.query(
       `SELECT u.nombre AS ubicacion, a.nombre AS almacen, trim_scale(s.cantidad)::text AS cantidad
          FROM logic.stock s JOIN logic.ubicacion u ON u.id = s.ubicacion_id JOIN logic.almacen a ON a.id = u.almacen_id
-        WHERE s.lote_id = $1 ORDER BY a.nombre, u.nombre`, [l.id]),
+        WHERE s.lote_id = $1 AND ($2::uuid[] IS NULL OR a.sede_id = ANY($2)) ORDER BY a.nombre, u.nombre`, [l.id, sedes]),
     pool.query(
       `SELECT id, ocurrido_en, tipo, sentido, trim_scale(cantidad_base)::text AS cantidad,
               origen, origen_almacen, destino, destino_almacen, motivo, referencia, anula_a, anulado_por
-         FROM logic.historial_movimiento WHERE lote_id = $1 ORDER BY ocurrido_en, id`, [l.id]),
+         FROM logic.historial_movimiento h
+        WHERE lote_id = $1 AND ($2::uuid[] IS NULL OR EXISTS (
+                SELECT 1 FROM logic.ubicacion u JOIN logic.almacen a ON a.id = u.almacen_id
+                 WHERE a.sede_id = ANY($2) AND u.id IN (h.origen_id, h.destino_id)))
+        ORDER BY ocurrido_en, id`, [l.id, sedes]),
     pool.query(
       `SELECT pr.id, pr.fecha, re.nombre AS receta, ep.nombre AS elaborado, el.id AS lote_id, el.codigo AS lote,
               el.vencimiento, trim_scale(SUM(m.cantidad_base))::text AS cantidad

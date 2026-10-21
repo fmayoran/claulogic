@@ -144,13 +144,36 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Primer administrador o recuperación** desde la consola del contenedor, que imprime una clave
   temporal: `docker exec -it $(docker ps -q -f name=claulogic_app.1.) node admin.js admin <usuario> "<Nombre>"`
   (o `... node admin.js clave <usuario>` para blanquear).
-- Pendiente para fase 1: las LECTURAS no se filtran por sede (con una sola sede no cambia nada).
+
+### Sedes, remitos y pedidos (fase 1, 21/10/2026)
+- **Sedes**: las da de alta el administrador (`sedes.html`); un local nuevo nace con almacén
+  "Depósito" y ubicación "General". El nombre de almacén es único **dentro de la sede**. Una sede con
+  stock o con remitos abiertos no se desactiva.
+- **Lo que cada uno ve**: stock, movimientos, ajustes, frío, producciones, remitos, pedidos, almacenes
+  y unidades productivas, sólo de sus sedes (`filtroSedes` en `auth.js`, que además acepta
+  `?sede=`). El catálogo es común. Las compras sólo las ve quien tiene rol en un centro.
+- **Un traslado entre sedes sólo con remito**: lo rechaza el trigger `movimiento_firma` si no trae
+  `remito_id`. Con remito, el permiso se verifica en la punta de la sede que despacha.
+- **Remito** (`logic.remito`, `RI-000001`): borrador → despachado → recibido, o anulado. Decisión
+  de Fer: **traslado directo**, sin stock en tránsito: despachar asienta los traslados al local en el
+  momento. El local confirma lo recibido; la diferencia exige motivo y queda como **merma** (faltante)
+  o **ajuste** (sobrante) atados al remito. Despachado y sin recibir, sólo el encargado de origen
+  anula (vuelven los traslados). Recibido no se anula: remito de devolución. Despachar exige stock
+  suficiente por lote y ubicación (a diferencia de los egresos sueltos).
+- **Nota de pedido** (`logic.pedido`, `NP-000001`): manual, sin mínimos por local (decisión de Fer).
+  El local la arma y la envía; el centro la convierte en remito con lotes por FEFO y avisa lo que
+  no alcanza. Si se anula el remito, el pedido vuelve a "enviado".
+- **Unidad productiva** (`logic.unidad_productiva`): sector de una sede con almacén de insumos y
+  ubicación de salida de la misma sede. Recetas y producciones se asignan a una (opcional).
+- Pendiente: mínimos de stock por sede (hoy el mínimo es uno por producto, y en una vista de varias
+  sedes compararlo es orientativo).
 
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
 productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades,
-login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios.
+login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios,
+sedes, notas de pedido, remitos internos y unidades productivas.
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -163,7 +186,7 @@ Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts.
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción parcial de compras, anular una compra recibida o una
-producción entera, y lectura de sensores de temperatura.
+producción entera, mínimos por sede, lectura de sensores de temperatura, y las fases 2 a 5.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

@@ -2,6 +2,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { numero, texto, fecha, h } = require('./util');
+const { filtroSedes } = require('./auth');
 
 const r = express.Router();
 
@@ -22,7 +23,8 @@ r.get('/frio', h(async (req, res) => {
        LEFT JOIN LATERAL (SELECT medido_en, celsius FROM logic.lectura_temperatura
                            WHERE ubicacion_id = u.id ORDER BY medido_en DESC LIMIT 1) ul ON true
       WHERE u.activa AND u.tipo IN ('camara','heladera','freezer')
-      ORDER BY a.nombre, u.nombre`);
+        AND ($1::uuid[] IS NULL OR a.sede_id = ANY($1))
+      ORDER BY a.nombre, u.nombre`, [filtroSedes(req)]);
   res.json({ ok: true, equipos: rows });
 }));
 
@@ -37,8 +39,9 @@ r.get('/lecturas', h(async (req, res) => {
       WHERE ($1::uuid IS NULL OR l.ubicacion_id = $1)
         AND ($2::date IS NULL OR l.medido_en >= $2::date)
         AND (NOT $3 OR l.celsius < u.temp_min OR l.celsius > u.temp_max)
+        AND ($4::uuid[] IS NULL OR a.sede_id = ANY($4))
       ORDER BY l.medido_en DESC LIMIT 500`,
-    [texto(req.query.ubicacion), fecha(req.query.desde, { campo: 'Desde' }), req.query.solo_alertas === '1']);
+    [texto(req.query.ubicacion), fecha(req.query.desde, { campo: 'Desde' }), req.query.solo_alertas === '1', filtroSedes(req)]);
   res.json({ ok: true, lecturas: rows });
 }));
 

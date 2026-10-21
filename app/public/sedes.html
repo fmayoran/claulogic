@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sedes · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros"><button class="prim" id="nueva">Nueva sede</button></div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nueva sede</h1>
+    <p class="sub">El centro de abastecimiento y producción, y cada local. Cada sede tiene sus almacenes, su stock y su gente;
+      la mercadería pasa de una a otra con remito.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Datos</legend>
+        <div class="fila">
+          <label>Nombre *<input name="nombre" maxlength="80"></label>
+          <label>Tipo *<select name="tipo"><option value="local">Local (punto de venta)</option><option value="centro">Centro de abastecimiento y producción</option></select></label>
+        </div>
+        <div class="fila"><label>Dirección<input name="direccion"></label></div>
+        <label class="check" id="almWrap" style="margin-top:12px"><input type="checkbox" name="crear_almacen" checked> Crear el almacén "Depósito" con una ubicación "General"</label>
+        <label class="check" id="activaWrap" hidden style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
+        <p class="ayuda" id="ayudaActiva" hidden>Una sede con stock o con remitos sin cerrar no se puede desactivar.</p>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <a id="irAlmacenes" href="almacenes.html" hidden>Ver sus almacenes</a>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let sedes = [], actual = null;
+const f = $('#f');
+const TIPO = { centro: 'Centro', local: 'Local' };
+
+async function cargar() {
+  ({ sedes } = await api('sedes'));
+  $('#lista').replaceChildren(...sedes.map(s => {
+    const b = el('button', { type: 'button', className: 'item' + (s.id === actual ? ' sel' : '') + (s.activa ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: s.nombre }),
+      el('div', { className: 'm', textContent: [TIPO[s.tipo], s.direccion].filter(Boolean).join(' · ') }));
+    b.onclick = () => abrir(s.id);
+    return b;
+  }));
+}
+function nueva() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva sede';
+  $('#almWrap').hidden = false; $('#activaWrap').hidden = true; $('#ayudaActiva').hidden = true; $('#irAlmacenes').hidden = true;
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+function abrir(id) {
+  const s = sedes.find(x => x.id === id); if (!s) return nueva();
+  actual = id; msg(''); $('#titulo').textContent = s.nombre;
+  f.nombre.value = s.nombre; f.tipo.value = s.tipo; f.direccion.value = s.direccion || ''; f.activa.checked = s.activa;
+  $('#almWrap').hidden = true; $('#activaWrap').hidden = false; $('#ayudaActiva').hidden = false; $('#irAlmacenes').hidden = false;
+  cargar();
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: f.nombre.value, tipo: f.tipo.value, direccion: f.direccion.value };
+  if (actual) body.activa = f.activa.checked; else body.crear_almacen = f.crear_almacen.checked;
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'sedes/' + actual : 'sedes', { method: actual ? 'PUT' : 'POST', body });
+    actual = d.id; await cargar(); abrir(d.id); msg('Guardada.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nueva').onclick = nueva;
+cargar().then(nueva).catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>

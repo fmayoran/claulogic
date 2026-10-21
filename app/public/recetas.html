@@ -27,6 +27,7 @@
         </div>
         <div class="fila">
           <label>Rinde *<span class="con-boton"><input name="rinde" inputmode="decimal"><select name="rinde_unidad" class="angosto"></select></span></label>
+          <label>Unidad productiva<select name="unidad_productiva_id"></select></label>
           <label class="check" style="align-self:end"><input type="checkbox" name="vigente" checked> Vigente</label>
         </div>
         <p class="ayuda">El elaborado se da de alta en <a href="productos.html">Productos</a>, en su categoría (por ejemplo "Elaborados").</p>
@@ -90,9 +91,16 @@ function alCambiarElaborado(v) {
 }
 f.producto_id.onchange = () => alCambiarElaborado();
 
+// Qué sector la elabora (opcional): sirve para filtrar recetas al producir.
+let unidadesProd = [];
+function llenarUnidades(valor) {
+  opciones(f.unidad_productiva_id, unidadesProd.filter(u => u.activa || u.id === valor).map(u => [u.id, `${u.nombre} (${u.sede})`]), valor || '', 'Sin asignar');
+}
+
 function nueva() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva receta'; $('#producir').hidden = true;
   opciones(f.producto_id, productos.filter(p => p.activo).map(p => [p.id, `${p.nombre} (${p.codigo})`]), null, 'Elegir…');
+  llenarUnidades();
   alCambiarElaborado();
   $('#items tbody').replaceChildren(); filaItem();
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
@@ -104,6 +112,7 @@ async function abrir(id) {
     opciones(f.producto_id, productos.filter(p => p.activo || p.id === r.producto_id).map(p => [p.id, `${p.nombre} (${p.codigo})`]), r.producto_id, 'Elegir…');
     f.nombre.value = r.nombre; f.rinde.value = coma(r.rinde); alCambiarElaborado(r.unidad_base);
     f.vigente.checked = r.vigente; f.instrucciones.value = r.instrucciones || '';
+    llenarUnidades(r.unidad_productiva_id);
     $('#items tbody').replaceChildren(); r.items.forEach(filaItem);
     $('#producir').hidden = false; $('#producir').href = 'produccion.html?receta=' + id;
     await cargarLista();
@@ -112,7 +121,8 @@ async function abrir(id) {
 f.onsubmit = async e => {
   e.preventDefault();
   const body = { nombre: f.nombre.value, producto_id: f.producto_id.value, rinde: f.rinde.value, rinde_unidad: f.rinde_unidad.value,
-                 vigente: f.vigente.checked, instrucciones: f.instrucciones.value, items: $$('#items tbody tr').map(tr => tr.leer()) };
+                 vigente: f.vigente.checked, instrucciones: f.instrucciones.value, items: $$('#items tbody tr').map(tr => tr.leer()),
+                 unidad_productiva_id: f.unidad_productiva_id.value || null };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'recetas/' + actual : 'recetas', { method: actual ? 'PUT' : 'POST', body });
@@ -123,7 +133,7 @@ f.onsubmit = async e => {
 $('#nueva').onclick = nueva;
 $('#ftodas').onchange = cargarLista;
 (async () => {
-  try { [productos, unidades] = await Promise.all([catalogo.productos(), catalogo.unidades()]); nueva(); await cargarLista(); }
+  try { [productos, unidades, { unidades: unidadesProd }] = await Promise.all([catalogo.productos(), catalogo.unidades(), api('unidades-productivas')]); nueva(); await cargarLista(); }
   catch (e) { msg(e.message, 'mal'); }
 })();
 </script>
