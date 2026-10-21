@@ -117,7 +117,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // Secciones agrupadas por para qué se usan. En el celular, las de `abajo` van en la barra
 // inferior; el resto, en "Más".
 const GRUPOS = [
-  ['Operación', [['index.html', 'Panel'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
+  ['Operación', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
                  ['ventas.html', 'Ventas'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
                  ['produccion.html', 'Producción']]],
   ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['platos.html', 'Platos de carta'],
@@ -182,7 +182,8 @@ function navegacion() {
     for (const [href, permiso] of Object.entries(PERMISO_SECCION))
       if (!u.puede[permiso]) $$(`a[href="${href}"]`).forEach(a => a.remove());
     // Puntos de venta: los configura el encargado y finanzas les asigna las cuentas de cobro.
-    if (!u.puede.gestionar && !u.puede.finanzas) $$('a[href="puntos-venta.html"]').forEach(a => a.remove());
+    // El tablero: encargados (sus sedes) y finanzas (todas, con el flujo de caja).
+    if (!u.puede.gestionar && !u.puede.finanzas) $$('a[href="puntos-venta.html"], a[href="tablero.html"]').forEach(a => a.remove());
     // Las compras son del centro: quien sólo tiene rol en locales no las ve.
     if (!u.es_admin && !u.finanzas && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
     $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });

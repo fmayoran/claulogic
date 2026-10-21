@@ -247,6 +247,23 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
   (subitems), propinas.
 
+### Tablero (fase 5, 21/10/2026)
+- **No guarda nada**: `logic.kardex` abre cada movimiento en una fila por punta (sede, signo, costo) y
+  `logic.kardex_concepto` le pone para qué sirvió: teórico (ventas del POS), pérdida (merma, vencimiento),
+  diferencia (ajustes de conteo y sobrantes de remito), consumo interno, venta manual, producción, compra,
+  transferencia (remito entre sedes) e interno. Las anulaciones se cancelan solas al sumar.
+- **Valorización**: al costo del lote; lo que no tiene lote, al costo vigente de hoy (aproximación, avisada
+  en pantalla). Lo que no tiene costo no suma y se cuenta aparte.
+- **Food cost** sobre ventas netas: las ventas del POS se toman con IVA incluido (21% por defecto, se
+  cambia en la pantalla). Real = teórico + pérdida + diferencia + consumo interno + venta manual. Por
+  producto, dónde está el desvío; por plato, costo de la porción con costo vigente, food cost y margen.
+- **Flujo de caja** (sólo finanzas): entradas y salidas por semana desde `fin.movimiento_tes` (sin
+  transferencias ni depósitos de cheques, que no son flujo) y saldo proyectado a 8 semanas: disponible
+  (bancos + cajas) menos lo vencido, menos facturas por vencimiento y cheques propios por fecha de pago,
+  más cheques de terceros en cartera. No proyecta ventas futuras.
+- Lo ve el encargado (sus sedes), finanzas y el administrador (todas). `app/tablero.js`, `tablero.html`;
+  gráficos en SVG propio, paleta validada para claro y oscuro, con tabla al lado de cada uno.
+
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
@@ -254,7 +271,8 @@ productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, pr
 login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios,
 sedes, notas de pedido, remitos internos y unidades productivas, comprobantes de proveedor,
 cuenta corriente, libro IVA compras, órdenes de pago, tesorería, cheques, conciliación bancaria,
-platos de carta, integración con POS (Fudo por API, archivo para cualquiera) y consumo teórico.
+platos de carta, integración con POS (Fudo por API, archivo para cualquiera), consumo teórico y tablero
+(food cost, teórico contra real, rentabilidad por plato, flujo de caja).
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -268,7 +286,7 @@ el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción parcial de compras, anular una compra recibida o una
 producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
-extractos en Excel, cheques de terceros rechazados, sincronización automática de POS, y la fase 5.
+extractos en Excel, cheques de terceros rechazados, sincronización automática de POS, y costeo histórico de los no perecederos (hoy van a costo vigente).
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.
