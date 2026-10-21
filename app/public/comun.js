@@ -7,9 +7,12 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 async function api(url, opt = {}) {
+  // Toda modificación lleva cuerpo JSON, aunque sea vacío: el servidor exige JSON (es la defensa
+  // contra CSRF), y un DELETE sin cuerpo no manda tipo de contenido.
+  const modifica = opt.method && !['GET', 'HEAD'].includes(opt.method);
   const r = await fetch('api/' + url, {
     ...opt, headers: { 'content-type': 'application/json' },
-    body: opt.body ? JSON.stringify(opt.body) : undefined,
+    body: opt.body ? JSON.stringify(opt.body) : modifica ? '{}' : undefined,
   });
   const d = await r.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor.' }));
   // Sin sesión, al login; con clave temporal, a cambiarla. Vuelve a donde estaba después.
@@ -105,6 +108,7 @@ const GRUPOS = [
                  ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
                  ['produccion.html', 'Producción']]],
   ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
+  ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['cuenta-corriente.html', 'Cuenta corriente']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
   ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
                      ['unidades-productivas.html', 'Unidades productivas'], ['unidades.html', 'Unidades de medida'],
@@ -113,7 +117,8 @@ const GRUPOS = [
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
 const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin',
-  'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar' };
+  'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
+  'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
@@ -178,7 +183,7 @@ const cargarSesion = () => _sesion ||= api('sesion');
 function describirRoles(u) {
   if (u.es_admin) return 'Administrador';
   const R = { encargado: 'encargado', operador: 'operador', consulta: 'consulta' };
-  return u.roles.map(r => `${r.sede}: ${R[r.rol]}`).join(' · ') || 'Sin sedes asignadas';
+  return [u.finanzas ? 'Finanzas' : null, ...u.roles.map(r => `${r.sede}: ${R[r.rol]}`)].filter(Boolean).join(' · ') || 'Sin sedes asignadas';
 }
 async function salir() {
   await api('sesion/salir', { method: 'POST' }).catch(() => {});

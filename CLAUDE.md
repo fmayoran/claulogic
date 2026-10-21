@@ -168,12 +168,39 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - Pendiente: mínimos de stock por sede (hoy el mínimo es uno por producto, y en una vista de varias
   sedes compararlo es orientativo).
 
+### Finanzas: comprobantes y cuenta corriente (fase 2, 21/10/2026)
+- Esquema `fin`. **Permiso de finanzas** global por usuario (`org.usuario.finanzas`, lo da un admin):
+  todo `/api/fin/` lo exige, también para leer, y `fin.registrar_comprobante` y
+  `fin.anular_comprobante` lo vuelven a verificar en la base. Un usuario sólo de finanzas no
+  necesita sedes. Decisión mía, avisada a Fer: la deuda no la ve un operador.
+- **Comprobante** (`fin.comprobante`): factura, nota de crédito o de débito, letra A/B/C/M, renglón por
+  renglón (decisión de Fer) con producto opcional, precio neto, descuento y alícuota; más percepciones
+  e impuestos. Vinculado a compras recibidas **sólo como referencia**, sin control de importes
+  (decisión de Fer). La razón social es **responsable inscripta**: A y M discriminan IVA; en B y C la
+  base no admite alícuota. El IVA se calcula por alícuota sobre el neto sumado (como la factura), en
+  la base, también para la vista previa (`/fin/comprobantes/calcular`). Se carga el total impreso:
+  hasta $1 de diferencia se guarda como redondeo; más, no se registra.
+- Borrador → registrado → anulado. Registrado no se edita: se anula (movimiento inverso) y se recarga,
+  o se hace nota de crédito. No se anula una factura con notas registradas asociadas. Mismo número,
+  mismo proveedor: no se carga dos veces (salvo que el anterior esté anulado).
+- **Cuenta corriente** = libro mayor inmutable `fin.movimiento_cc` (haber: lo que se debe; debe: lo que
+  lo baja). El saldo se deriva (`fin.saldo_proveedor`), como el stock. `fin.comprobante_pendiente`:
+  hasta la fase 3, pendiente = total menos notas de crédito asociadas.
+- **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
+  Factura A exige CUIT del proveedor. Proveedor con condición IVA y plazo de pago (propone vencimiento).
+  Producto con **alícuota habitual** (21 por defecto; 10,5 para carnes, frutas, verduras, harinas).
+- **Libro IVA compras** del mes en CSV (`;` y coma decimal, con BOM), notas de crédito en negativo.
+- Sin importación de ARCA por ahora (decisión de Fer). Moneda: sólo pesos.
+- El cliente manda cuerpo JSON en toda modificación (también DELETE): el servidor exige JSON contra
+  CSRF y un DELETE sin cuerpo no lleva tipo de contenido. Estaba roto desde la fase 0.
+
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
 productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades,
 login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios,
-sedes, notas de pedido, remitos internos y unidades productivas.
+sedes, notas de pedido, remitos internos y unidades productivas, comprobantes de proveedor,
+cuenta corriente y libro IVA compras.
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -186,7 +213,8 @@ Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts.
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción parcial de compras, anular una compra recibida o una
-producción entera, mínimos por sede, lectura de sensores de temperatura, y las fases 2 a 5.
+producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA, y
+las fases 3 a 5.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

@@ -55,6 +55,7 @@
     <p class="ayuda" id="ayudaUsuario">Es con lo que entra y lo que queda firmado en cada movimiento: no se puede cambiar después.</p>
     <h3>Acceso por sede</h3>
     <label class="check"><input type="checkbox" name="es_admin"> Administrador (todo, en todas las sedes)</label>
+    <label class="check"><input type="checkbox" name="finanzas"> Finanzas (comprobantes de proveedor, cuenta corriente y libro IVA)</label>
     <div class="roles" id="roles"></div>
     <label class="check" id="activoWrap" style="margin-top:14px"><input type="checkbox" name="activo" checked> Activo</label>
     <div id="extra" hidden>
@@ -98,7 +99,8 @@ const f = $('#f');
 
 function acceso(u) {
   if (u.es_admin) return 'Administrador';
-  return u.roles.map(r => `${(sedes.find(s => s.id === r.sede_id) || {}).nombre || '?'}: ${ROL[r.rol].toLowerCase()}`).join(' · ');
+  return [u.finanzas ? 'Finanzas' : null,
+          ...u.roles.map(r => `${(sedes.find(s => s.id === r.sede_id) || {}).nombre || '?'}: ${ROL[r.rol].toLowerCase()}`)].filter(Boolean).join(' · ');
 }
 function estados(u) {
   const t = (txt, cls = '') => el('span', { className: 'tag ' + cls, textContent: txt });
@@ -157,7 +159,7 @@ function abrir(u = null) {
   $('#titulo').textContent = u ? u.nombre : 'Nuevo usuario';
   f.usuario.disabled = !!u; $('#ayudaUsuario').hidden = !!u;
   $('#activoWrap').hidden = !u; $('#extra').hidden = !u;
-  if (u) { f.nombre.value = u.nombre; f.usuario.value = u.usuario; f.es_admin.checked = u.es_admin; f.activo.checked = u.activo; }
+  if (u) { f.nombre.value = u.nombre; f.usuario.value = u.usuario; f.es_admin.checked = u.es_admin; f.activo.checked = u.activo; f.finanzas.checked = u.finanzas; }
   pintarRoles(u); f.es_admin.onchange();
   $('#desbloquear').hidden = !(u && (u.bloqueado || u.pin_inhabilitado));
   $('#quitarPin').hidden = !(u && u.tiene_pin);
@@ -175,7 +177,7 @@ $('#cerrar').onclick = () => $('#dlg').close();
 f.onsubmit = async e => {
   e.preventDefault();
   const roles = f.es_admin.checked ? [] : $$('#roles select').filter(s => s.value).map(s => ({ sede_id: s.dataset.sede, rol: s.value }));
-  const body = { nombre: f.nombre.value, usuario: f.usuario.value, es_admin: f.es_admin.checked,
+  const body = { nombre: f.nombre.value, usuario: f.usuario.value, es_admin: f.es_admin.checked, finanzas: f.finanzas.checked,
                  activo: actual ? f.activo.checked : true, roles };
   if (actual && actual.activo && !body.activo && !confirm(`¿Desactivar a ${actual.nombre}? Sale en el momento de todas sus sesiones.`)) return;
   $('#guardar').disabled = true;

@@ -16,7 +16,7 @@ r.get('/sedes', h(async (req, res) => {
 
 r.get('/usuarios', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT u.id, u.usuario, u.nombre, u.es_admin, u.activo, u.debe_cambiar_clave,
+    `SELECT u.id, u.usuario, u.nombre, u.es_admin, u.finanzas, u.activo, u.debe_cambiar_clave,
             u.pin_hash IS NOT NULL AS tiene_pin, u.fallos_pin >= 5 AS pin_inhabilitado,
             u.bloqueado_hasta > now() AS bloqueado, u.creado_en,
             COALESCE((SELECT json_agg(json_build_object('sede_id', x.sede_id, 'rol', x.rol))
@@ -33,6 +33,7 @@ function leerUsuario(b) {
   const u = {
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
     es_admin: !!b.es_admin,
+    finanzas: !!b.finanzas,
     activo: b.activo === undefined ? true : !!b.activo,
     roles: Array.isArray(b.roles) ? b.roles : [],
   };
@@ -42,8 +43,8 @@ function leerUsuario(b) {
     if (sedes.has(x.sede_id)) throw new ErrorUsuario('Una sede está repetida: va un solo rol por sede.');
     sedes.add(x.sede_id);
   }
-  if (!u.es_admin && !u.roles.length)
-    throw new ErrorUsuario('Asigná al menos una sede con su rol (o marcalo como administrador).');
+  if (!u.es_admin && !u.finanzas && !u.roles.length)
+    throw new ErrorUsuario('Asigná al menos una sede con su rol, o marcalo como administrador o de finanzas.');
   return u;
 }
 
@@ -69,11 +70,11 @@ r.post('/usuarios', h(async (req, res) => {
   const hash = await hashClave(temporal);
   const id = await enTransaccion(async c => {
     const { rows: [n] } = await c.query(
-      `INSERT INTO org.usuario (usuario, nombre, clave_hash, es_admin, activo)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`, [usuario, u.nombre, hash, u.es_admin, u.activo]);
+      `INSERT INTO org.usuario (usuario, nombre, clave_hash, es_admin, finanzas, activo)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [usuario, u.nombre, hash, u.es_admin, u.finanzas, u.activo]);
     await guardarRoles(c, n.id, u.roles);
     await registrarAcceso(c, { usuario, evento: 'alta', req, por: req.usuario.usuario,
-      detalle: (u.es_admin ? 'administrador; ' : '') + await descRoles(c, u.roles) });
+      detalle: (u.es_admin ? 'administrador; ' : '') + (u.finanzas ? 'finanzas; ' : '') + await descRoles(c, u.roles) });
     return n.id;
   });
   res.status(201).json({ ok: true, id, clave_temporal: temporal });
@@ -84,13 +85,13 @@ r.put('/usuarios/:id', h(async (req, res) => {
   const ok = await enTransaccion(async c => {
     const { rows: [ant] } = await c.query('SELECT usuario, activo FROM org.usuario WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!ant) return false;
-    await c.query('UPDATE org.usuario SET nombre = $1, es_admin = $2, activo = $3 WHERE id = $4',
-      [u.nombre, u.es_admin, u.activo, req.params.id]);
+    await c.query('UPDATE org.usuario SET nombre = $1, es_admin = $2, activo = $3, finanzas = $5 WHERE id = $4',
+      [u.nombre, u.es_admin, u.activo, req.params.id, u.finanzas]);
     await guardarRoles(c, req.params.id, u.roles);
     // Desactivado, se va en el momento: no espera a que se le venza la sesión.
     if (!u.activo) await c.query('UPDATE org.sesion SET cerrada_en = now() WHERE usuario_id = $1 AND cerrada_en IS NULL', [req.params.id]);
     await registrarAcceso(c, { usuario: ant.usuario, evento: 'permisos', req, por: req.usuario.usuario,
-      detalle: (u.activo ? '' : 'desactivado; ') + (u.es_admin ? 'administrador; ' : '') + await descRoles(c, u.roles) });
+      detalle: (u.activo ? '' : 'desactivado; ') + (u.es_admin ? 'administrador; ' : '') + (u.finanzas ? 'finanzas; ' : '') + await descRoles(c, u.roles) });
     return true;
   });
   if (!ok) return res.status(404).json({ ok: false, error: 'No existe ese usuario.' });

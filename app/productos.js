@@ -52,7 +52,7 @@ r.get('/productos/:id', h(async (req, res) => {
   const { rows: [p] } = await pool.query(
     `SELECT id, codigo, nombre, categoria_id, unidad_base, perecedero, vida_util_dias,
             trim_scale(temp_min)::text AS temp_min, trim_scale(temp_max)::text AS temp_max,
-            trim_scale(stock_minimo)::text AS stock_minimo, activo,
+            trim_scale(stock_minimo)::text AS stock_minimo, activo, trim_scale(alicuota_iva)::text AS alicuota_iva,
             ${COSTO_REF} AS costo, ${UNIDAD_REF} AS costo_unidad,
             EXISTS (SELECT 1 FROM logic.movimiento m WHERE m.producto_id = p.id) AS tiene_movimientos,
             (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin,
@@ -99,6 +99,8 @@ function leerProducto(b) {
     temp_min: numero(b.temp_min, { campo: 'Temperatura mínima', negativo: true }),
     temp_max: numero(b.temp_max, { campo: 'Temperatura máxima', negativo: true }),
     stock_minimo: numero(b.stock_minimo, { campo: 'Stock mínimo' }),
+    // '' = exento o no gravado; sin el campo, 21 (lo más común).
+    alicuota_iva: b.alicuota_iva === undefined ? '21' : (texto(b.alicuota_iva) || '').replace(',', '.') || null,
     costo: numero(b.costo, { campo: 'Costo' }),
     costo_unidad: texto(b.costo_unidad),
     activo: b.activo === undefined ? true : !!b.activo,
@@ -187,10 +189,10 @@ r.post('/productos', h(async (req, res) => {
   const id = await enTransaccion(async c => {
     const { rows: [n] } = await c.query(
       `INSERT INTO logic.producto (codigo, nombre, categoria_id, unidad_base, perecedero, vida_util_dias,
-                                   temp_min, temp_max, stock_minimo, costo_base, activo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+                                   temp_min, temp_max, stock_minimo, costo_base, activo, alicuota_iva)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [p.codigo, p.nombre, p.categoria_id, p.unidad_base, p.perecedero, p.vida_util_dias,
-       p.temp_min, p.temp_max, p.stock_minimo, await costoBase(c, p), p.activo]);
+       p.temp_min, p.temp_max, p.stock_minimo, await costoBase(c, p), p.activo, p.alicuota_iva]);
     await guardarPresentaciones(c, n.id, p.unidad_base, p.presentaciones);
     return n.id;
   });
@@ -204,10 +206,10 @@ r.put('/productos/:id', h(async (req, res) => {
     // trigger por defecto); el que cambia por una compra lo marcará la recepción de compras.
     const { rowCount } = await c.query(
       `UPDATE logic.producto SET codigo=$1, nombre=$2, categoria_id=$3, unidad_base=$4, perecedero=$5,
-              vida_util_dias=$6, temp_min=$7, temp_max=$8, stock_minimo=$9, costo_base=$10, activo=$11
+              vida_util_dias=$6, temp_min=$7, temp_max=$8, stock_minimo=$9, costo_base=$10, activo=$11, alicuota_iva=$13
         WHERE id = $12`,
       [p.codigo, p.nombre, p.categoria_id, p.unidad_base, p.perecedero, p.vida_util_dias,
-       p.temp_min, p.temp_max, p.stock_minimo, await costoBase(c, p), p.activo, req.params.id]);
+       p.temp_min, p.temp_max, p.stock_minimo, await costoBase(c, p), p.activo, req.params.id, p.alicuota_iva]);
     if (!rowCount) return false;
     await guardarPresentaciones(c, req.params.id, p.unidad_base, p.presentaciones);
     return true;

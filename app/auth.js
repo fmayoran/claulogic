@@ -142,7 +142,7 @@ async function sesionDe(req) {
   if (!t) return null;
   const { rows: [s] } = await pool.query(
     `SELECT s.id AS sesion_id, s.metodo, s.dispositivo_id, now() - s.usada_en > interval '1 minute' AS tocar,
-            u.id, u.usuario, u.nombre, u.es_admin, u.debe_cambiar_clave, u.pin_hash IS NOT NULL AS tiene_pin,
+            u.id, u.usuario, u.nombre, u.es_admin, u.finanzas, u.debe_cambiar_clave, u.pin_hash IS NOT NULL AS tiene_pin,
             COALESCE((SELECT json_agg(json_build_object('sede_id', se.id, 'sede', se.nombre, 'tipo', se.tipo, 'rol', x.rol)
                                       ORDER BY se.nombre)
                         FROM org.usuario_sede x JOIN org.sede se ON se.id = x.sede_id
@@ -185,16 +185,18 @@ async function cerrarSesionActual(req) {
 //   gestionar: encargado en alguna sede (la sede concreta, el handler).
 //   catalogo:  encargado del centro. Productos, recetas, proveedores, unidades y compras son del
 //              grupo entero, y los administra quien abastece.
+//   finanzas:  comprobantes de proveedor, cuenta corriente y libro IVA. Global, lo da un admin.
 //   admin:     usuarios, sedes y dispositivos.
 function puede(u, permiso) {
   if (!u) return false;
   if (u.es_admin) return true;
   const roles = u.roles || [];
   switch (permiso) {
-    case 'ver': return roles.length > 0;
+    case 'ver': return roles.length > 0 || !!u.finanzas;
     case 'operar': return roles.some(r => r.rol === 'encargado' || r.rol === 'operador');
     case 'gestionar': return roles.some(r => r.rol === 'encargado');
     case 'catalogo': return roles.some(r => r.rol === 'encargado' && r.tipo === 'centro');
+    case 'finanzas': return !!u.finanzas;
     default: return false;
   }
 }
@@ -205,6 +207,7 @@ const NOMBRE_PERMISO = {
   gestionar: 'Hace falta ser encargado para esto.',
   catalogo: 'El catálogo, las recetas y las compras los gestiona el encargado del centro.',
   admin: 'Sólo un administrador puede hacer esto.',
+  finanzas: 'Hace falta permiso de finanzas para esto.',
 };
 
 function exigir(req, permiso) {
@@ -257,6 +260,8 @@ const POLITICA = [
 const SOLO_ADMIN_LECTURA = /^\/(usuarios|dispositivos|accesos)(\/|$)/;
 
 function permisoDe(req) {
+  // Comprobantes, deuda y libro IVA: ni siquiera se miran sin permiso de finanzas.
+  if (/^\/fin\//.test(req.path)) return 'finanzas';
   if (req.method === 'GET' || req.method === 'HEAD') return SOLO_ADMIN_LECTURA.test(req.path) ? 'admin' : 'ver';
   for (const [re, p] of POLITICA) if (re.test(req.path)) return p;
   return 'catalogo';
@@ -282,10 +287,10 @@ const exigirSesion = h(async (req, res, next) => {
 const r = express.Router();
 
 function publico(u) {
-  return { id: u.id, usuario: u.usuario, nombre: u.nombre, es_admin: u.es_admin, roles: u.roles,
+  return { id: u.id, usuario: u.usuario, nombre: u.nombre, es_admin: u.es_admin, finanzas: u.finanzas, roles: u.roles,
            tiene_pin: u.tiene_pin, metodo: u.metodo, en_dispositivo: !!u.dispositivo_id,
            debe_cambiar_clave: u.debe_cambiar_clave,
-           puede: Object.fromEntries(['ver', 'operar', 'gestionar', 'catalogo', 'admin'].map(p => [p, puede(u, p)])) };
+           puede: Object.fromEntries(['ver', 'operar', 'gestionar', 'catalogo', 'admin', 'finanzas'].map(p => [p, puede(u, p)])) };
 }
 
 // Estado: quién está adentro y, en un dispositivo de cocina, quiénes pueden entrar con PIN.

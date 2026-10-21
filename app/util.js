@@ -49,6 +49,8 @@ const UNICOS = {
   receta_item_receta_id_producto_id_key: 'Un ingrediente está repetido en la receta.',
   unidad_productiva_nombre_ux: 'Ya existe una unidad productiva con ese nombre en la sede.',
   remito_pedido_ux: 'Ese pedido ya tiene un remito.',
+  proveedor_cuit_ux: 'Ya existe un proveedor con ese CUIT.',
+  comprobante_numero_ux: 'Ese comprobante ya está cargado para este proveedor.',
   gtin_pkey: 'Ese GTIN ya está asignado a otro producto o presentación.',
   usuario_usuario_key: 'Ya existe un usuario con ese nombre de ingreso.',
   sede_nombre_ux: 'Ya existe una sede con ese nombre.',

@@ -189,6 +189,10 @@
           <legend>Stock y costo</legend>
           <div class="fila">
             <label><span>Stock mínimo (<span class="ub">unidad base</span>)</span><input name="stock_minimo" inputmode="decimal"></label>
+            <label>IVA habitual<select name="alicuota_iva">
+              <option value="21">21%</option><option value="10.5">10,5%</option><option value="27">27%</option>
+              <option value="5">5%</option><option value="2.5">2,5%</option><option value="0">0%</option><option value="">Exento o no gravado</option>
+            </select></label>
             <label>Costo
               <span class="con-boton">
                 <input name="costo" inputmode="decimal" placeholder="0">
@@ -481,6 +485,7 @@ async function abrir(id) {
     $('#guardar').textContent = 'Guardar cambios';
     for (const k of ['codigo', 'nombre', 'vida_util_dias', 'temp_min', 'temp_max', 'stock_minimo', 'costo'])
       f[k].value = coma(p[k]);
+    f.alicuota_iva.value = p.alicuota_iva ?? '';
     if (!categorias.some(c => c.id === p.categoria_id && c.activa)) await cargarCategorias();
     f.categoria_id.value = p.categoria_id;
     f.unidad_base.value = p.unidad_base;
@@ -513,7 +518,7 @@ function leer() {
     codigo: f.codigo.value, nombre: f.nombre.value, categoria_id: f.categoria_id.value,
     unidad_base: f.unidad_base.value, perecedero: f.perecedero.checked,
     vida_util_dias: f.vida_util_dias.value, temp_min: f.temp_min.value, temp_max: f.temp_max.value,
-    stock_minimo: f.stock_minimo.value, costo: f.costo.value, costo_unidad: f.costo_unidad.value,
+    stock_minimo: f.stock_minimo.value, costo: f.costo.value, costo_unidad: f.costo_unidad.value, alicuota_iva: f.alicuota_iva.value,
     activo: actual ? f.activo.checked : true,
     presentaciones: [...document.querySelectorAll('#pres tbody tr')].map(tr => ({
       id: tr.dataset.id || null, nombre: tr.querySelector('.pn').value,

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cuenta corriente · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>tr.anulacion td{color:var(--mut);} .saldo-neg{color:var(--acento);}</style>
+</head>
+<body>
+<main class="ancho">
+  <section id="vLista">
+    <h1>Cuenta corriente de proveedores</h1>
+    <p class="sub">Lo que se les debe, derivado de los comprobantes registrados. Ningún saldo se escribe a mano: cada peso tiene su comprobante.</p>
+    <div class="tarjetas">
+      <div class="tarjeta"><div class="v" id="tTotal">–</div><div class="t">deuda total con proveedores</div></div>
+      <div class="tarjeta" id="tVenc"><div class="v">–</div><div class="t">vencido</div></div>
+      <div class="tarjeta" id="t7"><div class="v">–</div><div class="t">vence en los próximos 7 días</div></div>
+    </div>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Proveedor</th><th class="num">Saldo</th><th class="num">Vencido</th><th class="num">Vence en 7 días</th><th>Próximo vencimiento</th></tr></thead>
+      <tbody id="t"></tbody></table></div>
+    <p class="ayuda">Los pagos y su aplicación a cada factura llegan con la tesorería: hasta entonces, lo pendiente de cada factura es su total menos las notas de crédito asociadas.</p>
+  </section>
+
+  <section id="vDetalle" hidden>
+    <p><a href="cuenta-corriente.html" id="volver">Volver a todos los proveedores</a></p>
+    <h1 id="dTitulo"></h1>
+    <p class="sub" id="dSub"></p>
+    <h2>Pendiente de pago</h2>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Comprobante</th><th>Fecha</th><th>Vence</th><th class="num">Pendiente</th></tr></thead>
+      <tbody id="dPend"></tbody></table></div>
+    <h2 style="margin-top:22px">Movimientos</h2>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th><th>Por</th></tr></thead>
+      <tbody id="dMovs"></tbody></table></div>
+  </section>
+</main>
+<script src="comun.js"></script>
+<script>
+const signoCero = v => !v || /^0+(\.0+)?$/.test(v.replace('-', ''));
+function tagDias(d) {
+  if (d === null || d === undefined) return '';
+  if (d < 0) return el('span', { className: 'tag mal', textContent: `vencido hace ${-d} d` });
+  if (d === 0) return el('span', { className: 'tag mal', textContent: 'vence hoy' });
+  if (d <= 7) return el('span', { className: 'tag aviso', textContent: `vence en ${d} d` });
+  return '';
+}
+
+async function lista() {
+  $('#vLista').hidden = false; $('#vDetalle').hidden = true;
+  const { proveedores, total } = await api('fin/cuenta-corriente');
+  $('#tTotal').textContent = pesos(total);
+  // Las sumas de vencido las hace la base; acá sólo se muestran.
+  const sumar = k => proveedores.reduce((a, p) => a + centavos(p[k]), 0n);
+  const fmt = c => pesos((c < 0n ? '-' : '') + String((c < 0n ? -c : c) / 100n) + '.' + String((c < 0n ? -c : c) % 100n).padStart(2, '0'));
+  const venc = sumar('vencido'), v7 = sumar('vence_7');
+  $('#tVenc .v').textContent = fmt(venc); $('#tVenc').classList.toggle('mal', venc > 0n);
+  $('#t7 .v').textContent = fmt(v7); $('#t7').classList.toggle('aviso', v7 > 0n);
+  filas($('#t'), proveedores, p => {
+    const tr = el('tr', { className: 'clic' }, td(p.nombre), td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' saldo-neg' : '')),
+      td(signoCero(p.vencido) ? '' : pesos(p.vencido), 'num'), td(signoCero(p.vence_7) ? '' : pesos(p.vence_7), 'num'),
+      td(fecha(p.proximo_vencimiento)));
+    tr.onclick = () => { location.hash = p.id; };
+    return tr;
+  }, 'Todavía no hay comprobantes registrados.', 5);
+}
+// Centavos enteros con BigInt: sumar plata en float no.
+const centavos = v => { const [e, d = ''] = String(v || '0').split('.'); const neg = e.startsWith('-');
+  return (neg ? -1n : 1n) * (BigInt(e.replace('-', '') || '0') * 100n + BigInt((d + '00').slice(0, 2))); };
+
+async function detalle(id) {
+  $('#vLista').hidden = true; $('#vDetalle').hidden = false;
+  const { proveedor: p, movimientos, pendientes } = await api('fin/cuenta-corriente/' + id);
+  const saldo = movimientos.length ? movimientos.at(-1).saldo : '0';
+  $('#dTitulo').textContent = p.nombre;
+  $('#dSub').textContent = [p.cuit ? 'CUIT ' + p.cuit : null, p.plazo_pago_dias ? `plazo ${p.plazo_pago_dias} días` : null,
+    'saldo ' + pesos(saldo)].filter(Boolean).join(' · ');
+  filas($('#dPend'), pendientes, c => el('tr', {},
+    el('td', {}, el('a', { href: 'comprobantes.html#' + c.comprobante_id, textContent: c.nro })), td(fecha(c.fecha)),
+    el('td', {}, fecha(c.vencimiento), ' ', tagDias(c.dias)), td(pesos(c.pendiente), 'num')), 'No hay nada pendiente.', 4);
+  filas($('#dMovs'), movimientos, m => el('tr', { className: m.tipo === 'anulacion' ? 'anulacion' : '' },
+    td(fecha(m.fecha)), el('td', { className: 'wrap' }, m.comprobante_id ? el('a', { href: 'comprobantes.html#' + m.comprobante_id, textContent: m.detalle }) : m.detalle),
+    td(signoCero(m.debe) ? '' : pesos(m.debe), 'num'), td(signoCero(m.haber) ? '' : pesos(m.haber), 'num'),
+    td(pesos(m.saldo), 'num'), td(m.registrado_por)), 'Sin movimientos.', 6);
+}
+
+function ruta() { (location.hash.slice(1) ? detalle(location.hash.slice(1)) : lista()).catch(e => alert(e.message)); }
+addEventListener('hashchange', ruta);
+ruta();
+</script>
+</body>
+</html>

@@ -7,7 +7,7 @@ const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote, 
 const { puede } = require('./auth');
 
 // Las compras las hace y las recibe el centro: un usuario que sólo tiene rol en locales no las ve.
-const veCompras = u => u.es_admin || (u.roles || []).some(x => x.tipo === 'centro');
+const veCompras = u => u.es_admin || u.finanzas || (u.roles || []).some(x => x.tipo === 'centro');
 
 const r = express.Router();
 

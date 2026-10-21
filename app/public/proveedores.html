@@ -24,13 +24,20 @@
         <div class="fila">
           <label>Nombre *<input name="nombre" maxlength="120"></label>
           <label>CUIT<input name="cuit" placeholder="30-12345678-9"></label>
+          <label>Condición frente al IVA<select name="condicion_iva">
+            <option value="">Sin indicar</option><option value="responsable_inscripto">Responsable inscripto</option>
+            <option value="monotributo">Monotributo</option><option value="exento">Exento</option><option value="no_categorizado">No categorizado</option>
+          </select></label>
         </div>
         <div class="fila">
           <label>Contacto<input name="contacto"></label>
           <label>Teléfono<input name="telefono" type="tel"></label>
           <label>Email<input name="email" type="email"></label>
         </div>
-        <div class="fila"><label>Notas<input name="notas" placeholder="días de entrega, condiciones…"></label></div>
+        <div class="fila">
+          <label>Plazo de pago (días)<input name="plazo_pago_dias" inputmode="numeric" placeholder="30"></label>
+          <label style="grid-column:span 2">Notas<input name="notas" placeholder="días de entrega, condiciones…"></label>
+        </div>
         <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
       </fieldset>
       <div class="acciones">
@@ -44,7 +51,7 @@
 <script>
 let proveedores = [], actual = null;
 const f = $('#f');
-const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas'];
+const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias'];
 
 async function cargar() {
   ({ proveedores } = await api('proveedores' + ($('#finact').checked ? '?inactivos=1' : '')));
