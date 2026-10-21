@@ -194,13 +194,39 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - El cliente manda cuerpo JSON en toda modificación (también DELETE): el servidor exige JSON contra
   CSRF y un DELETE sin cuerpo no lleva tipo de contenido. Estaba roto desde la fase 0.
 
+### Tesorería (fase 3, 21/10/2026)
+- **Cuentas** (`fin.cuenta`): bancos, una caja por sede (decisión de Fer) y una sola cartera de cheques
+  de terceros. **Saldo derivado** de `fin.movimiento_tes`, libro mayor inmutable; todo insert exige
+  permiso de finanzas en la base (`fin.movimiento_tes_firma`). Movimientos manuales (ingreso/egreso con
+  concepto obligatorio), transferencias (dos patas, se anulan juntas) y **arqueo de caja** por diferencia
+  (`fin.arquear`, como el conteo de stock).
+- **Orden de pago** (`fin.orden_pago`, `OP-000001`): aplica a facturas y notas de débito pendientes
+  (total o parcial) y puede usar notas de crédito sin factura asociada (`fin.credito_pendiente`).
+  **Retenciones cargadas a mano** con certificado (decisión de Fer: sin cálculo de escalas ni padrones).
+  Valores: transferencia (banco), efectivo (caja), cheque propio o e-cheq (banco), cheque de tercero
+  de la cartera (se endosa entero). Lo que sobra sobre lo aplicado queda **a cuenta**.
+  `fin.registrar_orden_pago` valida contra lo pendiente con lock por proveedor, mueve tesorería,
+  emite o endosa cheques y baja la deuda por el **bruto** (valores + retenciones).
+  `fin.anular_orden_pago` revierte todo; no se puede si un cheque propio ya se debitó. Una factura con
+  pagos registrados no se anula. Los números de OP pueden tener huecos (un borrador borrado consume
+  el suyo).
+- **Cheques** (`fin.cheque`): propio emitido → debitado (recién ahí sale del banco; el saldo proyectado
+  lo descuenta antes); tercero en cartera → endosado o depositado. CUIT del librador validado.
+- **Conciliación**: extracto en **CSV** (sin Excel: la librería usual de npm tiene vulnerabilidades),
+  mapeo de columnas en el navegador, importes y fechas normalizados en el servidor (el separador
+  decimal lo dice el usuario). `fin.extracto_linea` con clave única + `ocurrencia`: reimportar no
+  duplica. Pareo sugerido por importe exacto y fecha cercana (±10 días), incluido el débito de cheques
+  propios; una línea sin pareo se registra como movimiento desde ahí. `fin.conciliacion` se puede deshacer.
+- **Retenciones practicadas** del mes en CSV para el contador.
+- Números tipeados: con coma decimal, los puntos son de miles ("41.000,50"); sin coma no se tocan.
+
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
 recepción y decisión de costo, recetas, producción con FEFO, trazabilidad por lote, frío,
 productos (SKU y GTIN), etiquetas A4 con QR Digital Link y EAN-13, almacenes, proveedores y unidades,
 login con roles por sede, PIN en tablet de cocina, Mi cuenta y administración de usuarios,
 sedes, notas de pedido, remitos internos y unidades productivas, comprobantes de proveedor,
-cuenta corriente y libro IVA compras.
+cuenta corriente, libro IVA compras, órdenes de pago, tesorería, cheques y conciliación bancaria.
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
@@ -213,8 +239,8 @@ Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts.
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción parcial de compras, anular una compra recibida o una
-producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA, y
-las fases 3 a 5.
+producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
+extractos en Excel, cheques de terceros rechazados, y las fases 4 y 5.
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

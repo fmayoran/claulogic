@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Conciliación · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+  .cand{display:flex;gap:6px;align-items:center;flex-wrap:wrap;} .neg{color:var(--mal);}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Conciliación bancaria</h1>
+  <p class="sub">Se importa el extracto del banco y se parea cada línea con su movimiento. Lo que queda sin parear de un lado o del otro es lo que hay que explicar.</p>
+  <div class="barra"><label>Cuenta<select id="cuenta"></select></label><span id="saldo" class="mut"></span></div>
+
+  <fieldset>
+    <legend>Importar extracto (CSV)</legend>
+    <div class="barra">
+      <input type="file" id="archivo" accept=".csv,.txt,text/csv">
+      <label>Decimales<select id="decimal"><option value=",">coma (1.234,56)</option><option value=".">punto (1,234.56)</option></select></label>
+      <label class="check"><input type="checkbox" id="encabezado" checked> La primera fila es el encabezado</label>
+    </div>
+    <div id="mapa" hidden>
+      <p class="ayuda">Indicá qué es cada columna. Hace falta la fecha y, o bien un importe con signo, o bien débito y crédito por separado.</p>
+      <div class="tabla-wrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
+      <div class="acciones fijo"><button type="button" class="prim" id="importar">Importar</button><span class="msg" id="msgI"></span></div>
+    </div>
+    <p class="ayuda">Volver a importar el mismo extracto, o uno que se superpone, no duplica líneas. Si el banco sólo exporta Excel, guardalo como CSV.</p>
+  </fieldset>
+
+  <h2>Líneas del extracto sin conciliar</h2>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Importe</th><th>Se parea con</th></tr></thead>
+    <tbody id="lineas"></tbody></table></div>
+
+  <h2 style="margin-top:22px">Movimientos sin conciliar</h2>
+  <p class="ayuda">Están en el sistema pero todavía no aparecieron en el extracto (o aparecieron con otro importe).</p>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Importe</th></tr></thead>
+    <tbody id="movs"></tbody></table></div>
+
+  <h2 style="margin-top:22px">Conciliadas recientemente</h2>
+  <div class="tabla-wrap"><table class="datos">
+    <thead><tr><th>Fecha</th><th>Línea del extracto</th><th>Movimiento</th><th class="num">Importe</th><th>Por</th><th></th></tr></thead>
+    <tbody id="hechas"></tbody></table></div>
+</main>
+<script src="comun.js"></script>
+<script>
+let bancos = [], csv = null;
+const cuenta = () => $('#cuenta').value;
+const conSigno = v => el('span', { className: String(v).startsWith('-') ? 'neg' : '', textContent: pesos(v) });
+
+// ── CSV ──
+// Separador detectado de la primera línea (; , o tabulación) y comillas respetadas.
+function parsearCSV(texto) {
+  texto = texto.replace(/^﻿/, '');
+  const primera = texto.split(/\r?\n/)[0];
+  const sep = ['\t', ';', ','].map(s => [s, primera.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const filas = []; let fila = [], campo = '', comillas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (comillas) {
+      if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
+      else if (ch === '"') comillas = false;
+      else campo += ch;
+    } else if (ch === '"') comillas = true;
+    else if (ch === sep) { fila.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && texto[i + 1] === '\n') i++;
+      fila.push(campo); campo = '';
+      if (fila.some(x => x.trim())) filas.push(fila);
+      fila = [];
+    } else campo += ch;
+  }
+  fila.push(campo); if (fila.some(x => x.trim())) filas.push(fila);
+  return filas;
+}
+const ROLES = [['', 'ignorar'], ['fecha', 'Fecha'], ['concepto', 'Concepto'], ['referencia', 'Referencia'], ['importe', 'Importe (con signo)'], ['debito', 'Débito'], ['credito', 'Crédito']];
+// Propuesta por el nombre de la columna: es lo que más se repite entre bancos.
+function adivinar(n) {
+  n = (n || '').toLowerCase();
+  if (/fecha|date/.test(n)) return 'fecha';
+  if (/d[eé]bito|debe|egreso/.test(n)) return 'debito';
+  if (/cr[eé]dito|haber|ingreso/.test(n)) return 'credito';
+  if (/importe|monto|amount/.test(n)) return 'importe';
+  if (/concepto|descrip|detalle/.test(n)) return 'concepto';
+  if (/refer|comprob|n[uú]mero/.test(n)) return 'referencia';
+  return '';
+}
+$('#archivo').onchange = async () => {
+  const a = $('#archivo').files[0]; if (!a) return;
+  let texto = await a.text();
+  // Bancos que exportan en Latin-1: si hay caracteres de reemplazo, se relee con esa codificación.
+  if (texto.includes('�')) texto = new TextDecoder('latin1').decode(await a.arrayBuffer());
+  csv = { nombre: a.name, filas: parsearCSV(texto) };
+  pintarMapa();
+};
+$('#encabezado').onchange = () => csv && pintarMapa();
+function pintarMapa() {
+  const enc = $('#encabezado').checked, filas = csv.filas, cols = Math.max(...filas.map(f => f.length));
+  $('#mHead').replaceChildren(el('tr', {}, ...Array.from({ length: cols }, (_, i) => {
+    const s = el('select'); opciones(s, ROLES, enc ? adivinar(filas[0][i]) : ''); s.dataset.col = i;
+    return el('th', {}, el('div', { className: 'mut', textContent: enc ? filas[0][i] || '' : `Columna ${i + 1}` }), s);
+  })));
+  $('#mBody').replaceChildren(...filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 6).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
+  $('#mapa').hidden = false; msg(`${filas.length - (enc ? 1 : 0)} filas en el archivo.`, '', '#msgI');
+}
+$('#importar').onclick = async () => {
+  const mapa = {}; $$('#mHead select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
+  if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
+    return msg('Falta indicar la fecha y el importe (o débito y crédito).', 'mal', '#msgI');
+  const filas = csv.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(Object.entries(mapa).map(([k, i]) => [k, f[i] ?? ''])));
+  try {
+    const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: cuenta(), archivo: csv.nombre, decimal: $('#decimal').value, filas } });
+    msg(`Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban.` : '.'), 'ok', '#msgI');
+    $('#archivo').value = ''; csv = null; $('#mapa').hidden = true;
+    cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgI'); }
+};
+
+// ── Pareo ──
+async function conciliar(body) {
+  try { await api('fin/conciliacion', { method: 'POST', body }); await cargar(); } catch (e) { alert(e.message); }
+}
+async function cargar() {
+  if (!cuenta()) return;
+  const b = bancos.find(x => x.id === cuenta());
+  const [{ lineas, movimientos, conciliadas }, { cuentas }] = await Promise.all([api('fin/conciliacion?cuenta=' + cuenta()), api('fin/cuentas')]);
+  const c = cuentas.find(x => x.id === cuenta());
+  $('#saldo').textContent = c ? `Saldo en el sistema ${pesos(c.saldo)}` : '';
+  filas($('#lineas'), lineas, l => {
+    const concepto = el('input', { placeholder: 'concepto (comisión, impuesto…)', style: 'width:220px', value: l.concepto });
+    const cand = el('div', { className: 'cand' },
+      ...l.candidatos.slice(0, 3).map(k => el('button', { type: 'button', className: 'chico', textContent: `${k.tipo === 'cheque' ? 'Débito de cheque' : fecha(k.fecha) + ' · ' + k.descripcion}`,
+        title: 'Conciliar con este', onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) })),
+      l.candidatos.length ? '' : concepto,
+      l.candidatos.length ? '' : el('button', { type: 'button', className: 'chico', textContent: 'Registrar movimiento',
+        title: 'Crea el ingreso o egreso con la fecha y el importe de la línea, y lo concilia',
+        onclick: () => concepto.value.trim() ? conciliar({ linea_id: l.id, crear: { concepto: concepto.value } }) : alert('Poné el concepto.') }));
+    return el('tr', {}, td(fecha(l.fecha)), td([l.concepto, l.referencia].filter(Boolean).join(' · '), 'wrap'), el('td', { className: 'num' }, conSigno(l.importe)), el('td', {}, cand));
+  }, 'No hay líneas pendientes: todo lo importado está conciliado.', 4);
+  filas($('#movs'), movimientos, m => el('tr', {}, td(fecha(m.fecha)), td(m.concepto || m.tipo, 'wrap'), el('td', { className: 'num' }, conSigno(m.importe))),
+    'Todos los movimientos están conciliados.', 3);
+  filas($('#hechas'), conciliadas, k => el('tr', {}, td(fecha(k.fecha)), td(k.concepto, 'wrap'), td(k.movimiento, 'wrap'),
+    el('td', { className: 'num' }, conSigno(k.importe)), td(k.conciliado_por),
+    el('td', {}, el('button', { className: 'chico', textContent: 'Deshacer', onclick: async () => {
+      if (!confirm('¿Deshacer este pareo? El movimiento queda en el sistema; sólo se separa de la línea.')) return;
+      try { await api('fin/conciliacion/' + k.linea_id, { method: 'DELETE' }); cargar(); } catch (e) { alert(e.message); } } }))),
+    'Todavía no hay nada conciliado.', 6);
+  history.replaceState(null, '', 'conciliacion.html#' + cuenta());
+}
+$('#cuenta').onchange = cargar;
+(async () => {
+  try {
+    bancos = (await api('fin/cuentas')).cuentas.filter(c => c.tipo === 'banco');
+    if (!bancos.length) { $('#lineas').replaceChildren(el('tr', {}, td('No hay cuentas bancarias: cargalas en Tesorería.'))); return; }
+    opciones($('#cuenta'), bancos.map(b => [b.id, b.nombre]), location.hash.slice(1) || bancos[0].id);
+    await cargar();
+  } catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -17,7 +17,9 @@ function numero(v, { campo, negativo = false, requerido = false, positivo = fals
     if (requerido) throw new ErrorUsuario(`Falta ${campo}.`);
     return null;
   }
-  const s = String(v).trim().replace(',', '.');
+  // Con coma decimal, los puntos son de miles ("41.000,50"). Sin coma no se tocan: "1.5" es 1,5.
+  let s = String(v).trim();
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
   const re = negativo ? /^-?\d+(\.\d+)?$/ : /^\d+(\.\d+)?$/;
   if (!re.test(s)) throw new ErrorUsuario(`${campo}: "${v}" no es un número válido.`);
   if (positivo && /^0+(\.0+)?$/.test(s)) throw new ErrorUsuario(`${campo} tiene que ser mayor que cero.`);
@@ -51,6 +53,9 @@ const UNICOS = {
   remito_pedido_ux: 'Ese pedido ya tiene un remito.',
   proveedor_cuit_ux: 'Ya existe un proveedor con ese CUIT.',
   comprobante_numero_ux: 'Ese comprobante ya está cargado para este proveedor.',
+  cuenta_nombre_ux: 'Ya existe una cuenta con ese nombre.',
+  cheque_ux: 'Ese cheque ya está cargado.',
+  orden_pago_aplicacion_pkey: 'Un comprobante está dos veces en la orden de pago.',
   gtin_pkey: 'Ese GTIN ya está asignado a otro producto o presentación.',
   usuario_usuario_key: 'Ya existe un usuario con ese nombre de ingreso.',
   sede_nombre_ux: 'Ya existe una sede con ese nombre.',
@@ -59,6 +64,8 @@ const UNICOS = {
 // Mensajes por restricción para los CHECK que el usuario puede violar con lo que tipea.
 const CHECKS = {
   lote_codigo_gs1: 'El código de lote admite hasta 20 caracteres, sin espacios ni acentos (norma GS1).',
+  cheque_cuit_librador_check: 'El CUIT del librador no es válido (revisá los dígitos).',
+  cuenta_cbu_check: 'El CBU tiene 22 dígitos.',
 };
 
 // Los errores de la base se traducen a algo que el encargado entienda. Los RAISE de nuestros

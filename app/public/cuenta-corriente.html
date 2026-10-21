@@ -66,9 +66,6 @@ async function lista() {
     return tr;
   }, 'Todavía no hay comprobantes registrados.', 5);
 }
-// Centavos enteros con BigInt: sumar plata en float no.
-const centavos = v => { const [e, d = ''] = String(v || '0').split('.'); const neg = e.startsWith('-');
-  return (neg ? -1n : 1n) * (BigInt(e.replace('-', '') || '0') * 100n + BigInt((d + '00').slice(0, 2))); };
 
 async function detalle(id) {
   $('#vLista').hidden = true; $('#vDetalle').hidden = false;

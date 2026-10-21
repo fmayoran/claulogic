@@ -53,7 +53,20 @@ function num(v, decimales) {
   ent = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return (neg ? '-' : '') + ent + (dec ? ',' + dec : '');
 }
-const pesos = v => v === null || v === undefined || v === '' ? '' : '$' + num(v, 2);
+const pesos = v => v === null || v === undefined || v === '' ? '' : String(v).startsWith('-') ? '-$' + num(String(v).slice(1), 2) : '$' + num(v, 2);
+
+// Plata en centavos enteros (BigInt) para sumar y comparar en el navegador sin float. Acepta
+// "1234.5", "1.234,50" (tipeado) o "-20000.00" (de la API).
+function centavos(v) {
+  let s = String(v ?? '').trim();
+  if (!s) return 0n;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const neg = s.startsWith('-'); if (neg) s = s.slice(1);
+  if (!/^\d*(\.\d*)?$/.test(s)) return 0n;
+  const [e, d = ''] = s.split('.');
+  return (neg ? -1n : 1n) * (BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)));
+}
+const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
 
 // Corre la coma decimal n lugares a la izquierda, en texto: 49500 -> 49.5.
 function correr(v, n) {
@@ -108,7 +121,9 @@ const GRUPOS = [
                  ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
                  ['produccion.html', 'Producción']]],
   ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['proveedores.html', 'Proveedores']]],
-  ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['cuenta-corriente.html', 'Cuenta corriente']]],
+  ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['ordenes-pago.html', 'Órdenes de pago'],
+                ['cuenta-corriente.html', 'Cuenta corriente'], ['tesoreria.html', 'Tesorería'], ['cheques.html', 'Cheques'],
+                ['conciliacion.html', 'Conciliación']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
   ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
                      ['unidades-productivas.html', 'Unidades productivas'], ['unidades.html', 'Unidades de medida'],
@@ -118,7 +133,8 @@ const GRUPOS = [
 // no mostrar puertas que no abren.
 const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
-  'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas' };
+  'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
+  'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cheques · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .pestanas{display:flex;gap:4px;margin:0 0 14px;border-bottom:1px solid var(--line);}
+  .pestanas button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mut);padding:8px 12px;}
+  .pestanas button.act{color:var(--fg);border-bottom-color:var(--acento);font-weight:600;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Cheques</h1>
+  <p class="sub">La cartera de cheques de terceros (recibidos, para endosar o depositar) y los cheques propios emitidos (cancelan la deuda al entregarse y salen del banco al debitarse).</p>
+  <div class="pestanas"><button type="button" data-t="tercero" class="act">Cartera de terceros</button><button type="button" data-t="propio">Propios emitidos</button></div>
+  <div class="barra">
+    <select id="fest"></select>
+    <button class="prim" id="alta">Ingresar cheque de tercero</button>
+  </div>
+  <div class="tabla-wrap"><table class="datos">
+    <thead id="th"></thead><tbody id="t"></tbody></table></div>
+</main>
+
+<dialog id="dAlta"><form id="fa" novalidate>
+  <h2>Ingresar cheque de tercero</h2>
+  <div class="fila"><label>Banco *<input name="banco"></label><label>Número *<input name="numero" inputmode="numeric"></label>
+    <label>Formato<select name="formato"><option value="fisico">Físico</option><option value="echeq">E-cheq</option></select></label></div>
+  <div class="fila"><label>Librador<input name="librador"></label><label>CUIT del librador<input name="cuit_librador" placeholder="30-12345678-9"></label></div>
+  <div class="fila"><label>Importe *<input name="importe" inputmode="decimal"></label><label>Emisión<input name="fecha_emision" type="date"></label>
+    <label>Fecha de pago *<input name="fecha_pago" type="date"></label></div>
+  <div class="fila"><label>Recibido de<input name="recibido_de" placeholder="cliente, evento, local…"></label><label>Notas<input name="notas"></label></div>
+  <div class="acciones"><button type="submit" class="prim">Ingresar a la cartera</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgA"></span></div>
+</form></dialog>
+
+<dialog id="dAccion"><form id="fx" novalidate>
+  <h2 id="xTitulo"></h2>
+  <p class="ayuda" id="xDesc" style="margin:0 0 12px"></p>
+  <div class="fila"><label id="xBanco">Banco *<select name="cuenta_id"></select></label><label>Fecha<input name="fecha" type="date"></label></div>
+  <div class="acciones"><button type="submit" class="prim" id="xOk"></button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgX"></span></div>
+</form></dialog>
+
+<script src="comun.js"></script>
+<script>
+const EST = { tercero: [['en_cartera', 'En cartera'], ['endosado', 'Endosados'], ['depositado', 'Depositados'], ['anulado', 'Anulados']],
+              propio: [['emitido', 'A debitar'], ['debitado', 'Debitados'], ['anulado', 'Anulados']] };
+let tipo = 'tercero', bancos = [], accion = null;
+$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+function tagVto(d, estado) {
+  if (!['en_cartera', 'emitido'].includes(estado) || d === null) return '';
+  if (d < 0) return el('span', { className: 'tag aviso', textContent: estado === 'emitido' ? 'ya se puede debitar' : 'ya se puede depositar' });
+  if (d <= 7) return el('span', { className: 'tag', textContent: `en ${d} d` });
+  return '';
+}
+async function cargar() {
+  const p = new URLSearchParams({ tipo }); if ($('#fest').value) p.set('estado', $('#fest').value);
+  const { cheques } = await api('fin/cheques?' + p);
+  const cols = tipo === 'tercero' ? ['Banco', 'Número', 'Librador', 'Recibido de', 'Pago', 'Importe', 'Estado', '']
+                                  : ['Banco', 'Número', 'Cuenta', 'Proveedor', 'Pago', 'Importe', 'Estado', ''];
+  $('#th').replaceChildren(el('tr', {}, ...cols.map(c => el('th', { textContent: c, className: c === 'Importe' ? 'num' : '' }))));
+  filas($('#t'), cheques, c => el('tr', {},
+    td(c.banco + (c.formato === 'echeq' ? ' (e-cheq)' : '')), td(c.numero),
+    td(tipo === 'tercero' ? [c.librador, c.cuit_librador].filter(Boolean).join(' · ') : c.cuenta),
+    td(tipo === 'tercero' ? c.recibido_de : c.proveedor),
+    el('td', {}, fecha(c.fecha_pago), ' ', tagVto(c.dias, c.estado)), td(pesos(c.importe), 'num'),
+    el('td', {}, (EST[tipo].find(e => e[0] === c.estado) || [, c.estado])[1].replace(/s$/, ''),
+      c.proveedor && tipo === 'tercero' ? ` a ${c.proveedor}` : '', c.op ? el('a', { href: 'ordenes-pago.html#' + c.orden_pago_id, textContent: ' ' + c.op }) : ''),
+    el('td', {}, c.estado === 'en_cartera' ? el('button', { className: 'chico', textContent: 'Depositar', onclick: () => abrirAccion('depositar', c) })
+      : c.estado === 'emitido' ? el('button', { className: 'chico', textContent: 'Registrar débito', onclick: () => abrirAccion('debitar', c) }) : '')),
+    'No hay cheques.', 8);
+}
+function mostrar(t) {
+  tipo = t; $$('.pestanas button').forEach(b => b.classList.toggle('act', b.dataset.t === t));
+  opciones($('#fest'), EST[t], EST[t][0][0], 'Todos'); $('#alta').hidden = t !== 'tercero'; cargar().catch(e => alert(e.message));
+}
+$$('.pestanas button').forEach(b => b.onclick = () => mostrar(b.dataset.t));
+$('#fest').onchange = () => cargar().catch(e => alert(e.message));
+
+const fa = $('#fa');
+$('#alta').onclick = () => { fa.reset(); msg('', '', '#msgA'); $('#dAlta').showModal(); };
+fa.onsubmit = async e => {
+  e.preventDefault();
+  try { await api('fin/cheques', { method: 'POST', body: Object.fromEntries(new FormData(fa)) }); $('#dAlta').close(); cargar(); }
+  catch (e) { msg(e.message, 'mal', '#msgA'); }
+};
+
+const fx = $('#fx');
+function abrirAccion(que, c) {
+  accion = { que, c }; fx.reset(); msg('', '', '#msgX');
+  $('#xTitulo').textContent = que === 'depositar' ? 'Depositar cheque' : 'Registrar débito';
+  $('#xDesc').textContent = `${c.banco} Nº ${c.numero} por ${pesos(c.importe)}. ` + (que === 'depositar'
+    ? 'Sale de la cartera y entra en el banco.' : 'Sale del banco. Si el banco ya lo informó en el extracto, conciliarlo desde Conciliación hace esto mismo.');
+  $('#xBanco').hidden = que !== 'depositar'; $('#xOk').textContent = que === 'depositar' ? 'Depositar' : 'Registrar débito';
+  opciones(fx.cuenta_id, bancos.map(b => [b.id, b.nombre]));
+  $('#dAccion').showModal();
+}
+fx.onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const { que, c } = accion;
+    await api(`fin/cheques/${c.id}/${que}`, { method: 'POST', body: que === 'depositar' ? { cuenta_id: fx.cuenta_id.value, fecha: fx.fecha.value } : { fecha: fx.fecha.value } });
+    $('#dAccion').close(); cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgX'); }
+};
+(async () => {
+  try { bancos = (await api('fin/cuentas')).cuentas.filter(c => c.tipo === 'banco' && c.activa); mostrar('tercero'); }
+  catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Órdenes de pago · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .edit select, .edit input{padding:5px 7px;}
+  .resumen{display:grid;grid-template-columns:auto auto;gap:4px 24px;justify-content:end;font-variant-numeric:tabular-nums;margin:10px 0 0;}
+  .resumen span:nth-child(odd){color:var(--mut);text-align:right;} .resumen span:nth-child(even){text-align:right;}
+  .resumen .tot{font-weight:750;color:var(--fg);} .falta{color:var(--mal);font-weight:650;} .ok{color:var(--acento);font-weight:650;}
+  .firmas{display:none;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px;}
+  .firmas div{border-top:1px solid #000;padding-top:6px;font-size:.9rem;}
+  @media print{
+    .lateral,.inferior,aside,.acciones,.no-imprimir{display:none!important;}
+    body{padding:0!important;background:#fff;color:#000;} .grid{display:block;} .grid > main{max-width:none;padding:0;}
+    .tabla-wrap{border:0;overflow:visible;} .firmas{display:grid;}
+  }
+</style>
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <select id="fest"><option value="">Todas</option><option value="borrador">Borradores</option><option value="registrada">Registradas</option><option value="anulada">Anuladas</option></select>
+      <button class="prim" id="nueva">Nueva orden de pago</button>
+      <div class="con-boton"><input id="mes" type="month"><a id="ret" class="chico" href="#">Retenciones</a></div>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <section id="vEditar">
+      <h1 id="titulo">Nueva orden de pago</h1>
+      <p class="sub">Qué se le paga a un proveedor, con qué y qué se le retiene. Al registrarla sale la plata de las cuentas y baja la deuda.</p>
+      <form id="f" novalidate>
+        <fieldset>
+          <legend>Proveedor</legend>
+          <div class="fila"><label>Proveedor *<select name="proveedor_id"></select></label><label>Fecha<input name="fecha" type="date"></label></div>
+          <div class="fila"><label>Notas<input name="notas"></label></div>
+          <p class="ayuda" id="saldoProv"></p>
+        </fieldset>
+        <fieldset>
+          <legend>Qué se paga</legend>
+          <div style="overflow-x:auto"><table class="edit">
+            <thead><tr><th></th><th>Comprobante</th><th>Vence</th><th class="num">Pendiente</th><th>Se aplica</th></tr></thead>
+            <tbody id="deudas"></tbody></table></div>
+          <div id="credWrap" hidden>
+            <h3>Notas de crédito disponibles</h3>
+            <div style="overflow-x:auto"><table class="edit">
+              <thead><tr><th></th><th>Nota de crédito</th><th>Fecha</th><th class="num">Disponible</th><th>Se usa</th></tr></thead>
+              <tbody id="creditos"></tbody></table></div>
+          </div>
+          <p class="ayuda">Sin comprobantes marcados, lo que se pague queda como pago a cuenta.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Retenciones practicadas</legend>
+          <div style="overflow-x:auto"><table class="edit" id="rets">
+            <thead><tr><th>Impuesto</th><th>Jurisdicción</th><th>Régimen</th><th>Certificado</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
+          <button type="button" class="chico" id="agregarRet" style="margin-top:8px">Agregar retención</button>
+        </fieldset>
+        <fieldset>
+          <legend>Con qué se paga</legend>
+          <div style="overflow-x:auto"><table class="edit" id="vals">
+            <thead><tr><th>Medio</th><th>Cuenta o cheque</th><th>Importe</th><th>Detalle</th><th></th></tr></thead><tbody></tbody></table></div>
+          <button type="button" class="chico" id="agregarVal" style="margin-top:8px">Agregar valor</button>
+          <div class="resumen" id="resumen"></div>
+        </fieldset>
+        <div class="acciones">
+          <button type="submit" class="prim" id="guardar">Guardar borrador</button>
+          <button type="button" id="registrar">Registrar pago</button>
+          <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+          <span class="msg" id="msg"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="vVer" hidden>
+      <h1 id="vTitulo"></h1>
+      <p class="sub" id="vSub"></p>
+      <h3>Comprobantes que cancela</h3>
+      <div class="tabla-wrap"><table class="datos"><thead><tr><th>Comprobante</th><th>Fecha</th><th class="num">Total</th><th class="num">Aplicado</th></tr></thead><tbody id="vAp"></tbody></table></div>
+      <h3>Retenciones</h3>
+      <div class="tabla-wrap"><table class="datos"><thead><tr><th>Impuesto</th><th>Jurisdicción</th><th>Régimen</th><th>Certificado</th><th class="num">Importe</th></tr></thead><tbody id="vRet"></tbody></table></div>
+      <h3>Valores</h3>
+      <div class="tabla-wrap"><table class="datos"><thead><tr><th>Medio</th><th>Detalle</th><th class="num">Importe</th></tr></thead><tbody id="vVal"></tbody></table></div>
+      <div class="resumen" id="vResumen"></div>
+      <div class="firmas"><div>Autorizó</div><div>Recibí conforme (firma, aclaración y DNI)</div></div>
+      <div class="acciones">
+        <button type="button" onclick="print()">Imprimir</button>
+        <a id="verCC" href="#">Cuenta corriente del proveedor</a>
+        <button type="button" class="peligro" id="anular" hidden>Anular</button>
+        <span class="msg" id="msgV"></span>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+const MEDIO = { transferencia: 'Transferencia', efectivo: 'Efectivo', cheque_propio: 'Cheque propio', cheque_tercero: 'Cheque de tercero' };
+const IMP = { ganancias: 'Ganancias', iva: 'IVA', iibb: 'Ingresos Brutos', suss: 'SUSS', otra: 'Otra' };
+let ordenes = [], proveedores = [], cuentas = [], cartera = [], actual = null, orden = null;
+const f = $('#f');
+const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
+const pesosC = c => pesos(deCentavos(c));
+
+async function cargarLista() {
+  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value);
+  ({ ordenes } = await api('fin/ordenes-pago?' + p));
+  if (!ordenes.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay órdenes de pago.' }));
+  $('#lista').replaceChildren(...ordenes.map(o => {
+    const b = el('button', { type: 'button', className: 'item' + (o.id === actual ? ' sel' : '') + (o.estado === 'anulada' ? ' inactivo' : '') },
+      el('div', { className: 'n' }, `${o.nro} · ${o.proveedor}`, ' ', o.estado === 'borrador' ? el('span', { className: 'tag aviso', textContent: 'borrador' }) : ''),
+      el('div', { className: 'm', textContent: `${fecha(o.fecha)} · ${pesos(o.total)}` }));
+    b.onclick = () => abrir(o.id);
+    return b;
+  }));
+}
+
+// ── Pendientes del proveedor ──
+async function cargarPendientes(aplicadas = []) {
+  const pv = f.proveedor_id.value;
+  if (!pv) { $('#deudas').replaceChildren(); $('#creditos').replaceChildren(); $('#saldoProv').textContent = ''; return resumen(); }
+  const { deudas, creditos, saldo } = await api('fin/pendientes?proveedor=' + pv);
+  $('#saldoProv').textContent = `Saldo en cuenta corriente: ${pesos(saldo)}` + (saldo.startsWith('-') ? ' (a favor nuestro)' : '');
+  const fila = (c, disp, venc) => {
+    const prev = aplicadas.find(a => a.comprobante_id === c.comprobante_id);
+    const chk = el('input', { type: 'checkbox', checked: !!prev });
+    const imp = el('input', { inputMode: 'decimal', value: coma(prev ? prev.importe : ''), style: 'width:130px', disabled: !prev });
+    chk.onchange = () => { imp.disabled = !chk.checked; imp.value = chk.checked ? coma(disp) : ''; resumen(); };
+    imp.oninput = resumen;
+    const tr = el('tr', {}, el('td', {}, chk), td(c.nro), venc, td(pesos(disp), 'num'), el('td', {}, imp));
+    tr.leer = () => chk.checked && imp.value ? { comprobante_id: c.comprobante_id, importe: imp.value, nc: c.tipo === 'nota_credito' } : null;
+    return tr;
+  };
+  // Lo ya aplicado en este borrador no está descontado del pendiente (sólo cuentan las registradas).
+  filas($('#deudas'), deudas, c => fila(c, c.pendiente, el('td', {}, fecha(c.vencimiento), ' ', c.dias < 0 ? el('span', { className: 'tag mal', textContent: 'vencido' }) : '')),
+    'No tiene comprobantes pendientes.', 5);
+  $('#credWrap').hidden = !creditos.length;
+  filas($('#creditos'), creditos, c => fila(c, c.disponible, td(fecha(c.fecha))), '', 5);
+  resumen();
+}
+f.proveedor_id.onchange = () => cargarPendientes();
+
+// ── Retenciones y valores ──
+function filaRet(x = {}) {
+  const imp = el('select'); opciones(imp, Object.entries(IMP), x.impuesto || 'iibb');
+  const jur = el('input', { value: x.jurisdiccion || '', style: 'width:120px', placeholder: 'CABA' });
+  const reg = el('input', { value: x.regimen || '', style: 'width:110px' });
+  const cert = el('input', { value: x.certificado || '', style: 'width:120px' });
+  const monto = el('input', { inputMode: 'decimal', value: coma(x.importe), style: 'width:120px' });
+  const tr = el('tr', {}, el('td', {}, imp), el('td', {}, jur), el('td', {}, reg), el('td', {}, cert), el('td', {}, monto),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumen(); } })));
+  monto.oninput = resumen;
+  tr.leer = () => ({ impuesto: imp.value, jurisdiccion: jur.value, regimen: reg.value, certificado: cert.value, importe: monto.value });
+  $('#rets tbody').append(tr);
+}
+function filaVal(x = {}) {
+  const medio = el('select'); opciones(medio, Object.entries(MEDIO), x.medio || 'transferencia');
+  const cuenta = el('select'), cheque = el('select');
+  const monto = el('input', { inputMode: 'decimal', value: coma(x.importe), style: 'width:120px' });
+  const ref = el('input', { value: x.referencia || '', placeholder: 'Nº de transferencia', style: 'width:150px' });
+  const chNum = el('input', { value: x.cheque_numero || '', placeholder: 'Nº de cheque', style: 'width:110px' });
+  const chPago = el('input', { type: 'date', value: x.cheque_fecha_pago || '' });
+  const chFmt = el('select'); opciones(chFmt, [['fisico', 'físico'], ['echeq', 'e-cheq']], x.cheque_formato || 'echeq');
+  const detalle = el('td', {});
+  function pintar() {
+    const m = medio.value;
+    cuenta.hidden = m === 'cheque_tercero'; cheque.hidden = m !== 'cheque_tercero';
+    const tipo = m === 'efectivo' ? 'caja' : 'banco';
+    opciones(cuenta, cuentas.filter(c => c.tipo === tipo).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '') + ` · ${pesos(c.saldo)}`]),
+      cuentas.some(c => c.id === x.cuenta_id && c.tipo === tipo) ? x.cuenta_id : null, 'Elegir…');
+    // Un cheque de tercero ya elegido en otro renglón no se ofrece de nuevo.
+    const usados = new Set($$('#vals tbody tr').filter(t => t !== tr && t.leer).map(t => t.leer().cheque_id).filter(Boolean));
+    opciones(cheque, cartera.filter(c => !usados.has(c.id) || c.id === x.cheque_id).map(c => [c.id, `${c.banco} Nº ${c.numero} · ${fecha(c.fecha_pago)} · ${pesos(c.importe)}`]),
+      x.cheque_id || null, 'Elegir de la cartera…');
+    detalle.replaceChildren(...(m === 'cheque_propio' ? [chNum, ' ', chPago, ' ', chFmt] : m === 'cheque_tercero' ? [] : [ref]));
+    monto.disabled = m === 'cheque_tercero';
+  }
+  // Un cheque de tercero se endosa entero: el importe es el del cheque.
+  cheque.onchange = () => { const c = cartera.find(x => x.id === cheque.value); monto.value = c ? coma(c.importe) : ''; resumen(); };
+  medio.onchange = () => { pintar(); resumen(); };
+  monto.oninput = resumen;
+  const tr = el('tr', {}, el('td', {}, medio), el('td', {}, cuenta, cheque), el('td', {}, monto), detalle,
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumen(); } })));
+  tr.leer = () => ({ medio: medio.value, cuenta_id: cuenta.value || null, cheque_id: medio.value === 'cheque_tercero' ? cheque.value || null : null,
+    importe: monto.value, referencia: ref.value, cheque_numero: chNum.value, cheque_fecha_pago: chPago.value, cheque_formato: chFmt.value });
+  $('#vals tbody').append(tr); pintar();
+}
+$('#agregarRet').onclick = () => filaRet();
+$('#agregarVal').onclick = () => filaVal();
+
+// Resumen en centavos enteros: lo que se aplica (facturas menos notas de crédito) contra lo que se
+// paga (valores más retenciones). La base vuelve a hacer la cuenta al registrar.
+function resumen() {
+  const ap = $$('#deudas tr, #creditos tr').map(tr => tr.leer && tr.leer()).filter(Boolean);
+  const aplicado = ap.reduce((s, a) => s + (a.nc ? -1n : 1n) * centavos(a.importe), 0n);
+  const ret = $$('#rets tbody tr').reduce((s, tr) => s + centavos(tr.leer().importe), 0n);
+  const val = $$('#vals tbody tr').reduce((s, tr) => s + centavos(tr.leer().importe), 0n);
+  const dif = val + ret - aplicado;
+  $('#resumen').replaceChildren(...[['Aplicado a comprobantes', pesosC(aplicado)], ['Retenciones', pesosC(ret)], ['Valores', pesosC(val)]]
+    .flatMap(([a, b]) => [el('span', { textContent: a }), el('span', { textContent: b })]),
+    el('span', { className: 'tot', textContent: dif < 0n ? 'Falta pagar' : dif > 0n ? 'Queda como pago a cuenta' : 'Cierra' }),
+    el('span', { className: 'tot ' + (dif < 0n ? 'falta' : 'ok'), textContent: dif === 0n ? '' : pesosC(dif < 0n ? -dif : dif) }));
+}
+
+// ── Abrir, guardar, registrar ──
+async function nueva() {
+  actual = null; orden = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva orden de pago';
+  opciones(f.proveedor_id, proveedores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, 'Elegir…');
+  f.fecha.value = hoy();
+  $('#rets tbody').replaceChildren(); $('#vals tbody').replaceChildren(); filaVal();
+  $('#borrar').hidden = true; await cargarPendientes(); vista('editar'); history.replaceState(null, '', 'ordenes-pago.html');
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+async function abrir(id) {
+  try {
+    ({ orden } = await api('fin/ordenes-pago/' + id)); actual = id; msg(''); msg('', '', '#msgV');
+    history.replaceState(null, '', 'ordenes-pago.html#' + id);
+    if (orden.estado === 'borrador') {
+      $('#titulo').textContent = `${orden.nro} · ${orden.proveedor}`;
+      opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === orden.proveedor_id).map(p => [p.id, p.nombre]), orden.proveedor_id);
+      f.fecha.value = orden.fecha; f.notas.value = orden.notas || '';
+      $('#rets tbody').replaceChildren(); orden.retenciones.forEach(filaRet);
+      $('#vals tbody').replaceChildren(); orden.valores.forEach(filaVal);
+      await cargarPendientes(orden.aplicaciones);
+      $('#borrar').hidden = false; vista('editar');
+    } else ver();
+    await cargarLista();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+function ver() {
+  const o = orden;
+  $('#vTitulo').textContent = `Orden de pago ${o.nro}`;
+  $('#vSub').textContent = [o.proveedor, o.cuit ? 'CUIT ' + o.cuit : null, 'fecha ' + fecha(o.fecha),
+    o.estado === 'registrada' ? `registrada por ${o.registrado_por || '—'} el ${fechaHora(o.registrado_en)}` : null,
+    o.estado === 'anulada' ? `ANULADA por ${o.anulado_por || '—'}: ${o.motivo_anulacion}` : null, o.notas].filter(Boolean).join(' · ');
+  filas($('#vAp'), o.aplicaciones, a => el('tr', {}, td(a.nro), td(fecha(a.fecha)), td(pesos(a.total), 'num'),
+    td((a.tipo === 'nota_credito' ? '-' : '') + pesos(a.importe), 'num')), 'Pago a cuenta, sin comprobantes aplicados.', 4);
+  filas($('#vRet'), o.retenciones, r => el('tr', {}, td(IMP[r.impuesto]), td(r.jurisdiccion), td(r.regimen), td(r.certificado), td(pesos(r.importe), 'num')),
+    'Sin retenciones.', 5);
+  filas($('#vVal'), o.valores, v => el('tr', {}, td(MEDIO[v.medio]),
+    td(v.medio === 'cheque_propio' ? `${v.cuenta} · Nº ${v.cheque_nro || v.cheque_numero} · pago ${fecha(v.cheque_pago || v.cheque_fecha_pago)}${v.cheque_estado ? ' · ' + v.cheque_estado : ''}`
+       : v.medio === 'cheque_tercero' ? `${v.cheque_banco} Nº ${v.cheque_nro} · pago ${fecha(v.cheque_pago)}` : [v.cuenta, v.referencia].filter(Boolean).join(' · ')),
+    td(pesos(v.importe), 'num')), 'Sin valores.', 3);
+  const r = o.total_valores != null ? [['Aplicado', o.total_aplicado], ['Retenciones', o.total_retenciones], ['Valores', o.total_valores], ['A cuenta', o.a_cuenta]] : [];
+  $('#vResumen').replaceChildren(...r.flatMap(([a, b]) => [el('span', { textContent: a }), el('span', { textContent: pesos(b) })]));
+  $('#verCC').href = 'cuenta-corriente.html#' + o.proveedor_id;
+  $('#anular').hidden = o.estado !== 'registrada';
+  vista('ver');
+}
+function leer() {
+  return { proveedor_id: f.proveedor_id.value, fecha: f.fecha.value, notas: f.notas.value,
+    aplicaciones: $$('#deudas tr, #creditos tr').map(tr => tr.leer && tr.leer()).filter(Boolean).map(({ nc, ...a }) => a),
+    retenciones: $$('#rets tbody tr').map(tr => tr.leer()).filter(x => x.importe),
+    valores: $$('#vals tbody tr').map(tr => tr.leer()).filter(x => x.importe || x.cheque_id) };
+}
+async function guardar() {
+  const d = await api(actual ? 'fin/ordenes-pago/' + actual : 'fin/ordenes-pago', { method: actual ? 'PUT' : 'POST', body: leer() });
+  actual = d.id; return d.id;
+}
+f.onsubmit = async e => {
+  e.preventDefault(); $('#guardar').disabled = true;
+  try { const id = await guardar(); await abrir(id); msg('Guardada como borrador.', 'ok'); }
+  catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#registrar').onclick = async () => {
+  if (!confirm('Al registrarla sale la plata de las cuentas, se emiten o endosan los cheques y baja la deuda del proveedor. ¿Registrar?')) return;
+  try {
+    const id = await guardar();
+    await api(`fin/ordenes-pago/${id}/registrar`, { method: 'POST' });
+    cartera = (await api('fin/cheques?tipo=tercero&estado=en_cartera')).cheques;
+    await abrir(id); msg('Pago registrado.', 'ok', '#msgV');
+  } catch (e) { msg(e.message, 'mal'); }
+};
+$('#borrar').onclick = async () => {
+  if (!confirm('¿Borrar este borrador?')) return;
+  try { await api('fin/ordenes-pago/' + actual, { method: 'DELETE' }); await cargarLista(); nueva(); } catch (e) { msg(e.message, 'mal'); }
+};
+$('#anular').onclick = async () => {
+  const motivo = prompt('Motivo de la anulación (vuelve la plata a las cuentas, se anulan los cheques propios y los de terceros vuelven a la cartera):');
+  if (!motivo) return;
+  try { await api(`fin/ordenes-pago/${actual}/anular`, { method: 'POST', body: { motivo } }); await abrir(actual); }
+  catch (e) { msg(e.message, 'mal', '#msgV'); }
+};
+$('#ret').onclick = e => { e.preventDefault(); if (!$('#mes').value) return alert('Elegí el mes.'); location.href = 'api/fin/retenciones?mes=' + $('#mes').value; };
+$('#nueva').onclick = nueva;
+$('#fest').onchange = cargarLista;
+(async () => {
+  try {
+    let c;
+    [{ proveedores }, c, { cheques: cartera }] = await Promise.all([api('proveedores?inactivos=1'), api('fin/cuentas'),
+      api('fin/cheques?tipo=tercero&estado=en_cartera')]);
+    cuentas = c.cuentas.filter(x => x.activa && x.tipo !== 'cartera');
+    $('#mes').value = hoy().slice(0, 7);
+    await cargarLista();
+    const id = location.hash.slice(1);
+    if (id) await abrir(id); else await nueva();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

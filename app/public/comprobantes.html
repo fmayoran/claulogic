@@ -188,9 +188,6 @@ function recalcular() {
     } catch (e) { $('#resumen').replaceChildren(el('span', { className: 'msg mal', textContent: e.message })); }
   }, 250);
 }
-// La diferencia se calcula en centavos enteros: nada de float para comparar plata.
-const centavos = v => { const [e, d = ''] = String(v).replace(',', '.').split('.'); const neg = e.startsWith('-');
-  return (neg ? -1n : 1n) * (BigInt(e.replace('-', '') || '0') * 100n + BigInt((d + '00').slice(0, 2))); };
 function compararTotal() {
   const t = f.total.value.trim(); const d = $('#difTotal');
   if (!t || !calc || !/^\d+([.,]\d{1,2})?$/.test(t)) return d.replaceChildren();

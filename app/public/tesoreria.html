@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tesorería · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>tr.anulado td{color:var(--mut);} tr.anulado td.num{text-decoration:line-through;} .neg{color:var(--mal);}</style>
+</head>
+<body>
+<main class="ancho">
+  <section id="vLista">
+    <h1>Tesorería</h1>
+    <p class="sub">Bancos, cajas de cada sede y la cartera de cheques. Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
+    <div class="barra">
+      <button class="prim" id="nuevaCuenta">Nueva cuenta</button>
+      <button id="transferir">Transferir entre cuentas</button>
+      <button id="manual">Ingreso o egreso</button>
+      <button id="arquear">Arqueo de caja</button>
+    </div>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Cuenta</th><th>Tipo</th><th class="num">Saldo</th><th class="num">Cheques propios a debitar</th><th class="num">Saldo proyectado</th><th></th></tr></thead>
+      <tbody id="t"></tbody></table></div>
+    <p class="ayuda">Un cheque propio cancela la deuda al entregarlo, pero sale del banco cuando se debita: el saldo proyectado ya lo descuenta.</p>
+  </section>
+
+  <section id="vCuenta" hidden>
+    <p><a href="tesoreria.html">Volver a las cuentas</a></p>
+    <h1 id="cTitulo"></h1>
+    <p class="sub" id="cSub"></p>
+    <div class="barra">
+      <label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
+      <button id="editarCuenta">Editar cuenta</button>
+      <a id="irConciliar" href="#" hidden>Conciliar con el extracto</a>
+    </div>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Saldo</th><th>Por</th><th></th></tr></thead>
+      <tbody id="cMovs"></tbody></table></div>
+  </section>
+</main>
+
+<dialog id="dCuenta"><form id="fc" novalidate>
+  <h2 id="dcTitulo">Nueva cuenta</h2>
+  <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label>
+    <label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option></select></label></div>
+  <div class="fila" id="fcSede"><label>Sede *<select name="sede_id"></select></label></div>
+  <div class="fila" id="fcBanco"><label>Banco<input name="banco"></label><label>Número de cuenta<input name="numero"></label></div>
+  <div class="fila" id="fcCbu"><label>CBU<input name="cbu" inputmode="numeric" maxlength="22"></label><label>Alias<input name="alias"></label></div>
+  <label class="check" id="fcActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>
+  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgC"></span></div>
+</form></dialog>
+
+<dialog id="dTransf"><form id="ft" novalidate>
+  <h2>Transferir entre cuentas</h2>
+  <div class="fila"><label>Desde *<select name="origen_id"></select></label><label>Hacia *<select name="destino_id"></select></label></div>
+  <div class="fila"><label>Importe *<input name="importe" inputmode="decimal"></label><label>Fecha<input name="fecha" type="date"></label></div>
+  <div class="fila"><label>Concepto<input name="concepto" placeholder="Extracción para caja, depósito de efectivo…"></label></div>
+  <div class="acciones"><button type="submit" class="prim">Transferir</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgT"></span></div>
+</form></dialog>
+
+<dialog id="dManual"><form id="fm" novalidate>
+  <h2>Ingreso o egreso</h2>
+  <p class="ayuda" style="margin:0 0 12px">Lo que no es un pago a proveedor: comisiones, impuestos bancarios, aportes, gastos de caja. Los pagos van por orden de pago.</p>
+  <div class="fila"><label>Cuenta *<select name="cuenta_id"></select></label><label>Tipo *<select name="tipo"><option value="egreso">Egreso</option><option value="ingreso">Ingreso</option></select></label></div>
+  <div class="fila"><label>Importe *<input name="importe" inputmode="decimal"></label><label>Fecha<input name="fecha" type="date"></label></div>
+  <div class="fila"><label>Concepto *<input name="concepto"></label></div>
+  <div class="acciones"><button type="submit" class="prim">Registrar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgM"></span></div>
+</form></dialog>
+
+<dialog id="dArqueo"><form id="fa" novalidate>
+  <h2>Arqueo de caja</h2>
+  <p class="ayuda" style="margin:0 0 12px">Contá el efectivo y cargalo. Si no coincide con el sistema, se asienta un sobrante o un faltante por la diferencia.</p>
+  <div class="fila"><label>Caja *<select name="cuenta_id"></select></label><label>En el sistema<input id="arqSistema" disabled></label></div>
+  <div class="fila"><label>Contado *<input name="contado" inputmode="decimal"></label><label>Motivo *<input name="motivo" placeholder="arqueo de cierre, cambio de turno…"></label></div>
+  <div id="arqResultado" class="ayuda"></div>
+  <div class="acciones"><button type="submit" class="prim">Asentar arqueo</button><button type="button" data-cerrar>Cerrar</button><span class="msg" id="msgA"></span></div>
+</form></dialog>
+
+<script src="comun.js"></script>
+<script>
+const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques' };
+const MOV = { pago: 'Pago', transferencia: 'Transferencia', ingreso: 'Ingreso', egreso: 'Egreso', arqueo: 'Arqueo',
+  alta_cheque: 'Alta de cheque', endoso: 'Endoso', deposito_cheque: 'Depósito de cheque', debito_cheque: 'Débito de cheque', anulacion: 'Anulación' };
+let cuentas = [], sedes = [], actual = null;
+const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
+$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+const opcCuentas = (sel, filtro, vacio = 'Elegir…') => opciones(sel, cuentas.filter(c => c.activa && filtro(c)).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), null, vacio);
+
+async function cargar() {
+  ({ cuentas } = await api('fin/cuentas'));
+  filas($('#t'), cuentas, c => {
+    const tr = el('tr', { className: 'clic' + (c.activa ? '' : ' anulado') },
+      td(c.nombre + (c.sede ? ` · ${c.sede}` : '')), td(TIPO[c.tipo]),
+      td(pesos(c.saldo), 'num' + (c.saldo.startsWith('-') ? ' neg' : '')),
+      td(cero(c.cheques_pendientes) ? '' : pesos(c.cheques_pendientes), 'num'),
+      td(c.tipo === 'banco' ? pesos(c.proyectado) : '', 'num'),
+      el('td', {}, c.lineas_sin_conciliar ? el('span', { className: 'tag aviso', textContent: `${c.lineas_sin_conciliar} sin conciliar` }) : ''));
+    tr.onclick = () => { location.hash = c.id; };
+    return tr;
+  }, 'Todavía no hay cuentas.', 6);
+}
+
+async function verCuenta(id) {
+  const c = cuentas.find(x => x.id === id); if (!c) return ruta('');
+  actual = c;
+  $('#cTitulo').textContent = c.nombre;
+  $('#cSub').textContent = [TIPO[c.tipo], c.sede, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
+    'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
+  $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
+  $('#editarCuenta').hidden = c.tipo === 'cartera';
+  const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
+  const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
+  filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },
+    td(fecha(m.fecha)), el('td', { className: 'wrap' }, `${MOV[m.tipo]}${m.concepto ? ': ' + m.concepto : ''} `,
+      m.conciliado ? el('span', { className: 'tag ok', textContent: 'conciliado' }) : '',
+      m.orden_pago_id ? el('a', { href: 'ordenes-pago.html#' + m.orden_pago_id, textContent: ' ver orden' }) : ''),
+    td(cero(m.entrada) ? '' : pesos(m.entrada), 'num'), td(cero(m.salida) ? '' : pesos(m.salida), 'num'),
+    td(pesos(m.saldo), 'num'), td(m.registrado_por),
+    el('td', {}, ['ingreso', 'egreso', 'transferencia'].includes(m.tipo) && !m.anulado ?
+      el('button', { className: 'chico', textContent: 'Anular', onclick: () => anular(m) }) : '')), 'Sin movimientos en el período.', 7);
+}
+async function anular(m) {
+  const motivo = prompt(`Motivo de la anulación de "${m.concepto || MOV[m.tipo]}"` + (m.tipo === 'transferencia' ? ' (se anulan las dos patas)' : '') + ':');
+  if (!motivo) return;
+  try { await api(`fin/movimientos/${m.id}/anular`, { method: 'POST', body: { motivo } }); await cargar(); verCuenta(actual.id); }
+  catch (e) { alert(e.message); }
+}
+$('#desde').onchange = $('#hasta').onchange = () => verCuenta(actual.id);
+
+// ── Diálogos ──
+const fc = $('#fc');
+function abrirCuenta(c = null) {
+  fc.reset(); msg('', '', '#msgC'); $('#dcTitulo').textContent = c ? 'Editar cuenta' : 'Nueva cuenta';
+  opciones(fc.sede_id, sedes.map(s => [s.id, s.nombre]), c && c.sede_id, 'Elegir…');
+  if (c) for (const k of ['nombre', 'tipo', 'banco', 'numero', 'cbu', 'alias']) fc[k].value = c[k] || '';
+  fc.activa.checked = c ? c.activa : true; $('#fcActiva').hidden = !c;
+  fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
+  $('#dCuenta').showModal();
+}
+fc.tipo.onchange = () => { const banco = fc.tipo.value === 'banco'; $('#fcSede').hidden = banco; $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco; };
+fc.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));
+  body.activa = fc.activa.checked;
+  try {
+    await api(fc.dataset.id ? 'fin/cuentas/' + fc.dataset.id : 'fin/cuentas', { method: fc.dataset.id ? 'PUT' : 'POST', body });
+    $('#dCuenta').close(); await cargar(); if (actual) verCuenta(actual.id);
+  } catch (e) { msg(e.message, 'mal', '#msgC'); }
+};
+$('#nuevaCuenta').onclick = () => abrirCuenta();
+$('#editarCuenta').onclick = () => abrirCuenta(actual);
+
+const ft = $('#ft');
+$('#transferir').onclick = () => { ft.reset(); msg('', '', '#msgT'); opcCuentas(ft.origen_id, c => c.tipo !== 'cartera'); opcCuentas(ft.destino_id, c => c.tipo !== 'cartera'); $('#dTransf').showModal(); };
+ft.onsubmit = async e => {
+  e.preventDefault();
+  try { await api('fin/transferencias', { method: 'POST', body: Object.fromEntries(new FormData(ft)) }); $('#dTransf').close(); await cargar(); }
+  catch (e) { msg(e.message, 'mal', '#msgT'); }
+};
+
+const fm = $('#fm');
+$('#manual').onclick = () => { fm.reset(); msg('', '', '#msgM'); opcCuentas(fm.cuenta_id, c => c.tipo !== 'cartera'); if (actual && actual.tipo !== 'cartera') fm.cuenta_id.value = actual.id; $('#dManual').showModal(); };
+fm.onsubmit = async e => {
+  e.preventDefault();
+  try { await api('fin/movimientos', { method: 'POST', body: Object.fromEntries(new FormData(fm)) }); $('#dManual').close(); await cargar(); if (actual) verCuenta(actual.id); }
+  catch (e) { msg(e.message, 'mal', '#msgM'); }
+};
+
+const fa = $('#fa');
+const mostrarSistema = () => { const c = cuentas.find(x => x.id === fa.cuenta_id.value); $('#arqSistema').value = c ? pesos(c.saldo) : ''; };
+$('#arquear').onclick = () => {
+  fa.reset(); msg('', '', '#msgA'); $('#arqResultado').textContent = '';
+  opcCuentas(fa.cuenta_id, c => c.tipo === 'caja'); if (actual && actual.tipo === 'caja') fa.cuenta_id.value = actual.id;
+  mostrarSistema(); $('#dArqueo').showModal();
+};
+fa.cuenta_id.onchange = mostrarSistema;
+fa.onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const { arqueo: a } = await api('fin/arqueos', { method: 'POST', body: Object.fromEntries(new FormData(fa)) });
+    $('#arqResultado').textContent = cero(a.diferencia) ? `Cerraba: el sistema tenía ${pesos(a.sistema)}.`
+      : `Sistema ${pesos(a.sistema)}, contado ${pesos(a.contado)}: se asentó un ${a.diferencia.startsWith('-') ? 'faltante' : 'sobrante'} de ${pesos(a.diferencia.replace('-', ''))}.`;
+    await cargar(); mostrarSistema(); if (actual) verCuenta(actual.id);
+  } catch (e) { msg(e.message, 'mal', '#msgA'); }
+};
+
+function ruta() {
+  const id = location.hash.slice(1);
+  $('#vLista').hidden = !!id; $('#vCuenta').hidden = !id;
+  if (!id) { actual = null; return; }
+  verCuenta(id).catch(e => alert(e.message));
+}
+addEventListener('hashchange', ruta);
+(async () => {
+  try { [, { sedes }] = await Promise.all([cargar(), api('sedes')]); sedes = sedes.filter(s => s.activa); ruta(); }
+  catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>
