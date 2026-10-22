@@ -200,6 +200,18 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Cuenta corriente** = libro mayor inmutable `fin.movimiento_cc` (haber: lo que se debe; debe: lo que
   lo baja). El saldo se deriva (`fin.saldo_proveedor`), como el stock. `fin.comprobante_pendiente`:
   hasta la fase 3, pendiente = total menos notas de crédito asociadas.
+- **Factura directa** (sin compra): en los renglones, la descripción ofrece los productos (trae unidad de
+  referencia y alícuota habitual, y queda vinculada) o acepta un concepto libre (flete, servicio). Registra la
+  deuda; la mercadería entra al stock sólo al recibir una compra. **Recibir mercadería** (factura que llega
+  con la mercadería, decisión de Fer): desde la factura directa (borrador o registrada, con renglones de
+  producto y sin compra vinculada) `POST /compras/desde-comprobante/:id` arma la compra pedida con esos
+  renglones (unidad del renglón = código de unidad o nombre de presentación; precio = importe redondeado),
+  la vincula y abre la recepción (`compras.html#<id>/recibir`). A una factura registrada se le puede
+  SUMAR un vínculo con compra (migración 20261102); guardar un borrador no borra el vínculo con una
+  compra todavía sin recibir. **Vencimiento** propuesto: fecha del
+  comprobante + plazo del proveedor (sin plazo, la misma fecha), editable.
+- **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
+  Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
   Factura A exige CUIT del proveedor. Proveedor con condición IVA y plazo de pago (propone vencimiento).
   Producto con **alícuota habitual** (21 por defecto; 10,5 para carnes, frutas, verduras, harinas).

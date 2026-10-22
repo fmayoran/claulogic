@@ -34,7 +34,7 @@
         <fieldset>
           <legend>Datos</legend>
           <div class="fila">
-            <label>Proveedor *<select name="proveedor_id"></select></label>
+            <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
             <label>Número / remito<input name="numero" maxlength="40"></label>
             <label>Fecha<input name="fecha" type="date"></label>
           </div>
@@ -186,6 +186,12 @@ async function filaItem(x = {}) {
   return tr;
 }
 $('#agregar').onclick = () => filaItem();
+$('#provNuevo').onclick = async () => {
+  const p = await nuevoProveedor(); if (!p) return;
+  proveedores.push(p); $('#sinProv').hidden = true;
+  opciones(f.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
+  marcarCambios(f); recalcular();
+};
 
 // Escanear al cargar: agrega el renglón con el producto y, si el código era de un empaque, esa
 // presentación. Si la última fila está vacía, se usa esa.
@@ -384,8 +390,14 @@ $('#fest').onchange = cargarLista;
     $('#sinProv').hidden = proveedores.length > 0;
     yo = (await cargarSesion()).usuario;
     await nueva(); await cargarLista();
-    // Volver a una compra desde la factura o el pago: compras.html#<id>.
-    if (location.hash.length > 1) await abrir(location.hash.slice(1));
+    // Volver a una compra desde la factura o el pago: compras.html#<id>. Con /recibir (armada desde
+    // una factura), abre directo la recepción.
+    const [hid, accion] = location.hash.slice(1).split('/');
+    if (hid) {
+      await abrir(hid);
+      if (accion === 'recibir' && compra && ['borrador', 'pedida'].includes(compra.estado)) abrirRecepcion();
+      history.replaceState(null, '', 'compras.html');
+    }
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>

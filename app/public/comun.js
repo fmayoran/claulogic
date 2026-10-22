@@ -519,3 +519,35 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg); dlg.showModal(); importe.focus();
 }
+
+// ── Proveedor nuevo sin salir de la pantalla ────────────────────────────────────────────────
+// Desde la factura o la compra: lo mínimo para cargarlo (el resto, en Proveedores). Devuelve el
+// proveedor creado, o null si se canceló.
+function nuevoProveedor() {
+  return new Promise(resolve => {
+    const f = el('form', { novalidate: true });
+    const nombre = el('input', { name: 'nombre', maxLength: 120 }), cuit = el('input', { name: 'cuit', placeholder: '30-12345678-9' });
+    const cond = el('select', { name: 'condicion_iva' }), plazo = el('input', { name: 'plazo', inputMode: 'numeric', placeholder: 'sin plazo' });
+    opciones(cond, [['responsable_inscripto', 'Responsable inscripto'], ['monotributo', 'Monotributo'], ['exento', 'Exento'], ['no_categorizado', 'No categorizado']], null, 'Sin indicar');
+    const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Crear proveedor' });
+    let creado = null;
+    const dlg = el('dialog', {}, el('h2', { textContent: 'Nuevo proveedor' }), f);
+    f.append(el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre)),
+      el('div', { className: 'fila' }, el('label', {}, 'CUIT', cuit), el('label', {}, 'Condición frente al IVA', cond)),
+      el('div', { className: 'fila' }, el('label', {}, 'Plazo de pago (días)', plazo)),
+      el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+      el('p', { className: 'ayuda', textContent: 'Contacto, teléfono y notas se completan después en Proveedores.' }));
+    f.onsubmit = async e => {
+      e.preventDefault(); btn.disabled = true;
+      try {
+        const body = { nombre: nombre.value, cuit: cuit.value, condicion_iva: cond.value, plazo_pago_dias: plazo.value };
+        const { id } = await api('proveedores', { method: 'POST', body });
+        creado = { id, ...body, cuit: cuit.value.replace(/\D/g, '') || null, plazo_pago_dias: plazo.value || null, activo: true };
+        dlg.close();
+      } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+      finally { btn.disabled = false; }
+    };
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(creado); });
+    document.body.append(dlg); dlg.showModal(); nombre.focus();
+  });
+}

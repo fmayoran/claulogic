@@ -186,6 +186,7 @@ async function cerrarSesionActual(req) {
 //   catalogo:  encargado del centro. Productos, recetas, proveedores, unidades y compras son del
 //              grupo entero, y los administra quien abastece.
 //   finanzas:  comprobantes de proveedor, cuenta corriente y libro IVA. Global, lo da un admin.
+//   proveedor: dar de alta o editar un proveedor: el catálogo o finanzas (lo carga quien recibe la factura).
 //   admin:     usuarios, sedes y dispositivos.
 function puede(u, permiso) {
   if (!u) return false;
@@ -197,6 +198,7 @@ function puede(u, permiso) {
     case 'gestionar': return roles.some(r => r.rol === 'encargado');
     case 'catalogo': return roles.some(r => r.rol === 'encargado' && r.tipo === 'centro');
     case 'finanzas': return !!u.finanzas;
+    case 'proveedor': return puede(u, 'catalogo') || puede(u, 'finanzas');
     default: return false;
   }
 }
@@ -208,6 +210,7 @@ const NOMBRE_PERMISO = {
   catalogo: 'El catálogo, las recetas y las compras los gestiona el encargado del centro.',
   admin: 'Sólo un administrador puede hacer esto.',
   finanzas: 'Hace falta permiso de finanzas para esto.',
+  proveedor: 'Los proveedores los cargan el encargado del centro o finanzas.',
 };
 
 function exigir(req, permiso) {
@@ -265,6 +268,7 @@ const POLITICA = [
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/articulos\//, 'gestionar'],
   [/^\/pos\/medios\//, 'finanzas'],
+  [/^\/proveedores(\/[^/]+)?$/, 'proveedor'],
 ];
 const SOLO_ADMIN_LECTURA = /^\/(usuarios|dispositivos|accesos)(\/|$)/;
 

@@ -108,6 +108,45 @@ r.post('/compras', h(async (req, res) => {
   res.status(201).json({ ok: true, id });
 }));
 
+// La factura que llega con la mercadería: arma la compra con los renglones de producto de la factura
+// (misma cantidad, unidad y precio), la vincula y la deja pedida, lista para recibir. La unidad del
+// renglón tiene que ser una unidad (kg, l, u…) o el nombre de una presentación del producto.
+r.post('/compras/desde-comprobante/:id', h(async (req, res) => {
+  const id = await enTransaccion(async c => {
+    const { rows: [f] } = await c.query(
+      `SELECT id, proveedor_id, fecha, estado, tipo,
+              CASE tipo WHEN 'factura' THEN 'FC' WHEN 'nota_debito' THEN 'ND' ELSE 'NC' END || ' ' || letra || ' ' ||
+              lpad(punto_venta::text, 5, '0') || '-' || lpad(numero::text, 8, '0') AS nro
+         FROM fin.comprobante WHERE id = $1::uuid FOR UPDATE`, [req.params.id]);
+    if (!f) throw new ErrorUsuario('No existe ese comprobante.', 404);
+    if (f.estado === 'anulado') throw new ErrorUsuario('El comprobante está anulado.');
+    if (f.tipo === 'nota_credito') throw new ErrorUsuario('Una nota de crédito no trae mercadería.');
+    const { rows: [ya] } = await c.query('SELECT 1 FROM fin.comprobante_compra WHERE comprobante_id = $1', [f.id]);
+    if (ya) throw new ErrorUsuario('Este comprobante ya tiene una compra vinculada: recibila desde Compras.');
+    const { rows } = await c.query(
+      `SELECT i.producto_id, i.unidad, trim_scale(i.cantidad)::text AS cantidad, round(i.importe)::text AS importe, p.nombre,
+              (SELECT u.codigo FROM logic.unidad u WHERE lower(u.codigo) = lower(btrim(i.unidad))) AS unidad_cod,
+              (SELECT pr.id FROM logic.presentacion pr WHERE pr.producto_id = i.producto_id
+                  AND lower(btrim(pr.nombre)) = lower(btrim(i.unidad)) LIMIT 1) AS presentacion_id
+         FROM fin.comprobante_item i JOIN logic.producto p ON p.id = i.producto_id
+        WHERE i.comprobante_id = $1 AND i.compra_item_id IS NULL ORDER BY i.orden`, [f.id]);
+    if (!rows.length) throw new ErrorUsuario('El comprobante no tiene renglones con producto: elegí los productos de la lista en la descripción.');
+    const items = rows.map(x => {
+      if (x.unidad && !x.unidad_cod && !x.presentacion_id)
+        throw new ErrorUsuario(`${x.nombre}: no reconozco la unidad "${x.unidad}". Usá kg, g, l, ml o u, o el nombre de una presentación del producto.`);
+      return { producto_id: x.producto_id, presentacion_id: x.unidad_cod ? null : x.presentacion_id, unidad: x.unidad_cod,
+               cantidad: x.cantidad, precio_total: x.importe };
+    });
+    const { rows: [n] } = await c.query(
+      `INSERT INTO logic.compra (proveedor_id, numero, fecha, notas, estado) VALUES ($1, $2, $3, $4, 'pedida') RETURNING id`,
+      [f.proveedor_id, f.nro, f.fecha, 'Armada desde ' + f.nro]);
+    await guardarItems(c, n.id, items);
+    await c.query('INSERT INTO fin.comprobante_compra (comprobante_id, compra_id) VALUES ($1, $2)', [f.id, n.id]);
+    return n.id;
+  });
+  res.status(201).json({ ok: true, id });
+}));
+
 // Los triggers de la base frenan la edición de una compra recibida o anulada.
 r.put('/compras/:id', h(async (req, res) => {
   const b = leerCompra(req.body);

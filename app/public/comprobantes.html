@@ -34,7 +34,7 @@
           <label class="check" style="margin-bottom:12px"><input type="checkbox" name="fiscal" checked> Comprobante fiscal (factura con CAE)</label>
           <p class="ayuda" id="ayudaFiscal" hidden style="margin-top:-6px">No fiscal (X): precio final sin IVA discriminado y número opcional. Se paga y entra en la cuenta corriente igual que una factura, pero no va al libro IVA.</p>
           <div class="fila">
-            <label>Proveedor *<select name="proveedor_id"></select></label>
+            <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
             <label>Tipo *<select name="tipo"><option value="factura">Factura</option><option value="nota_credito">Nota de crédito</option><option value="nota_debito">Nota de débito</option></select></label>
             <label id="letraWrap">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option><option value="X" hidden>X</option></select></label>
           </div>
@@ -65,6 +65,9 @@
             <thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th id="thPrecio">Precio neto</th><th>Desc. %</th><th class="col-iva">IVA</th><th class="num">Importe</th><th></th></tr></thead>
             <tbody></tbody></table></div>
           <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
+          <datalist id="dlProductos"></datalist>
+          <p class="ayuda">En la descripción, elegí un producto de la lista (trae unidad y alícuota) o escribí un concepto: flete,
+            servicio, gas. La factura registra la deuda; la mercadería entra al stock cuando se recibe la compra.</p>
           <h3>Percepciones e impuestos</h3>
           <div style="overflow-x:auto"><table class="edit" id="tributos">
             <thead><tr><th>Tipo</th><th>Jurisdicción</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -80,6 +83,7 @@
         <div class="acciones">
           <button type="submit" class="prim" id="guardar">Guardar borrador</button>
           <button type="button" id="registrar" hidden>Registrar</button>
+          <button type="button" id="recibirE" hidden>Guardar y recibir mercadería</button>
           <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
           <a id="volverCompra" hidden>Volver a la compra</a>
           <span class="msg" id="msg"></span>
@@ -99,6 +103,7 @@
         <tbody id="vMovs"></tbody></table></div>
       <div class="acciones">
         <button type="button" class="prim" id="pagar" hidden>Pagar</button>
+        <button type="button" id="recibirV" hidden>Recibir mercadería</button>
         <a id="verCC" href="cuenta-corriente.html">Ver cuenta corriente del proveedor</a>
         <span id="verCompras"></span>
         <button type="button" class="peligro" id="anular" hidden>Anular</button>
@@ -113,7 +118,7 @@ const TIPO = { factura: 'Factura', nota_credito: 'Nota de crédito', nota_debito
 const TRIB = { percepcion_iibb: 'Percepción IIBB', percepcion_iva: 'Percepción IVA', percepcion_ganancias: 'Percepción Ganancias',
                impuesto_interno: 'Impuesto interno', otro: 'Otro' };
 const ALIC = [['21', '21%'], ['10.5', '10,5%'], ['27', '27%'], ['5', '5%'], ['2.5', '2,5%'], ['0', '0%'], ['', 'Exento']];
-let comprobantes = [], proveedores = [], productos = [], actual = null, comp = null, calc = null;
+let comprobantes = [], proveedores = [], productos = [], actual = null, comp = null, calc = null, yo = null;
 const f = $('#f');
 const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
 const discrimina = () => ['A', 'M'].includes(f.letra.value);
@@ -137,7 +142,8 @@ async function cargarLista() {
 
 // ── Renglones ──
 function filaItem(x = {}) {
-  const desc = el('input', { value: x.descripcion || '', placeholder: 'producto o concepto', style: 'min-width:200px' });
+  const desc = el('input', { value: x.descripcion || '', placeholder: 'producto o concepto', style: 'min-width:200px', autocomplete: 'off' });
+  desc.setAttribute('list', 'dlProductos');
   const unidad = el('input', { value: x.unidad || '', style: 'width:110px' });
   const cantidad = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:90px' });
   const precio = el('input', { inputMode: 'numeric', value: miles(x.precio), style: 'width:120px' });
@@ -151,10 +157,20 @@ function filaItem(x = {}) {
   Object.assign(tr, { imp, datos: { producto_id: x.producto_id || null, compra_item_id: x.compra_item_id || null } });
   tr.leer = () => ({ ...tr.datos, descripcion: desc.value, unidad: unidad.value, cantidad: cantidad.value, precio: precio.value,
                      descuento: descu.value, alicuota: discrimina() ? alic.value : '' });
+  // Producto elegido de la lista: queda vinculado y trae su unidad de referencia y su alícuota habitual.
+  desc.addEventListener('change', () => {
+    const p = productos.find(p => etiquetaProducto(p) === desc.value);
+    if (!p) return;
+    tr.datos.producto_id = p.id; desc.value = p.nombre;
+    if (!unidad.value) unidad.value = p.costo_unidad || p.unidad_base;
+    if (discrimina()) alic.value = p.alicuota_iva ?? '';
+    if (!cantidad.value) cantidad.focus();
+  });
   tr.addEventListener('input', recalcular); tr.addEventListener('change', recalcular);
   $('#items tbody').append(tr);
   return tr;
 }
+const etiquetaProducto = p => `${p.nombre} (${p.codigo})`;
 function filaTrib(t = {}) {
   const tipo = el('select'); opciones(tipo, Object.entries(TRIB), t.tipo || 'percepcion_iibb');
   const jur = el('input', { value: t.jurisdiccion || '', placeholder: 'CABA, Buenos Aires…' });
@@ -219,7 +235,8 @@ const provSel = () => proveedores.find(p => p.id === f.proveedor_id.value);
 async function alCambiarProveedor(vinculadas = []) {
   const p = provSel();
   $('#ayudaProv').textContent = p ? [p.cuit ? 'CUIT ' + p.cuit : 'Sin CUIT cargado', p.condicion_iva ? p.condicion_iva.replace('_', ' ') : null,
-    p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días (si no ponés vencimiento, se calcula)` : null].filter(Boolean).join(' · ') : '';
+    p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ') : '';
+  proponerVencimiento();
   if (p && !actual && f.fiscal.checked) f.letra.value = letraSugerida();
   f.letra.onchange();
   await Promise.all([cargarCompras(vinculadas), cargarAsociables()]);
@@ -247,15 +264,33 @@ async function cargarAsociables(valor) {
   opciones(f.asociado_id, facturas.map(x => [x.id, `${x.nro} · ${fecha(x.fecha)} · ${pesos(x.total)}`]), valor ?? f.asociado_id.value, 'Ninguna');
 }
 f.proveedor_id.onchange = () => alCambiarProveedor();
+$('#provNuevo').onclick = async () => {
+  const p = await nuevoProveedor(); if (!p) return;
+  proveedores.push(p);
+  opciones(f.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
+  marcarCambios(f); await alCambiarProveedor();
+};
+// Vencimiento: arranca en la fecha del comprobante más el plazo del proveedor (sin plazo, la misma
+// fecha) y la sigue mientras no se lo cambie a mano.
+let vencTocado = false;
+function proponerVencimiento() {
+  if (vencTocado || !f.fecha.value) return;
+  const p = provSel(), d = new Date(f.fecha.value + 'T12:00:00');
+  d.setDate(d.getDate() + Number((p && p.plazo_pago_dias) || 0));
+  f.vencimiento.value = d.toISOString().slice(0, 10);
+}
+f.fecha.addEventListener('change', proponerVencimiento);
+f.vencimiento.addEventListener('input', () => { vencTocado = true; });
 
 // ── Abrir, guardar, registrar ──
 async function nuevo() {
-  actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante';
+  actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante'; vencTocado = false;
   opciones(f.proveedor_id, proveedores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, 'Elegir…');
   f.fecha.value = hoy();
   $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem(); aplicarFiscal();
   // Se puede registrar directo, sin guardar antes el borrador: registrar guarda primero.
   $('#registrar').hidden = false; $('#borrar').hidden = true; $('#asocWrap').hidden = true; $('#volverCompra').hidden = true;
+  $('#recibirE').hidden = !yo.puede.catalogo;
   await alCambiarProveedor(); vista('editar'); history.replaceState(null, '', 'comprobantes.html');
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
@@ -269,6 +304,7 @@ async function desdeCompra(compraId, proveedorId) {
   if (b) b.closest('.item-compra').querySelector('button').click();
   marcarCambios(f);
   $('#volverCompra').hidden = false; $('#volverCompra').href = 'compras.html#' + compraId;
+  $('#recibirE').hidden = true;
   msg('Renglones copiados de la compra. Completá letra, punto de venta, número, percepciones y el total impreso.', 'ok');
   f.punto_venta.focus();
 }
@@ -280,13 +316,14 @@ async function abrir(id) {
       $('#titulo').textContent = comp.nro + ' · ' + comp.proveedor;
       opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === comp.proveedor_id).map(p => [p.id, p.nombre]), comp.proveedor_id);
       for (const k of ['tipo', 'letra', 'punto_venta', 'numero', 'fecha', 'vencimiento', 'cae', 'notas']) f[k].value = comp[k] ?? '';
-      f.fiscal.checked = comp.letra !== 'X'; aplicarFiscal();
+      f.fiscal.checked = comp.letra !== 'X'; aplicarFiscal(); vencTocado = true;
       $('#asocWrap').hidden = comp.tipo === 'factura';
       $('#items tbody').replaceChildren(); comp.items.forEach(filaItem);
       $('#tributos tbody').replaceChildren(); comp.tributos.forEach(filaTrib);
       await alCambiarProveedor(comp.compras.map(c => c.id)); await cargarAsociables(comp.asociado_id);
       f.total.value = '';
       $('#registrar').hidden = false; $('#borrar').hidden = false;
+      $('#recibirE').hidden = !yo.puede.catalogo || comp.compras.length > 0;
       vista('editar'); recalcular();
     } else ver();
     await cargarLista();
@@ -317,6 +354,9 @@ function ver() {
   $('#pagar').textContent = c.pendiente && alPeso(c.pendiente) > 0n ? `Pagar ${pesos(c.pendiente)}` : 'Pagar';
   $('#pagar').onclick = () => pagoRapido({ proveedor_id: c.proveedor_id, comprobante_id: c.id, pendiente: c.pendiente, nro: comp.nro || $('#vTitulo').textContent,
     alPagar: async () => { await abrir(c.id); msg('Pago registrado.', 'ok', '#msgV'); } });
+  // Factura directa con productos y sin compra: armar la compra desde acá y recibirla.
+  $('#recibirV').hidden = !(yo.puede.catalogo && c.estado !== 'anulado' && c.tipo !== 'nota_credito' && !c.compras.length
+    && c.items.some(i => i.producto_id && !i.compra_item_id));
   $('#verCompras').replaceChildren(...c.compras.map(x => el('a', { href: 'compras.html#' + x.id, textContent: 'Ver compra ' + (x.numero || fecha(x.fecha)), style: 'margin-left:14px' })));
   vista('ver');
 }
@@ -348,6 +388,16 @@ $('#registrar').onclick = async () => {
     await abrir(id); msg('Registrado.', 'ok', '#msgV');
   } catch (e) { msg(e.message, 'mal'); }
 };
+// Recibir mercadería: arma la compra con los renglones de producto, la vincula y abre la recepción.
+async function recibirMercaderia(id) {
+  const { id: compra } = await api('compras/desde-comprobante/' + id, { method: 'POST' });
+  location.href = `compras.html#${compra}/recibir`;
+}
+$('#recibirV').onclick = () => recibirMercaderia(actual).catch(e => msg(e.message, 'mal', '#msgV'));
+$('#recibirE').onclick = async () => {
+  if (!$$('#items tbody tr').some(tr => tr.leer().producto_id)) return msg('Ningún renglón tiene producto: elegilos de la lista en la descripción.', 'mal');
+  try { const id = await guardar(); await recibirMercaderia(id); } catch (e) { msg(e.message, 'mal'); }
+};
 $('#borrar').onclick = async () => {
   if (!confirm('¿Borrar este borrador?')) return;
   try { await api('fin/comprobantes/' + actual, { method: 'DELETE' }); await cargarLista(); nuevo(); } catch (e) { msg(e.message, 'mal'); }
@@ -368,7 +418,8 @@ let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(cargarLista,
 $('#fest').onchange = cargarLista;
 (async () => {
   try {
-    [{ proveedores }, productos] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos()]);
+    [{ proveedores }, productos, { usuario: yo }] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos(), cargarSesion()]);
+    $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
     $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
     const id = location.hash.slice(1), q = new URLSearchParams(location.search);

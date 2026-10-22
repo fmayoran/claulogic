@@ -137,7 +137,10 @@ function leerComprobante(b) {
 async function guardarDetalle(cn, id, c) {
   await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [id]);
   await cn.query('DELETE FROM fin.comprobante_tributo WHERE comprobante_id = $1', [id]);
-  await cn.query('DELETE FROM fin.comprobante_compra WHERE comprobante_id = $1', [id]);
+  // Las compras todavía sin recibir no aparecen para tildar (las armadas con "Recibir mercadería"):
+  // guardar el borrador no les quita el vínculo.
+  await cn.query(`DELETE FROM fin.comprobante_compra x USING logic.compra co
+                   WHERE x.comprobante_id = $1 AND co.id = x.compra_id AND co.estado = 'recibida'`, [id]);
   for (const [i, x] of c.items.entries())
     await cn.query(
       `INSERT INTO fin.comprobante_item (comprobante_id, orden, producto_id, compra_item_id, descripcion, unidad,
@@ -150,7 +153,7 @@ async function guardarDetalle(cn, id, c) {
   for (const compra of new Set(c.compras)) {
     const { rows: [co] } = await cn.query('SELECT proveedor_id, estado FROM logic.compra WHERE id = $1::uuid', [compra]);
     if (!co || co.proveedor_id !== c.proveedor_id) throw new ErrorUsuario('Una compra vinculada no es de este proveedor.');
-    await cn.query('INSERT INTO fin.comprobante_compra (comprobante_id, compra_id) VALUES ($1,$2)', [id, compra]);
+    await cn.query('INSERT INTO fin.comprobante_compra (comprobante_id, compra_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [id, compra]);
   }
 }
 
