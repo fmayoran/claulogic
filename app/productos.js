@@ -8,19 +8,40 @@ const COSTO_REF = enRef('p.costo_base');
 const r = express.Router();
 
 // ── Categorías ───────────────────────────────────────────────────────────────────────────────
+// El prefijo arma el SKU automático (LAC-0001). Vacío al crear: lo sugiere la base desde el nombre.
 r.get('/categorias', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT c.id, c.nombre, c.activa, COUNT(p.id)::int AS productos
+    `SELECT c.id, c.nombre, c.prefijo, c.activa, COUNT(p.id)::int AS productos,
+            logic.siguiente_sku(c.id) AS siguiente_sku
        FROM logic.categoria c LEFT JOIN logic.producto p ON p.categoria_id = c.id
       GROUP BY c.id ORDER BY c.nombre`);
   res.json({ ok: true, categorias: rows });
 }));
 
+function leerCategoria(b) {
+  const prefijo = (texto(b.prefijo) || '').toUpperCase() || null;
+  if (prefijo && !/^[A-Z0-9]{2,6}$/.test(prefijo))
+    throw new ErrorUsuario('El prefijo va de 2 a 6 letras o números, sin espacios ni acentos.');
+  return { nombre: texto(b.nombre, { campo: 'el nombre de la categoría', requerido: true }), prefijo,
+           activa: b.activa === undefined ? true : !!b.activa };
+}
+
 r.post('/categorias', h(async (req, res) => {
-  const nombre = texto(req.body.nombre, { campo: 'el nombre de la categoría', requerido: true });
-  const { rows: [c] } = await pool.query(
-    'INSERT INTO logic.categoria (nombre) VALUES ($1) RETURNING id, nombre, activa', [nombre]);
-  res.status(201).json({ ok: true, categoria: c });
+  const c = leerCategoria(req.body);
+  const { rows: [n] } = await pool.query(
+    'INSERT INTO logic.categoria (nombre, prefijo) VALUES ($1, $2) RETURNING id, nombre, prefijo, activa', [c.nombre, c.prefijo]);
+  res.status(201).json({ ok: true, categoria: n });
+}));
+
+// Cambiar el prefijo no toca los SKU que ya existen: sólo los que se generen de ahí en más.
+r.put('/categorias/:id', h(async (req, res) => {
+  const c = leerCategoria(req.body);
+  if (!c.prefijo) throw new ErrorUsuario('Falta el prefijo.');
+  const { rows: [n] } = await pool.query(
+    `UPDATE logic.categoria SET nombre = $1, prefijo = $2, activa = $3 WHERE id = $4
+     RETURNING id, nombre, prefijo, activa`, [c.nombre, c.prefijo, c.activa, req.params.id]);
+  if (!n) return res.status(404).json({ ok: false, error: 'No existe esa categoría.' });
+  res.json({ ok: true, categoria: n });
 }));
 
 // ── Productos ────────────────────────────────────────────────────────────────────────────────
@@ -88,9 +109,10 @@ function leerGtin(v, nombre) {
   return g;
 }
 
-function leerProducto(b) {
+// Al crear, el SKU vacío lo genera la base con el prefijo de la categoría; al editar es obligatorio.
+function leerProducto(b, { nuevo = false } = {}) {
   const p = {
-    codigo: texto(b.codigo, { campo: 'el código', requerido: true }).toUpperCase(),
+    codigo: (texto(b.codigo, { campo: 'el SKU', requerido: !nuevo }) || '').toUpperCase() || null,
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
     categoria_id: texto(b.categoria_id, { campo: 'la categoría', requerido: true }),
     unidad_base: texto(b.unidad_base, { campo: 'la unidad base', requerido: true }),
@@ -185,7 +207,7 @@ async function guardarGtin(c, productoId, presId, x) {
 }
 
 r.post('/productos', h(async (req, res) => {
-  const p = leerProducto(req.body);
+  const p = leerProducto(req.body, { nuevo: true });
   const id = await enTransaccion(async c => {
     const { rows: [n] } = await c.query(
       `INSERT INTO logic.producto (codigo, nombre, categoria_id, unidad_base, perecedero, vida_util_dias,

@@ -42,6 +42,7 @@ function fecha(v, { campo, requerido = false } = {}) {
 const UNICOS = {
   producto_codigo_key: 'Ya existe un producto con ese código.',
   categoria_nombre_ux: 'Ya existe una categoría con ese nombre.',
+  categoria_prefijo_ux: 'Ese prefijo ya lo usa otra categoría.',
   presentacion_producto_id_nombre_key: 'Hay dos presentaciones con el mismo nombre.',
   unidad_pkey: 'Ya existe una unidad con ese código.',
   almacen_nombre_ux: 'Ya existe un almacén con ese nombre en la sede.',
@@ -66,6 +67,7 @@ const CHECKS = {
   lote_codigo_gs1: 'El código de lote admite hasta 20 caracteres, sin espacios ni acentos (norma GS1).',
   cheque_cuit_librador_check: 'El CUIT del librador no es válido (revisá los dígitos).',
   cuenta_cbu_check: 'El CBU tiene 22 dígitos.',
+  categoria_prefijo_formato: 'El prefijo va de 2 a 6 letras o números, sin espacios ni acentos.',
 };
 
 // Los errores de la base se traducen a algo que el encargado entienda. Los RAISE de nuestros

@@ -132,7 +132,7 @@
         <fieldset>
           <legend>Identificación</legend>
           <div class="fila">
-            <label>SKU *<input name="codigo" required maxlength="40" autocomplete="off" placeholder="código propio"></label>
+            <label>SKU<input name="codigo" maxlength="40" autocomplete="off" placeholder="automático"></label>
             <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
           </div>
           <div class="fila" style="margin-top:12px">
@@ -235,10 +235,18 @@ $('#qCam').append(icono('camara'));
 let ruta = null, ignorar = false;
 const vista = v => { $('#panes').dataset.vista = v; };
 const descartar = () => !sucio || confirm('Hay cambios sin guardar. ¿Descartarlos?');
+// Cambios que no pasan por un campo del formulario (foto, presentaciones, códigos leídos).
+const ensuciar = () => { sucio = true; marcarCambios(f); };
+// Al crear, el SKU vacío lo genera la base: se muestra cuál va a ser.
+function skuSugerido() {
+  const c = categorias.find(c => c.id === f.categoria_id.value);
+  f.codigo.placeholder = actual ? '' : c ? 'automático: ' + c.siguiente_sku : 'automático';
+}
+f.categoria_id.addEventListener('change', skuSugerido);
 async function enrutar() {
   const h = location.hash.slice(1);
   if (ignorar) { ignorar = false; return; }
-  if (h !== ruta && !descartar()) { ignorar = true; location.hash = ruta || ''; return; }
+  if (h !== ruta && !descartar()) { ignorar = true; location.hash = ruta || ''; marcarCambios(f); return; }
   ruta = h; sucio = false;
   if (h.startsWith('p/')) { await abrir(h.slice(2)); vista('ficha'); }
   else if (h.startsWith('nuevo')) {
@@ -320,6 +328,7 @@ async function cargarCategorias(seleccionar) {
   const activas = categorias.filter(c => c.activa).map(c => [c.id, c.nombre]);
   opciones(f.categoria_id, activas, seleccionar ?? f.categoria_id.value, 'Elegir…');
   opciones($('#fcat'), categorias.map(c => [c.id, `${c.nombre} (${c.productos})`]), $('#fcat').value, 'Todas las categorías');
+  skuSugerido();
 }
 $('#catNueva').onclick = () => { $('#catAlta').hidden = false; $('#catNombre').focus(); };
 $('#catGuardar').onclick = async () => {
@@ -359,12 +368,12 @@ function filaPres(p = {}) {
     disabled: fijo, title: fijo ? 'GTIN interno generado por el sistema' : '' });
   const camara = el('button', { type: 'button', className: 'icono', title: 'Escanear el código del empaque',
     ariaLabel: 'Escanear el código del empaque', hidden: fijo,
-    onclick: () => leerConCamara(c => { gtin.value = c.replace(/\D/g, ''); sucio = true; }).catch(e => msg(e.message, 'mal')) },
+    onclick: () => leerConCamara(c => { gtin.value = c.replace(/\D/g, ''); ensuciar(); }).catch(e => msg(e.message, 'mal')) },
     icono('camara'));
   const interno = el('button', { type: 'button', className: 'chico', textContent: 'interno', hidden: !!p.gtin,
     title: 'Generar un GTIN interno para un empaque propio',
     onclick: () => { tr.dataset.interno = '1'; gtin.value = ''; gtin.placeholder = 'se genera al guardar'; gtin.disabled = true;
-                     interno.hidden = true; camara.hidden = true; sucio = true; } });
+                     interno.hidden = true; camara.hidden = true; ensuciar(); } });
   const tr = el('tr', {},
     celda('c-nom', 'Nombre', el('input', { className: 'pn', value: p.nombre || '', placeholder: 'caja x6', maxLength: 60 })),
     celda('c-cant', 'Contiene', el('input', { className: 'pc', value: coma(p.cantidad_base), inputMode: 'decimal', placeholder: '6' })),
@@ -372,7 +381,7 @@ function filaPres(p = {}) {
     celda('c-gtin', 'GTIN (código de barras)', el('span', { className: 'con-boton' }, gtin, camara, interno)),
     celda('c-def', null, el('input', { type: 'radio', name: 'pdef', checked: !!p.es_default, ariaLabel: 'Presentación habitual' })),
     celda('c-quitar', null, el('button', { type: 'button', className: 'chico', textContent: 'Quitar',
-      onclick: () => { tr.remove(); sucio = true; } })));
+      onclick: () => { tr.remove(); ensuciar(); } })));
   tr.dataset.id = p.id || '';
   // Una presentación guardada viene en la unidad base: si después cambia la base, la fila sigue
   // diciendo "6000 g" y el servidor la convierte bien.
@@ -380,7 +389,7 @@ function filaPres(p = {}) {
   $('#pres tbody').append(tr);
   return tr;
 }
-$('#presAgregar').onclick = () => { filaPres(); sucio = true; };
+$('#presAgregar').onclick = () => { filaPres(); ensuciar(); };
 f.unidad_base.onchange = () => alCambiarBase();
 
 // ── Foto ──
@@ -417,7 +426,7 @@ $('#fotoArchivo').onchange = async () => {
     const grande = achicar(img, 800, 0.82), mini = achicar(img, 160, 0.75);
     fotoPend = { propia: { datos: grande.split(',')[1], miniatura: mini.split(',')[1] } };
     mostrarFoto(grande, { texto: 'Foto propia. Se guarda con el producto.' });
-    sucio = true;
+    ensuciar();
   } catch { msg('No se pudo leer esa imagen.', 'mal'); }
   finally { URL.revokeObjectURL(url); }
 };
@@ -428,7 +437,7 @@ $('#fotoBuscar').onclick = async () => {
     for (const g of gtinsFab) {
       const { catalogo: c } = await api('catalogo/' + g);
       if (!c || !c.imagen) continue;
-      fotoPend = { catalogo: g }; sucio = true;
+      fotoPend = { catalogo: g }; ensuciar();
       mostrarFoto(`api/catalogo/${g}/imagen`, { texto: 'Foto: Open Food Facts (CC BY-SA). Se guarda con el producto.' });
       return msg('Foto encontrada (puede tardar unos segundos en verse). Revisala y guardá.', 'ok');
     }
@@ -436,7 +445,7 @@ $('#fotoBuscar').onclick = async () => {
   } catch (e) { msg(e.message, 'mal'); }
   finally { b.disabled = false; }
 };
-$('#fotoQuitar').onclick = () => { fotoPend = { quitar: true }; mostrarFoto(null); sucio = true; };
+$('#fotoQuitar').onclick = () => { fotoPend = { quitar: true }; mostrarFoto(null); ensuciar(); };
 async function aplicarFoto(id) {
   const p = fotoPend; fotoPend = null;
   if (!p) return;
@@ -458,21 +467,21 @@ function limpiar() {
   $('#modo').textContent = 'Nuevo'; $('#modo').className = 'tag aviso'; $('#modo').hidden = false;
   $('#titulo').textContent = 'Nuevo producto';
   $('#datosCab').hidden = true;
-  $('#subtitulo').textContent = 'Completá los datos y tocá Crear producto. Lo marcado con * es obligatorio.';
+  $('#subtitulo').textContent = 'Completá los datos y tocá Crear producto. Lo marcado con * es obligatorio; el SKU, si lo dejás vacío, se genera con el prefijo de la categoría.';
   $('#subtitulo').hidden = false;
   $('#guardar').textContent = 'Crear producto';
   $('#pres tbody').replaceChildren();
   fotoPend = null; gtinsFab = []; mostrarFoto(null);
   $('#histCostos').hidden = true; $('#activoWrap').hidden = true; $('#gtinInterno').hidden = true;
   f.unidad_base.disabled = false;
-  f.unidad_base.value = 'g'; alCambiarBase();
+  f.unidad_base.value = 'g'; alCambiarBase(); skuSugerido();
   msg('');
   marcarSel();
 }
 async function abrir(id) {
   try {
     const { producto: p } = await api('productos/' + id);
-    actual = p.id; actualNombre = p.nombre; sucio = false;
+    actual = p.id; actualNombre = p.nombre; sucio = false; sinCambios(f);
     $('#ficha').hidden = false; $('#fichaVacia').hidden = true;
     $('#modo').hidden = p.activo; $('#modo').textContent = 'Inactivo'; $('#modo').className = 'tag mal';
     $('#titulo').textContent = p.nombre;
@@ -542,7 +551,7 @@ f.onsubmit = async e => {
     try { await aplicarFoto(d.id); } catch (e) { errFoto = e.message; }
     if (nuevo) { ruta = 'p/' + d.id; history.replaceState(null, '', '#' + ruta); }
     await abrir(d.id);
-    await cargarLista();
+    await Promise.all([cargarLista(), nuevo ? cargarCategorias() : null]);
     errFoto ? msg('Producto guardado, pero la foto no: ' + errFoto, 'mal')
             : msg(nuevo ? 'Producto creado.' : 'Cambios guardados.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }
@@ -578,7 +587,7 @@ async function agregarCodigo(g) {
     tr.querySelector('.pc').value = coma(c.cantidad);
     tr.querySelector('select').value = c.unidad;
   }
-  sucio = true;
+  ensuciar();
   // Foto del catálogo: sólo si el producto todavía no tiene una (no se pisa una foto propia).
   if (c && c.imagen && !$('#fotoMarco img')) {
     fotoPend = { catalogo: g };

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Categorías · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+</head>
+<body>
+<div class="grid">
+  <aside>
+    <div class="filtros">
+      <label class="check"><input id="finact" type="checkbox"> Mostrar inactivas</label>
+      <button class="prim" id="nuevo">Nueva categoría</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </aside>
+  <main>
+    <h1 id="titulo">Nueva categoría</h1>
+    <p class="sub">Todo producto pertenece a una categoría. El prefijo arma el SKU automático de sus productos
+      (LAC-0001, LAC-0002…): si lo dejás vacío, se sugiere desde el nombre.</p>
+    <form id="f" novalidate>
+      <fieldset>
+        <legend>Datos</legend>
+        <div class="fila">
+          <label>Nombre *<input name="nombre" maxlength="80"></label>
+          <label>Prefijo del SKU<input name="prefijo" maxlength="6" autocomplete="off" placeholder="se sugiere solo" style="text-transform:uppercase"></label>
+        </div>
+        <p class="ayuda" id="ayudaPrefijo" hidden></p>
+        <label class="check" id="activaWrap" hidden style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
+        <p class="ayuda" id="ayudaActiva" hidden>Una categoría inactiva no se ofrece al dar de alta productos; los que ya la tienen la conservan.</p>
+      </fieldset>
+      <div class="acciones">
+        <button type="submit" class="prim" id="guardar">Guardar</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="comun.js"></script>
+<script>
+let categorias = [], actual = null;
+const f = $('#f');
+
+async function cargar() {
+  ({ categorias } = await api('categorias'));
+  const vista = categorias.filter(c => c.activa || $('#finact').checked);
+  if (!vista.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay categorías.' }));
+  $('#lista').replaceChildren(...vista.map(c => {
+    const b = el('button', { type: 'button', className: 'item' + (c.id === actual ? ' sel' : '') + (c.activa ? '' : ' inactivo') },
+      el('div', { className: 'n', textContent: c.nombre }),
+      el('div', { className: 'm', textContent: `${c.prefijo} · ${c.productos} producto${c.productos === 1 ? '' : 's'}` }));
+    b.onclick = () => abrir(c.id);
+    return b;
+  }));
+}
+function nuevo() {
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva categoría';
+  $('#activaWrap').hidden = $('#ayudaActiva').hidden = $('#ayudaPrefijo').hidden = true;
+  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+function abrir(id) {
+  const c = categorias.find(c => c.id === id); if (!c) return nuevo();
+  actual = id; msg(''); $('#titulo').textContent = c.nombre;
+  f.nombre.value = c.nombre; f.prefijo.value = c.prefijo; f.activa.checked = c.activa;
+  $('#activaWrap').hidden = $('#ayudaActiva').hidden = false;
+  $('#ayudaPrefijo').hidden = false;
+  $('#ayudaPrefijo').textContent = `El próximo producto sin SKU va a ser ${c.siguiente_sku}. Cambiar el prefijo no modifica los SKU que ya existen.`;
+  sinCambios(f);
+  cargar();
+}
+f.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: f.nombre.value, prefijo: f.prefijo.value, activa: actual ? f.activa.checked : true };
+  $('#guardar').disabled = true;
+  try {
+    const d = await api(actual ? 'categorias/' + actual : 'categorias', { method: actual ? 'PUT' : 'POST', body });
+    $('#finact').checked = $('#finact').checked || !body.activa;
+    await cargar(); abrir(d.categoria.id); msg('Guardado.', 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { $('#guardar').disabled = false; }
+};
+$('#nuevo').onclick = nuevo;
+$('#finact').onchange = cargar;
+cargar().then(nuevo).catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>

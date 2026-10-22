@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="comun.css">
 <style>
   /* Medidas en mm: lo que se ve en pantalla es lo que sale en la hoja. */
-  .hoja{width:210mm;height:297mm;background:#fff;color:#000;margin:0 auto 20px;box-shadow:0 1px 6px rgba(0,0,0,.2);
+  #hojas .hoja{width:210mm;height:297mm;background:#fff;color:#000;margin:0 auto 20px;box-shadow:0 1px 6px rgba(0,0,0,.2);
     display:grid;box-sizing:border-box;overflow:hidden;}
   .et{box-sizing:border-box;padding:2.5mm 3mm;display:flex;gap:2.5mm;align-items:center;overflow:hidden;
     font:9pt/1.25 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;outline:1px dashed #ccc;outline-offset:-1px;}
@@ -25,7 +25,7 @@
     @page{size:A4;margin:0;}
     body{background:#fff;} .top,.controles{display:none!important;}
     main.ancho{padding:0;max-width:none;} #hojas{overflow:visible;}
-    .hoja{margin:0;box-shadow:none;break-after:page;} .et{outline:none;}
+    #hojas .hoja{margin:0;box-shadow:none;break-after:page;} .et{outline:none;}
   }
 </style>
 </head>

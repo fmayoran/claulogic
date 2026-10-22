@@ -18,7 +18,8 @@ async function api(url, opt = {}) {
   // Sin sesión, al login; con clave temporal, a cambiarla. Vuelve a donde estaba después.
   if (r.status === 401 && d.sesion === false) irA('login.html');
   if (r.status === 403 && d.cambiar_clave) irA('cuenta.html');
-  if (!d.ok) throw new Error(d.error || 'Error del servidor.');
+  if (!d.ok) { _guardando = null; throw new Error(d.error || 'Error del servidor.'); }
+  if (modifica && _guardando) { sinCambios(_guardando); _guardando = null; }
   return d;
 }
 function irA(pagina) {
@@ -120,7 +121,7 @@ const GRUPOS = [
   ['Operación', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
                  ['ventas.html', 'Ventas'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
                  ['produccion.html', 'Producción']]],
-  ['Catálogo', [['productos.html', 'Productos'], ['recetas.html', 'Recetas'], ['platos.html', 'Platos de carta'],
+  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['recetas.html', 'Recetas'], ['platos.html', 'Platos de carta'],
                 ['proveedores.html', 'Proveedores']]],
   ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['ordenes-pago.html', 'Órdenes de pago'],
                 ['cuenta-corriente.html', 'Cuenta corriente'], ['tesoreria.html', 'Tesorería'], ['cheques.html', 'Cheques'],
@@ -133,7 +134,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };
@@ -144,6 +145,7 @@ const ICONOS = {
   productos: '<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   mas: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   volver: '<path d="M15 5l-7 7 7 7"/>',
+  flecha: '<path d="M6 9l6 6 6-6"/>',
   usuario: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
   camara: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
 };
@@ -153,10 +155,23 @@ function icono(nombre) {
   return s.firstChild;
 }
 
+const menuAbiertos = () => { try { return JSON.parse(localStorage.getItem('menu-abiertos')) || []; } catch { return []; } };
 function navegacion() {
   const actual = location.pathname.split('/').pop() || 'index.html';
   const sec = ([href, t]) => el('a', { href, textContent: t, className: 'sec' + (href === actual ? ' act' : '') });
-  const grupos = () => GRUPOS.map(([g, secs]) => el('div', { className: 'grupo' }, el('span', { textContent: g }), ...secs.map(sec)));
+  // Grupos desplegables: abierto el de la pantalla actual y los que el usuario dejó abiertos.
+  const grupos = () => GRUPOS.map(([g, secs]) => {
+    const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
+    const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
+    const cab = el('button', { type: 'button', className: 'cab' }, el('span', { textContent: g }), icono('flecha'));
+    cab.setAttribute('aria-expanded', abierto);
+    cab.onclick = () => {
+      items.hidden = !items.hidden; cab.setAttribute('aria-expanded', !items.hidden);
+      const otros = menuAbiertos().filter(x => x !== g);
+      try { localStorage.setItem('menu-abiertos', JSON.stringify(items.hidden ? otros : [...otros, g])); } catch {}
+    };
+    return el('div', { className: 'grupo' }, cab, items);
+  });
   const btnEsc = () => el('button', { type: 'button', className: 'btn-escanear', onclick: escanear,
     ariaLabel: 'Escanear un código' }, icono('escanear'), el('span', { textContent: 'Escanear' }));
 
@@ -402,4 +417,53 @@ function parsearCSV(texto) {
 async function leerTexto(archivo) {
   const texto = await archivo.text();
   return texto.includes('\ufffd') ? new TextDecoder('latin1').decode(await archivo.arrayBuffer()) : texto;
+}
+
+// ── Guardar, sólo con algo que guardar ──────────────────────────────────────────────────────
+// El botón Guardar (o Crear) de un formulario se ve apagado mientras no haya cambios, y vuelve a
+// apagarse cuando el guardado sale bien. No usa `disabled`: las pantallas lo apagan mientras
+// esperan al servidor y lo prenden al terminar, y se pisarían.
+const ES_GUARDAR = /^\s*(Guardar|Crear)/;
+let _guardando = null;
+function estadoCambios(form, hay) {
+  const bs = [...form.querySelectorAll('button[type=submit]')].filter(b => ES_GUARDAR.test(b.textContent));
+  if (!bs.length) return;
+  form.classList.toggle('sin-cambios', !hay);
+  for (const b of bs) { b.classList.add('es-guardar'); b.setAttribute('aria-disabled', !hay); b.title = hay ? '' : 'No hay cambios para guardar'; }
+}
+const marcarCambios = form => estadoCambios(form, true);
+const sinCambios = form => estadoCambios(form, false);
+const formDe = t => t && t.closest ? t.closest('form') : null;
+for (const ev of ['input', 'change']) document.addEventListener(ev, e => { const f = formDe(e.target); if (f) marcarCambios(f); }, true);
+document.addEventListener('reset', e => { if (e.target.tagName === 'FORM') sinCambios(e.target); }, true);
+document.addEventListener('click', e => {
+  // Elegir otro registro de la lista: lo que se abre todavía no tiene cambios.
+  if (e.target.closest && e.target.closest('.lista .item')) return $$('form').forEach(sinCambios);
+  const b = e.target.closest && e.target.closest('button'), f = formDe(b);
+  if (!f) return;
+  if (b.classList.contains('es-guardar')) {
+    if (f.classList.contains('sin-cambios')) { e.preventDefault(); e.stopImmediatePropagation(); }
+    else _guardando = f;
+  // Agregar o quitar un renglón también es un cambio; cerrar o volver, no.
+  } else if (b.type === 'button' && !/^\s*(Cancelar|Volver|Cerrar|Descartar)/.test(b.textContent)) marcarCambios(f);
+}, true);
+document.addEventListener('submit', e => {
+  const f = e.target;
+  if (!f.classList.contains('sin-cambios')) { _guardando = f; return; }
+  if (!e.submitter || e.submitter.classList.contains('es-guardar')) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
+$$('form').forEach(sinCambios);
+// Los formularios que se arman después (diálogos) arrancan igual.
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes)
+  if (n.nodeType === 1) (n.tagName === 'FORM' ? [n] : [...n.querySelectorAll('form')]).forEach(f => f.dataset.vista || (f.dataset.vista = 1, sinCambios(f))); })
+  .observe(document.body, { childList: true, subtree: true });
+
+// ── Ayuda de cada pantalla ──────────────────────────────────────────────────────────────────
+// La descripción bajo el título ocupa lugar todo el tiempo y se lee una vez: queda detrás de un "?".
+for (const p of $$('h1 + p.sub:not([id])')) {
+  const h = p.previousElementSibling;
+  const b = el('button', { type: 'button', className: 'ayuda-btn', textContent: '?', title: 'Qué es esta pantalla' });
+  b.setAttribute('aria-expanded', false); b.setAttribute('aria-label', 'Qué es esta pantalla');
+  b.onclick = () => { p.hidden = !p.hidden; b.setAttribute('aria-expanded', !p.hidden); };
+  p.hidden = true; p.classList.add('desc'); h.classList.add('con-ayuda'); h.after(b);
 }

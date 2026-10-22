@@ -88,7 +88,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - La conexión fija la zona horaria en `America/Argentina/Buenos_Aires`: "hoy" es el de la cocina.
 
 ### Identificación (GS1)
-- **SKU** = `producto.codigo`, propio del negocio. **GTIN** en `logic.gtin`, siempre en 14 dígitos
+- **SKU** = `producto.codigo`, propio del negocio. Si se deja vacío al crear, lo genera la base con el
+  **prefijo de la categoría** (`LAC-0001`, trigger `producto_sku` con candado por categoría): sigue al mayor
+  número con ese prefijo, así que uno tipeado con el mismo formato no se pisa. Las categorías tienen su
+  pantalla (`categorias.html`): nombre, prefijo (2 a 6, único, se sugiere del nombre) y activa. **GTIN** en `logic.gtin`, siempre en 14 dígitos
   con dígito verificador validado en la base.
 - El GTIN de **fabricante** va en la **presentación** (cada nivel de empaque tiene el suyo: sachet
   y caja son códigos distintos). Escanearlo resuelve producto y cantidad.
@@ -263,6 +266,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   más cheques de terceros en cartera. No proyecta ventas futuras.
 - Lo ve el encargado (sus sedes), finanzas y el administrador (todas). `app/tablero.js`, `tablero.html`;
   gráficos en SVG propio, paleta validada para claro y oscuro, con tabla al lado de cada uno.
+- **Pendiente de definir con Fer cuando avancen las pruebas** (21/10/2026): verificar Fudo con una cuenta
+  real; confirmar la valorización de los no perecederos a costo vigente; confirmar el IVA 21% incluido
+  por defecto en las ventas del POS.
 
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con
@@ -280,7 +286,13 @@ en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 900 px; en el celular, barra inferior (Panel, Stock, Escanear, Productos, Más). **Escanear** es
 global: producto abre su ficha, lote su trazabilidad, código desconocido va al alta
 (`productos.html#nuevo/<gtin>`). Productos usa rutas en el `#` (`#p/<id>`, `#nuevo`) para que en
-el celular listado y ficha sean pantallas separadas con el botón atrás funcionando. Tipografía
+el celular listado y ficha sean pantallas separadas con el botón atrás funcionando.
+El menú va en **grupos desplegables**: abierto el de la pantalla actual y los que el usuario abrió
+(`localStorage`). La descripción bajo el título (`h1 + p.sub` sin id) queda detrás de un botón "?".
+**Guardar sólo con cambios**: `comun.js` apaga (clase `sin-cambios`, no `disabled`, que las pantallas
+usan mientras esperan al servidor) todo botón submit que empieza con "Guardar" o "Crear" hasta que hay
+un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no pasa por un campo
+(foto, renglón agregado por código) se avisa con `marcarCambios(form)`; al abrir un registro, `sinCambios(form)`. Tipografía
 Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts. Campos a 16 px en
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
