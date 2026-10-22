@@ -8,9 +8,6 @@
 <style>
   .edit select, .edit input{padding:5px 7px;}
   .edit td.imp{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:110px;}
-  .resumen{display:grid;grid-template-columns:auto auto;gap:4px 24px;justify-content:end;font-variant-numeric:tabular-nums;margin:6px 0 0;}
-  .resumen span:nth-child(odd){color:var(--mut);text-align:right;} .resumen span:nth-child(even){text-align:right;}
-  .resumen .tot{font-weight:750;font-size:1.1rem;color:var(--fg);}
   .compras label{display:flex;gap:8px;align-items:center;color:var(--fg);font-size:.92rem;}
   .compras .item-compra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line);}
   .dif{color:var(--mal);font-weight:600;} .dif.ok{color:var(--acento);}
@@ -82,6 +79,7 @@
           <button type="submit" class="prim" id="guardar">Guardar borrador</button>
           <button type="button" id="registrar" hidden>Registrar</button>
           <button type="button" class="peligro" id="borrar" hidden>Borrar</button>
+          <a id="volverCompra" hidden>Volver a la compra</a>
           <span class="msg" id="msg"></span>
         </div>
       </form>
@@ -98,7 +96,9 @@
       <div class="tabla-wrap"><table class="datos"><thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Debe</th><th class="num">Haber</th><th>Por</th></tr></thead>
         <tbody id="vMovs"></tbody></table></div>
       <div class="acciones">
+        <button type="button" class="prim" id="pagar" hidden>Pagar</button>
         <a id="verCC" href="cuenta-corriente.html">Ver cuenta corriente del proveedor</a>
+        <span id="verCompras"></span>
         <button type="button" class="peligro" id="anular" hidden>Anular</button>
         <span class="msg" id="msgV"></span>
       </div>
@@ -241,9 +241,22 @@ async function nuevo() {
   f.fecha.value = hoy();
   $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem();
   // Se puede registrar directo, sin guardar antes el borrador: registrar guarda primero.
-  $('#registrar').hidden = false; $('#borrar').hidden = true; $('#asocWrap').hidden = true;
+  $('#registrar').hidden = false; $('#borrar').hidden = true; $('#asocWrap').hidden = true; $('#volverCompra').hidden = true;
   await alCambiarProveedor(); vista('editar'); history.replaceState(null, '', 'comprobantes.html');
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+// Desde una compra recibida (compras.html → "Cargar factura"): proveedor elegido, compra vinculada y
+// sus renglones copiados. Falta lo que sólo dice la factura: letra, número, IVA real, percepciones, total.
+async function desdeCompra(compraId, proveedorId) {
+  await nuevo();
+  f.proveedor_id.value = proveedorId;
+  await alCambiarProveedor([compraId]);
+  const b = $(`#compras input[value="${compraId}"]`);
+  if (b) b.closest('.item-compra').querySelector('button').click();
+  marcarCambios(f);
+  $('#volverCompra').hidden = false; $('#volverCompra').href = 'compras.html#' + compraId;
+  msg('Renglones copiados de la compra. Completá letra, punto de venta, número, percepciones y el total impreso.', 'ok');
+  f.punto_venta.focus();
 }
 async function abrir(id) {
   try {
@@ -284,6 +297,11 @@ function ver() {
     td(!cero(m.debe) ? pesos(m.debe) : '', 'num'), td(!cero(m.haber) ? pesos(m.haber) : '', 'num'), td(m.registrado_por)), 'Sin movimientos.', 5);
   $('#verCC').href = 'cuenta-corriente.html#' + c.proveedor_id;
   $('#anular').hidden = c.estado !== 'registrado';
+  // Pagar: la orden de pago ya armada con este comprobante. Volver: a las compras vinculadas.
+  $('#pagar').hidden = !(c.estado === 'registrado' && c.tipo !== 'nota_credito' && c.pendiente && !cero(c.pendiente));
+  $('#pagar').textContent = c.pendiente && !cero(c.pendiente) ? `Pagar ${pesos(c.pendiente)}` : 'Pagar';
+  $('#pagar').onclick = () => location.href = `ordenes-pago.html?proveedor=${c.proveedor_id}&comprobante=${c.id}`;
+  $('#verCompras').replaceChildren(...c.compras.map(x => el('a', { href: 'compras.html#' + x.id, textContent: 'Ver compra ' + (x.numero || fecha(x.fecha)), style: 'margin-left:14px' })));
   vista('ver');
 }
 function leer() {
@@ -337,8 +355,10 @@ $('#fest').onchange = cargarLista;
     [{ proveedores }, productos] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos()]);
     $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
-    const id = location.hash.slice(1);
-    if (id) await abrir(id); else await nuevo();
+    const id = location.hash.slice(1), q = new URLSearchParams(location.search);
+    if (id) await abrir(id);
+    else if (q.get('compra')) await desdeCompra(q.get('compra'), q.get('proveedor'));
+    else await nuevo();
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>

@@ -118,19 +118,18 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // Secciones agrupadas por para qué se usan. En el celular, las de `abajo` van en la barra
 // inferior; el resto, en "Más".
 const GRUPOS = [
-  ['Operación', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'],
-                 ['ventas.html', 'Ventas'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'], ['compras.html', 'Compras'],
-                 ['produccion.html', 'Producción']]],
-  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['recetas.html', 'Recetas'], ['platos.html', 'Platos de carta'],
-                ['proveedores.html', 'Proveedores']]],
-  ['Finanzas', [['comprobantes.html', 'Comprobantes'], ['ordenes-pago.html', 'Órdenes de pago'],
-                ['cuenta-corriente.html', 'Cuenta corriente'], ['tesoreria.html', 'Tesorería'], ['cheques.html', 'Cheques'],
-                ['conciliacion.html', 'Conciliación']]],
+  ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
+  // Compras: pedir, recibir, facturar y pagar (la factura y el pago, con permiso de finanzas).
+  ['Compras', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
+               ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
+  ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
+  ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
+  ['Ventas', [['ventas.html', 'Ventas'], ['platos.html', 'Platos de carta'], ['puntos-venta.html', 'Puntos de venta']]],
+  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['cheques.html', 'Cheques'], ['conciliacion.html', 'Conciliación']]],
+  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
   ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
-                     ['unidades-productivas.html', 'Unidades productivas'], ['puntos-venta.html', 'Puntos de venta'],
-                     ['unidades.html', 'Unidades de medida'],
-                     ['usuarios.html', 'Usuarios']]],
+                     ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.

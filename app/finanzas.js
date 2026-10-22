@@ -45,7 +45,8 @@ r.get('/fin/comprobantes/:id', h(async (req, res) => {
             pv.nombre AS proveedor, pv.cuit, pv.condicion_iva, pv.plazo_pago_dias,
             a.tipo AS asociado_tipo, a.letra AS asociado_letra, a.punto_venta AS asociado_pv, a.numero AS asociado_numero,
             t.neto_gravado::text, t.iva::text, t.no_gravado::text, t.tributos::text,
-            (t.neto_gravado + t.iva + t.no_gravado + t.tributos)::text AS calculado
+            (t.neto_gravado + t.iva + t.no_gravado + t.tributos)::text AS calculado,
+            (SELECT cp.pendiente::text FROM fin.comprobante_pendiente cp WHERE cp.comprobante_id = c.id) AS pendiente
        FROM fin.comprobante c
        JOIN logic.proveedor pv ON pv.id = c.proveedor_id
        JOIN fin.comprobante_totales t ON t.comprobante_id = c.id
@@ -268,6 +269,17 @@ r.get('/fin/compras', h(async (req, res) => {
       WHERE co.proveedor_id = $1::uuid AND co.estado = 'recibida'
       GROUP BY co.id ORDER BY co.fecha DESC LIMIT 100`, [proveedor]);
   res.json({ ok: true, compras: rows });
+}));
+
+// Los comprobantes de una compra, con lo que falta pagar: la compra muestra en qué quedó y lleva al pago.
+r.get('/fin/compras/:id/comprobantes', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.estado, c.total::text, cp.pendiente::text
+       FROM fin.comprobante_compra x
+       JOIN fin.comprobante c ON c.id = x.comprobante_id
+       LEFT JOIN fin.comprobante_pendiente cp ON cp.comprobante_id = c.id
+      WHERE x.compra_id = $1::uuid ORDER BY c.fecha, c.numero`, [req.params.id]);
+  res.json({ ok: true, comprobantes: rows.map(c => ({ ...c, nro: nro(c) })) });
 }));
 
 // ── Cuenta corriente ─────────────────────────────────────────────────────────────────────────

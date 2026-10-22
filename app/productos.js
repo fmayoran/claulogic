@@ -51,6 +51,7 @@ r.get('/productos', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT p.id, p.codigo, p.nombre, p.unidad_base, p.perecedero, p.vida_util_dias, p.activo,
             p.categoria_id, c.nombre AS categoria, ${COSTO_REF} AS costo, ${UNIDAD_REF} AS costo_unidad,
+            trim_scale(p.alicuota_iva)::text AS alicuota_iva,
             trim_scale(COALESCE(s.cantidad, 0))::text AS stock,
             (SELECT g.gtin FROM logic.gtin g WHERE g.producto_id = p.id AND g.presentacion_id IS NULL) AS gtin,
             (SELECT (extract(epoch FROM f.actualizado_en) * 1000)::bigint::text

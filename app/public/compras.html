@@ -45,10 +45,13 @@
           <legend>Renglones</legend>
           <div id="escEditar" style="max-width:520px;margin:0 0 10px"></div>
           <div style="overflow-x:auto"><table class="edit" id="items">
-            <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th>Precio total</th><th></th></tr></thead>
+            <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th>Precio total sin IVA</th><th></th></tr></thead>
             <tbody></tbody></table></div>
           <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
-          <p class="ayuda">El precio es el total del renglón; el costo por unidad lo calcula el sistema.</p>
+          <div class="resumen" id="eResumen"></div>
+          <p class="ayuda">El precio es el total del renglón, neto de IVA; el costo por unidad lo calcula el sistema. El IVA es
+            estimado con la alícuota habitual de cada producto: el número de factura, el IVA real y las percepciones se cargan
+            en la factura, desde la compra recibida.</p>
         </fieldset>
         <div class="acciones">
           <button type="submit" class="prim" id="guardar">Guardar</button>
@@ -86,6 +89,16 @@
         <thead><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Costo</th>
           <th>Decisión de costo</th><th>Lote</th><th>Vence</th><th>Ubicación</th></tr></thead>
         <tbody id="vItems"></tbody></table></div>
+      <div class="resumen" id="vResumen"></div>
+      <!-- La compra es la mercadería; la factura y el pago son de finanzas, y se llega desde acá. -->
+      <section id="vFin" hidden style="margin-top:22px">
+        <h2>Factura y pago</h2>
+        <div class="tabla-wrap"><table class="datos">
+          <thead><tr><th>Comprobante</th><th>Fecha</th><th>Estado</th><th class="num">Total</th><th class="num">Falta pagar</th><th></th></tr></thead>
+          <tbody id="vComp"></tbody></table></div>
+        <div class="acciones"><button type="button" class="prim" id="cargarFactura">Cargar factura</button></div>
+      </section>
+      <p class="ayuda" id="vSinFin" hidden>La factura y el pago de esta compra los carga finanzas.</p>
     </section>
   </main>
 </div>
@@ -93,7 +106,7 @@
 <script src="comun.js"></script>
 <script>
 const ESTADOS = { borrador: 'borrador', pedida: 'pedida', recibida: 'recibida', anulada: 'anulada' };
-let productos = [], proveedores = [], almacenes = [], unidades = [], actual = null, compra = null;
+let productos = [], proveedores = [], almacenes = [], unidades = [], actual = null, compra = null, yo = null;
 const presCache = {};
 const f = $('#f');
 
@@ -111,6 +124,31 @@ async function cargarLista() {
     return b;
   }));
 }
+
+// ── Totales ──
+// Neto por alícuota habitual del producto y el IVA de cada grupo, como lo calcula la factura. Es una
+// estimación: el IVA real es el de la factura. En centavos (BigInt), sin float.
+function resumen(cont, renglones) {
+  const grupos = new Map(); let neto = 0n;
+  for (const r of renglones) {
+    if (!r.precio || !/\d/.test(r.precio)) continue;
+    const c = centavos(r.precio); neto += c;
+    const p = productos.find(p => p.id === r.producto_id), a = p && p.alicuota_iva != null ? p.alicuota_iva : null;
+    grupos.set(a, (grupos.get(a) || 0n) + c);
+  }
+  let iva = 0n; const filas = [];
+  for (const [a, n] of [...grupos].sort()) {
+    if (a == null || Number(a) === 0) continue;
+    const i = (n * BigInt(Math.round(Number(a) * 100)) + 5000n) / 10000n; iva += i;
+    filas.push(`IVA ${coma(a)}% (estimado)`, pesos(deCentavos(i)));
+  }
+  cont.replaceChildren(...[ 'Neto', pesos(deCentavos(neto)), ...filas].map(t => el('span', { textContent: t })),
+    el('span', { className: 'tot', textContent: filas.length ? 'Total estimado' : 'Total' }), el('span', { className: 'tot', textContent: pesos(deCentavos(neto + iva)) }));
+}
+const recalcular = () => { try { resumen($('#eResumen'), $$('#items tbody tr').map(tr => { const x = tr.leer(); return { producto_id: x.producto_id, precio: x.precio_total }; })); } catch {} };
+$('#items').addEventListener('input', recalcular);
+$('#items').addEventListener('change', recalcular);
+$('#items').addEventListener('click', () => setTimeout(recalcular));
 
 // ── Edición ──
 async function presentaciones(productoId) {
@@ -168,7 +206,7 @@ async function nueva() {
   $('#titulo').textContent = 'Nueva compra'; $('#subtitulo').textContent = 'Cargá lo que se pide. El stock se mueve recién al recibirla.';
   opciones(f.proveedor_id, proveedores.map(p => [p.id, p.nombre]), null, 'Elegir…');
   f.fecha.value = hoy();
-  $('#items tbody').replaceChildren(); await filaItem();
+  $('#items tbody').replaceChildren(); await filaItem(); recalcular();
   botones(null); vistaActiva('#vEditar');
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
@@ -185,6 +223,7 @@ async function abrir(id) {
       $('#items tbody').replaceChildren();
       for (const it of compra.items) await filaItem({ ...it, unidad: it.presentacion_id ? null : it.unidad_base,
         cantidad: it.presentacion_id ? it.cantidad : it.cantidad_base });
+      recalcular(); sinCambios(f);
       botones(compra.estado); vistaActiva('#vEditar');
     }
     await cargarLista();
@@ -304,8 +343,30 @@ function verCompra() {
     el('td', {}, it.lote_id ? el('a', { href: 'trazabilidad.html?lote_id=' + it.lote_id, textContent: it.lote }) : '',
       it.lote_id ? el('a', { href: 'etiquetas.html?lote=' + it.lote_id, textContent: ' etiquetas', className: 'mut' }) : ''),
     td(fecha(it.vencimiento)), td(it.ubicacion)), 'Sin renglones.', 8);
+  resumen($('#vResumen'), compra.items.map(it => ({ producto_id: it.producto_id, precio: it.precio_total })));
   vistaActiva('#vVer');
+  verFinanzas();
 }
+// Factura y pago: lo ve quien tiene finanzas. Lleva a cargar la factura con los renglones de esta
+// compra, y a pagarla con la orden de pago ya armada.
+async function verFinanzas() {
+  const recibida = compra.estado === 'recibida';
+  $('#vFin').hidden = !recibida || !yo.puede.finanzas; $('#vSinFin').hidden = !recibida || yo.puede.finanzas;
+  if ($('#vFin').hidden) return;
+  const { comprobantes } = await api(`fin/compras/${compra.id}/comprobantes`);
+  const ESTADO = { borrador: ['borrador', 'aviso'], registrado: ['registrado', 'ok'], anulado: ['anulado', ''] };
+  filas($('#vComp'), comprobantes, c => {
+    const pagar = c.estado === 'registrado' && c.pendiente && !cero(c.pendiente);
+    return el('tr', {}, el('td', {}, el('a', { href: 'comprobantes.html#' + c.id, textContent: c.nro })), td(fecha(c.fecha)),
+      el('td', {}, el('span', { className: 'tag ' + ESTADO[c.estado][1], textContent: c.estado === 'registrado' && !pagar ? 'pagado' : ESTADO[c.estado][0] })),
+      td(pesos(c.total), 'num'), td(c.estado === 'registrado' ? pesos(c.pendiente || '0') : '', 'num'),
+      el('td', {}, pagar ? el('button', { type: 'button', className: 'chico prim', textContent: 'Pagar',
+        onclick: () => location.href = `ordenes-pago.html?proveedor=${compra.proveedor_id}&comprobante=${c.id}` }) : ''));
+  }, 'Todavía no se cargó la factura de esta compra.', 6);
+  $('#cargarFactura').hidden = comprobantes.some(c => c.estado !== 'anulado' && c.tipo === 'factura');
+}
+const cero = v => v == null || /^-?0+(\.0+)?$/.test(String(v));
+$('#cargarFactura').onclick = () => location.href = `comprobantes.html?compra=${compra.id}&proveedor=${compra.proveedor_id}`;
 
 $('#nueva').onclick = nueva;
 $('#fest').onchange = cargarLista;
@@ -315,7 +376,10 @@ $('#fest').onchange = cargarLista;
     [productos, almacenes, unidades, { proveedores }] = await Promise.all([
       catalogo.productos(), catalogo.almacenes(), catalogo.unidades(), api('proveedores')]);
     $('#sinProv').hidden = proveedores.length > 0;
+    yo = (await cargarSesion()).usuario;
     await nueva(); await cargarLista();
+    // Volver a una compra desde la factura o el pago: compras.html#<id>.
+    if (location.hash.length > 1) await abrir(location.hash.slice(1));
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>

@@ -77,6 +77,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   en `logic.costo_historial`, inmutable.
 - El **stock puede quedar negativo** por ahora: decisión de Fer (20/10/2026), a revisar.
 
+- **Compra y factura son cosas distintas**: la compra es la mercadería (pedido y recepción, precios netos,
+  total con IVA estimado por la alícuota habitual de cada producto); la factura (`fin.comprobante`) tiene
+  número, IVA real y percepciones, y puede no coincidir. Desde la compra recibida, quien tiene finanzas ve
+  "Factura y pago": **Cargar factura** abre el comprobante con la compra vinculada y sus renglones
+  copiados (`comprobantes.html?compra=&proveedor=`), y **Pagar** abre la orden de pago con el comprobante
+  tildado por lo pendiente (`ordenes-pago.html?proveedor=&comprobante=`).
 - Las **compras recibidas** no se editan ni se borran, y sus movimientos (como los de una
   producción) no se anulan sueltos. Recibir crea lote sólo para perecederos; los no perecederos se
   mueven sin lote.
@@ -268,7 +274,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   gráficos en SVG propio, paleta validada para claro y oscuro, con tabla al lado de cada uno.
 - **Pendiente de definir con Fer cuando avancen las pruebas** (21/10/2026): verificar Fudo con una cuenta
   real; confirmar la valorización de los no perecederos a costo vigente; confirmar el IVA 21% incluido
-  por defecto en las ventas del POS.
+  por defecto en las ventas del POS; probar usuarios y permisos por rol (después del circuito básico).
 
 ### Lo que hay y lo que falta
 Hay: panel, stock y conteos, movimientos (histórico, egresos, traslados, anulación), compras con

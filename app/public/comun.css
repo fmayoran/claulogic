@@ -37,6 +37,10 @@ h1.con-ayuda{display:inline-block;vertical-align:middle;margin:0 8px 16px 0;}
 .sub.desc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:-6px;}
 /* Guardar sin nada que guardar (comun.js): apagado, pero no `disabled`. */
 form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);}
+/* Resumen de importes (neto, IVA, total) alineado a la derecha. */
+.resumen{display:grid;grid-template-columns:auto auto;gap:4px 24px;justify-content:end;font-variant-numeric:tabular-nums;margin:6px 0 0;}
+.resumen span:nth-child(odd){color:var(--mut);text-align:right;} .resumen span:nth-child(even){text-align:right;}
+.resumen .tot{font-weight:750;font-size:1.1rem;color:var(--fg);}
 
 /* ── Navegación ───────────────────────────────────────────────────────────────────────────────
    Computadora: barra lateral con las secciones agrupadas. Celular: barra fija abajo con lo de
@@ -49,15 +53,16 @@ form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);
 .lateral .grupo .items{display:grid;gap:1px;}
 /* Cabecera de grupo desplegable. */
 .grupo > .cab{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;
-  font-size:.78rem;font-weight:600;color:var(--mut);padding:4px 10px;border-radius:6px;cursor:pointer;text-align:left;}
+  font-size:1rem;font-weight:700;color:var(--fg);padding:7px 10px;border-radius:8px;cursor:pointer;text-align:left;}
 .grupo > .cab:hover{color:var(--fg);background:var(--sel);}
 .grupo > .cab svg{width:16px;height:16px;transition:transform .15s;}
 .grupo > .cab[aria-expanded=false] svg{transform:rotate(-90deg);}
-.lateral a.sec{color:var(--fg);text-decoration:none;padding:7px 10px;border-radius:8px;font-size:.95rem;}
+.lateral a.sec{color:var(--fg);text-decoration:none;padding:6px 10px 6px 20px;border-radius:8px;font-size:.88rem;}
 .lateral a.sec:hover{background:var(--sel);}
 .lateral a.sec.act{background:var(--sel);color:var(--acento);font-weight:650;box-shadow:inset 3px 0 var(--acento);}
 
 .lateral .cuenta{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;}
+.lateral .cuenta a.sec{padding-left:10px;font-size:.92rem;}
 .quien{display:flex;gap:10px;align-items:center;padding:0 10px 6px;}
 .quien svg{width:22px;height:22px;flex:none;color:var(--mut);}
 .quien div{display:grid;min-width:0;line-height:1.3;}
@@ -74,7 +79,7 @@ form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);
   max-height:85dvh;overflow-y:auto;}
 .hoja .grupo{margin:0 0 10px;}
 .hoja .grupo .items{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;}
-.hoja .grupo > .cab{font-size:.85rem;padding:8px 2px;}
+.hoja .grupo > .cab{font-size:1.05rem;padding:8px 2px;}
 .hoja .grupo.cuenta{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
 .hoja a{display:block;padding:11px 12px;border-radius:10px;color:var(--fg);text-decoration:none;background:var(--bg);font-size:1rem;}
 .hoja a.act{color:var(--acento);font-weight:650;box-shadow:inset 0 0 0 1.5px var(--acento);}

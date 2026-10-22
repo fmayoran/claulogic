@@ -130,6 +130,7 @@ async function cargarPendientes(aplicadas = []) {
     chk.onchange = () => { imp.disabled = !chk.checked; imp.value = chk.checked ? coma(disp) : ''; resumen(); };
     imp.oninput = resumen;
     const tr = el('tr', {}, el('td', {}, chk), td(c.nro), venc, td(pesos(disp), 'num'), el('td', {}, imp));
+    tr.dataset.comprobante = c.comprobante_id;
     tr.leer = () => chk.checked && imp.value ? { comprobante_id: c.comprobante_id, importe: imp.value, nc: c.tipo === 'nota_credito' } : null;
     return tr;
   };
@@ -295,8 +296,19 @@ $('#fest').onchange = cargarLista;
     cuentas = c.cuentas.filter(x => x.activa && x.tipo !== 'cartera');
     $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
-    const id = location.hash.slice(1);
-    if (id) await abrir(id); else await nueva();
+    const id = location.hash.slice(1), q = new URLSearchParams(location.search);
+    if (id) await abrir(id);
+    else {
+      await nueva();
+      // Desde una compra o un comprobante ("Pagar"): proveedor elegido y el comprobante tildado por lo pendiente.
+      if (q.get('proveedor')) {
+        f.proveedor_id.value = q.get('proveedor'); await cargarPendientes();
+        const tr = q.get('comprobante') && $(`#deudas tr[data-comprobante="${q.get('comprobante')}"]`);
+        if (tr) tr.querySelector('input[type=checkbox]').click();
+        marcarCambios(f);
+        msg('Elegí con qué se paga (transferencia, efectivo o cheque) y registrá el pago.', 'ok');
+      }
+    }
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>
