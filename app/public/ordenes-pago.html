@@ -126,8 +126,8 @@ async function cargarPendientes(aplicadas = []) {
   const fila = (c, disp, venc) => {
     const prev = aplicadas.find(a => a.comprobante_id === c.comprobante_id);
     const chk = el('input', { type: 'checkbox', checked: !!prev });
-    const imp = el('input', { inputMode: 'decimal', value: coma(prev ? prev.importe : ''), style: 'width:130px', disabled: !prev });
-    chk.onchange = () => { imp.disabled = !chk.checked; imp.value = chk.checked ? coma(disp) : ''; resumen(); };
+    const imp = el('input', { inputMode: 'decimal', value: miles(prev ? prev.importe : ''), style: 'width:130px', disabled: !prev });
+    chk.onchange = () => { imp.disabled = !chk.checked; imp.value = chk.checked ? miles(disp) : ''; resumen(); };
     imp.oninput = resumen;
     const tr = el('tr', {}, el('td', {}, chk), td(c.nro), venc, td(pesos(disp), 'num'), el('td', {}, imp));
     tr.dataset.comprobante = c.comprobante_id;
@@ -149,7 +149,7 @@ function filaRet(x = {}) {
   const jur = el('input', { value: x.jurisdiccion || '', style: 'width:120px', placeholder: 'CABA' });
   const reg = el('input', { value: x.regimen || '', style: 'width:110px' });
   const cert = el('input', { value: x.certificado || '', style: 'width:120px' });
-  const monto = el('input', { inputMode: 'decimal', value: coma(x.importe), style: 'width:120px' });
+  const monto = el('input', { inputMode: 'numeric', value: miles(x.importe), style: 'width:120px' });
   const tr = el('tr', {}, el('td', {}, imp), el('td', {}, jur), el('td', {}, reg), el('td', {}, cert), el('td', {}, monto),
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumen(); } })));
   monto.oninput = resumen;
@@ -159,7 +159,7 @@ function filaRet(x = {}) {
 function filaVal(x = {}) {
   const medio = el('select'); opciones(medio, Object.entries(MEDIO), x.medio || 'transferencia');
   const cuenta = el('select'), cheque = el('select');
-  const monto = el('input', { inputMode: 'decimal', value: coma(x.importe), style: 'width:120px' });
+  const monto = el('input', { inputMode: 'numeric', value: miles(x.importe), style: 'width:120px' });
   const ref = el('input', { value: x.referencia || '', placeholder: 'Nº de transferencia', style: 'width:150px' });
   const chNum = el('input', { value: x.cheque_numero || '', placeholder: 'Nº de cheque', style: 'width:110px' });
   const chPago = el('input', { type: 'date', value: x.cheque_fecha_pago || '' });
@@ -179,7 +179,7 @@ function filaVal(x = {}) {
     monto.disabled = m === 'cheque_tercero';
   }
   // Un cheque de tercero se endosa entero: el importe es el del cheque.
-  cheque.onchange = () => { const c = cartera.find(x => x.id === cheque.value); monto.value = c ? coma(c.importe) : ''; resumen(); };
+  cheque.onchange = () => { const c = cartera.find(x => x.id === cheque.value); monto.value = c ? miles(c.importe) : ''; resumen(); };
   medio.onchange = () => { pintar(); resumen(); };
   monto.oninput = resumen;
   const tr = el('tr', {}, el('td', {}, medio), el('td', {}, cuenta, cheque), el('td', {}, monto), detalle,

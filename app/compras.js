@@ -3,7 +3,7 @@
 // decisión sobre el costo vigente.
 const express = require('express');
 const { pool } = require('./db');
-const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef } = require('./util');
+const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef } = require('./util');
 const { puede } = require('./auth');
 
 // Las compras las hace y las recibe el centro: un usuario que sólo tiene rol en locales no las ve.
@@ -66,7 +66,7 @@ function leerCompra(b) {
     presentacion_id: texto(x.presentacion_id),
     unidad: texto(x.unidad),
     cantidad: numero(x.cantidad, { campo: `Cantidad del renglón ${i + 1}`, requerido: true, positivo: true }),
-    precio_total: numero(x.precio_total, { campo: `Precio del renglón ${i + 1}` }),
+    precio_total: monto(x.precio_total, { campo: `Precio del renglón ${i + 1}` }),
   }));
   return c;
 }

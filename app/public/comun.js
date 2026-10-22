@@ -54,13 +54,20 @@ function num(v, decimales) {
   ent = ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return (neg ? '-' : '') + ent + (dec ? ',' + dec : '');
 }
-const pesos = v => v === null || v === undefined || v === '' ? '' : String(v).startsWith('-') ? '-$' + num(String(v).slice(1), 2) : '$' + num(v, 2);
+// Plata: en pesos enteros, sin coma (decisión de Fer). Lo calculado con centavos se redondea al peso
+// para mostrarlo; en la base queda exacto.
+const alPeso = v => { const c = centavos(v); return (c < 0n ? c - 50n : c + 50n) / 100n; };
+const pesos = v => { if (v === null || v === undefined || v === '') return ''; const r = alPeso(v); return r < 0n ? '-$' + num(String(-r)) : '$' + num(String(r)); };
+// Para precargar un campo de importe: "15.000".
+const miles = v => v === null || v === undefined || v === '' ? '' : num(String(alPeso(v)));
 
 // Plata en centavos enteros (BigInt) para sumar y comparar en el navegador sin float. Acepta
 // "1234.5", "1.234,50" (tipeado) o "-20000.00" (de la API).
 function centavos(v) {
   let s = String(v ?? '').trim();
   if (!s) return 0n;
+  // Importe tipeado con puntos de miles y sin coma: "20.000" es veinte mil (los montos son enteros).
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
   const neg = s.startsWith('-'); if (neg) s = s.slice(1);
   if (!/^\d*(\.\d*)?$/.test(s)) return 0n;
@@ -465,4 +472,50 @@ for (const p of $$('h1 + p.sub:not([id])')) {
   b.setAttribute('aria-expanded', false); b.setAttribute('aria-label', 'Qué es esta pantalla');
   b.onclick = () => { p.hidden = !p.hidden; b.setAttribute('aria-expanded', !p.hidden); };
   p.hidden = true; p.classList.add('desc'); h.classList.add('con-ayuda'); h.after(b);
+}
+
+// ── Pago rápido ─────────────────────────────────────────────────────────────────────────────
+// Pagar un comprobante en un paso: importe, fecha y la cuenta de la que sale. Por detrás arma la
+// orden de pago y la registra (queda igual en Órdenes de pago, con su número). Para cheques o
+// retenciones, la orden de pago completa.
+async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPagar }) {
+  const { cuentas } = await api('fin/cuentas');
+  const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
+  const completa = `ordenes-pago.html?proveedor=${proveedor_id}&comprobante=${comprobante_id}`;
+  if (!usables.length) {
+    if (confirm('No hay bancos ni cajas cargados en Tesorería para pagar. ¿Ir a cargar uno?')) location.href = 'tesoreria.html';
+    return;
+  }
+  const f = el('form', { novalidate: true });
+  const cuenta = el('select', { name: 'cuenta' }), importe = el('input', { name: 'importe', inputMode: 'decimal', value: miles(pendiente) });
+  const fechaI = el('input', { name: 'fecha', type: 'date', value: hoy() }), ref = el('input', { name: 'ref', placeholder: 'nº de transferencia (opcional)' });
+  opciones(cuenta, usables.map(c => [c.id, `${c.nombre} · ${c.tipo === 'caja' ? 'efectivo' : 'transferencia'} · saldo ${pesos(c.saldo)}`]));
+  const m = el('span', { className: 'msg' });
+  const btn = el('button', { type: 'submit', className: 'prim', textContent: 'Registrar pago' });
+  const dlg = el('dialog', {}, el('h2', { textContent: 'Pagar ' + nro }),
+    el('p', { className: 'ayuda', style: 'margin:0 0 12px', textContent: `Pendiente: ${pesos(pendiente)}. Se registra como orden de pago, con transferencia o efectivo.` }),
+    f);
+  f.append(el('div', { className: 'fila' }, el('label', {}, 'Sale de *', cuenta)),
+    el('div', { className: 'fila' }, el('label', {}, 'Importe *', importe), el('label', {}, 'Fecha', fechaI)),
+    el('div', { className: 'fila' }, el('label', {}, 'Referencia', ref)),
+    el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+    el('p', { className: 'ayuda' }, 'Con cheque o retenciones: ', el('a', { href: completa, textContent: 'orden de pago completa' }), '.'));
+  f.onsubmit = async e => {
+    e.preventDefault(); btn.disabled = true; m.textContent = 'Registrando…'; m.className = 'msg';
+    const c = usables.find(x => x.id === cuenta.value);
+    let id = null;
+    try {
+      ({ id } = await api('fin/ordenes-pago', { method: 'POST', body: { proveedor_id, fecha: fechaI.value,
+        aplicaciones: [{ comprobante_id, importe: importe.value }],
+        valores: [{ medio: c.tipo === 'caja' ? 'efectivo' : 'transferencia', cuenta_id: c.id, importe: importe.value, referencia: ref.value }] } }));
+      await api(`fin/ordenes-pago/${id}/registrar`, { method: 'POST' });
+      dlg.close(); if (alPagar) alPagar(id);
+    } catch (err) {
+      // Si la orden quedó armada pero no se pudo registrar, no se deja un borrador suelto.
+      if (id) await api('fin/ordenes-pago/' + id, { method: 'DELETE' }).catch(() => {});
+      m.textContent = err.message; m.className = 'msg mal';
+    } finally { btn.disabled = false; }
+  };
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg); dlg.showModal(); importe.focus();
 }

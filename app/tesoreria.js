@@ -3,13 +3,13 @@
 // vuelve a verificar la base, que es donde se asientan los movimientos.
 const express = require('express');
 const { pool } = require('./db');
-const { ErrorUsuario, numero, texto, fecha, h, enTransaccion } = require('./util');
+const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion } = require('./util');
 
 const r = express.Router();
 
 const nroOP = n => 'OP-' + String(n).padStart(6, '0');
 const nroComp = c => `${{ factura: 'FC', nota_debito: 'ND', nota_credito: 'NC' }[c.tipo]} ${c.letra} ${String(c.punto_venta).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}`;
-const importe = (v, campo) => numero(v, { campo, requerido: true, positivo: true });
+const importe = (v, campo) => monto(v, { campo, requerido: true, positivo: true });
 
 // ── Cuentas ──────────────────────────────────────────────────────────────────────────────────
 r.get('/fin/cuentas', h(async (req, res) => {
@@ -138,7 +138,7 @@ r.post('/fin/arqueos', h(async (req, res) => {
   const b = req.body;
   const { rows: [{ id }] } = await pool.query('SELECT fin.arquear($1::uuid, $2::numeric, $3) AS id',
     [texto(b.cuenta_id, { campo: 'la caja', requerido: true }),
-     numero(b.contado, { campo: 'Lo contado', requerido: true }), texto(b.motivo, { campo: 'el motivo', requerido: true })]);
+     monto(b.contado, { campo: 'Lo contado', requerido: true }), texto(b.motivo, { campo: 'el motivo', requerido: true })]);
   const { rows: [a] } = await pool.query('SELECT sistema::text, contado::text, diferencia::text FROM fin.arqueo WHERE id = $1', [id]);
   res.status(201).json({ ok: true, arqueo: a });
 }));

@@ -31,20 +31,22 @@
       <form id="f" novalidate>
         <fieldset>
           <legend>Comprobante</legend>
+          <label class="check" style="margin-bottom:12px"><input type="checkbox" name="fiscal" checked> Comprobante fiscal (factura con CAE)</label>
+          <p class="ayuda" id="ayudaFiscal" hidden style="margin-top:-6px">No fiscal (X): precio final sin IVA discriminado y número opcional. Se paga y entra en la cuenta corriente igual que una factura, pero no va al libro IVA.</p>
           <div class="fila">
             <label>Proveedor *<select name="proveedor_id"></select></label>
             <label>Tipo *<select name="tipo"><option value="factura">Factura</option><option value="nota_credito">Nota de crédito</option><option value="nota_debito">Nota de débito</option></select></label>
-            <label>Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option></select></label>
+            <label id="letraWrap">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option><option value="X" hidden>X</option></select></label>
           </div>
           <div class="fila">
-            <label>Punto de venta *<input name="punto_venta" inputmode="numeric" placeholder="0003"></label>
-            <label>Número *<input name="numero" inputmode="numeric" placeholder="00001234"></label>
+            <label><span id="lblPv">Punto de venta *</span><input name="punto_venta" inputmode="numeric" placeholder="0003"></label>
+            <label><span id="lblNum">Número *</span><input name="numero" inputmode="numeric" placeholder="00001234"></label>
             <label>Fecha *<input name="fecha" type="date"></label>
             <label>Vencimiento<input name="vencimiento" type="date"></label>
           </div>
           <div class="fila">
             <label id="asocWrap" hidden>Corrige la factura<select name="asociado_id"></select></label>
-            <label>CAE<input name="cae" inputmode="numeric" maxlength="14"></label>
+            <label id="caeWrap">CAE<input name="cae" inputmode="numeric" maxlength="14"></label>
             <label>Notas<input name="notas"></label>
           </div>
           <p class="ayuda" id="ayudaProv"></p>
@@ -72,7 +74,7 @@
 
         <fieldset>
           <legend>Registrar</legend>
-          <div class="fila"><label>Total impreso en el comprobante *<input name="total" inputmode="decimal"></label><div id="difTotal" style="align-self:end"></div></div>
+          <div class="fila"><label>Total impreso en el comprobante *<input name="total" inputmode="numeric" placeholder="20.000"></label><div id="difTotal" style="align-self:end"></div></div>
           <p class="ayuda">Se acepta hasta $1 de diferencia por redondeo; más que eso, hay algo mal cargado.</p>
         </fieldset>
         <div class="acciones">
@@ -138,7 +140,7 @@ function filaItem(x = {}) {
   const desc = el('input', { value: x.descripcion || '', placeholder: 'producto o concepto', style: 'min-width:200px' });
   const unidad = el('input', { value: x.unidad || '', style: 'width:110px' });
   const cantidad = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:90px' });
-  const precio = el('input', { inputMode: 'decimal', value: coma(x.precio), style: 'width:120px' });
+  const precio = el('input', { inputMode: 'numeric', value: miles(x.precio), style: 'width:120px' });
   const descu = el('input', { inputMode: 'decimal', value: coma(x.descuento && x.descuento !== '0' ? x.descuento : ''), style: 'width:64px', placeholder: '0' });
   // Renglón nuevo: 21%. Guardado o copiado de la compra: la que trae (null = exento).
   const alic = el('select'); opciones(alic, ALIC, 'alicuota' in x ? (x.alicuota ?? '') : '21');
@@ -156,7 +158,7 @@ function filaItem(x = {}) {
 function filaTrib(t = {}) {
   const tipo = el('select'); opciones(tipo, Object.entries(TRIB), t.tipo || 'percepcion_iibb');
   const jur = el('input', { value: t.jurisdiccion || '', placeholder: 'CABA, Buenos Aires…' });
-  const imp = el('input', { inputMode: 'decimal', value: coma(t.importe), style: 'width:120px' });
+  const imp = el('input', { inputMode: 'numeric', value: miles(t.importe), style: 'width:120px' });
   const tr = el('tr', {}, el('td', {}, tipo), el('td', {}, jur), el('td', {}, imp),
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); recalcular(); } })));
   tr.leer = () => ({ tipo: tipo.value, jurisdiccion: jur.value, importe: imp.value });
@@ -168,6 +170,18 @@ $('#agregarTrib').onclick = () => filaTrib();
 
 // Los totales los calcula la base, con la misma cuenta que va a hacer al registrar.
 let tCalc;
+// Como en la factura: un solo neto gravado y el IVA de cada alícuota debajo.
+const lineasIva = alicuotas => !alicuotas.length ? [] : ['Neto gravado', pesos(deCentavos(alicuotas.reduce((t, a) => t + centavos(a.neto), 0n))),
+  ...alicuotas.flatMap(a => [`IVA ${coma(a.alicuota)}%`, pesos(a.iva)])];
+// Fiscal o no: el no fiscal es letra X, sin CAE ni IVA discriminado, con número opcional.
+function aplicarFiscal() {
+  const fis = f.fiscal.checked;
+  if (!fis) f.letra.value = 'X'; else if (f.letra.value === 'X') f.letra.value = letraSugerida();
+  $('#letraWrap').hidden = !fis; $('#caeWrap').hidden = !fis; $('#ayudaFiscal').hidden = fis;
+  $('#lblPv').textContent = fis ? 'Punto de venta *' : 'Punto de venta'; $('#lblNum').textContent = fis ? 'Número *' : 'Número (opcional)';
+  f.letra.onchange();
+}
+const letraSugerida = () => { const p = provSel(); return p && p.condicion_iva === 'monotributo' ? 'C' : p && p.condicion_iva === 'exento' ? 'B' : 'A'; };
 function recalcular() {
   clearTimeout(tCalc);
   tCalc = setTimeout(async () => {
@@ -178,8 +192,7 @@ function recalcular() {
       let k = 0;
       $$('#items tbody tr').forEach(tr => { const x = tr.leer(); tr.imp.textContent = x.cantidad && x.precio ? pesos(calc.renglones[k++]) : ''; });
       const filasR = discrimina()
-        ? [...calc.alicuotas.flatMap(a => [`Neto ${coma(a.alicuota)}%`, pesos(a.neto), `IVA ${coma(a.alicuota)}%`, pesos(a.iva)]),
-           ...(!cero(calc.no_gravado) ? ['No gravado y exento', pesos(calc.no_gravado)] : [])]
+        ? [...lineasIva(calc.alicuotas), ...(!cero(calc.no_gravado) ? ['No gravado y exento', pesos(calc.no_gravado)] : [])]
         : ['Subtotal (IVA incluido)', pesos(calc.no_gravado)];
       if (!cero(calc.tributos)) filasR.push('Percepciones e impuestos', pesos(calc.tributos));
       $('#resumen').replaceChildren(...filasR.map(t => el('span', { textContent: t })),
@@ -190,7 +203,7 @@ function recalcular() {
 }
 function compararTotal() {
   const t = f.total.value.trim(); const d = $('#difTotal');
-  if (!t || !calc || !/^\d+([.,]\d{1,2})?$/.test(t)) return d.replaceChildren();
+  if (!t || !calc || !/^(\d{1,3}(\.\d{3})+|\d+)$/.test(t)) return d.replaceChildren();
   const dif = centavos(t) - centavos(calc.total);
   const abs = dif < 0n ? -dif : dif;
   const txt = dif === 0n ? 'coincide' : `diferencia ${dif < 0n ? '-' : ''}$${num(String(abs / 100n) + '.' + String(abs % 100n).padStart(2, '0'))}`;
@@ -198,6 +211,7 @@ function compararTotal() {
 }
 f.total.oninput = compararTotal;
 f.letra.onchange = () => { $$('.col-iva').forEach(x => x.hidden = !discrimina()); $('#thPrecio').textContent = discrimina() ? 'Precio neto' : 'Precio final'; recalcular(); };
+f.fiscal.onchange = aplicarFiscal;
 f.tipo.onchange = () => { $('#asocWrap').hidden = f.tipo.value === 'factura'; cargarAsociables(); };
 
 // ── Proveedor: plazo, compras y facturas para asociar ──
@@ -206,7 +220,7 @@ async function alCambiarProveedor(vinculadas = []) {
   const p = provSel();
   $('#ayudaProv').textContent = p ? [p.cuit ? 'CUIT ' + p.cuit : 'Sin CUIT cargado', p.condicion_iva ? p.condicion_iva.replace('_', ' ') : null,
     p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días (si no ponés vencimiento, se calcula)` : null].filter(Boolean).join(' · ') : '';
-  if (p && !actual) f.letra.value = p.condicion_iva === 'monotributo' ? 'C' : p.condicion_iva === 'exento' ? 'B' : 'A';
+  if (p && !actual && f.fiscal.checked) f.letra.value = letraSugerida();
   f.letra.onchange();
   await Promise.all([cargarCompras(vinculadas), cargarAsociables()]);
 }
@@ -239,7 +253,7 @@ async function nuevo() {
   actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante';
   opciones(f.proveedor_id, proveedores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, 'Elegir…');
   f.fecha.value = hoy();
-  $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem();
+  $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem(); aplicarFiscal();
   // Se puede registrar directo, sin guardar antes el borrador: registrar guarda primero.
   $('#registrar').hidden = false; $('#borrar').hidden = true; $('#asocWrap').hidden = true; $('#volverCompra').hidden = true;
   await alCambiarProveedor(); vista('editar'); history.replaceState(null, '', 'comprobantes.html');
@@ -266,6 +280,7 @@ async function abrir(id) {
       $('#titulo').textContent = comp.nro + ' · ' + comp.proveedor;
       opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === comp.proveedor_id).map(p => [p.id, p.nombre]), comp.proveedor_id);
       for (const k of ['tipo', 'letra', 'punto_venta', 'numero', 'fecha', 'vencimiento', 'cae', 'notas']) f[k].value = comp[k] ?? '';
+      f.fiscal.checked = comp.letra !== 'X'; aplicarFiscal();
       $('#asocWrap').hidden = comp.tipo === 'factura';
       $('#items tbody').replaceChildren(); comp.items.forEach(filaItem);
       $('#tributos tbody').replaceChildren(); comp.tributos.forEach(filaTrib);
@@ -280,14 +295,14 @@ async function abrir(id) {
 function ver() {
   const c = comp;
   $('#vTitulo').textContent = `${TIPO[c.tipo]} ${c.letra} ${String(c.punto_venta).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}`;
-  $('#vSub').textContent = [c.proveedor, c.cuit ? 'CUIT ' + c.cuit : null, 'fecha ' + fecha(c.fecha), c.vencimiento ? 'vence ' + fecha(c.vencimiento) : null,
+  $('#vSub').textContent = [c.letra === 'X' ? 'no fiscal' : null, c.proveedor, c.cuit ? 'CUIT ' + c.cuit : null, 'fecha ' + fecha(c.fecha), c.vencimiento ? 'vence ' + fecha(c.vencimiento) : null,
     c.asociado ? 'corrige ' + c.asociado : null, c.compras.length ? 'compras ' + c.compras.map(x => x.numero || fecha(x.fecha)).join(', ') : null,
     c.estado === 'registrado' ? `registrado por ${c.registrado_por || '—'} el ${fechaHora(c.registrado_en)}` : null,
     c.estado === 'anulado' ? `ANULADO por ${c.anulado_por || '—'}: ${c.motivo_anulacion}` : null].filter(Boolean).join(' · ');
   filas($('#vItems'), c.items, i => el('tr', {}, td(i.descripcion + (i.unidad ? ` (${i.unidad})` : ''), 'wrap'), td(num(i.cantidad), 'num'),
     td(pesos(i.precio), 'num'), td(i.descuento !== '0' ? coma(i.descuento) + '%' : '', 'num'),
     td(i.alicuota != null ? coma(i.alicuota) + '%' : (['A', 'M'].includes(c.letra) ? 'exento' : ''), 'num'), td(pesos(i.importe), 'num')), 'Sin renglones.', 6);
-  const filasR = [...c.alicuotas.flatMap(a => [`Neto ${coma(a.alicuota)}%`, pesos(a.neto), `IVA ${coma(a.alicuota)}%`, pesos(a.iva)]),
+  const filasR = [...lineasIva(c.alicuotas),
     ...(!cero(c.no_gravado) ? [['A', 'M'].includes(c.letra) ? 'No gravado y exento' : 'Subtotal', pesos(c.no_gravado)] : []),
     ...c.tributos.flatMap(t => [TRIB[t.tipo] + (t.jurisdiccion ? ' ' + t.jurisdiccion : ''), pesos(t.importe)]),
     ...(!cero(c.ajuste_redondeo) ? ['Redondeo', pesos(c.ajuste_redondeo)] : [])];
@@ -298,9 +313,10 @@ function ver() {
   $('#verCC').href = 'cuenta-corriente.html#' + c.proveedor_id;
   $('#anular').hidden = c.estado !== 'registrado';
   // Pagar: la orden de pago ya armada con este comprobante. Volver: a las compras vinculadas.
-  $('#pagar').hidden = !(c.estado === 'registrado' && c.tipo !== 'nota_credito' && c.pendiente && !cero(c.pendiente));
-  $('#pagar').textContent = c.pendiente && !cero(c.pendiente) ? `Pagar ${pesos(c.pendiente)}` : 'Pagar';
-  $('#pagar').onclick = () => location.href = `ordenes-pago.html?proveedor=${c.proveedor_id}&comprobante=${c.id}`;
+  $('#pagar').hidden = !(c.estado === 'registrado' && c.tipo !== 'nota_credito' && c.pendiente && alPeso(c.pendiente) > 0n);
+  $('#pagar').textContent = c.pendiente && alPeso(c.pendiente) > 0n ? `Pagar ${pesos(c.pendiente)}` : 'Pagar';
+  $('#pagar').onclick = () => pagoRapido({ proveedor_id: c.proveedor_id, comprobante_id: c.id, pendiente: c.pendiente, nro: comp.nro || $('#vTitulo').textContent,
+    alPagar: async () => { await abrir(c.id); msg('Pago registrado.', 'ok', '#msgV'); } });
   $('#verCompras').replaceChildren(...c.compras.map(x => el('a', { href: 'compras.html#' + x.id, textContent: 'Ver compra ' + (x.numero || fecha(x.fecha)), style: 'margin-left:14px' })));
   vista('ver');
 }

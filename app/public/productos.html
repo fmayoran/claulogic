@@ -195,7 +195,7 @@
             </select></label>
             <label>Costo
               <span class="con-boton">
-                <input name="costo" inputmode="decimal" placeholder="0">
+                <input name="costo" inputmode="numeric" placeholder="0">
                 <select name="costo_unidad" class="angosto"></select>
               </span>
             </label>
@@ -221,7 +221,7 @@
 <script src="comun.js"></script>
 <script>
 const f = $('#f');
-let unidades = [], categorias = [], actual = null, actualNombre = '', sucio = false;
+let unidades = [], categorias = [], actual = null, actualNombre = '', sucio = false, costoMostrado = [];
 
 const magnitudDe = cod => (unidades.find(u => u.codigo === cod) || {}).magnitud;
 const compatibles = cod => unidades.filter(u => u.magnitud === magnitudDe(cod));
@@ -493,7 +493,7 @@ async function abrir(id) {
     $('#datosCab').hidden = false; $('#subtitulo').hidden = true;
     $('#guardar').textContent = 'Guardar cambios';
     for (const k of ['codigo', 'nombre', 'vida_util_dias', 'temp_min', 'temp_max', 'stock_minimo', 'costo'])
-      f[k].value = coma(p[k]);
+      f[k].value = k === 'costo' ? miles(p[k]) : coma(p[k]);
     f.alicuota_iva.value = p.alicuota_iva ?? '';
     if (!categorias.some(c => c.id === p.categoria_id && c.activa)) await cargarCategorias();
     f.categoria_id.value = p.categoria_id;
@@ -510,6 +510,7 @@ async function abrir(id) {
       p.foto_origen === 'openfoodfacts' ? { texto: 'Foto: ' + p.foto_atribucion, url: p.foto_fuente } : null);
     $('#pres tbody').replaceChildren();
     alCambiarBase(p.costo_unidad);
+    costoMostrado = [f.costo.value, f.costo_unidad.value];
     for (const x of p.presentaciones) filaPres({ ...x, unidad: p.unidad_base });
     const hist = $('#histCostos tbody');
     hist.replaceChildren(...p.costos.map(c => el('tr', {},
@@ -528,6 +529,7 @@ function leer() {
     unidad_base: f.unidad_base.value, perecedero: f.perecedero.checked,
     vida_util_dias: f.vida_util_dias.value, temp_min: f.temp_min.value, temp_max: f.temp_max.value,
     stock_minimo: f.stock_minimo.value, costo: f.costo.value, costo_unidad: f.costo_unidad.value, alicuota_iva: f.alicuota_iva.value,
+    costo_igual: !!actual && f.costo.value === costoMostrado[0] && f.costo_unidad.value === costoMostrado[1],
     activo: actual ? f.activo.checked : true,
     presentaciones: [...document.querySelectorAll('#pres tbody tr')].map(tr => ({
       id: tr.dataset.id || null, nombre: tr.querySelector('.pn').value,

@@ -32,6 +32,27 @@ function texto(v, { campo, requerido = false } = {}) {
   return s || null;
 }
 
+// Plata tipeada: pesos ENTEROS (decisión de Fer, 22/10/2026: sin centavos ni coma). El punto es
+// separador de miles: "20.000" es veinte mil. Acepta también el número como lo devuelve la base
+// ("20000.00"), siempre que no tenga centavos. Los importes calculados (IVA, costo por unidad) sí
+// pueden tenerlos: esto es sólo para lo que se escribe.
+function monto(v, { campo, requerido = false, positivo = false } = {}) {
+  if (v === undefined || v === null || String(v).trim() === '') {
+    if (requerido) throw new ErrorUsuario(`Falta ${campo}.`);
+    return null;
+  }
+  let s = String(v).trim().replace(/^\$\s*/, '');
+  if (s.includes(',')) throw new ErrorUsuario(`${campo}: los importes van en pesos enteros, sin coma (por ejemplo 20.000).`);
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  else if (/^\d+\.\d+$/.test(s)) {
+    if (!/^\d+\.0+$/.test(s)) throw new ErrorUsuario(`${campo}: "${v}" tiene centavos; los importes van en pesos enteros.`);
+    s = s.split('.')[0];
+  } else if (!/^\d+$/.test(s)) throw new ErrorUsuario(`${campo}: "${v}" no es un importe válido.`);
+  s = s.replace(/^0+(?=\d)/, '');
+  if (positivo && s === '0') throw new ErrorUsuario(`${campo} tiene que ser mayor que cero.`);
+  return s;
+}
+
 function fecha(v, { campo, requerido = false } = {}) {
   const s = texto(v, { campo, requerido });
   if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new ErrorUsuario(`${campo}: "${v}" no es una fecha válida.`);
@@ -160,4 +181,4 @@ const enRef = expr => `(SELECT trim_scale((${expr} * r.factor_si / b.factor_si):
                           FROM logic.unidad r, logic.unidad b
                          WHERE r.codigo = ${UNIDAD_REF} AND b.codigo = p.unidad_base)`;
 
-module.exports = { ErrorUsuario, numero, texto, fecha, errorBase, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef };
+module.exports = { ErrorUsuario, numero, monto, texto, fecha, errorBase, h, enTransaccion, aBase, crearLote, UNIDAD_REF, enRef };

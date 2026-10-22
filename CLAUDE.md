@@ -83,6 +83,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   "Factura y pago": **Cargar factura** abre el comprobante con la compra vinculada y sus renglones
   copiados (`comprobantes.html?compra=&proveedor=`), y **Pagar** abre la orden de pago con el comprobante
   tildado por lo pendiente (`ordenes-pago.html?proveedor=&comprobante=`).
+- **Pago rápido** (`pagoRapido` en `comun.js`, decisión de Fer: pocos usuarios, menos pasos): "Pagar" en la
+  compra o el comprobante abre un diálogo con cuenta (banco = transferencia, caja = efectivo), importe y
+  fecha; arma la orden de pago y la registra en un paso (si no se puede registrar, borra el borrador).
+  Con cheques o retenciones, la orden de pago completa. La compra estima IVA sólo si el proveedor es
+  responsable inscripto.
 - Las **compras recibidas** no se editan ni se borran, y sus movimientos (como los de una
   producción) no se anulan sueltos. Recibir crea lote sólo para perecederos; los no perecederos se
   mueven sin lote.
@@ -200,12 +205,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Producto con **alícuota habitual** (21 por defecto; 10,5 para carnes, frutas, verduras, harinas).
 - **Libro IVA compras** del mes en CSV (`;` y coma decimal, con BOM), notas de crédito en negativo.
 - Sin importación de ARCA por ahora (decisión de Fer). Moneda: sólo pesos.
+- **Comprobante no fiscal** (decisión de Fer, 22/10/2026): tilde "Comprobante fiscal" al cargarlo; sin tilde es
+  **letra X**: precio final sin IVA discriminado, sin CAE ni exigencia de CUIT, punto de venta y número
+  opcionales (sin número, la base pone `00000-` + `fin.comprobante_x_seq`). Mismo circuito que el fiscal
+  (compra, cuenta corriente, pago); sólo queda fuera del libro IVA.
 - El cliente manda cuerpo JSON en toda modificación (también DELETE): el servidor exige JSON contra
   CSRF y un DELETE sin cuerpo no lleva tipo de contenido. Estaba roto desde la fase 0.
 
 ### Tesorería (fase 3, 21/10/2026)
 - **Cuentas** (`fin.cuenta`): bancos, una caja por sede (decisión de Fer) y una sola cartera de cheques
-  de terceros. **Saldo derivado** de `fin.movimiento_tes`, libro mayor inmutable; todo insert exige
+  de terceros (cuenta del sistema, no se edita; la pantalla lo explica). **Saldo derivado** de `fin.movimiento_tes`, libro mayor inmutable; todo insert exige
   permiso de finanzas en la base (`fin.movimiento_tes_firma`). Movimientos manuales (ingreso/egreso con
   concepto obligatorio), transferencias (dos patas, se anulan juntas) y **arqueo de caja** por diferencia
   (`fin.arquear`, como el conteo de stock).
@@ -227,7 +236,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   duplica. Pareo sugerido por importe exacto y fecha cercana (±10 días), incluido el débito de cheques
   propios; una línea sin pareo se registra como movimiento desde ahí. `fin.conciliacion` se puede deshacer.
 - **Retenciones practicadas** del mes en CSV para el contador.
-- Números tipeados: con coma decimal, los puntos son de miles ("41.000,50"); sin coma no se tocan.
+- **Montos en pesos enteros** (decisión de Fer, 22/10/2026): la plata se tipea sin coma ni centavos y el punto
+  es separador de miles ("20.000" = veinte mil). En el servidor, `monto()` (`util.js`) rechaza coma y centavos;
+  en el navegador, `pesos()` muestra al peso y `miles()` precarga los campos ("15.000"). Lo calculado (IVA,
+  costo por unidad) queda exacto en la base y se muestra redondeado; la diferencia contra el total impreso
+  entra en el redondeo de hasta $1. Al copiar renglones de la compra a la factura, si el unitario no da
+  entero va 1 por el total con la cantidad en la descripción. Los archivos importados (extractos, POS)
+  conservan su separador decimal. Cantidades: la coma es decimal (decisión de Fer): "1,5" kg son 1500 g.
 
 ### Puntos de venta (fase 4, 21/10/2026)
 - Esquema `pos`. Fer: **Fudo y Maxirest**, por **API o archivo según haya**, **ticket por ticket**, y lo que

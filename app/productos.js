@@ -1,7 +1,7 @@
 // API de productos y categorías: lo que necesita la pantalla de productos.
 const express = require('express');
 const { pool } = require('./db');
-const { ErrorUsuario, numero, texto, h, enTransaccion, aBase, UNIDAD_REF, enRef } = require('./util');
+const { ErrorUsuario, numero, monto, texto, h, enTransaccion, aBase, UNIDAD_REF, enRef } = require('./util');
 const gs1 = require('./gs1');
 const COSTO_REF = enRef('p.costo_base');
 
@@ -124,7 +124,9 @@ function leerProducto(b, { nuevo = false } = {}) {
     stock_minimo: numero(b.stock_minimo, { campo: 'Stock mínimo' }),
     // '' = exento o no gravado; sin el campo, 21 (lo más común).
     alicuota_iva: b.alicuota_iva === undefined ? '21' : (texto(b.alicuota_iva) || '').replace(',', '.') || null,
-    costo: numero(b.costo, { campo: 'Costo' }),
+    costo: monto(b.costo, { campo: 'Costo' }),
+    // El costo que se mostró redondeado y no se tocó: se conserva el exacto (puede tener centavos por unidad).
+    costo_igual: !!b.costo_igual,
     costo_unidad: texto(b.costo_unidad),
     activo: b.activo === undefined ? true : !!b.activo,
   };
@@ -232,7 +234,9 @@ r.put('/productos/:id', h(async (req, res) => {
               vida_util_dias=$6, temp_min=$7, temp_max=$8, stock_minimo=$9, costo_base=$10, activo=$11, alicuota_iva=$13
         WHERE id = $12`,
       [p.codigo, p.nombre, p.categoria_id, p.unidad_base, p.perecedero, p.vida_util_dias,
-       p.temp_min, p.temp_max, p.stock_minimo, await costoBase(c, p), p.activo, req.params.id, p.alicuota_iva]);
+       p.temp_min, p.temp_max, p.stock_minimo,
+       p.costo_igual ? (await c.query('SELECT costo_base::text AS c FROM logic.producto WHERE id = $1', [req.params.id])).rows[0]?.c ?? null
+                     : await costoBase(c, p), p.activo, req.params.id, p.alicuota_iva]);
     if (!rowCount) return false;
     await guardarPresentaciones(c, req.params.id, p.unidad_base, p.presentaciones);
     return true;

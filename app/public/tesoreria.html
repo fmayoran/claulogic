@@ -28,6 +28,9 @@
     <p><a href="tesoreria.html">Volver a las cuentas</a></p>
     <h1 id="cTitulo"></h1>
     <p class="sub" id="cSub"></p>
+    <p class="ayuda" id="notaCartera" hidden>Cuenta del sistema: es donde quedan los cheques de terceros que se reciben,
+      hasta que se endosan a un proveedor o se depositan. Hay una sola y no se edita: su saldo es la suma de los cheques
+      en cartera. Se mueve desde <a href="cheques.html">Cheques</a>.</p>
     <div class="barra">
       <label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
       <button id="editarCuenta">Editar cuenta</button>
@@ -53,7 +56,7 @@
 <dialog id="dTransf"><form id="ft" novalidate>
   <h2>Transferir entre cuentas</h2>
   <div class="fila"><label>Desde *<select name="origen_id"></select></label><label>Hacia *<select name="destino_id"></select></label></div>
-  <div class="fila"><label>Importe *<input name="importe" inputmode="decimal"></label><label>Fecha<input name="fecha" type="date"></label></div>
+  <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label></div>
   <div class="fila"><label>Concepto<input name="concepto" placeholder="Extracción para caja, depósito de efectivo…"></label></div>
   <div class="acciones"><button type="submit" class="prim">Transferir</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgT"></span></div>
 </form></dialog>
@@ -62,7 +65,7 @@
   <h2>Ingreso o egreso</h2>
   <p class="ayuda" style="margin:0 0 12px">Lo que no es un pago a proveedor: comisiones, impuestos bancarios, aportes, gastos de caja. Los pagos van por orden de pago.</p>
   <div class="fila"><label>Cuenta *<select name="cuenta_id"></select></label><label>Tipo *<select name="tipo"><option value="egreso">Egreso</option><option value="ingreso">Ingreso</option></select></label></div>
-  <div class="fila"><label>Importe *<input name="importe" inputmode="decimal"></label><label>Fecha<input name="fecha" type="date"></label></div>
+  <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label></div>
   <div class="fila"><label>Concepto *<input name="concepto"></label></div>
   <div class="acciones"><button type="submit" class="prim">Registrar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgM"></span></div>
 </form></dialog>
@@ -71,7 +74,7 @@
   <h2>Arqueo de caja</h2>
   <p class="ayuda" style="margin:0 0 12px">Contá el efectivo y cargalo. Si no coincide con el sistema, se asienta un sobrante o un faltante por la diferencia.</p>
   <div class="fila"><label>Caja *<select name="cuenta_id"></select></label><label>En el sistema<input id="arqSistema" disabled></label></div>
-  <div class="fila"><label>Contado *<input name="contado" inputmode="decimal"></label><label>Motivo *<input name="motivo" placeholder="arqueo de cierre, cambio de turno…"></label></div>
+  <div class="fila"><label>Contado *<input name="contado" inputmode="numeric"></label><label>Motivo *<input name="motivo" placeholder="arqueo de cierre, cambio de turno…"></label></div>
   <div id="arqResultado" class="ayuda"></div>
   <div class="acciones"><button type="submit" class="prim">Asentar arqueo</button><button type="button" data-cerrar>Cerrar</button><span class="msg" id="msgA"></span></div>
 </form></dialog>
@@ -107,7 +110,7 @@ async function verCuenta(id) {
   $('#cSub').textContent = [TIPO[c.tipo], c.sede, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
     'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
   $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
-  $('#editarCuenta').hidden = c.tipo === 'cartera';
+  $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#notaCartera').hidden = c.tipo !== 'cartera';
   const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
   const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
   filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },
