@@ -1,5 +1,5 @@
-// Proceso de abastecimiento: un asistente que lleva una compra del pedido al pago (proveedor y
-// comprobante → productos → recepción → factura y pago) y la bandeja de lo que quedó a mitad de camino.
+// Proceso de abastecimiento: un asistente que lleva una compra del pedido al pago (pedido → recepción →
+// comprobante → pago) y la bandeja de lo que quedó a mitad de camino.
 //
 // No es un sistema aparte: cada paso guarda en las tablas de siempre (logic.compra, fin.comprobante,
 // órdenes de pago), así que lo hecho acá se ve en las pantallas de Compras y Facturas y al revés.
@@ -16,9 +16,9 @@ const r = express.Router();
 const veCompras = u => u.es_admin || u.finanzas || (u.roles || []).some(x => x.tipo === 'centro');
 
 // ── Bandeja ──────────────────────────────────────────────────────────────────────────────────
-// Etapa de cada compra abierta y el paso del asistente donde se retoma:
-//   carga sin terminar (borrador) → productos · esperando mercadería (pedida) → recepción ·
-//   falta la factura / factura sin registrar / por pagar (recibida) → factura y pago.
+// Etapa de cada compra abierta y el paso del asistente donde se retoma (pedido → recepción →
+// comprobante → pago): pedido sin terminar → pedido · esperando mercadería → recepción · falta el
+// comprobante o sin registrar → comprobante · por pagar → pago.
 // Más las facturas por pagar que no vienen de una compra (cargadas directo en Facturas).
 r.get('/abastecimiento/pendientes', h(async (req, res) => {
   if (!veCompras(req.usuario)) return res.json({ ok: true, pendientes: [] });
@@ -39,10 +39,10 @@ r.get('/abastecimiento/pendientes', h(async (req, res) => {
       ORDER BY co.fecha, co.creado_en`);
   const pendientes = rows.map(x => {
     const [etapa, paso] =
-      x.estado === 'borrador' ? ['Carga sin terminar', 'productos']
+      x.estado === 'borrador' ? ['Pedido sin terminar', 'pedido']
       : x.estado === 'pedida' ? ['Esperando mercadería', 'recepcion']
-      : !x.comprobante_id ? ['Falta la factura', 'pago']
-      : x.comprobante_estado === 'borrador' ? ['Factura sin registrar', 'pago']
+      : !x.comprobante_id ? ['Falta el comprobante', 'comprobante']
+      : x.comprobante_estado === 'borrador' ? ['Comprobante sin registrar', 'comprobante']
       : ['Por pagar', 'pago'];
     return { compra_id: x.compra_id, proveedor: x.proveedor, fecha: x.fecha, numero: x.numero, renglones: x.renglones,
       etapa, paso, vencimiento: etapa === 'Por pagar' ? x.vencimiento : null,
@@ -104,8 +104,8 @@ r.post('/abastecimiento', h(async (req, res) => {
   res.status(201).json({ ok: true, ...ids });
 }));
 
-// Corregir proveedor, comprobante o productos mientras la mercadería no se recibió. Sin cabecera de
-// comprobante, el borrador que hubiera se borra ("todavía no llegó la factura").
+// Corregir proveedor o productos mientras la mercadería no se recibió. Si ya hay un borrador de factura,
+// se rehace con los productos nuevos y su misma cabecera (o la que venga en el pedido).
 r.put('/abastecimiento/:id', h(async (req, res) => {
   const b = req.body, cab = leerCabecera(b.comprobante);
   const co = leerCompra({ ...b, numero: b.numero || (cab && nroDe(cab)) });
@@ -118,17 +118,15 @@ r.put('/abastecimiento/:id', h(async (req, res) => {
         WHERE x.compra_id = $1 AND c.estado <> 'anulado' ORDER BY c.creado_en DESC LIMIT 1`, [req.params.id]);
     if (borr && borr.estado !== 'borrador') throw new ErrorUsuario('La factura de esta compra ya está registrada: corregila desde Facturas.');
     if (borr || cab) exigir(req, 'finanzas');
+    const cabAnt = borr ? (await cn.query(
+      `SELECT letra, punto_venta::text, numero::text, fecha::text, vencimiento::text FROM fin.comprobante WHERE id = $1`, [borr.id])).rows[0] : null;
     // Los renglones de la factura apuntan a los de la compra: se sueltan antes de rehacerlos.
     if (borr) await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [borr.id]);
     await cn.query('UPDATE logic.compra SET proveedor_id = $1, numero = $2, fecha = COALESCE($3::date, fecha), notas = $4 WHERE id = $5',
       [co.proveedor_id, co.numero, co.fecha, co.notas, req.params.id]);
     await guardarItems(cn, req.params.id, co.items);
-    if (cab) return { comprobante_id: await guardarComprobante(cn, req.params.id, co.proveedor_id, cab, co.fecha || ant.fecha) };
-    if (borr) {
-      await cn.query('DELETE FROM fin.comprobante_compra WHERE comprobante_id = $1', [borr.id]);
-      await cn.query('DELETE FROM fin.comprobante WHERE id = $1', [borr.id]);
-    }
-    return { comprobante_id: null };
+    const usar = cab || (borr && cabAnt);
+    return { comprobante_id: usar ? await guardarComprobante(cn, req.params.id, co.proveedor_id, usar, co.fecha || ant.fecha) : null };
   });
   res.json({ ok: true, id: req.params.id, ...out });
 }));

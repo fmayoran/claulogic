@@ -258,22 +258,26 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 
 ### Proceso de abastecimiento (24/10/2026)
 - Idea de Fer: un **asistente paso a paso** para usuarios no técnicos, que **convive** con las pantallas de
-  Compras y Facturas (decisión de Fer). `abastecimiento.html` + `app/abastecimiento.js`. Pasos: proveedor y
-  comprobante (fiscal, no fiscal X o "todavía no") → productos (se cargan UNA vez: arman la compra y los
-  renglones de la factura) → recepción (ubicación, lote, vencimiento, decisión de costo propuesta en
-  "actualizar") → factura y pago (cargar el comprobante si faltaba, percepciones, total impreso, registrar y
-  pagar desde caja o banco, o "pagar después").
+  Compras y Facturas (decisión de Fer). `abastecimiento.html` + `app/abastecimiento.js`. Todo **empieza por el
+  pedido** (decisión de Fer): **Pedido** (proveedor y productos; se cargan UNA vez y arman la compra y los
+  renglones del comprobante; el precio puede faltar en un pedido pero es obligatorio para recibir) →
+  **Recepción** (ubicación, lote, vencimiento, costo propuesto en "actualizar") → **Comprobante** (fiscal o X,
+  datos; fecha y vencimiento arrancan hoy y el plazo del proveedor se muestra como referencia; percepciones
+  sólo si es fiscal; total impreso y registrar) → **Pago** (caja o banco, o "pagar después"). El comprobante
+  se puede cargar antes de recibir (la factura que llega primero).
 - **No hay tablas nuevas**: cada paso guarda en `logic.compra`, `fin.comprobante` y órdenes de pago. La compra
-  nace `pedida`; con comprobante, se arma su borrador con los renglones de la compra (`compra_item_id`
-  vinculado). Se edita hasta recibir (`PUT /abastecimiento/:id`). Dos entradas: "Llegó mercadería" y
-  "Hacer un pedido" (el pedido queda esperando mercadería).
+  nace `pedida`; el comprobante se arma desde la compra (`POST /abastecimiento/:id/comprobante`, renglones con
+  `compra_item_id`). El pedido se corrige hasta recibir (`PUT /abastecimiento/:id`): si ya hay borrador de
+  comprobante, se rehace con los productos nuevos y su misma cabecera. Dos entradas: "Llegó mercadería" y
+  "Hacer un pedido".
 - **Bandeja** dentro del Panel, común por ahora (decisión de Fer; después, por rol): **se deduce** del
-  estado (`GET /abastecimiento/pendientes`), como el stock: carga sin terminar, esperando mercadería, falta
-  la factura, factura sin registrar, por pagar (primero lo vencido), más las facturas por pagar cargadas
-  sin compra. Cada pendiente abre el asistente en el paso que falta (`#<compra>/<paso>`). Los importes,
-  sólo para finanzas.
+  estado (`GET /abastecimiento/pendientes`), como el stock: pedido sin terminar, esperando mercadería, falta
+  el comprobante, comprobante sin registrar, por pagar (primero lo vencido), más las facturas por pagar
+  cargadas sin compra. Cada pendiente abre el asistente en el paso que falta (`#<compra>/<paso>`). Los
+  importes, sólo para finanzas.
 - Segunda vuelta (decisión de Fer): mandar el pedido al proveedor (imprimir, PDF o WhatsApp). Mismo molde
   para el abastecimiento del local (pedido, remito, recepción) y el cierre de ventas del POS.
+- En Facturas también: vencimiento por defecto = fecha del comprobante; sin tilde fiscal no hay percepciones.
 
 ### Puntos de venta (fase 4, 21/10/2026)
 - Esquema `pos`. Fer: **Fudo y Maxirest**, por **API o archivo según haya**, **ticket por ticket**, y lo que

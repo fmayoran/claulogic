@@ -68,10 +68,12 @@
           <datalist id="dlProductos"></datalist>
           <p class="ayuda">En la descripción, elegí un producto de la lista (trae unidad y alícuota) o escribí un concepto: flete,
             servicio, gas. La factura registra la deuda; la mercadería entra al stock cuando se recibe la compra.</p>
+          <div id="percepWrap">
           <h3>Percepciones e impuestos</h3>
           <div style="overflow-x:auto"><table class="edit" id="tributos">
             <thead><tr><th>Tipo</th><th>Jurisdicción</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
           <button type="button" class="chico" id="agregarTrib" style="margin-top:8px">Agregar percepción o impuesto</button>
+          </div>
           <div class="resumen" id="resumen"></div>
         </fieldset>
 
@@ -195,6 +197,8 @@ function aplicarFiscal() {
   if (!fis) f.letra.value = 'X'; else if (f.letra.value === 'X') f.letra.value = letraSugerida();
   $('#letraWrap').hidden = !fis; $('#caeWrap').hidden = !fis; $('#ayudaFiscal').hidden = fis;
   $('#lblPv').textContent = fis ? 'Punto de venta *' : 'Punto de venta'; $('#lblNum').textContent = fis ? 'Número *' : 'Número (opcional)';
+  // Un comprobante no fiscal no lleva percepciones ni impuestos.
+  $('#percepWrap').hidden = !fis; if (!fis) $('#tributos tbody').replaceChildren();
   f.letra.onchange();
 }
 const letraSugerida = () => { const p = provSel(); return p && p.condicion_iva === 'monotributo' ? 'C' : p && p.condicion_iva === 'exento' ? 'B' : 'A'; };
@@ -235,7 +239,7 @@ const provSel = () => proveedores.find(p => p.id === f.proveedor_id.value);
 async function alCambiarProveedor(vinculadas = []) {
   const p = provSel();
   $('#ayudaProv').textContent = p ? [p.cuit ? 'CUIT ' + p.cuit : 'Sin CUIT cargado', p.condicion_iva ? p.condicion_iva.replace('_', ' ') : null,
-    p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ') : '';
+    p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días: ajustá el vencimiento si corresponde` : null].filter(Boolean).join(' · ') : '';
   proponerVencimiento();
   if (p && !actual && f.fiscal.checked) f.letra.value = letraSugerida();
   f.letra.onchange();
@@ -270,14 +274,12 @@ $('#provNuevo').onclick = async () => {
   opciones(f.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
   marcarCambios(f); await alCambiarProveedor();
 };
-// Vencimiento: arranca en la fecha del comprobante más el plazo del proveedor (sin plazo, la misma
-// fecha) y la sigue mientras no se lo cambie a mano.
+// Vencimiento: arranca en la fecha del comprobante (hoy, al cargarlo) y la sigue mientras no se lo cambie
+// a mano. El plazo del proveedor se muestra como referencia (decisión de Fer).
 let vencTocado = false;
 function proponerVencimiento() {
   if (vencTocado || !f.fecha.value) return;
-  const p = provSel(), d = new Date(f.fecha.value + 'T12:00:00');
-  d.setDate(d.getDate() + Number((p && p.plazo_pago_dias) || 0));
-  f.vencimiento.value = d.toISOString().slice(0, 10);
+  f.vencimiento.value = f.fecha.value;
 }
 f.fecha.addEventListener('change', proponerVencimiento);
 f.vencimiento.addEventListener('input', () => { vencTocado = true; });

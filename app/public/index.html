@@ -64,7 +64,7 @@ function tarjeta(id, n, tipo) {
 }
 // Bandeja del proceso de abastecimiento: cada pendiente lleva al paso del asistente que falta (o a la
 // factura, si se cargó directo). Primero lo vencido.
-const ETAPA_TAG = { 'Por pagar': 'aviso', 'Esperando mercadería': '', 'Falta la factura': 'aviso', 'Factura sin registrar': 'aviso', 'Carga sin terminar': '' };
+const ETAPA_TAG = { 'Por pagar': 'aviso', 'Esperando mercadería': '', 'Falta el comprobante': 'aviso', 'Comprobante sin registrar': 'aviso', 'Pedido sin terminar': '' };
 async function bandeja() {
   const { usuario: u } = await cargarSesion();
   const { pendientes } = await api('abastecimiento/pendientes');
