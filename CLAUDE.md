@@ -258,8 +258,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 
 ### Proceso de abastecimiento (24/10/2026)
 - Idea de Fer: un **asistente paso a paso** para usuarios no técnicos, que **convive** con las pantallas de
-  Compras y Facturas (decisión de Fer). `abastecimiento.html` + `app/abastecimiento.js`. Todo **empieza por el
-  pedido** (decisión de Fer): **Pedido** (proveedor y productos; se cargan UNA vez y arman la compra y los
+  Compras y Facturas (decisión de Fer). `abastecimiento.html` + `app/abastecimiento.js`. **El flujo manda** y
+  arranca en el Panel ("Necesito comprar" / "Llegó mercadería"); una sola entrada en el menú. Seis pasos:
+  **Necesidad** (la lista de compras, `#lista`) → **Proveedor** (`#lista/proveedor`, agrupado por proveedor;
+  "generar pedidos" sigue con el único pedido o deja elegir con cuál) → **Pedido** (proveedor y productos; se cargan UNA vez y arman la compra y los
   renglones del comprobante; el precio puede faltar en un pedido pero es obligatorio para recibir) →
   **Recepción** (ubicación, lote, vencimiento, costo propuesto en "actualizar") → **Comprobante** (fiscal o X,
   datos; fecha y vencimiento arrancan hoy y el plazo del proveedor se muestra como referencia; percepciones
@@ -279,7 +281,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   para el abastecimiento del local (pedido, remito, recepción) y el cierre de ventas del POS.
 - En Facturas también: vencimiento por defecto = fecha del comprobante; sin tilde fiscal no hay percepciones.
 - **Lista de compras** (decisión de Fer, 24/10/2026: primero qué hace falta, después a quién): una sola lista
-  del centro (`logic.necesidad`, `lista-compras.html`), a la que más adelante se suman los pedidos de los
+  del centro (`logic.necesidad`, pasos 1 y 2 del asistente; `lista-compras.html` sólo redirige), a la que más adelante se suman los pedidos de los
   locales (origen `local`). Se carga a mano o con el botón "sumar lo que está bajo el mínimo" (contra el stock
   de las sedes centro, en unidad de referencia; nunca automático, decisión de Fer). Cada renglón sugiere el
   proveedor de la última compra con su último precio, y lista los demás que lo vendieron. "Generar pedidos"
@@ -356,6 +358,11 @@ global: producto abre su ficha, lote su trazabilidad, código desconocido va al 
 el celular listado y ficha sean pantallas separadas con el botón atrás funcionando.
 El menú va en **grupos desplegables**: abierto el de la pantalla actual y los que el usuario abrió
 (`localStorage`). La descripción bajo el título (`h1 + p.sub` sin id) queda detrás de un botón "?".
+**Celular primero** (gran parte de la operación es desde el teléfono): tablas con clase `movil` + `etiquetarTabla`
+pasan a tarjetas; botones a todo el ancho en el asistente. **"Agregar nuevo…" como última opción** de una lista
+de valores, nunca un botón al costado (decisión de Fer): `opcionesConAlta` / `opcionesProveedor` en `comun.js`
+(proveedor en todas las pantallas, categoría en Productos) y "+ Crear producto nuevo" al final de la lista de
+productos del asistente (`nuevoProducto`: nombre, categoría, unidad, perecedero, IVA; SKU automático).
 **Guardar sólo con cambios**: `comun.js` apaga (clase `sin-cambios`, no `disabled`, que las pantallas
 usan mientras esperan al servidor) todo botón submit que empieza con "Guardar" o "Crear" hasta que hay
 un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no pasa por un campo

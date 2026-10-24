@@ -34,7 +34,7 @@
           <label class="check" style="margin-bottom:12px"><input type="checkbox" name="fiscal" checked> Comprobante fiscal (factura con CAE)</label>
           <p class="ayuda" id="ayudaFiscal" hidden style="margin-top:-6px">No fiscal (X): precio final sin IVA discriminado y número opcional. Se paga y entra en la cuenta corriente igual que una factura, pero no va al libro IVA.</p>
           <div class="fila">
-            <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
+            <label>Proveedor *<select name="proveedor_id"></select></label>
             <label>Tipo *<select name="tipo"><option value="factura">Factura</option><option value="nota_credito">Nota de crédito</option><option value="nota_debito">Nota de débito</option></select></label>
             <label id="letraWrap">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option><option value="X" hidden>X</option></select></label>
           </div>
@@ -268,12 +268,7 @@ async function cargarAsociables(valor) {
   opciones(f.asociado_id, facturas.map(x => [x.id, `${x.nro} · ${fecha(x.fecha)} · ${pesos(x.total)}`]), valor ?? f.asociado_id.value, 'Ninguna');
 }
 f.proveedor_id.onchange = () => alCambiarProveedor();
-$('#provNuevo').onclick = async () => {
-  const p = await nuevoProveedor(); if (!p) return;
-  proveedores.push(p);
-  opciones(f.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
-  marcarCambios(f); await alCambiarProveedor();
-};
+
 // Vencimiento: arranca en la fecha del comprobante (hoy, al cargarlo) y la sigue mientras no se lo cambie
 // a mano. El plazo del proveedor se muestra como referencia (decisión de Fer).
 let vencTocado = false;
@@ -287,7 +282,7 @@ f.vencimiento.addEventListener('input', () => { vencTocado = true; });
 // ── Abrir, guardar, registrar ──
 async function nuevo() {
   actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante'; vencTocado = false;
-  opciones(f.proveedor_id, proveedores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, 'Elegir…');
+  opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => proveedores.push(p));
   f.fecha.value = hoy();
   $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem(); aplicarFiscal();
   // Se puede registrar directo, sin guardar antes el borrador: registrar guarda primero.
@@ -316,7 +311,7 @@ async function abrir(id) {
     history.replaceState(null, '', 'comprobantes.html#' + id);
     if (comp.estado === 'borrador') {
       $('#titulo').textContent = comp.nro + ' · ' + comp.proveedor;
-      opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === comp.proveedor_id).map(p => [p.id, p.nombre]), comp.proveedor_id);
+      opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo || p.id === comp.proveedor_id), comp.proveedor_id, undefined, p => proveedores.push(p));
       for (const k of ['tipo', 'letra', 'punto_venta', 'numero', 'fecha', 'vencimiento', 'cae', 'notas']) f[k].value = comp[k] ?? '';
       f.fiscal.checked = comp.letra !== 'X'; aplicarFiscal(); vencTocado = true;
       $('#asocWrap').hidden = comp.tipo === 'factura';

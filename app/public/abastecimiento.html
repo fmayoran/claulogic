@@ -6,20 +6,33 @@
 <title>Abastecimiento · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
 <style>
-  /* Barra de pasos: hecho, actual o por hacer. Se puede ir a otro paso cuando corresponde. */
-  .pasos{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:4px 0 22px;padding:0;list-style:none;counter-reset:paso;}
-  .pasos li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);
-    background:var(--panel);color:var(--mut);font-weight:600;font-size:.92rem;min-width:0;}
-  .pasos li::before{counter-increment:paso;content:counter(paso);flex:none;width:28px;height:28px;border-radius:50%;
-    display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;}
+  /* Barra de pasos: hecho, actual o por hacer. En el celular, sólo los números y el nombre del actual. */
+  .pasos{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:4px 0 20px;padding:0;list-style:none;counter-reset:paso;}
+  .pasos li{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:12px;border:1.5px solid var(--line);
+    background:var(--panel);color:var(--mut);font-weight:600;font-size:.88rem;min-width:0;}
+  .pasos li::before{counter-increment:paso;content:counter(paso);flex:none;width:26px;height:26px;border-radius:50%;
+    display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;font-size:.85rem;}
   .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--acento);border-color:var(--acento);color:var(--acento-fg);}
   .pasos li.actual{border-color:var(--acento);color:var(--fg);box-shadow:0 0 0 3px var(--sel);}
   .pasos li.actual::before{border-color:var(--acento);color:var(--acento);}
   .pasos li.ir{cursor:pointer;} .pasos li.ir:hover{background:var(--sel);}
   .pasos li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  @media (max-width:700px){ .pasos li span{display:none;} .pasos li.actual span{display:inline;} .pasos{grid-template-columns:auto auto auto auto;} }
+  /* En pantalla chica: los pasos son sólo el número y el actual se estira con su nombre. */
+  @media (max-width:900px){ .pasos{display:flex;} .pasos li{flex:none;justify-content:center;padding:8px;}
+    .pasos li span{display:none;} .pasos li.actual{flex:1;justify-content:flex-start;} .pasos li.actual span{display:inline;} }
+  .recib{display:flex;gap:6px;align-items:center;} .recib input{flex:1;min-width:0;}
   .paso{max-width:980px;}
-  /* Elegir entre opciones grandes (comprobante fiscal o no fiscal). */
+  /* Tarjetas de la lista de compras y de los proveedores. */
+  .tarjetas-lista{display:grid;gap:10px;margin:12px 0 0;}
+  .tarj{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px;display:grid;gap:8px;}
+  .tarj .cab{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .tarj .cab strong{font-size:1.02rem;} .tarj .mut{color:var(--mut);font-size:.86rem;}
+  .tarj .linea{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .tarj .linea input{width:110px;} .tarj .linea select{flex:1;min-width:200px;}
+  .grupo-prov{border:1.5px solid var(--line);border-radius:14px;padding:12px;display:grid;gap:10px;background:var(--bg);}
+  .grupo-prov.sin{border-style:dashed;} .grupo-prov h3{margin:0;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .alta{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;}
+  @media (max-width:700px){ .alta{grid-template-columns:1fr 1fr;} .alta .prod{grid-column:1 / -1;} .alta button{grid-column:1 / -1;} }
   .opciones-grandes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:6px 0 14px;}
   .opciones-grandes label{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;
     background:var(--panel);cursor:pointer;color:var(--fg);font-weight:600;}
@@ -27,10 +40,12 @@
   .opciones-grandes label:has(input:checked){border-color:var(--acento);box-shadow:0 0 0 3px var(--sel);}
   .opciones-grandes input{margin-top:3px;}
   .botonera{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:18px;}
-  .botonera .prim{font-size:1.02rem;padding:11px 18px;}
+  .botonera .prim{font-size:1.02rem;padding:12px 18px;}
+  @media (max-width:700px){ .botonera button{flex:1 1 100%;} .botonera a{flex:1 1 100%;text-align:center;padding:6px 0;} }
   .edit select, .edit input{padding:5px 7px;}
   .listo{border:1.5px solid var(--acento);background:var(--ok-bg);border-radius:12px;padding:14px 16px;margin:0 0 16px;}
-  .decision{display:flex;gap:10px;white-space:nowrap;} .decision label{display:flex;gap:4px;align-items:center;color:var(--fg);font-size:.85rem;}
+  .listo a{display:inline-block;margin:6px 14px 0 0;}
+  .decision{display:flex;gap:12px;white-space:nowrap;} .decision label{display:flex;gap:4px;align-items:center;color:var(--fg);font-size:.9rem;}
 </style>
 </head>
 <body>
@@ -38,19 +53,54 @@
   <h1 id="titulo">Proceso de abastecimiento</h1>
   <p class="ayuda" id="subt" style="margin-top:-2px"></p>
   <ol class="pasos" id="pasos">
+    <li data-paso="necesidad"><span>Necesidad</span></li>
+    <li data-paso="proveedor"><span>Proveedor</span></li>
     <li data-paso="pedido"><span>Pedido</span></li>
     <li data-paso="recepcion"><span>Recepción</span></li>
     <li data-paso="comprobante"><span>Comprobante</span></li>
     <li data-paso="pago"><span>Pago</span></li>
   </ol>
 
-  <!-- 1. Pedido: proveedor y productos -->
+  <!-- 1. Necesidad: la lista de compras del centro -->
+  <section class="paso" id="pNecesidad" hidden>
+    <p class="ayuda">¿Qué hace falta comprar? Sumá productos y cantidades. La lista es una sola para el centro: lo que cargues queda
+      hasta que se pida.</p>
+    <form id="fn" class="alta" novalidate>
+      <label class="prod">Producto<input name="producto" autocomplete="off" placeholder="nombre o SKU"></label>
+      <label>Cantidad<input name="cantidad" inputmode="decimal"></label>
+      <label>En<select name="en"></select></label>
+      <button type="submit" class="prim">Agregar</button>
+    </form>
+    <div id="escN" style="max-width:520px;margin:10px 0 0"></div>
+    <div id="necesidades" class="tarjetas-lista"></div>
+    <div class="botonera">
+      <button type="button" class="prim" id="aProveedor">Siguiente: elegir proveedores</button>
+      <button type="button" id="minimos">Sumar lo que está bajo el mínimo</button>
+      <a href="index.html">Volver al panel</a>
+      <span class="msg" id="msgN"></span>
+    </div>
+  </section>
+
+  <!-- 2. Proveedor: a quién se le compra cada cosa -->
+  <section class="paso" id="pProveedor" hidden>
+    <p class="ayuda">Cada producto viene con el proveedor de la última compra y su precio. Cambialo si conviene otro. Lo que quede
+      sin proveedor sigue en la lista para más adelante.</p>
+    <div id="generados" class="listo" hidden></div>
+    <div id="porProveedor" class="tarjetas-lista"></div>
+    <div class="botonera">
+      <button type="button" class="prim" id="generar">Generar pedidos</button>
+      <button type="button" id="atrasP">Atrás</button>
+      <span class="msg" id="msgP"></span>
+    </div>
+  </section>
+
+  <!-- 3. Pedido: proveedor y productos de una compra -->
   <section class="paso" id="pPedido" hidden>
     <form id="f1" novalidate>
       <fieldset>
         <legend>Proveedor</legend>
         <div class="fila">
-          <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
+          <label>Proveedor *<select name="proveedor_id"></select></label>
           <label>Fecha<input name="fecha" type="date"></label>
         </div>
         <p class="ayuda" id="ayudaProv"></p>
@@ -58,10 +108,9 @@
       <fieldset>
         <legend>Productos</legend>
         <div id="esc" style="max-width:520px;margin:0 0 10px"></div>
-        <div style="overflow-x:auto"><table class="edit" id="items">
+        <div class="tabla-wrap"><table class="edit movil" id="items">
           <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th id="thPrecio">Precio total</th><th></th></tr></thead>
           <tbody></tbody></table></div>
-        <datalist id="dlProductos"></datalist>
         <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar producto</button>
         <div class="resumen" id="resumen"></div>
         <p class="ayuda" id="ayudaPrecio"></p>
@@ -75,31 +124,30 @@
     </form>
   </section>
 
-  <!-- 2. Recepción -->
+  <!-- 4. Recepción -->
   <section class="paso" id="pRecepcion" hidden>
     <div id="recibida" class="listo" hidden></div>
     <div id="aRecibir">
-      <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label><div id="escR" style="flex:1;min-width:260px"></div></div>
-      <div class="tabla-wrap"><table class="datos edit">
-        <thead><tr><th>Producto</th><th class="num">Pedido</th><th>Recibido</th><th>Ubicación</th><th>Lote</th><th>Vence</th><th class="num">Costo</th><th>Costo vigente</th></tr></thead>
+      <div class="fila"><label>Guardar todo en<select id="rUbic"></select></label></div>
+      <div id="escR" style="max-width:520px;margin:4px 0 10px"></div>
+      <div class="tabla-wrap"><table class="datos edit movil">
+        <thead><tr><th>Producto</th><th>Pedido</th><th>Recibido</th><th>Ubicación</th><th>Lote</th><th>Vence</th><th>Costo</th><th>Costo vigente</th></tr></thead>
         <tbody id="rItems"></tbody></table></div>
-      <p class="ayuda">Si llegó menos, poné lo recibido (cero si no vino): lo que falta vuelve a la lista de compras para pedírselo a otro,
-        o se descarta. El precio se ajusta en proporción. Para corregir precios, "Corregir el pedido". Los perecederos llevan lote y
-        vencimiento (sin lote, se genera uno). "Actualizar" toma el costo de esta compra como vigente.</p>
+      <p class="ayuda">Si llegó menos, poné lo recibido (cero si no vino): lo que falta vuelve a la lista de compras o se descarta, y el
+        precio se ajusta en proporción. Los perecederos llevan lote y vencimiento (sin lote, se genera uno).</p>
       <div class="botonera">
-        <button type="button" id="atras2">Corregir el pedido</button>
         <button type="button" class="prim" id="confirmarR">Confirmar recepción</button>
+        <button type="button" id="atras2">Corregir el pedido</button>
         <button type="button" id="despuesR">Recibir después</button>
         <span class="msg" id="msg2"></span>
       </div>
     </div>
   </section>
 
-  <!-- 3. Comprobante -->
+  <!-- 5. Comprobante -->
   <section class="paso" id="pComprobante" hidden>
     <p class="ayuda" id="sinFin3" hidden>El comprobante lo carga quien tiene permiso de finanzas. Queda en la bandeja del panel.</p>
     <div id="compListo" class="listo" hidden></div>
-    <!-- a) datos del comprobante (los renglones salen del pedido) -->
     <form id="f3a" novalidate hidden>
       <fieldset>
         <legend>Comprobante del proveedor</legend>
@@ -118,65 +166,102 @@
       </fieldset>
       <div class="botonera"><button type="submit" class="prim">Siguiente: confirmar el total</button><span class="msg" id="msg3a"></span></div>
     </form>
-    <!-- b) borrador: percepciones (sólo fiscal), total impreso y registrar -->
     <form id="f3b" novalidate hidden>
       <fieldset>
         <legend id="leyB">Confirmar el comprobante</legend>
         <div class="resumen" id="resB"></div>
         <div id="percep">
           <h3>Percepciones e impuestos</h3>
-          <div style="overflow-x:auto"><table class="edit" id="tribs"><thead><tr><th>Tipo</th><th>Jurisdicción</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
+          <div class="tabla-wrap"><table class="edit movil" id="tribs"><thead><tr><th>Tipo</th><th>Jurisdicción</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
           <button type="button" class="chico" id="agregarTrib" style="margin-top:8px">Agregar percepción</button>
         </div>
         <div class="fila" style="margin-top:14px"><label>Total impreso en el comprobante *<input name="total" inputmode="numeric"></label><div id="difTotal" style="align-self:end"></div></div>
         <p class="ayuda">Si el total no coincide con lo calculado (más de $1), revisá precios o percepciones. Para cambios mayores,
           <a id="editarFac" href="comprobantes.html">editalo en Facturas</a>.</p>
       </fieldset>
-      <div class="botonera"><button type="button" id="cambiarDatos">Cambiar datos del comprobante</button>
-        <button type="submit" class="prim">Registrar comprobante</button><span class="msg" id="msg3b"></span></div>
+      <div class="botonera"><button type="submit" class="prim">Registrar comprobante</button>
+        <button type="button" id="cambiarDatos">Cambiar datos del comprobante</button><span class="msg" id="msg3b"></span></div>
     </form>
   </section>
 
-  <!-- 4. Pago -->
+  <!-- 6. Pago -->
   <section class="paso" id="pPago" hidden>
     <p class="ayuda" id="sinFin4" hidden>El pago lo registra quien tiene permiso de finanzas. Queda en la bandeja del panel.</p>
-    <p class="ayuda" id="faltaComp" hidden>Para pagar, primero hay que registrar el comprobante (paso 3).</p>
+    <p class="ayuda" id="faltaComp" hidden>Para pagar, primero hay que registrar el comprobante (paso 5).</p>
     <div id="finCompleto"></div>
     <form id="f4" novalidate hidden>
       <fieldset>
         <legend id="leyC">Pagar</legend>
         <div class="fila"><label>Sale de *<select name="cuenta"></select></label></div>
-        <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label><label>Referencia<input name="referencia" placeholder="nº de transferencia (opcional)"></label></div>
-        <p class="ayuda">Caja = efectivo, banco = transferencia. Para pagar con cheque o con retenciones: <a id="opCompleta" href="ordenes-pago.html">orden de pago completa</a>.</p>
+        <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label></div>
+        <div class="fila"><label>Referencia<input name="referencia" placeholder="nº de transferencia (opcional)"></label></div>
+        <p class="ayuda">Caja = efectivo, banco = transferencia. Con cheque o retenciones: <a id="opCompleta" href="ordenes-pago.html">orden de pago completa</a>.</p>
       </fieldset>
       <div class="botonera"><button type="submit" class="prim">Registrar pago</button><button type="button" id="pagarDespues">Pagar después</button><span class="msg" id="msg4"></span></div>
     </form>
   </section>
+  <datalist id="dlProductos"></datalist>
 </main>
 <script src="comun.js"></script>
 <script>
-const PASOS = ['pedido', 'recepcion', 'comprobante', 'pago'];
-const SECCION = { pedido: '#pPedido', recepcion: '#pRecepcion', comprobante: '#pComprobante', pago: '#pPago' };
+const PASOS = ['necesidad', 'proveedor', 'pedido', 'recepcion', 'comprobante', 'pago'];
+const SECCION = { necesidad: '#pNecesidad', proveedor: '#pProveedor', pedido: '#pPedido', recepcion: '#pRecepcion', comprobante: '#pComprobante', pago: '#pPago' };
 const TRIB = { percepcion_iva: 'Percepción IVA', percepcion_iibb: 'Percepción IIBB', percepcion_ganancias: 'Percepción Ganancias', impuesto_interno: 'Impuesto interno', otro: 'Otro' };
-let yo, proveedores = [], productos = [], almacenes = [], unidades = [], cuentas = [];
-// Estado del proceso: la compra (null mientras no se guardó), su comprobante y el modo de entrada.
-let compra = null, comp = null, modo = 'llegada';
+const ORIGEN = { manual: ['', ''], minimo: ['bajo el mínimo', 'aviso'], faltante: ['no lo entregaron', 'mal'], local: ['pedido de un local', 'ok'] };
+let yo, proveedores = [], productos = [], almacenes = [], unidades = [], cuentas = [], lista = [];
+// Contexto: 'lista' (pasos 1 y 2, la lista de compras), 'nueva' (llegó mercadería sin pedido) o una compra.
+let contexto = 'lista', compra = null, comp = null;
 const presCache = {};
-const f1 = $('#f1'), f3a = $('#f3a'), f3b = $('#f3b'), f4 = $('#f4');
-const provSel = () => proveedores.find(p => p.id === f1.proveedor_id.value);
-const provCompra = () => proveedores.find(p => p.id === (compra && compra.proveedor_id));
+const fn = $('#fn'), f1 = $('#f1'), f3a = $('#f3a'), f3b = $('#f3b'), f4 = $('#f4');
+const provDe = id => proveedores.find(p => p.id === id);
 const etiquetaProducto = p => `${p.nombre} (${p.codigo})`;
 const recibida = () => compra && compra.estado === 'recibida';
 const registrado = () => comp && comp.estado === 'registrado';
 const pagado = () => registrado() && alPeso(comp.pendiente || '0') <= 0n;
+const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return d.toISOString().slice(0, 10); };
+const plural = (n, s) => `${n} ${s}${n === 1 ? '' : 's'}`;
+
+// ── Productos: lista con "crear nuevo" al final ──
+function llenarDatalist() {
+  $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })),
+    el('option', { value: NUEVO_PRODUCTO }));
+}
+// Resuelve lo tipeado: un producto de la lista, o el alta de uno nuevo si eligió "crear".
+async function resolverProducto(input) {
+  const v = input.value.trim();
+  if (v === NUEVO_PRODUCTO) {
+    input.value = '';
+    const p = await nuevoProducto(input.dataset.tipeado || '');
+    if (!p) return null;
+    productos = await catalogo.productos(); llenarDatalist();
+    input.value = etiquetaProducto(p); return p;
+  }
+  const p = productos.find(p => etiquetaProducto(p) === v || p.codigo.toLowerCase() === v.toLowerCase());
+  if (p) input.value = etiquetaProducto(p);
+  return p || null;
+}
+function datalistProductos(input) {
+  input.setAttribute('list', 'dlProductos');
+  input.addEventListener('input', () => { if (input.value !== NUEVO_PRODUCTO) input.dataset.tipeado = input.value; });
+}
+async function presentaciones(id) { return presCache[id] ||= (await api('productos/' + id)).producto.presentaciones; }
+async function opcionesEn(sel, p, valor) {
+  if (!p) return opciones(sel, [], null, '—');
+  const pres = await presentaciones(p.id), def = pres.find(x => x.es_default);
+  opciones(sel, [...pres.map(x => ['p:' + x.id, `${x.nombre} (${cant(x.cantidad_base, p.unidad_base)})`]),
+    ...unidadesCompatibles(unidades, p.unidad_base).map(u => ['u:' + u.codigo, u.codigo])], valor || (def ? 'p:' + def.id : 'u:' + (p.costo_unidad || p.unidad_base)));
+}
+const enDe = v => { const [k, x] = (v || '').split(':'); return { presentacion_id: k === 'p' ? x : null, unidad: k === 'u' ? x : null }; };
 
 // ── Navegación entre pasos ──
 function mostrarPaso(p) {
   for (const [k, s] of Object.entries(SECCION)) $(s).hidden = k !== p;
-  const hecho = { pedido: !!compra && compra.estado !== 'borrador', recepcion: recibida(), comprobante: registrado(), pago: pagado() };
-  // El pedido se corrige hasta recibir; recepción y comprobante, con el pedido guardado (la factura puede
-  // llegar antes que la mercadería); el pago, con el comprobante registrado.
-  const puedeIr = { pedido: !recibida(), recepcion: !!compra, comprobante: !!compra, pago: registrado() };
+  const hecho = { necesidad: !!compra, proveedor: !!compra, pedido: !!compra && compra.estado !== 'borrador',
+                  recepcion: recibida(), comprobante: registrado(), pago: pagado() };
+  // Necesidad y proveedor son la lista de compras (común a todos los pedidos); el pedido se corrige hasta
+  // recibir; recepción y comprobante, con el pedido guardado; el pago, con el comprobante registrado.
+  const puedeIr = { necesidad: true, proveedor: contexto === 'lista' || !!compra, pedido: compra ? !recibida() : contexto === 'nueva',
+                    recepcion: !!compra, comprobante: !!compra, pago: registrado() };
   $$('#pasos li').forEach(li => {
     const k = li.dataset.paso;
     li.className = (hecho[k] ? 'hecho ' : '') + (k === p ? 'actual ' : '') + (puedeIr[k] && k !== p ? 'ir' : '');
@@ -185,10 +270,12 @@ function mostrarPaso(p) {
   scrollTo(0, 0);
 }
 function ir(p) {
+  // Pasos de la lista desde una compra: se sale a la lista de compras.
+  if ((p === 'necesidad' || p === 'proveedor') && contexto !== 'lista') return void (location.hash = p === 'necesidad' ? '#lista' : '#lista/proveedor');
   if (compra) history.replaceState(null, '', `#${compra.id}/${p}`);
-  ({ pedido: verPedido, recepcion: verRecepcion, comprobante: verComprobante, pago: verPago })[p]();
+  else if (contexto === 'lista') history.replaceState(null, '', p === 'proveedor' ? '#lista/proveedor' : '#lista');
+  ({ necesidad: verNecesidad, proveedor: verProveedores, pedido: verPedido, recepcion: verRecepcion, comprobante: verComprobante, pago: verPago })[p]();
 }
-// El paso donde se retoma: lo primero que falta.
 function pasoQueFalta() {
   if (!compra || compra.estado === 'borrador') return 'pedido';
   if (compra.estado === 'pedida') return 'recepcion';
@@ -196,13 +283,11 @@ function pasoQueFalta() {
   return 'pago';
 }
 function encabezado() {
-  $('#titulo').textContent = compra ? `Abastecimiento · ${compra.proveedor}` : modo === 'pedido' ? 'Nuevo pedido a proveedor' : 'Llegó mercadería';
+  $('#titulo').textContent = compra ? `Abastecimiento · ${compra.proveedor}` : contexto === 'nueva' ? 'Llegó mercadería' : 'Necesito comprar';
   const partes = compra ? [fecha(compra.fecha), compra.estado === 'pedida' ? 'esperando mercadería' : compra.estado === 'recibida' ? 'recibida' : compra.estado,
     comp ? `${comp.nro} ${comp.estado === 'borrador' ? 'sin registrar' : pagado() ? 'pagado' : 'debe ' + pesos(comp.pendiente)}` : 'sin comprobante'] : [];
   $('#subt').textContent = partes.filter(Boolean).join(' · ');
 }
-
-// ── Carga ──
 async function cargarCompra(id) {
   ({ compra } = await api('compras/' + id));
   comp = null;
@@ -214,51 +299,134 @@ async function cargarCompra(id) {
   encabezado();
 }
 
-// ── 1. Pedido ──
+// ── 1. Necesidad ──
+async function cargarLista() { ({ lista } = await api('abastecimiento/lista')); }
+async function verNecesidad() {
+  await cargarLista();
+  $('#necesidades').replaceChildren(...(lista.length ? lista.map(n => {
+    const cantI = el('input', { inputMode: 'decimal', value: coma(n.cantidad) });
+    cantI.onchange = () => guardarNecesidad(n, { cantidad: cantI.value }).then(verNecesidad);
+    const [ot, oc] = ORIGEN[n.origen] || [n.origen, ''];
+    const minimo = n.stock_minimo && Number(n.stock_minimo) > 0 ? ` · mínimo ${cant(n.stock_minimo, n.unidad_base)}` : '';
+    return el('div', { className: 'tarj' },
+      el('div', { className: 'cab' }, el('strong', { textContent: n.nombre }), ot ? el('span', { className: 'tag ' + oc, textContent: ot, title: n.notas || '' }) : ''),
+      el('div', { className: 'linea' }, cantI, el('span', { textContent: n.presentacion || n.unidad }),
+        el('span', { className: 'mut', textContent: `hay ${cant(n.stock_centro, n.unidad_base)} en el centro${minimo}` })),
+      el('div', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: async () => {
+        try { await api('abastecimiento/lista/' + n.id, { method: 'DELETE' }); verNecesidad(); } catch (e) { msg(e.message, 'mal', '#msgN'); } } })));
+  }) : [el('p', { className: 'vacio', textContent: 'La lista está vacía. Agregá lo que haga falta, o sumá lo que está bajo el mínimo.' })]));
+  $('#aProveedor').disabled = !lista.length;
+  encabezado(); mostrarPaso('necesidad');
+}
+async function guardarNecesidad(n, cambios) {
+  try {
+    await api('abastecimiento/lista/' + n.id, { method: 'PUT', body: { producto_id: n.producto_id, presentacion_id: n.presentacion_id, unidad: n.unidad,
+      cantidad: n.cantidad, proveedor_id: n.proveedor_id, notas: n.notas, ...cambios } });
+  } catch (e) { msg(e.message, 'mal', $('#pProveedor').hidden ? '#msgN' : '#msgP'); }
+}
+datalistProductos(fn.producto);
+fn.producto.addEventListener('change', async () => { const p = await resolverProducto(fn.producto); await opcionesEn(fn.en, p); if (p) fn.cantidad.focus(); });
+fn.onsubmit = async e => {
+  e.preventDefault();
+  const p = await resolverProducto(fn.producto);
+  if (!p) return msg('Elegí el producto de la lista (o creá uno nuevo desde la última opción).', 'mal', '#msgN');
+  if (!fn.cantidad.value) return msg('¿Cuánto hace falta?', 'mal', '#msgN');
+  try {
+    await api('abastecimiento/lista', { method: 'POST', body: { producto_id: p.id, cantidad: fn.cantidad.value, ...enDe(fn.en.value) } });
+    fn.reset(); opciones(fn.en, [], null, '—'); msg('', '', '#msgN'); await verNecesidad(); fn.producto.focus();
+  } catch (err) { msg(err.message, 'mal', '#msgN'); }
+};
+$('#escN').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado: crealo desde la última opción de la lista de productos.`);
+  fn.producto.value = etiquetaProducto(d.producto); await opcionesEn(fn.en, d.producto, d.presentacion ? 'p:' + d.presentacion.id : null); fn.cantidad.focus();
+}, { placeholder: 'Escaneá el producto para sumarlo' }));
+$('#minimos').onclick = async () => {
+  try { const { agregados } = await api('abastecimiento/lista/minimos', { method: 'POST' });
+    await verNecesidad(); msg(agregados ? `Se sumaron ${plural(agregados, 'producto')} bajo el mínimo.` : 'No hay productos bajo el mínimo que no estén ya en la lista.', 'ok', '#msgN'); }
+  catch (e) { msg(e.message, 'mal', '#msgN'); }
+};
+$('#aProveedor').onclick = () => ir('proveedor');
+
+// ── 2. Proveedor ──
+// Precio estimado: el último costo de ese proveedor por la cantidad (orientativo).
+function estimado(n, provId) {
+  const a = n.anteriores.find(x => x.proveedor_id === provId);
+  return a ? Math.round(Number(a.costo_base) * Number(n.cantidad_base)) : null;
+}
+async function verProveedores() {
+  await cargarLista();
+  // Agrupado por proveedor; primero lo que no tiene, que es lo que pide atención.
+  const grupos = new Map([['', []]]);
+  for (const n of lista) (grupos.get(n.proveedor_id || '') || grupos.set(n.proveedor_id, []).get(n.proveedor_id)).push(n);
+  const bloques = [];
+  for (const [prov, items] of grupos) {
+    if (!items.length) continue;
+    const total = items.reduce((s, n) => s + (estimado(n, prov) || 0), 0);
+    bloques.push(el('div', { className: 'grupo-prov' + (prov ? '' : ' sin') },
+      el('h3', {}, el('span', { textContent: prov ? (provDe(prov) || {}).nombre || '—' : 'Sin proveedor' }),
+        el('span', { className: 'mut', textContent: prov ? `${plural(items.length, 'producto')}${total ? ' · ~' + pesos(String(total)) : ''}` : 'quedan en la lista si no elegís' })),
+      ...items.map(n => {
+        const sel = el('select');
+        const ya = n.anteriores.map(a => [a.proveedor_id, `${a.proveedor} · ${pesos(a.costo_ref)}/${a.unidad_ref} (${fecha(a.fecha).slice(0, 5)})`]);
+        const otros = proveedores.filter(p => p.activo && !n.anteriores.some(a => a.proveedor_id === p.id)).map(p => [p.id, p.nombre]);
+        opcionesConAlta(sel, [...ya, ...otros], n.proveedor_id || '', 'Sin proveedor', { texto: '+ Agregar proveedor nuevo…',
+          alta: async () => { const p = await nuevoProveedor(); if (!p) return null; proveedores.push(p); return [p.id, p.nombre]; } });
+        sel.onchange = () => guardarNecesidad(n, { proveedor_id: sel.value || null }).then(verProveedores);
+        const e = estimado(n, n.proveedor_id);
+        return el('div', { className: 'tarj' },
+          el('div', { className: 'cab' }, el('strong', { textContent: n.nombre }), el('span', { className: 'mut', textContent: `${num(n.cantidad)} ${n.presentacion || n.unidad}${e ? ' · ~' + pesos(String(e)) : ''}` })),
+          el('div', { className: 'linea' }, sel));
+      })));
+  }
+  $('#porProveedor').replaceChildren(...(bloques.length ? bloques : [el('p', { className: 'vacio', textContent: 'La lista está vacía: volvé al paso 1.' })]));
+  const conProv = new Set(lista.filter(n => n.proveedor_id).map(n => n.proveedor_id)).size;
+  $('#generar').disabled = !conProv;
+  $('#generar').textContent = conProv ? `Generar ${plural(conProv, 'pedido')}` : 'Generar pedidos';
+  encabezado(); mostrarPaso('proveedor');
+}
+$('#atrasP').onclick = () => ir('necesidad');
+$('#generar').onclick = async () => {
+  try {
+    const { pedidos } = await api('abastecimiento/lista/pedidos', { method: 'POST' });
+    // Uno solo: se sigue con ese. Varios: se elige con cuál seguir; los demás esperan en la bandeja.
+    if (pedidos.length === 1) return void (location.hash = `#${pedidos[0].compra_id}/pedido`);
+    $('#generados').hidden = false;
+    $('#generados').replaceChildren(el('strong', { textContent: `Se generaron ${plural(pedidos.length, 'pedido')}. ¿Con cuál seguís? Los demás quedan en la bandeja del panel.` }),
+      el('div', {}, ...pedidos.map(p => el('a', { href: `#${p.compra_id}/pedido`, textContent: `${p.proveedor} · ${plural(p.renglones, 'producto')}` }))));
+    await verProveedores();
+  } catch (e) { msg(e.message, 'mal', '#msgP'); }
+};
+
+// ── 3. Pedido ──
 function alCambiarProveedor() {
-  const p = provSel();
+  const p = provDe(f1.proveedor_id.value);
   $('#ayudaProv').textContent = p ? [p.cuit ? 'CUIT ' + p.cuit : 'sin CUIT', p.condicion_iva ? p.condicion_iva.replace('_', ' ') : null,
     p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ') : '';
   recalcular();
 }
-async function presentaciones(id) { return presCache[id] ||= (await api('productos/' + id)).producto.presentaciones; }
 async function filaItem(x = {}) {
-  const prod = el('input', { placeholder: 'producto o SKU', style: 'min-width:220px', autocomplete: 'off' });
-  prod.setAttribute('list', 'dlProductos');
+  const prod = el('input', { placeholder: 'producto o SKU', autocomplete: 'off', style: 'min-width:200px' }); datalistProductos(prod);
   const en = el('select'), cantidad = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:90px' });
   const precio = el('input', { inputMode: 'numeric', value: miles(x.precio_total), style: 'width:120px', placeholder: '$' });
   let productoId = x.producto_id || null;
   const p0 = productos.find(p => p.id === productoId); if (p0) prod.value = etiquetaProducto(p0);
-  async function llenarEn(valor) {
-    const p = productos.find(p => p.id === productoId);
-    if (!p) return opciones(en, [], null, '—');
-    const pres = await presentaciones(p.id);
-    const items = [...pres.map(pr => ['p:' + pr.id, `${pr.nombre} (${cant(pr.cantidad_base, p.unidad_base)})`]),
-                   ...unidadesCompatibles(unidades, p.unidad_base).map(u => ['u:' + u.codigo, u.codigo + ' suelto'])];
-    const def = pres.find(pr => pr.es_default);
-    opciones(en, items, valor || (def ? 'p:' + def.id : 'u:' + (p.costo_unidad || p.unidad_base)));
-  }
   prod.addEventListener('change', async () => {
-    const p = productos.find(p => etiquetaProducto(p) === prod.value || p.codigo.toLowerCase() === prod.value.trim().toLowerCase());
-    productoId = p ? p.id : null; if (p) prod.value = etiquetaProducto(p);
-    await llenarEn(); recalcular(); if (p && !cantidad.value) cantidad.focus();
+    const p = await resolverProducto(prod); productoId = p ? p.id : null;
+    await opcionesEn(en, p); recalcular(); if (p && !cantidad.value) cantidad.focus();
   });
-  await llenarEn(x.presentacion_id ? 'p:' + x.presentacion_id : x.unidad ? 'u:' + x.unidad : null);
+  await opcionesEn(en, p0, x.presentacion_id ? 'p:' + x.presentacion_id : x.unidad ? 'u:' + x.unidad : null);
   const tr = el('tr', {}, el('td', {}, prod), el('td', {}, en), el('td', {}, cantidad), el('td', {}, precio),
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); recalcular(); } })));
-  tr.leer = () => { const [k, v] = (en.value || '').split(':');
-    return { producto_id: productoId, presentacion_id: k === 'p' ? v : null, unidad: k === 'u' ? v : null, cantidad: cantidad.value, precio_total: precio.value }; };
+  tr.leer = () => ({ producto_id: productoId, ...enDe(en.value), cantidad: cantidad.value, precio_total: precio.value });
   tr.addEventListener('input', recalcular); tr.addEventListener('change', recalcular);
-  $('#items tbody').append(tr);
+  $('#items tbody').append(tr); etiquetarTabla($('#items'));
   return tr;
 }
 const renglones = () => $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.producto_id || x.cantidad || x.precio_total);
-// Total: neto y, si el proveedor es responsable inscripto, el IVA estimado con la alícuota habitual de
-// cada producto. Si no, el precio ya es final. El real lo da el comprobante.
 function recalcular() {
-  const p = provSel();
+  const p = provDe(f1.proveedor_id.value);
   const discrimina = !(p && p.condicion_iva && p.condicion_iva !== 'responsable_inscripto');
-  $('#thPrecio').textContent = discrimina ? 'Precio total sin IVA' : 'Precio total';
+  $('#thPrecio').textContent = discrimina ? 'Precio total sin IVA' : 'Precio total'; etiquetarTabla($('#items'));
   $('#ayudaPrecio').textContent = (discrimina ? 'Precios netos de IVA; el IVA es estimado. ' : 'Precio final (el proveedor no discrimina IVA). ')
     + 'En un pedido el precio puede quedar vacío; para recibir hace falta.';
   const grupos = new Map(); let neto = 0n;
@@ -278,37 +446,31 @@ function recalcular() {
     el('span', { className: 'tot', textContent: filasR.length ? 'Total estimado' : 'Total' }), el('span', { className: 'tot', textContent: pesos(deCentavos(neto + iva)) }));
 }
 async function verPedido() {
-  opciones(f1.proveedor_id, proveedores.filter(p => p.activo || (compra && p.id === compra.proveedor_id)).map(p => [p.id, p.nombre]),
-    compra ? compra.proveedor_id : f1.proveedor_id.value || null, 'Elegir…');
+  opcionesProveedor(f1.proveedor_id, proveedores.filter(p => p.activo || (compra && p.id === compra.proveedor_id)),
+    compra ? compra.proveedor_id : f1.proveedor_id.value || null, 'Elegir…', p => proveedores.push(p));
   f1.fecha.value = compra ? compra.fecha : (f1.fecha.value || hoy());
   $('#items tbody').replaceChildren();
+  // En la misma presentación o unidad en que se pidió (50 kg, no 50000 g).
   if (compra) for (const it of compra.items) await filaItem({ producto_id: it.producto_id, presentacion_id: it.presentacion_id,
-    unidad: it.presentacion_id ? null : it.unidad_base, cantidad: it.presentacion_id ? it.cantidad : it.cantidad_base, precio_total: it.precio_total });
+    unidad: it.presentacion_id ? null : unidadCompra(it), cantidad: it.cantidad, precio_total: it.precio_total });
   if (!$$('#items tbody tr').length) await filaItem();
-  // Un pedido nuevo se guarda y espera; lo que ya llegó sigue directo a recibir.
-  const esPedido = compra ? compra.estado !== 'recibida' && modo === 'pedido' : modo === 'pedido';
-  $('#guardarPedido').className = esPedido ? 'prim' : ''; $('#recibirYa').className = esPedido ? '' : 'prim';
-  $('#guardarPedido').textContent = compra ? 'Guardar cambios' : 'Guardar pedido (llega después)';
-  $('#recibirYa').textContent = compra ? 'Guardar e ir a recibir' : 'Ya llegó: recibir ahora';
-  alCambiarProveedor(); sinCambios(f1); mostrarPaso('pedido');
+  // Un pedido que todavía no llegó se guarda y espera; lo que ya llegó sigue directo a recibir.
+  const esperando = compra && compra.estado === 'pedida';
+  $('#guardarPedido').className = esperando ? 'prim' : ''; $('#recibirYa').className = esperando ? '' : 'prim';
+  $('#guardarPedido').textContent = compra ? 'Guardar y esperar la mercadería' : 'Guardar pedido (llega después)';
+  $('#recibirYa').textContent = compra ? 'Ya llegó: recibir ahora' : 'Siguiente: recibir la mercadería';
+  alCambiarProveedor(); sinCambios(f1); encabezado(); mostrarPaso('pedido');
 }
-f1.proveedor_id.onchange = alCambiarProveedor;
-$('#provNuevo').onclick = async () => {
-  const p = await nuevoProveedor(); if (!p) return;
-  proveedores.push(p);
-  opciones(f1.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
-  alCambiarProveedor();
-};
+f1.proveedor_id.addEventListener('change', alCambiarProveedor);
 $('#agregar').onclick = () => filaItem().then(tr => tr.querySelector('input').focus());
 $('#esc').append(escaner(async d => {
-  if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado: dalo de alta en Productos.`);
+  if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado: crealo desde la última opción de la lista de productos.`);
   const ultima = $$('#items tbody tr').at(-1);
   if (ultima && !ultima.leer().producto_id) ultima.remove();
   const tr = await filaItem({ producto_id: d.producto.id, presentacion_id: d.presentacion && d.presentacion.id });
   tr.querySelectorAll('input')[1].focus(); marcarCambios(f1);
   msg(describirLectura(d), 'ok', '#msg1');
 }, { placeholder: 'Escaneá el producto para agregarlo' }));
-// Guarda el pedido: crea la compra o la actualiza (si ya hay borrador de comprobante, se rehace solo).
 async function guardar({ conPrecios = false } = {}) {
   const items = renglones();
   if (!f1.proveedor_id.value) throw new Error('Elegí el proveedor.');
@@ -332,7 +494,7 @@ $('#guardarPedido').onclick = async () => {
   catch (err) { msg(err.message, 'mal', '#msg1'); }
 };
 
-// ── 2. Recepción ──
+// ── 4. Recepción ──
 // En qué se pidió: la presentación, o la unidad suelta (se deduce de la relación cantidad / cantidad base).
 function unidadCompra(it) {
   if (it.presentacion) return it.presentacion;
@@ -354,24 +516,23 @@ function verRecepcion() {
   filas($('#rItems'), compra.items, it => {
     // Lo recibido, en la misma presentación o unidad del pedido. Si es menos, qué pasa con lo que falta.
     const recib = el('input', { inputMode: 'decimal', value: coma(it.cantidad), style: 'width:80px' });
-    const falta = el('select', { hidden: true }); opciones(falta, [['lista', 'falta: vuelve a la lista'], ['no', 'falta: ya no hace falta']]);
+    const falta = el('select', { hidden: true, style: 'margin-top:6px' }); opciones(falta, [['lista', 'falta: vuelve a la lista'], ['no', 'falta: ya no hace falta']]);
     const aNum = v => Number(v.includes(',') ? v.replace(/\./g, '').replace(',', '.') : v);
     const menos = () => { const r = recib.value.trim(); return r !== '' && aNum(r) < Number(it.cantidad); };
     recib.oninput = () => { falta.hidden = !menos(); };
     const ubic = el('select', { className: 'ubic' }); opcionesUbicacion(ubic, almacenes, null, 'Elegir…');
     const lote = el('input', { placeholder: 'automático', style: 'width:120px', disabled: !it.perecedero });
     const venc = el('input', { type: 'date', disabled: !it.perecedero });
-    if (it.perecedero && it.vida_util_dias) { const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() + Number(it.vida_util_dias)); venc.value = d.toISOString().slice(0, 10); }
+    if (it.perecedero && it.vida_util_dias) venc.value = sumarDias(hoy(), it.vida_util_dias);
     const nombre = 'dec-' + it.id, tieneCosto = it.costo_compra != null;
-    // En el asistente se propone actualizar el costo vigente con el de esta compra; se puede mantener.
     const decision = tieneCosto ? el('div', { className: 'decision' },
       el('label', {}, el('input', { type: 'radio', name: nombre, value: '1', checked: true }), 'Actualizar'),
       el('label', {}, el('input', { type: 'radio', name: nombre, value: '0' }), 'Mantener')) : el('span', { className: 'mut', textContent: 'sin precio' });
     const varTxt = it.variacion_pct != null ? ` (${it.variacion_pct.startsWith('-') ? '' : '+'}${num(it.variacion_pct)}%)` : '';
-    const tr = el('tr', {}, td(it.producto, 'wrap'), td(`${num(it.cantidad)} ${unidadCompra(it)}`, 'num'),
-      el('td', {}, recib, ' ', unidadCompra(it), el('div', {}, falta)), el('td', {}, ubic),
-      el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })), el('td', {}, it.perecedero ? venc : ''),
-      td(tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}${varTxt}` : '—', 'num'),
+    const tr = el('tr', {}, td(it.producto, 'wrap'), td(`${num(it.cantidad)} ${unidadCompra(it)}`),
+      el('td', {}, el('div', { className: 'recib' }, recib, el('span', { textContent: unidadCompra(it) })), falta), el('td', {}, ubic),
+      el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })), el('td', {}, it.perecedero ? venc : '—'),
+      td(tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}${varTxt}` : '—'),
       el('td', {}, (it.costo_vigente != null ? pesos(it.costo_vigente) + '/' + it.unidad_ref + ' ' : 'sin costo '), decision));
     Object.assign(tr, { it, lote, venc });
     tr.leer = () => { const r = tr.querySelector(`input[name="${nombre}"]:checked`);
@@ -379,7 +540,7 @@ function verRecepcion() {
                lote_codigo: lote.value, vencimiento: venc.value, actualizar_costo: tieneCosto ? (r ? r.value === '1' : null) : null }; };
     return tr;
   }, 'Sin productos.', 8);
-  // Si hay un solo lugar posible, ya queda elegido.
+  etiquetarTabla($('#rItems').closest('table'));
   if ($('#rUbic').options.length === 2) { $('#rUbic').selectedIndex = 1; $('#rUbic').onchange(); }
   mostrarPaso('recepcion');
 }
@@ -412,32 +573,32 @@ $('#confirmarR').onclick = async () => {
   finally { $('#confirmarR').disabled = false; }
 };
 
-// ── 3. Comprobante ──
+// ── 5. Comprobante ──
 function verComprobante(cambiarDatos = false) {
   f3a.hidden = f3b.hidden = $('#compListo').hidden = true;
   $('#sinFin3').hidden = yo.puede.finanzas;
   if (!yo.puede.finanzas) return mostrarPaso('comprobante');
+  const p = provDe(compra.proveedor_id);
   if (registrado()) {
     $('#compListo').hidden = false;
     $('#compListo').replaceChildren(el('strong', { textContent: `${comp.nro} registrado por ${pesos(comp.total)}.` }),
       el('div', { className: 'botonera' }, el('button', { type: 'button', className: 'prim', textContent: pagado() ? 'Ver el pago' : 'Siguiente: pago', onclick: () => ir('pago') }),
         el('a', { href: 'comprobantes.html#' + comp.id, textContent: 'Ver el comprobante' })));
   } else if (!comp || cambiarDatos) {
-    // a) Datos del comprobante. Fecha y vencimiento arrancan en el día de hoy.
+    // Datos del comprobante. Fecha y vencimiento arrancan en el día de hoy.
     f3a.reset(); delete f3a.dataset.vencTocado;
     if (comp) {
       f3a.comp.value = comp.letra === 'X' ? 'X' : 'fiscal'; if (comp.letra !== 'X') f3a.letra.value = comp.letra;
       f3a.punto_venta.value = comp.punto_venta || ''; f3a.numero.value = comp.numero || '';
       f3a.fecha_comp.value = comp.fecha; f3a.vencimiento.value = comp.vencimiento || comp.fecha; f3a.dataset.vencTocado = '1';
     } else {
-      const p = provCompra(); f3a.letra.value = p && p.condicion_iva === 'monotributo' ? 'C' : p && p.condicion_iva === 'exento' ? 'B' : 'A';
+      f3a.letra.value = p && p.condicion_iva === 'monotributo' ? 'C' : p && p.condicion_iva === 'exento' ? 'B' : 'A';
       f3a.fecha_comp.value = hoy(); f3a.vencimiento.value = hoy();
     }
-    const p = provCompra();
     $('#ayudaVenc').textContent = p && p.plazo_pago_dias ? `El proveedor tiene ${p.plazo_pago_dias} días de plazo de pago: ajustá el vencimiento si corresponde.` : '';
     aplicar3a(); f3a.hidden = false;
   } else {
-    // b) Borrador: percepciones (sólo si es fiscal), total impreso y registrar.
+    // Borrador: percepciones (sólo si es fiscal), total impreso y registrar.
     $('#leyB').textContent = `Confirmar ${comp.nro}`;
     $('#editarFac').href = 'comprobantes.html#' + comp.id;
     $('#percep').hidden = comp.letra === 'X';
@@ -474,11 +635,10 @@ function filaTrib(t = {}) {
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumenB(); } })));
   tr.leer = () => ({ tipo: tipo.value, jurisdiccion: jur.value, importe: imp.value });
   tr.addEventListener('input', resumenB);
-  $('#tribs tbody').append(tr);
+  $('#tribs tbody').append(tr); etiquetarTabla($('#tribs'));
 }
 $('#agregarTrib').onclick = () => filaTrib();
 const tributos = () => comp && comp.letra === 'X' ? [] : $$('#tribs tbody tr').map(tr => tr.leer()).filter(t => t.importe);
-// Resumen como en el papel: neto gravado, IVA por alícuota, percepciones y total.
 function resumenB() {
   const percep = tributos().reduce((s, t) => s + centavos(t.importe), 0n);
   const neto = comp.alicuotas.reduce((s, a) => s + centavos(a.neto), 0n);
@@ -496,7 +656,6 @@ f3b.onsubmit = async e => {
   e.preventDefault();
   if (!f3b.total.value.trim()) return msg('Cargá el total impreso en el comprobante.', 'mal', '#msg3b');
   try {
-    // Percepciones cambiadas: primero se guardan en el borrador (los renglones quedan como están).
     const trib = tributos(), clave = ts => JSON.stringify(ts.map(t => [t.tipo, t.jurisdiccion || null, String(alPeso(t.importe))]));
     if (clave(trib) !== clave(comp.tributos)) {
       const c = comp;
@@ -507,13 +666,11 @@ f3b.onsubmit = async e => {
           cantidad: i.cantidad, precio: i.precio, descuento: i.descuento, alicuota: i.alicuota ?? '' })) } });
     }
     await api(`fin/comprobantes/${comp.id}/registrar`, { method: 'POST', body: { total: f3b.total.value } });
-    await cargarCompra(compra.id);
-    // Registrado: a pagar (si la mercadería todavía no llegó, la recepción queda en la bandeja).
-    ir('pago');
+    await cargarCompra(compra.id); ir('pago');
   } catch (err) { msg(err.message, 'mal', '#msg3b'); }
 };
 
-// ── 4. Pago ──
+// ── 6. Pago ──
 function verPago() {
   f4.hidden = true; $('#finCompleto').replaceChildren();
   $('#sinFin4').hidden = yo.puede.finanzas; $('#faltaComp').hidden = !yo.puede.finanzas || registrado();
@@ -529,9 +686,8 @@ function verPago() {
     const falta = recibida() ? null : 'Falta recibir la mercadería.';
     $('#finCompleto').append(el('div', { className: 'listo' },
       el('strong', { textContent: falta ? 'Comprobante pagado. ' + falta : 'Proceso completo: mercadería recibida, comprobante registrado y pagado.' }),
-      el('div', { className: 'botonera' },
-        falta ? el('button', { type: 'button', className: 'prim', textContent: 'Ir a recibir', onclick: () => ir('recepcion') }) : el('a', { href: 'index.html', textContent: 'Volver al panel' }),
-        el('a', { href: 'abastecimiento.html#nuevo/llegada', textContent: 'Cargar otra llegada de mercadería' }),
+      el('div', {}, falta ? el('a', { href: `#${compra.id}/recepcion`, textContent: 'Ir a recibir' }) : el('a', { href: 'index.html', textContent: 'Volver al panel' }),
+        el('a', { href: '#lista', textContent: 'Ver la lista de compras' }),
         el('a', { href: 'compras.html#' + compra.id, textContent: 'Ver la compra' }),
         el('a', { href: 'comprobantes.html#' + comp.id, textContent: 'Ver el comprobante' }))));
   }
@@ -550,22 +706,23 @@ f4.onsubmit = async e => {
 };
 $('#pagarDespues').onclick = () => { location.href = 'index.html#abastecimiento'; };
 
-// ── Arranque: #nuevo/llegada, #nuevo/pedido, #<compra> (retoma donde falta) o #<compra>/<paso> ──
-// Otro proceso desde esta misma pantalla ("cargar otra llegada"): se arranca de cero. Los cambios de
-// paso usan replaceState, que no dispara esto.
+// ── Arranque ──
+// #lista (paso 1) o #lista/proveedor (paso 2): la lista de compras. #nuevo/llegada: llegó mercadería sin
+// pedido (paso 3). #<compra>[/<paso>]: retoma esa compra donde falta. Otro proceso desde esta misma
+// pantalla se arranca de cero; los cambios de paso usan replaceState, que no dispara esto.
 addEventListener('hashchange', () => location.reload());
 (async () => {
   try {
     ({ usuario: yo } = await cargarSesion());
     [{ proveedores }, productos, almacenes, unidades] = await Promise.all([api('proveedores'), catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
     if (yo.puede.finanzas) ({ cuentas } = await api('fin/cuentas'));
-    $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
+    llenarDatalist(); opciones(fn.en, [], null, '—');
     const [a, b] = location.hash.slice(1).split('/');
-    if (!a || a === 'nuevo') { modo = b === 'pedido' ? 'pedido' : 'llegada'; encabezado(); return verPedido(); }
-    await cargarCompra(a);
-    if (compra.estado === 'pedida') modo = 'pedido';
-    ir(PASOS.includes(b) ? b : pasoQueFalta());
-  } catch (e) { msg(e.message, 'mal', '#msg1'); $('#pPedido').hidden = false; }
+    if (!a || a === 'lista' || (a === 'nuevo' && b === 'pedido')) { contexto = 'lista'; return b === 'proveedor' ? verProveedores() : verNecesidad(); }
+    if (a === 'nuevo') { contexto = 'nueva'; encabezado(); return verPedido(); }
+    contexto = 'compra'; await cargarCompra(a);
+    ir(PASOS.includes(b) && !['necesidad', 'proveedor'].includes(b) ? b : pasoQueFalta());
+  } catch (e) { msg(e.message, 'mal', '#msgN'); $('#pNecesidad').hidden = false; }
 })();
 </script>
 </body>

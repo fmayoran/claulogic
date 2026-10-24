@@ -208,7 +208,7 @@ function resumen() {
 // ── Abrir, guardar, registrar ──
 async function nueva() {
   actual = null; orden = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva orden de pago';
-  opciones(f.proveedor_id, proveedores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, 'Elegir…');
+  opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => proveedores.push(p));
   f.fecha.value = hoy();
   $('#rets tbody').replaceChildren(); $('#vals tbody').replaceChildren(); filaVal();
   $('#borrar').hidden = true; await cargarPendientes(); vista('editar'); history.replaceState(null, '', 'ordenes-pago.html');
@@ -220,7 +220,7 @@ async function abrir(id) {
     history.replaceState(null, '', 'ordenes-pago.html#' + id);
     if (orden.estado === 'borrador') {
       $('#titulo').textContent = `${orden.nro} · ${orden.proveedor}`;
-      opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === orden.proveedor_id).map(p => [p.id, p.nombre]), orden.proveedor_id);
+      opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo || p.id === orden.proveedor_id), orden.proveedor_id, undefined, p => proveedores.push(p));
       f.fecha.value = orden.fecha; f.notas.value = orden.notas || '';
       $('#rets tbody').replaceChildren(); orden.retenciones.forEach(filaRet);
       $('#vals tbody').replaceChildren(); orden.valores.forEach(filaVal);

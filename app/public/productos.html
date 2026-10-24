@@ -136,18 +136,7 @@
             <label style="grid-column:span 2">Nombre *<input name="nombre" required maxlength="120"></label>
           </div>
           <div class="fila" style="margin-top:12px">
-            <label>Categoría *
-              <span class="con-boton">
-                <select name="categoria_id" required></select>
-                <button type="button" class="chico" id="catNueva">Nueva</button>
-              </span>
-            </label>
-            <label id="catAlta" hidden>Nombre de la categoría nueva
-              <span class="con-boton">
-                <input id="catNombre" maxlength="60">
-                <button type="button" class="chico prim" id="catGuardar">Crear</button>
-              </span>
-            </label>
+            <label>Categoría *<select name="categoria_id" required></select></label>
           </div>
           <div class="gtin-int" id="gtinInterno" hidden>
             <span>GTIN interno <strong id="gtinValor"></strong></span>
@@ -326,19 +315,17 @@ function avisoDesconocido(g) {
 async function cargarCategorias(seleccionar) {
   ({ categorias } = await api('categorias'));
   const activas = categorias.filter(c => c.activa).map(c => [c.id, c.nombre]);
-  opciones(f.categoria_id, activas, seleccionar ?? f.categoria_id.value, 'Elegir…');
+  // La última opción da de alta una categoría sin salir de la ficha.
+  opcionesConAlta(f.categoria_id, activas, seleccionar ?? f.categoria_id.value, 'Elegir…', { texto: '+ Agregar categoría nueva…',
+    alta: async () => {
+      const nombre = prompt('Nombre de la categoría nueva'); if (!nombre || !nombre.trim()) return null;
+      try { const { categoria } = await api('categorias', { method: 'POST', body: { nombre } }); ({ categorias } = await api('categorias'));
+        return [categoria.id, categoria.nombre]; }
+      catch (e) { msg(e.message, 'mal'); return null; }
+    } });
   opciones($('#fcat'), categorias.map(c => [c.id, `${c.nombre} (${c.productos})`]), $('#fcat').value, 'Todas las categorías');
   skuSugerido();
 }
-$('#catNueva').onclick = () => { $('#catAlta').hidden = false; $('#catNombre').focus(); };
-$('#catGuardar').onclick = async () => {
-  try {
-    const { categoria } = await api('categorias', { method: 'POST', body: { nombre: $('#catNombre').value } });
-    await cargarCategorias(categoria.id);
-    $('#catNombre').value = ''; $('#catAlta').hidden = true; msg('');
-  } catch (e) { msg(e.message, 'mal'); }
-};
-$('#catNombre').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#catGuardar').click(); } };
 
 // ── Unidades y presentaciones ──
 function alCambiarBase(costoUnidad) {

@@ -204,3 +204,16 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
   fieldset{padding:14px 14px 16px;}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+
+/* Tablas con clase `movil`: en el celular, cada fila es una tarjeta y cada dato lleva su título
+   (data-label, lo pone etiquetarTabla en comun.js). */
+@media (max-width:700px){
+  table.movil thead{display:none;}
+  table.movil, table.movil tbody, table.movil tr, table.movil td{display:block;width:100%;}
+  table.movil tr{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 10px;background:var(--panel);}
+  table.movil td{border:0 !important;padding:4px 0 !important;text-align:left !important;}
+  table.movil td[data-label]::before{content:attr(data-label);display:block;font-size:.78rem;color:var(--mut);font-weight:600;margin-bottom:2px;}
+  table.movil td:first-child{font-weight:650;} table.movil td:first-child::before{display:none;}
+  table.movil td input:not([type=radio]):not([type=checkbox]), table.movil td select{width:100% !important;min-width:0 !important;}
+  .tabla-wrap:has(table.movil){border:0;background:none;overflow:visible;}
+}

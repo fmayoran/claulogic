@@ -128,7 +128,7 @@ r.put('/abastecimiento/:id', h(async (req, res) => {
       `SELECT letra, punto_venta::text, numero::text, fecha::text, vencimiento::text FROM fin.comprobante WHERE id = $1`, [borr.id])).rows[0] : null;
     // Los renglones de la factura apuntan a los de la compra: se sueltan antes de rehacerlos.
     if (borr) await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [borr.id]);
-    await cn.query('UPDATE logic.compra SET proveedor_id = $1, numero = $2, fecha = COALESCE($3::date, fecha), notas = $4 WHERE id = $5',
+    await cn.query('UPDATE logic.compra SET proveedor_id = $1, numero = COALESCE($2, numero), fecha = COALESCE($3::date, fecha), notas = COALESCE($4, notas) WHERE id = $5',
       [co.proveedor_id, co.numero, co.fecha, co.notas, req.params.id]);
     await guardarItems(cn, req.params.id, co.items);
     const usar = cab || (borr && cabAnt);

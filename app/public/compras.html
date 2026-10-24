@@ -34,7 +34,7 @@
         <fieldset>
           <legend>Datos</legend>
           <div class="fila">
-            <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
+            <label>Proveedor *<select name="proveedor_id"></select></label>
             <label>Número / remito<input name="numero" maxlength="40"></label>
             <label>Fecha<input name="fecha" type="date"></label>
           </div>
@@ -186,12 +186,7 @@ async function filaItem(x = {}) {
   return tr;
 }
 $('#agregar').onclick = () => filaItem();
-$('#provNuevo').onclick = async () => {
-  const p = await nuevoProveedor(); if (!p) return;
-  proveedores.push(p); $('#sinProv').hidden = true;
-  opciones(f.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
-  marcarCambios(f); recalcular();
-};
+
 
 // Escanear al cargar: agrega el renglón con el producto y, si el código era de un empaque, esa
 // presentación. Si la última fila está vacía, se usa esa.
@@ -215,7 +210,7 @@ function botones(estado) {
 async function nueva() {
   actual = null; compra = null; f.reset(); msg('');
   $('#titulo').textContent = 'Nueva compra'; $('#subtitulo').textContent = 'Cargá lo que se pide. El stock se mueve recién al recibirla.';
-  opciones(f.proveedor_id, proveedores.map(p => [p.id, p.nombre]), null, 'Elegir…');
+  opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => { proveedores.push(p); $('#sinProv').hidden = true; });
   f.fecha.value = hoy();
   $('#items tbody').replaceChildren(); await filaItem(); recalcular();
   botones(null); vistaActiva('#vEditar');
@@ -229,7 +224,7 @@ async function abrir(id) {
     else {
       $('#titulo').textContent = `Compra a ${compra.proveedor}`;
       $('#subtitulo').textContent = `Estado: ${compra.estado}${compra.numero ? ' · ' + compra.numero : ''}`;
-      opciones(f.proveedor_id, proveedores.filter(p => p.activo || p.id === compra.proveedor_id).map(p => [p.id, p.nombre]), compra.proveedor_id, 'Elegir…');
+      opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo || p.id === compra.proveedor_id), compra.proveedor_id, 'Elegir…', p => proveedores.push(p));
       f.numero.value = compra.numero || ''; f.fecha.value = compra.fecha; f.notas.value = compra.notas || '';
       $('#items tbody').replaceChildren();
       for (const it of compra.items) await filaItem({ ...it, unidad: it.presentacion_id ? null : it.unidad_base,

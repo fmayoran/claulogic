@@ -127,7 +127,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
   // Compras: pedir, recibir, facturar y pagar (la factura y el pago, con permiso de finanzas).
-  ['Compras', [['lista-compras.html', 'Lista de compras'], ['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
+  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
@@ -140,7 +140,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'lista-compras.html': 'catalogo', 'abastecimiento.html': 'catalogo', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'abastecimiento.html': 'catalogo', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };
@@ -558,4 +558,85 @@ function nuevoProveedor() {
     dlg.addEventListener('close', () => { dlg.remove(); resolve(creado); });
     document.body.append(dlg); dlg.showModal(); nombre.focus();
   });
+}
+
+// ── "Agregar nuevo…" al final de una lista de valores ───────────────────────────────────────
+// Si el dato que falta no está en la lista (un proveedor, una categoría), la última opción lo da de
+// alta sin salir de la pantalla. `alta` devuelve [id, texto] del nuevo, o null si se canceló (vuelve a
+// lo que estaba elegido). La pantalla recibe el "change" ya con el nuevo elegido.
+const ALTA = '__alta';
+function opcionesConAlta(select, items, valor, vacio, { texto, alta }) {
+  opciones(select, items, valor, vacio);
+  select.append(el('option', { value: ALTA, textContent: texto }));
+  select.dataset.previo = select.value;
+  if (select.dataset.conAlta) return;
+  select.dataset.conAlta = '1';
+  select.addEventListener('change', async e => {
+    if (select.value !== ALTA) { select.dataset.previo = select.value; return; }
+    e.stopImmediatePropagation();
+    select.value = select.dataset.previo || '';
+    const nuevo = await select._alta();
+    if (!nuevo) return;
+    select.insertBefore(el('option', { value: nuevo[0], textContent: nuevo[1] }), select.querySelector(`option[value="${ALTA}"]`));
+    select.value = select.dataset.previo = nuevo[0];
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }, true);
+  select._alta = alta;
+}
+// Lo de siempre para proveedores: la lista y, al final, "Agregar proveedor nuevo…". `alAgregar` recibe el
+// proveedor creado (para sumarlo a la lista de la pantalla).
+function opcionesProveedor(select, proveedores, valor, vacio, alAgregar) {
+  opcionesConAlta(select, proveedores.map(p => [p.id, p.nombre]), valor, vacio, { texto: '+ Agregar proveedor nuevo…',
+    alta: async () => { const p = await nuevoProveedor(); if (!p) return null; if (alAgregar) alAgregar(p); return [p.id, p.nombre]; } });
+}
+
+// ── Producto nuevo sin salir de la pantalla ─────────────────────────────────────────────────
+// Lo mínimo para empezar a comprarlo: nombre, categoría, unidad, perecedero e IVA. El SKU lo genera la
+// base con el prefijo de la categoría; presentaciones, foto y el resto, después en Productos.
+// Devuelve el producto (como lo da el listado) o null.
+const NUEVO_PRODUCTO = '+ Crear producto nuevo';
+function nuevoProducto(nombreInicial = '') {
+  return new Promise(async resolve => {
+    const f = el('form', { novalidate: true });
+    const nombre = el('input', { name: 'nombre', maxLength: 120, value: nombreInicial === NUEVO_PRODUCTO ? '' : nombreInicial });
+    const cat = el('select', { name: 'categoria_id' }), unidad = el('select', { name: 'unidad_base' }), iva = el('select', { name: 'alicuota_iva' });
+    const perec = el('input', { type: 'checkbox', name: 'perecedero', checked: true });
+    let { categorias } = await api('categorias');
+    opcionesConAlta(cat, categorias.filter(c => c.activa).map(c => [c.id, c.nombre]), null, 'Elegir…', { texto: '+ Agregar categoría nueva…',
+      alta: async () => { const n = prompt('Nombre de la categoría nueva'); if (!n || !n.trim()) return null;
+        try { const { categoria } = await api('categorias', { method: 'POST', body: { nombre: n } }); return [categoria.id, categoria.nombre]; }
+        catch (e) { alert(e.message); return null; } } });
+    opciones(unidad, [['g', 'Peso (se lleva en gramos)'], ['ml', 'Volumen (se lleva en mililitros)'], ['u', 'Unidades']], 'g');
+    opciones(iva, [['21', 'IVA 21%'], ['10.5', 'IVA 10,5%'], ['', 'Exento o no gravado']], '21');
+    const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Crear producto' });
+    let creado = null;
+    const dlg = el('dialog', {}, el('h2', { textContent: 'Producto nuevo' }), f);
+    f.append(el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre)),
+      el('div', { className: 'fila' }, el('label', {}, 'Categoría *', cat), el('label', {}, 'Se mide en *', unidad)),
+      el('div', { className: 'fila' }, el('label', {}, 'IVA habitual', iva)),
+      el('label', { className: 'check' }, perec, 'Perecedero (se maneja por lote con vencimiento)'),
+      el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+      el('p', { className: 'ayuda', textContent: 'El SKU se genera solo. Presentaciones, código de barras y foto se completan después en Productos.' }));
+    f.onsubmit = async e => {
+      e.preventDefault(); btn.disabled = true;
+      try {
+        const { id } = await api('productos', { method: 'POST', body: { codigo: '', nombre: nombre.value, categoria_id: cat.value,
+          unidad_base: unidad.value, perecedero: perec.checked, alicuota_iva: iva.value, presentaciones: [] } });
+        catalogo._p = null;
+        creado = (await catalogo.productos()).find(p => p.id === id) || null;
+        dlg.close();
+      } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+      finally { btn.disabled = false; }
+    };
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(creado); });
+    document.body.append(dlg); dlg.showModal(); nombre.focus();
+  });
+}
+
+// ── Tablas que en el celular se leen como tarjetas ──────────────────────────────────────────
+// Con la clase `movil`, cada fila pasa a ser una tarjeta y cada celda lleva el título de su columna
+// (data-label, lo pone esta función a partir del encabezado). Se llama después de llenar la tabla.
+function etiquetarTabla(tabla) {
+  const titulos = [...tabla.querySelectorAll('thead th')].map(th => th.textContent.trim());
+  tabla.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { if (titulos[i]) td.dataset.label = titulos[i]; }));
 }
