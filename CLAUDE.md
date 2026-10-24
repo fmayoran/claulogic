@@ -278,6 +278,17 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - Segunda vuelta (decisión de Fer): mandar el pedido al proveedor (imprimir, PDF o WhatsApp). Mismo molde
   para el abastecimiento del local (pedido, remito, recepción) y el cierre de ventas del POS.
 - En Facturas también: vencimiento por defecto = fecha del comprobante; sin tilde fiscal no hay percepciones.
+- **Lista de compras** (decisión de Fer, 24/10/2026: primero qué hace falta, después a quién): una sola lista
+  del centro (`logic.necesidad`, `lista-compras.html`), a la que más adelante se suman los pedidos de los
+  locales (origen `local`). Se carga a mano o con el botón "sumar lo que está bajo el mínimo" (contra el stock
+  de las sedes centro, en unidad de referencia; nunca automático, decisión de Fer). Cada renglón sugiere el
+  proveedor de la última compra con su último precio, y lista los demás que lo vendieron. "Generar pedidos"
+  arma una compra `pedida` por proveedor con precio estimado (último costo de ese proveedor); lo que queda sin
+  proveedor sigue en la lista. Si un pedido se borra o se anula, sus renglones vuelven a la lista (trigger).
+- **Entrega parcial** (`POST /abastecimiento/:id/recibir`): en la recepción cada producto tiene "recibido";
+  la compra se ajusta a lo que llegó (cantidad y precio en proporción; lo que no llegó se quita) y lo que
+  faltó vuelve a la lista como `faltante` (sin proveedor) o se descarta. Si el comprobante ya está registrado
+  por lo pedido, no se admite parcial. La recepción en sí es `recibirCompra` de `compras.js`.
 
 ### Puntos de venta (fase 4, 21/10/2026)
 - Esquema `pos`. Fer: **Fudo y Maxirest**, por **API o archivo según haya**, **ticket por ticket**, y lo que
@@ -352,7 +363,7 @@ un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no p
 Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts. Campos a 16 px en
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
-Falta: recepción parcial de compras, anular una compra recibida o una
+Falta: recepción en varias entregas de una misma compra (hoy lo que falta pasa a la lista de compras), anular una compra recibida o una
 producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
 extractos en Excel, cheques de terceros rechazados, sincronización automática de POS, y costeo histórico de los no perecederos (hoy van a costo vigente).
 

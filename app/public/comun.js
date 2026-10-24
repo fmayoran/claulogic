@@ -127,7 +127,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
   // Compras: pedir, recibir, facturar y pagar (la factura y el pago, con permiso de finanzas).
-  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
+  ['Compras', [['lista-compras.html', 'Lista de compras'], ['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
@@ -140,7 +140,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'abastecimiento.html': 'catalogo', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'lista-compras.html': 'catalogo', 'abastecimiento.html': 'catalogo', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };

@@ -29,7 +29,7 @@
       <h2>Proceso de abastecimiento <span class="tag" id="nPend"></span></h2>
       <div class="botones" id="inicios">
         <button type="button" class="prim" onclick="location.href='abastecimiento.html#nuevo/llegada'">Llegó mercadería</button>
-        <button type="button" onclick="location.href='abastecimiento.html#nuevo/pedido'">Hacer un pedido</button>
+        <button type="button" onclick="location.href='lista-compras.html'">Lista de compras</button>
       </div>
     </div>
     <div class="pend" id="pendientes"></div>
@@ -64,7 +64,7 @@ function tarjeta(id, n, tipo) {
 }
 // Bandeja del proceso de abastecimiento: cada pendiente lleva al paso del asistente que falta (o a la
 // factura, si se cargó directo). Primero lo vencido.
-const ETAPA_TAG = { 'Por pagar': 'aviso', 'Esperando mercadería': '', 'Falta el comprobante': 'aviso', 'Comprobante sin registrar': 'aviso', 'Pedido sin terminar': '' };
+const ETAPA_TAG = { 'Por pedir': 'aviso', 'Por pagar': 'aviso', 'Esperando mercadería': '', 'Falta el comprobante': 'aviso', 'Comprobante sin registrar': 'aviso', 'Pedido sin terminar': '' };
 async function bandeja() {
   const { usuario: u } = await cargarSesion();
   const { pendientes } = await api('abastecimiento/pendientes');
@@ -77,9 +77,9 @@ async function bandeja() {
   if (!pendientes.length) return $('#pendientes').replaceChildren(el('p', { className: 'vacio', textContent: 'Nada pendiente: todo lo recibido está facturado y pagado.' }));
   $('#pendientes').replaceChildren(...pendientes.map(p => {
     const v = vencida(p);
-    return el('a', { href: p.directa ? 'comprobantes.html#' + p.comprobante_id : `abastecimiento.html#${p.compra_id}/${p.paso}` },
+    return el('a', { href: p.lista ? 'lista-compras.html' : p.directa ? 'comprobantes.html#' + p.comprobante_id : `abastecimiento.html#${p.compra_id}/${p.paso}` },
       el('span', { className: 'q' }, p.proveedor, ' ', el('span', { className: 'tag ' + (v ? 'mal' : ETAPA_TAG[p.etapa] ?? ''), textContent: v ? 'Vencida' : p.etapa })),
-      el('span', { className: 'm', textContent: [fecha(p.fecha), p.numero, p.renglones ? `${p.renglones} producto${p.renglones === 1 ? '' : 's'}` : null,
+      el('span', { className: 'm', textContent: [p.lista ? 'desde el ' + fecha(p.fecha) : fecha(p.fecha), p.numero, p.renglones ? `${p.renglones} producto${p.renglones === 1 ? '' : 's'}` : null,
         p.vencimiento ? (v ? 'venció el ' : 'vence el ') + fecha(p.vencimiento) : null, p.directa ? 'factura sin compra' : null].filter(Boolean).join(' · ') }),
       el('span', { className: 'i', textContent: p.importe ? pesos(p.importe) : '' }));
   }));

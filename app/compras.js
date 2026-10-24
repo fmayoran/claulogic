@@ -183,13 +183,14 @@ r.delete('/compras/:id', h(async (req, res) => {
 // Se recibe la compra entera de una vez. Por renglón: a qué ubicación va, el lote (código y
 // vencimiento, para perecederos) y si su costo reemplaza al vigente. La decisión es explícita:
 // un renglón con precio sin decisión no se recibe.
-r.post('/compras/:id/recibir', h(async (req, res) => {
-  const b = req.body;
+// Recibe la compra dentro de una transacción: un movimiento de entrada por renglón (con lote si es
+// perecedero) y la decisión de costo. La usan esta ruta y el proceso de abastecimiento.
+async function recibirCompra(c, compraId, b, usuario) {
   const porItem = new Map((Array.isArray(b.items) ? b.items : []).map(x => [x.id, x]));
   const ubicacionDefault = texto(b.ubicacion_id);
-  await enTransaccion(async c => {
+  {
     const { rows: [compra] } = await c.query(
-      'SELECT id, estado, proveedor_id, numero FROM logic.compra WHERE id = $1 FOR UPDATE', [req.params.id]);
+      'SELECT id, estado, proveedor_id, numero FROM logic.compra WHERE id = $1 FOR UPDATE', [compraId]);
     if (!compra) throw new ErrorUsuario('No existe esa compra.');
     if (!['borrador', 'pedida'].includes(compra.estado)) throw new ErrorUsuario(`La compra ya está ${compra.estado}.`);
     const { rows: items } = await c.query(
@@ -220,7 +221,7 @@ r.post('/compras/:id/recibir', h(async (req, res) => {
         if (x.actualizar_costo === undefined || x.actualizar_costo === null)
           throw new ErrorUsuario(`Falta decidir si el costo de "${it.nombre}" actualiza el vigente.`);
         // Recibir lo hace quien está en el depósito; mover el costo vigente es una decisión del catálogo.
-        if (x.actualizar_costo && !puede(req.usuario, 'catalogo'))
+        if (x.actualizar_costo && !puede(usuario, 'catalogo'))
           throw new ErrorUsuario(`Actualizar el costo de "${it.nombre}" lo decide el encargado del centro. Recibí manteniendo el costo vigente.`, 403);
         const decision = x.actualizar_costo ? 'actualizado' : 'mantenido';
         if (x.actualizar_costo) {
@@ -234,10 +235,13 @@ r.post('/compras/:id/recibir', h(async (req, res) => {
     }
     await c.query(`SELECT set_config('logic.costo_origen', '', true), set_config('logic.compra_item', '', true)`);
     await c.query("UPDATE logic.compra SET estado = 'recibida', recibida_en = now() WHERE id = $1", [compra.id]);
-  });
+  }
+}
+r.post('/compras/:id/recibir', h(async (req, res) => {
+  await enTransaccion(c => recibirCompra(c, req.params.id, req.body, req.usuario));
   res.json({ ok: true });
 }));
 
 // Para el proceso de abastecimiento (abastecimiento.js).
-Object.assign(r, { leerCompra, guardarItems });
+Object.assign(r, { leerCompra, guardarItems, recibirCompra });
 module.exports = r;

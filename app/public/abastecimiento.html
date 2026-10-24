@@ -81,10 +81,11 @@
     <div id="aRecibir">
       <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label><div id="escR" style="flex:1;min-width:260px"></div></div>
       <div class="tabla-wrap"><table class="datos edit">
-        <thead><tr><th>Producto</th><th class="num">Cantidad</th><th>Ubicación</th><th>Lote</th><th>Vence</th><th class="num">Costo</th><th>Costo vigente</th></tr></thead>
+        <thead><tr><th>Producto</th><th class="num">Pedido</th><th>Recibido</th><th>Ubicación</th><th>Lote</th><th>Vence</th><th class="num">Costo</th><th>Costo vigente</th></tr></thead>
         <tbody id="rItems"></tbody></table></div>
-      <p class="ayuda">Si llegó distinto de lo pedido, corregí cantidades o precios en el paso Pedido antes de confirmar. Los perecederos
-        llevan lote y vencimiento (sin lote, se genera uno). "Actualizar" toma el costo de esta compra como vigente.</p>
+      <p class="ayuda">Si llegó menos, poné lo recibido (cero si no vino): lo que falta vuelve a la lista de compras para pedírselo a otro,
+        o se descarta. El precio se ajusta en proporción. Para corregir precios, "Corregir el pedido". Los perecederos llevan lote y
+        vencimiento (sin lote, se genera uno). "Actualizar" toma el costo de esta compra como vigente.</p>
       <div class="botonera">
         <button type="button" id="atras2">Corregir el pedido</button>
         <button type="button" class="prim" id="confirmarR">Confirmar recepción</button>
@@ -332,6 +333,13 @@ $('#guardarPedido').onclick = async () => {
 };
 
 // ── 2. Recepción ──
+// En qué se pidió: la presentación, o la unidad suelta (se deduce de la relación cantidad / cantidad base).
+function unidadCompra(it) {
+  if (it.presentacion) return it.presentacion;
+  const b = unidades.find(u => u.codigo === it.unidad_base), f = Number(it.cantidad_base) / Number(it.cantidad);
+  const u = b && unidades.find(u => u.magnitud === b.magnitud && Math.abs(Number(u.factor_si) / Number(b.factor_si) - f) < 1e-9);
+  return u ? u.codigo : it.unidad_base;
+}
 function verRecepcion() {
   const yaRecibida = recibida();
   $('#recibida').hidden = !yaRecibida; $('#aRecibir').hidden = yaRecibida;
@@ -344,7 +352,13 @@ function verRecepcion() {
   }
   opcionesUbicacion($('#rUbic'), almacenes, null, 'Elegir por producto…');
   filas($('#rItems'), compra.items, it => {
-    const ubic = el('select'); opcionesUbicacion(ubic, almacenes, null, 'Elegir…');
+    // Lo recibido, en la misma presentación o unidad del pedido. Si es menos, qué pasa con lo que falta.
+    const recib = el('input', { inputMode: 'decimal', value: coma(it.cantidad), style: 'width:80px' });
+    const falta = el('select', { hidden: true }); opciones(falta, [['lista', 'falta: vuelve a la lista'], ['no', 'falta: ya no hace falta']]);
+    const aNum = v => Number(v.includes(',') ? v.replace(/\./g, '').replace(',', '.') : v);
+    const menos = () => { const r = recib.value.trim(); return r !== '' && aNum(r) < Number(it.cantidad); };
+    recib.oninput = () => { falta.hidden = !menos(); };
+    const ubic = el('select', { className: 'ubic' }); opcionesUbicacion(ubic, almacenes, null, 'Elegir…');
     const lote = el('input', { placeholder: 'automático', style: 'width:120px', disabled: !it.perecedero });
     const venc = el('input', { type: 'date', disabled: !it.perecedero });
     if (it.perecedero && it.vida_util_dias) { const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() + Number(it.vida_util_dias)); venc.value = d.toISOString().slice(0, 10); }
@@ -354,20 +368,22 @@ function verRecepcion() {
       el('label', {}, el('input', { type: 'radio', name: nombre, value: '1', checked: true }), 'Actualizar'),
       el('label', {}, el('input', { type: 'radio', name: nombre, value: '0' }), 'Mantener')) : el('span', { className: 'mut', textContent: 'sin precio' });
     const varTxt = it.variacion_pct != null ? ` (${it.variacion_pct.startsWith('-') ? '' : '+'}${num(it.variacion_pct)}%)` : '';
-    const tr = el('tr', {}, td(it.producto, 'wrap'), td(cant(it.cantidad_base, it.unidad_base), 'num'), el('td', {}, ubic),
+    const tr = el('tr', {}, td(it.producto, 'wrap'), td(`${num(it.cantidad)} ${unidadCompra(it)}`, 'num'),
+      el('td', {}, recib, ' ', unidadCompra(it), el('div', {}, falta)), el('td', {}, ubic),
       el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })), el('td', {}, it.perecedero ? venc : ''),
       td(tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}${varTxt}` : '—', 'num'),
       el('td', {}, (it.costo_vigente != null ? pesos(it.costo_vigente) + '/' + it.unidad_ref + ' ' : 'sin costo '), decision));
     Object.assign(tr, { it, lote, venc });
     tr.leer = () => { const r = tr.querySelector(`input[name="${nombre}"]:checked`);
-      return { id: it.id, ubicacion_id: ubic.value || null, lote_codigo: lote.value, vencimiento: venc.value, actualizar_costo: tieneCosto ? (r ? r.value === '1' : null) : null }; };
+      return { id: it.id, recibido: recib.value, faltante: menos() ? falta.value : null, ubicacion_id: ubic.value || null,
+               lote_codigo: lote.value, vencimiento: venc.value, actualizar_costo: tieneCosto ? (r ? r.value === '1' : null) : null }; };
     return tr;
-  }, 'Sin productos.', 7);
+  }, 'Sin productos.', 8);
   // Si hay un solo lugar posible, ya queda elegido.
   if ($('#rUbic').options.length === 2) { $('#rUbic').selectedIndex = 1; $('#rUbic').onchange(); }
   mostrarPaso('recepcion');
 }
-$('#rUbic').onchange = () => { if ($('#rUbic').value) $$('#rItems select').forEach(s => s.value = $('#rUbic').value); };
+$('#rUbic').onchange = () => { if ($('#rUbic').value) $$('#rItems select.ubic').forEach(s => s.value = $('#rUbic').value); };
 $('#escR').append(escaner(async d => {
   if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado.`);
   const tr = $$('#rItems tr').filter(t => t.it && t.it.producto_id === d.producto.id).find(t => !t.lote.value) ||
@@ -380,12 +396,16 @@ $('#escR').append(escaner(async d => {
 $('#atras2').onclick = () => ir('pedido');
 $('#despuesR').onclick = () => { location.href = 'index.html#abastecimiento'; };
 $('#confirmarR').onclick = async () => {
-  if (compra.items.some(it => it.precio_total == null)) return msg('Falta el precio de algún producto: completalo en "Corregir el pedido".', 'mal', '#msg2');
   const items = $$('#rItems tr').filter(tr => tr.leer).map(tr => tr.leer());
-  if (items.some(x => !x.ubicacion_id)) return msg('Elegí dónde se guarda cada producto.', 'mal', '#msg2');
+  const cero = x => /^0+([.,]0+)?$/.test(String(x.recibido).trim());
+  const llegan = items.filter(x => !cero(x));
+  if (!llegan.length) return msg('No llegó nada: dejá el pedido esperando ("Recibir después").', 'mal', '#msg2');
+  if (llegan.some(x => compra.items.find(it => it.id === x.id).precio_total == null))
+    return msg('Falta el precio de algún producto que llegó: completalo en "Corregir el pedido".', 'mal', '#msg2');
+  if (llegan.some(x => !x.ubicacion_id)) return msg('Elegí dónde se guarda cada producto que llegó.', 'mal', '#msg2');
   $('#confirmarR').disabled = true;
   try {
-    await api(`compras/${compra.id}/recibir`, { method: 'POST', body: { items } });
+    await api(`abastecimiento/${compra.id}/recibir`, { method: 'POST', body: { items } });
     catalogo._p = null; productos = await catalogo.productos();
     await cargarCompra(compra.id); ir(registrado() ? 'pago' : 'comprobante');
   } catch (err) { msg(err.message, 'mal', '#msg2'); }
