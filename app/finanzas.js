@@ -160,34 +160,39 @@ async function guardarDetalle(cn, id, c) {
 // Sin vencimiento, el plazo de pago del proveedor; sin plazo, la fecha del comprobante.
 const VENCIMIENTO = `COALESCE($7::date, $6::date + (SELECT plazo_pago_dias FROM logic.proveedor WHERE id = $1::uuid), $6::date)`;
 
+// Alta y edición de un comprobante ya validado (leerComprobante), dentro de una transacción. Las usan
+// estas rutas y el proceso de abastecimiento.
+async function insertarComprobante(cn, c) {
+  const { rows: [n] } = await cn.query(
+    `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, punto_venta, numero, fecha, vencimiento, cae, asociado_id, notas)
+     VALUES ($1,$2,$3,$4,$5,$6,${VENCIMIENTO},$8,$9,$10) RETURNING id`,
+    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas]);
+  await guardarDetalle(cn, n.id, c);
+  return n.id;
+}
+async function actualizarComprobante(cn, id, c) {
+  const { rows: [ant] } = await cn.query('SELECT estado FROM fin.comprobante WHERE id = $1::uuid FOR UPDATE', [id]);
+  if (!ant) throw new ErrorUsuario('No existe ese comprobante.', 404);
+  if (ant.estado !== 'borrador') throw new ErrorUsuario(`El comprobante está ${ant.estado}: no se edita.`);
+  // Primero el detalle (con la letra nueva ya aplicada a las alícuotas) y después la cabecera:
+  // al revés, pasar de A a B con alícuotas cargadas lo frenaría la base.
+  await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [id]);
+  await cn.query(
+    `UPDATE fin.comprobante SET proveedor_id=$1, tipo=$2, letra=$3, punto_venta=$4, numero=$5, fecha=$6,
+            vencimiento=${VENCIMIENTO}, cae=$8, asociado_id=$9, notas=$10 WHERE id=$11`,
+    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas, id]);
+  await guardarDetalle(cn, id, c);
+}
+
 r.post('/fin/comprobantes', h(async (req, res) => {
   const c = leerComprobante(req.body);
-  const id = await enTransaccion(async cn => {
-    const { rows: [n] } = await cn.query(
-      `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, punto_venta, numero, fecha, vencimiento, cae, asociado_id, notas)
-       VALUES ($1,$2,$3,$4,$5,$6,${VENCIMIENTO},$8,$9,$10) RETURNING id`,
-      [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas]);
-    await guardarDetalle(cn, n.id, c);
-    return n.id;
-  });
+  const id = await enTransaccion(cn => insertarComprobante(cn, c));
   res.status(201).json({ ok: true, id });
 }));
 
 r.put('/fin/comprobantes/:id', h(async (req, res) => {
   const c = leerComprobante(req.body);
-  await enTransaccion(async cn => {
-    const { rows: [ant] } = await cn.query('SELECT estado FROM fin.comprobante WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
-    if (!ant) throw new ErrorUsuario('No existe ese comprobante.', 404);
-    if (ant.estado !== 'borrador') throw new ErrorUsuario(`El comprobante está ${ant.estado}: no se edita.`);
-    // Primero el detalle (con la letra nueva ya aplicada a las alícuotas) y después la cabecera:
-    // al revés, pasar de A a B con alícuotas cargadas lo frenaría la base.
-    await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [req.params.id]);
-    await cn.query(
-      `UPDATE fin.comprobante SET proveedor_id=$1, tipo=$2, letra=$3, punto_venta=$4, numero=$5, fecha=$6,
-              vencimiento=${VENCIMIENTO}, cae=$8, asociado_id=$9, notas=$10 WHERE id=$11`,
-      [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas, req.params.id]);
-    await guardarDetalle(cn, req.params.id, c);
-  });
+  await enTransaccion(cn => actualizarComprobante(cn, req.params.id, c));
   res.json({ ok: true, id: req.params.id });
 }));
 
@@ -247,11 +252,11 @@ r.get('/fin/facturas', h(async (req, res) => {
   res.json({ ok: true, facturas: rows.map(c => ({ ...c, nro: nro(c) })) });
 }));
 
-// Compras recibidas del proveedor, con sus renglones listos para copiar a la factura. El precio
-// unitario sale del total del renglón de la compra: quien carga verifica que sea neto de IVA.
-r.get('/fin/compras', h(async (req, res) => {
-  const proveedor = texto(req.query.proveedor, { campo: 'el proveedor', requerido: true });
-  const { rows } = await pool.query(
+// Compras con sus renglones listos para copiar a la factura. El precio unitario sale del total del
+// renglón de la compra: quien carga verifica que sea neto de IVA. Por proveedor (las recibidas) o una
+// sola compra por id (la usa el proceso de abastecimiento, esté o no recibida).
+async function comprasConRenglones(cn, id, { porId = false } = {}) {
+  const { rows } = await cn.query(
     `SELECT co.id, co.numero, co.fecha, co.recibida_en,
             (SELECT string_agg(DISTINCT CASE c.tipo WHEN 'factura' THEN 'FC' WHEN 'nota_debito' THEN 'ND' ELSE 'NC' END || ' ' ||
                                c.letra || ' ' || lpad(c.punto_venta::text, 5, '0') || '-' || lpad(c.numero::text, 8, '0'), ', ')
@@ -279,9 +284,13 @@ r.get('/fin/compras', h(async (req, res) => {
                            ORDER BY u.es_referencia DESC LIMIT 1) un ON true
        LEFT JOIN LATERAL (SELECT x.q, ci.precio_total IS NULL OR ci.precio_total % x.q = 0 AS exacto
                             FROM (SELECT CASE WHEN pr.id IS NULL AND un.codigo IS NULL THEN ci.cantidad_base ELSE ci.cantidad END AS q) x) qq ON true
-      WHERE co.proveedor_id = $1::uuid AND co.estado = 'recibida'
-      GROUP BY co.id ORDER BY co.fecha DESC LIMIT 100`, [proveedor]);
-  res.json({ ok: true, compras: rows });
+      WHERE (${porId ? 'co.id = $1::uuid' : "co.proveedor_id = $1::uuid AND co.estado = 'recibida'"})
+      GROUP BY co.id ORDER BY co.fecha DESC LIMIT 100`, [id]);
+  return rows;
+}
+r.get('/fin/compras', h(async (req, res) => {
+  const proveedor = texto(req.query.proveedor, { campo: 'el proveedor', requerido: true });
+  res.json({ ok: true, compras: await comprasConRenglones(pool, proveedor) });
 }));
 
 // Los comprobantes de una compra, con lo que falta pagar: la compra muestra en qué quedó y lleva al pago.
@@ -370,4 +379,6 @@ r.get('/fin/libro-iva', h(async (req, res) => {
   res.send(csv);
 }));
 
+// Para el proceso de abastecimiento (abastecimiento.js).
+Object.assign(r, { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones });
 module.exports = r;

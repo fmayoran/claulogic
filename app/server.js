@@ -48,6 +48,7 @@ app.use('/api', require('./finanzas'));
 app.use('/api', require('./tesoreria'));
 app.use('/api', require('./pos'));
 app.use('/api', require('./tablero'));
+app.use('/api', require('./abastecimiento'));
 
 // GS1 Digital Link: el QR de una etiqueta es una URL /01/<GTIN>[/10/<lote>]. Al escanearla con un
 // celular, se abre la ficha de trazabilidad.

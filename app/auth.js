@@ -269,6 +269,9 @@ const POLITICA = [
   [/^\/pos\/articulos\//, 'gestionar'],
   [/^\/pos\/medios\//, 'finanzas'],
   [/^\/proveedores(\/[^/]+)?$/, 'proveedor'],
+  // Proceso de abastecimiento: la compra es del catálogo (por defecto); la factura armada desde la
+  // compra, de finanzas (y el handler lo vuelve a exigir cuando la compra trae comprobante).
+  [/^\/abastecimiento\/[^/]+\/comprobante$/, 'finanzas'],
 ];
 const SOLO_ADMIN_LECTURA = /^\/(usuarios|dispositivos|accesos)(\/|$)/;
 

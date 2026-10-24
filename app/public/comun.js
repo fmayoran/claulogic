@@ -127,7 +127,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
   // Compras: pedir, recibir, facturar y pagar (la factura y el pago, con permiso de finanzas).
-  ['Compras', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
+  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
@@ -140,7 +140,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'abastecimiento.html': 'catalogo', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };
@@ -478,6 +478,21 @@ for (const p of $$('h1 + p.sub:not([id])')) {
 // Pagar un comprobante en un paso: importe, fecha y la cuenta de la que sale. Por detrás arma la
 // orden de pago y la registra (queda igual en Órdenes de pago, con su número). Para cheques o
 // retenciones, la orden de pago completa.
+// Registra el pago de un comprobante desde una caja (efectivo) o un banco (transferencia): arma la
+// orden de pago y la registra; si no se puede registrar, no deja el borrador suelto. Devuelve su id.
+async function pagarComprobante({ proveedor_id, comprobante_id, cuenta, importe, fecha, referencia }) {
+  let id = null;
+  try {
+    ({ id } = await api('fin/ordenes-pago', { method: 'POST', body: { proveedor_id, fecha,
+      aplicaciones: [{ comprobante_id, importe }],
+      valores: [{ medio: cuenta.tipo === 'caja' ? 'efectivo' : 'transferencia', cuenta_id: cuenta.id, importe, referencia }] } }));
+    await api(`fin/ordenes-pago/${id}/registrar`, { method: 'POST' });
+    return id;
+  } catch (err) {
+    if (id) await api('fin/ordenes-pago/' + id, { method: 'DELETE' }).catch(() => {});
+    throw err;
+  }
+}
 async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPagar }) {
   const { cuentas } = await api('fin/cuentas');
   const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
@@ -502,19 +517,12 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
     el('p', { className: 'ayuda' }, 'Con cheque o retenciones: ', el('a', { href: completa, textContent: 'orden de pago completa' }), '.'));
   f.onsubmit = async e => {
     e.preventDefault(); btn.disabled = true; m.textContent = 'Registrando…'; m.className = 'msg';
-    const c = usables.find(x => x.id === cuenta.value);
-    let id = null;
     try {
-      ({ id } = await api('fin/ordenes-pago', { method: 'POST', body: { proveedor_id, fecha: fechaI.value,
-        aplicaciones: [{ comprobante_id, importe: importe.value }],
-        valores: [{ medio: c.tipo === 'caja' ? 'efectivo' : 'transferencia', cuenta_id: c.id, importe: importe.value, referencia: ref.value }] } }));
-      await api(`fin/ordenes-pago/${id}/registrar`, { method: 'POST' });
+      const id = await pagarComprobante({ proveedor_id, comprobante_id, cuenta: usables.find(x => x.id === cuenta.value),
+        importe: importe.value, fecha: fechaI.value, referencia: ref.value });
       dlg.close(); if (alPagar) alPagar(id);
-    } catch (err) {
-      // Si la orden quedó armada pero no se pudo registrar, no se deja un borrador suelto.
-      if (id) await api('fin/ordenes-pago/' + id, { method: 'DELETE' }).catch(() => {});
-      m.textContent = err.message; m.className = 'msg mal';
-    } finally { btn.disabled = false; }
+    } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+    finally { btn.disabled = false; }
   };
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg); dlg.showModal(); importe.focus();

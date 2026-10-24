@@ -238,4 +238,6 @@ r.post('/compras/:id/recibir', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Para el proceso de abastecimiento (abastecimiento.js).
+Object.assign(r, { leerCompra, guardarItems });
 module.exports = r;

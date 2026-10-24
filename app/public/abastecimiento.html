@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Abastecimiento · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  /* Barra de pasos: hecho, actual o por hacer. Se puede volver a un paso hecho mientras se pueda editar. */
+  .pasos{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:4px 0 22px;padding:0;list-style:none;counter-reset:paso;}
+  .pasos li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);
+    background:var(--panel);color:var(--mut);font-weight:600;font-size:.92rem;min-width:0;}
+  .pasos li::before{counter-increment:paso;content:counter(paso);flex:none;width:28px;height:28px;border-radius:50%;
+    display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;}
+  .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--acento);border-color:var(--acento);color:var(--acento-fg);}
+  .pasos li.actual{border-color:var(--acento);color:var(--fg);box-shadow:0 0 0 3px var(--sel);}
+  .pasos li.actual::before{border-color:var(--acento);color:var(--acento);}
+  .pasos li.ir{cursor:pointer;} .pasos li.ir:hover{background:var(--sel);}
+  .pasos li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  @media (max-width:700px){ .pasos li span{display:none;} .pasos li.actual span{display:inline;} .pasos{grid-template-columns:auto auto auto auto;} .pasos li.actual{grid-column:span 1;} }
+  .paso{max-width:980px;}
+  /* Elegir entre opciones grandes (comprobante fiscal, no fiscal, todavía no). */
+  .opciones-grandes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:6px 0 14px;}
+  .opciones-grandes label{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;
+    background:var(--panel);cursor:pointer;color:var(--fg);font-weight:600;}
+  .opciones-grandes label small{display:block;font-weight:400;color:var(--mut);font-size:.84rem;margin-top:2px;}
+  .opciones-grandes label:has(input:checked){border-color:var(--acento);box-shadow:0 0 0 3px var(--sel);}
+  .opciones-grandes input{margin-top:3px;}
+  .botonera{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:18px;}
+  .botonera .prim{font-size:1.02rem;padding:11px 18px;}
+  .edit select, .edit input{padding:5px 7px;}
+  .listo{border:1.5px solid var(--acento);background:var(--ok-bg);border-radius:12px;padding:14px 16px;margin:0 0 16px;}
+  .decision{display:flex;gap:10px;white-space:nowrap;} .decision label{display:flex;gap:4px;align-items:center;color:var(--fg);font-size:.85rem;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1 id="titulo">Proceso de abastecimiento</h1>
+  <p class="ayuda" id="subt" style="margin-top:-2px"></p>
+  <ol class="pasos" id="pasos">
+    <li data-paso="proveedor"><span>Proveedor y comprobante</span></li>
+    <li data-paso="productos"><span>Productos</span></li>
+    <li data-paso="recepcion"><span>Recepción</span></li>
+    <li data-paso="pago"><span>Factura y pago</span></li>
+  </ol>
+
+  <!-- 1. Proveedor y comprobante -->
+  <section class="paso" id="pProveedor" hidden>
+    <form id="f1" novalidate>
+      <fieldset>
+        <legend>Proveedor</legend>
+        <div class="fila">
+          <label>Proveedor *<span class="con-boton"><select name="proveedor_id"></select><button type="button" class="chico" id="provNuevo">Nuevo</button></span></label>
+          <label>Fecha<input name="fecha" type="date"></label>
+        </div>
+        <p class="ayuda" id="ayudaProv"></p>
+      </fieldset>
+      <fieldset>
+        <legend>¿Tenés el comprobante?</legend>
+        <div class="opciones-grandes">
+          <label><input type="radio" name="comp" value="fiscal"><span>Factura fiscal<small>Con CAE. Discrimina IVA según la letra.</small></span></label>
+          <label><input type="radio" name="comp" value="X"><span>Comprobante no fiscal<small>Remito o ticket X: precio final, sin IVA.</small></span></label>
+          <label><input type="radio" name="comp" value="no"><span>Todavía no<small>Se carga después, al recibir o al pagar.</small></span></label>
+        </div>
+        <div id="datosComp">
+          <div class="fila">
+            <label id="letraWrap">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option></select></label>
+            <label><span id="lblPv">Punto de venta *</span><input name="punto_venta" inputmode="numeric" placeholder="0003"></label>
+            <label><span id="lblNum">Número *</span><input name="numero" inputmode="numeric" placeholder="00001234"></label>
+          </div>
+          <div class="fila">
+            <label>Fecha del comprobante<input name="fecha_comp" type="date"></label>
+            <label>Vencimiento<input name="vencimiento" type="date"></label>
+          </div>
+        </div>
+        <p class="ayuda" id="sinFinanzas" hidden>La factura la carga quien tiene permiso de finanzas: elegí "Todavía no".</p>
+      </fieldset>
+      <div class="botonera">
+        <button type="submit" class="prim" id="sig1">Siguiente: productos</button>
+        <a href="index.html">Volver al panel</a>
+        <span class="msg" id="msg1"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- 2. Productos -->
+  <section class="paso" id="pProductos" hidden>
+    <form id="f2" novalidate>
+      <fieldset>
+        <legend>Productos</legend>
+        <div id="esc" style="max-width:520px;margin:0 0 10px"></div>
+        <div style="overflow-x:auto"><table class="edit" id="items">
+          <thead><tr><th>Producto</th><th>Se compra en</th><th>Cantidad</th><th id="thPrecio">Precio total</th><th></th></tr></thead>
+          <tbody></tbody></table></div>
+        <datalist id="dlProductos"></datalist>
+        <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar producto</button>
+        <div class="resumen" id="resumen"></div>
+        <p class="ayuda" id="ayudaPrecio"></p>
+      </fieldset>
+      <div class="botonera">
+        <button type="button" id="atras2">Atrás</button>
+        <button type="submit" class="prim" id="sig2">Siguiente: recibir la mercadería</button>
+        <button type="button" id="guardarPedido">Guardar como pedido (llega después)</button>
+        <span class="msg" id="msg2"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- 3. Recepción -->
+  <section class="paso" id="pRecepcion" hidden>
+    <div id="recibida" class="listo" hidden></div>
+    <div id="aRecibir">
+      <div class="barra"><label>Guardar todo en<select id="rUbic"></select></label><div id="escR" style="flex:1;min-width:260px"></div></div>
+      <div class="tabla-wrap"><table class="datos edit">
+        <thead><tr><th>Producto</th><th class="num">Cantidad</th><th>Ubicación</th><th>Lote</th><th>Vence</th><th class="num">Costo</th><th>Costo vigente</th></tr></thead>
+        <tbody id="rItems"></tbody></table></div>
+      <p class="ayuda">Los perecederos llevan lote y vencimiento (si no ponés lote, se genera uno). "Actualizar" toma el costo de
+        esta compra como vigente para el producto.</p>
+      <div class="botonera">
+        <button type="button" id="atras3">Atrás</button>
+        <button type="button" class="prim" id="confirmarR">Confirmar recepción</button>
+        <button type="button" id="despuesR">Recibir después</button>
+        <span class="msg" id="msg3"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Factura y pago -->
+  <section class="paso" id="pPago" hidden>
+    <p class="ayuda" id="sinFin4" hidden>La factura y el pago los carga quien tiene permiso de finanzas. Queda en la bandeja del panel.</p>
+    <div id="finCompleto"></div>
+    <!-- a) sin comprobante -->
+    <form id="f4a" novalidate hidden>
+      <fieldset>
+        <legend>Comprobante</legend>
+        <div class="opciones-grandes">
+          <label><input type="radio" name="comp" value="fiscal" checked><span>Factura fiscal<small>Con CAE. Discrimina IVA según la letra.</small></span></label>
+          <label><input type="radio" name="comp" value="X"><span>Comprobante no fiscal<small>Remito o ticket X: precio final, sin IVA.</small></span></label>
+        </div>
+        <div class="fila">
+          <label class="soloFiscal">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option></select></label>
+          <label><span class="lblPv">Punto de venta *</span><input name="punto_venta" inputmode="numeric" placeholder="0003"></label>
+          <label><span class="lblNum">Número *</span><input name="numero" inputmode="numeric" placeholder="00001234"></label>
+        </div>
+        <div class="fila"><label>Fecha del comprobante<input name="fecha_comp" type="date"></label><label>Vencimiento<input name="vencimiento" type="date"></label></div>
+        <p class="ayuda">Los renglones salen de la compra: no hace falta volver a cargarlos.</p>
+      </fieldset>
+      <div class="botonera"><button type="submit" class="prim">Cargar comprobante</button><span class="msg" id="msg4a"></span></div>
+    </form>
+    <!-- b) comprobante en borrador: registrar -->
+    <form id="f4b" novalidate hidden>
+      <fieldset>
+        <legend id="leyB">Confirmar la factura</legend>
+        <div class="resumen" id="resB"></div>
+        <h3>Percepciones e impuestos</h3>
+        <div style="overflow-x:auto"><table class="edit" id="tribs"><thead><tr><th>Tipo</th><th>Jurisdicción</th><th>Importe</th><th></th></tr></thead><tbody></tbody></table></div>
+        <button type="button" class="chico" id="agregarTrib" style="margin-top:8px">Agregar percepción</button>
+        <div class="fila" style="margin-top:14px"><label>Total impreso en el comprobante *<input name="total" inputmode="numeric"></label><div id="difTotal" style="align-self:end"></div></div>
+        <p class="ayuda">Si el total no coincide con lo calculado (más de $1), revisá precios o percepciones. Para cambios mayores,
+          <a id="editarFac" href="comprobantes.html">editala en Facturas</a>.</p>
+      </fieldset>
+      <div class="botonera"><button type="submit" class="prim">Registrar factura</button><span class="msg" id="msg4b"></span></div>
+    </form>
+    <!-- c) registrada con saldo: pagar -->
+    <form id="f4c" novalidate hidden>
+      <fieldset>
+        <legend id="leyC">Pagar</legend>
+        <div class="fila"><label>Sale de *<select name="cuenta"></select></label></div>
+        <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label><label>Referencia<input name="referencia" placeholder="nº de transferencia (opcional)"></label></div>
+        <p class="ayuda">Caja = efectivo, banco = transferencia. Para pagar con cheque o con retenciones: <a id="opCompleta" href="ordenes-pago.html">orden de pago completa</a>.</p>
+      </fieldset>
+      <div class="botonera"><button type="submit" class="prim">Registrar pago</button><button type="button" id="pagarDespues">Pagar después</button><span class="msg" id="msg4c"></span></div>
+    </form>
+  </section>
+</main>
+<script src="comun.js"></script>
+<script>
+const PASOS = ['proveedor', 'productos', 'recepcion', 'pago'];
+const SECCION = { proveedor: '#pProveedor', productos: '#pProductos', recepcion: '#pRecepcion', pago: '#pPago' };
+const TRIB = { percepcion_iva: 'Percepción IVA', percepcion_iibb: 'Percepción IIBB', percepcion_ganancias: 'Percepción Ganancias', impuesto_interno: 'Impuesto interno', otro: 'Otro' };
+let yo, proveedores = [], productos = [], almacenes = [], unidades = [], cuentas = [];
+// Estado del proceso: la compra (null mientras no se guardó), su comprobante y el modo de entrada.
+let compra = null, comp = null, modo = 'llegada', paso = 'proveedor';
+const presCache = {};
+const f1 = $('#f1'), f2 = $('#f2');
+const provSel = () => proveedores.find(p => p.id === f1.proveedor_id.value);
+const etiquetaProducto = p => `${p.nombre} (${p.codigo})`;
+const recibida = () => compra && compra.estado === 'recibida';
+const sumarDias = (f, n) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return d.toISOString().slice(0, 10); };
+
+// ── Navegación entre pasos ──
+function mostrarPaso(p) {
+  paso = p;
+  for (const [k, s] of Object.entries(SECCION)) $(s).hidden = k !== p;
+  const hecho = { proveedor: !!compra, productos: !!compra, recepcion: recibida(),
+                  pago: !!comp && comp.estado === 'registrado' && alPeso(comp.pendiente || '0') <= 0n };
+  // Proveedor y productos se editan hasta recibir; la recepción, hasta hacerla; factura y pago, con la compra guardada.
+  const puedeIr = { proveedor: !recibida(), productos: !!compra && !recibida(), recepcion: !!compra, pago: !!compra };
+  $$('#pasos li').forEach(li => {
+    const k = li.dataset.paso;
+    li.className = (hecho[k] ? 'hecho ' : '') + (k === p ? 'actual ' : '') + (puedeIr[k] && k !== p ? 'ir' : '');
+    li.onclick = puedeIr[k] && k !== p ? () => ir(k) : null;
+  });
+  scrollTo(0, 0);
+}
+function ir(p) {
+  if (compra) history.replaceState(null, '', `#${compra.id}/${p}`);
+  ({ proveedor: verProveedor, productos: verProductos, recepcion: verRecepcion, pago: verPago })[p]();
+}
+// El paso donde se retoma una compra: lo primero que falta.
+function pasoQueFalta() {
+  if (!compra) return 'proveedor';
+  if (compra.estado === 'borrador') return 'productos';
+  if (compra.estado === 'pedida') return 'recepcion';
+  return 'pago';
+}
+function encabezado() {
+  $('#titulo').textContent = compra ? `Abastecimiento · ${compra.proveedor}` : modo === 'pedido' ? 'Nuevo pedido a proveedor' : 'Llegó mercadería';
+  const partes = compra ? [fecha(compra.fecha), compra.numero, compra.estado === 'pedida' ? 'esperando mercadería' : compra.estado === 'recibida' ? 'recibida' : compra.estado,
+    comp ? (comp.estado === 'borrador' ? 'factura sin registrar' : comp.estado === 'registrado' ? (alPeso(comp.pendiente || '0') > 0n ? `debe ${pesos(comp.pendiente)}` : 'pagada') : null) : null] : [];
+  $('#subt').textContent = partes.filter(Boolean).join(' · ');
+}
+
+// ── Carga ──
+async function cargarCompra(id) {
+  ({ compra } = await api('compras/' + id));
+  comp = null;
+  if (yo.puede.finanzas) {
+    const { comprobantes } = await api(`fin/compras/${id}/comprobantes`);
+    const c = comprobantes.filter(x => x.estado !== 'anulado').at(-1);
+    if (c) ({ comprobante: comp } = await api('fin/comprobantes/' + c.id));
+  }
+  encabezado();
+}
+
+// ── 1. Proveedor y comprobante ──
+function aplicarComprobante() {
+  const v = f1.comp.value, fis = v === 'fiscal';
+  $('#datosComp').hidden = v === 'no';
+  $('#letraWrap').hidden = !fis;
+  $('#lblPv').textContent = fis ? 'Punto de venta *' : 'Punto de venta'; $('#lblNum').textContent = fis ? 'Número *' : 'Número (opcional)';
+}
+function letraSugerida(p) { return p && p.condicion_iva === 'monotributo' ? 'C' : p && p.condicion_iva === 'exento' ? 'B' : 'A'; }
+function alCambiarProveedor() {
+  const p = provSel();
+  $('#ayudaProv').textContent = p ? [p.cuit ? 'CUIT ' + p.cuit : 'sin CUIT', p.condicion_iva ? p.condicion_iva.replace('_', ' ') : null,
+    p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ') : '';
+  if (p && !comp) f1.letra.value = letraSugerida(p);
+  proponerVenc(f1);
+}
+function proponerVenc(form) {
+  const base = form.fecha_comp.value || (form.fecha && form.fecha.value) || hoy();
+  if (!form.dataset.vencTocado) form.vencimiento.value = sumarDias(base, (provSel() || {}).plazo_pago_dias);
+}
+function verProveedor() {
+  opciones(f1.proveedor_id, proveedores.filter(p => p.activo || (compra && p.id === compra.proveedor_id)).map(p => [p.id, p.nombre]),
+    compra ? compra.proveedor_id : f1.proveedor_id.value || null, 'Elegir…');
+  if (!compra && !f1.fecha.value) f1.fecha.value = hoy();
+  if (compra) f1.fecha.value = compra.fecha;
+  if (comp) {
+    f1.comp.value = comp.letra === 'X' ? 'X' : 'fiscal'; f1.letra.value = comp.letra === 'X' ? 'A' : comp.letra;
+    f1.punto_venta.value = comp.punto_venta || ''; f1.numero.value = comp.numero || ''; f1.fecha_comp.value = comp.fecha; f1.vencimiento.value = comp.vencimiento || '';
+    f1.dataset.vencTocado = '1';
+  } else if (!f1.comp.value) f1.comp.value = !yo.puede.finanzas || modo === 'pedido' ? 'no' : 'fiscal';
+  $('#sinFinanzas').hidden = yo.puede.finanzas;
+  $$('#f1 input[name=comp]').forEach(r => { if (r.value !== 'no') r.disabled = !yo.puede.finanzas; });
+  aplicarComprobante(); alCambiarProveedor();
+  sinCambios(f1); mostrarPaso('proveedor');
+}
+f1.comp.forEach(r => r.onchange = aplicarComprobante);
+f1.proveedor_id.onchange = alCambiarProveedor;
+f1.fecha.onchange = () => { if (!f1.fecha_comp.value || !f1.dataset.compTocada) f1.fecha_comp.value = f1.fecha.value; proponerVenc(f1); };
+f1.fecha_comp.oninput = () => { f1.dataset.compTocada = '1'; proponerVenc(f1); };
+f1.vencimiento.oninput = () => { f1.dataset.vencTocado = '1'; };
+$('#provNuevo').onclick = async () => {
+  const p = await nuevoProveedor(); if (!p) return;
+  proveedores.push(p);
+  opciones(f1.proveedor_id, proveedores.filter(x => x.activo).map(x => [x.id, x.nombre]), p.id, 'Elegir…');
+  alCambiarProveedor();
+};
+// La cabecera del comprobante que se manda con la compra (null = todavía no hay).
+function cabecera() {
+  const v = f1.comp.value;
+  if (v === 'no') return null;
+  return { letra: v === 'X' ? 'X' : f1.letra.value, punto_venta: f1.punto_venta.value, numero: f1.numero.value,
+           fecha: f1.fecha_comp.value || f1.fecha.value, vencimiento: f1.vencimiento.value };
+}
+f1.onsubmit = async e => {
+  e.preventDefault();
+  if (!f1.proveedor_id.value) return msg('Elegí el proveedor.', 'mal', '#msg1');
+  if (f1.comp.value === 'fiscal' && (!f1.punto_venta.value || !f1.numero.value)) return msg('Completá punto de venta y número de la factura.', 'mal', '#msg1');
+  msg('', '', '#msg1');
+  // Con la compra ya guardada, se guardan los cambios de proveedor y comprobante con sus productos.
+  if (compra) { try { await guardar(); } catch (err) { return msg(err.message, 'mal', '#msg1'); } }
+  verProductos();
+};
+
+// ── 2. Productos ──
+async function presentaciones(id) { return presCache[id] ||= (await api('productos/' + id)).producto.presentaciones; }
+async function filaItem(x = {}) {
+  const prod = el('input', { placeholder: 'producto o SKU', style: 'min-width:220px', autocomplete: 'off' });
+  prod.setAttribute('list', 'dlProductos');
+  const en = el('select'), cantidad = el('input', { inputMode: 'decimal', value: coma(x.cantidad), style: 'width:90px' });
+  const precio = el('input', { inputMode: 'numeric', value: miles(x.precio_total), style: 'width:120px', placeholder: '$' });
+  let productoId = x.producto_id || null;
+  const p0 = productos.find(p => p.id === productoId); if (p0) prod.value = etiquetaProducto(p0);
+  async function llenarEn(valor) {
+    const p = productos.find(p => p.id === productoId);
+    if (!p) return opciones(en, [], null, '—');
+    const pres = await presentaciones(p.id);
+    const items = [...pres.map(pr => ['p:' + pr.id, `${pr.nombre} (${cant(pr.cantidad_base, p.unidad_base)})`]),
+                   ...unidadesCompatibles(unidades, p.unidad_base).map(u => ['u:' + u.codigo, u.codigo + ' suelto'])];
+    const def = pres.find(pr => pr.es_default);
+    opciones(en, items, valor || (def ? 'p:' + def.id : 'u:' + (p.costo_unidad || p.unidad_base)));
+  }
+  prod.addEventListener('change', async () => {
+    const p = productos.find(p => etiquetaProducto(p) === prod.value || p.codigo.toLowerCase() === prod.value.trim().toLowerCase());
+    productoId = p ? p.id : null; if (p) prod.value = etiquetaProducto(p);
+    await llenarEn(); recalcular(); if (p && !cantidad.value) cantidad.focus();
+  });
+  await llenarEn(x.presentacion_id ? 'p:' + x.presentacion_id : x.unidad ? 'u:' + x.unidad : null);
+  const tr = el('tr', {}, el('td', {}, prod), el('td', {}, en), el('td', {}, cantidad), el('td', {}, precio),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); recalcular(); } })));
+  tr.leer = () => { const [k, v] = (en.value || '').split(':');
+    return { producto_id: productoId, presentacion_id: k === 'p' ? v : null, unidad: k === 'u' ? v : null, cantidad: cantidad.value, precio_total: precio.value }; };
+  tr.addEventListener('input', recalcular); tr.addEventListener('change', recalcular);
+  $('#items tbody').append(tr);
+  return tr;
+}
+const renglones = () => $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.producto_id || x.cantidad || x.precio_total);
+// Total: neto y, si el comprobante discrimina IVA (responsable inscripto, factura A o M), el IVA estimado
+// con la alícuota habitual de cada producto. Si no, el precio ya es final.
+function recalcular() {
+  const p = provSel(), cab = cabecera();
+  const discrimina = cab ? ['A', 'M'].includes(cab.letra) : !(p && p.condicion_iva && p.condicion_iva !== 'responsable_inscripto');
+  $('#thPrecio').textContent = discrimina ? 'Precio total sin IVA' : 'Precio total';
+  $('#ayudaPrecio').textContent = discrimina ? 'Precios netos de IVA, como figuran en la factura. El IVA es estimado; el real lo da la factura al registrarla.'
+    : 'Precio final (el comprobante no discrimina IVA).';
+  const grupos = new Map(); let neto = 0n;
+  for (const r of renglones()) {
+    if (!r.precio_total || !/\d/.test(r.precio_total)) continue;
+    const c = centavos(r.precio_total); neto += c;
+    const prod = productos.find(x => x.id === r.producto_id), a = prod && prod.alicuota_iva != null ? prod.alicuota_iva : null;
+    grupos.set(a, (grupos.get(a) || 0n) + c);
+  }
+  let iva = 0n; const filasR = [];
+  if (discrimina) for (const [a, n] of [...grupos].sort()) {
+    if (a == null || Number(a) === 0) continue;
+    const i = (n * BigInt(Math.round(Number(a) * 100)) + 5000n) / 10000n; iva += i;
+    filasR.push(`IVA ${coma(a)}%`, pesos(deCentavos(i)));
+  }
+  $('#resumen').replaceChildren(...(filasR.length ? ['Neto', pesos(deCentavos(neto)), ...filasR] : []).map(t => el('span', { textContent: t })),
+    el('span', { className: 'tot', textContent: filasR.length ? 'Total estimado' : 'Total' }), el('span', { className: 'tot', textContent: pesos(deCentavos(neto + iva)) }));
+}
+async function verProductos() {
+  $('#items tbody').replaceChildren();
+  if (compra) for (const it of compra.items) await filaItem({ producto_id: it.producto_id, presentacion_id: it.presentacion_id,
+    unidad: it.presentacion_id ? null : it.unidad_base, cantidad: it.presentacion_id ? it.cantidad : it.cantidad_base, precio_total: it.precio_total });
+  if (!$$('#items tbody tr').length) await filaItem();
+  // Un pedido (o una compra guardada que espera mercadería) puede quedar así; lo que llegó, se recibe.
+  $('#guardarPedido').hidden = !!compra && compra.estado !== 'borrador' && compra.estado !== 'pedida';
+  $('#guardarPedido').textContent = compra ? 'Guardar y recibir después' : 'Guardar como pedido (llega después)';
+  // Un pedido nuevo se guarda y espera la mercadería; una llegada sigue directo a recibir.
+  const esPedido = !compra && modo === 'pedido';
+  $('#guardarPedido').className = esPedido ? 'prim' : ''; $('#sig2').className = esPedido ? '' : 'prim';
+  $('#sig2').textContent = esPedido ? 'Ya llegó: recibirla ahora' : 'Siguiente: recibir la mercadería';
+  if (esPedido) $('#guardarPedido').textContent = 'Guardar pedido';
+  recalcular(); sinCambios(f2); mostrarPaso('productos');
+  if (!compra) $('#items tbody input').focus();
+}
+$('#agregar').onclick = () => filaItem().then(tr => tr.querySelector('input').focus());
+$('#atras2').onclick = () => ir('proveedor');
+$('#esc').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado: dalo de alta en Productos.`);
+  const ultima = $$('#items tbody tr').at(-1);
+  if (ultima && !ultima.leer().producto_id) ultima.remove();
+  const tr = await filaItem({ producto_id: d.producto.id, presentacion_id: d.presentacion && d.presentacion.id });
+  tr.querySelectorAll('input')[1].focus(); marcarCambios(f2);
+  msg(describirLectura(d), 'ok', '#msg2');
+}, { placeholder: 'Escaneá el producto para agregarlo' }));
+// Guarda proveedor, comprobante y productos: crea la compra (y el borrador de factura) o los actualiza.
+async function guardar() {
+  const items = renglones();
+  if (!items.length && compra) items.push(...compra.items.map(it => ({ producto_id: it.producto_id, presentacion_id: it.presentacion_id,
+    unidad: it.presentacion_id ? null : it.unidad_base, cantidad: it.presentacion_id ? it.cantidad : it.cantidad_base, precio_total: miles(it.precio_total) })));
+  if (!items.length) throw new Error('Cargá al menos un producto.');
+  if (items.some(x => !x.producto_id)) throw new Error('Hay un renglón sin producto: elegilo de la lista o quitalo.');
+  const body = { proveedor_id: f1.proveedor_id.value, fecha: f1.fecha.value, comprobante: cabecera(), items };
+  const d = await api(compra ? 'abastecimiento/' + compra.id : 'abastecimiento', { method: compra ? 'PUT' : 'POST', body });
+  await cargarCompra(d.id || compra.id);
+  history.replaceState(null, '', '#' + compra.id);
+}
+f2.onsubmit = async e => {
+  e.preventDefault();
+  try { $('#sig2').disabled = true; await guardar(); verRecepcion(); }
+  catch (err) { msg(err.message, 'mal', '#msg2'); }
+  finally { $('#sig2').disabled = false; }
+};
+$('#guardarPedido').onclick = async () => {
+  try { await guardar(); location.href = 'index.html#abastecimiento'; }
+  catch (err) { msg(err.message, 'mal', '#msg2'); }
+};
+
+// ── 3. Recepción ──
+function verRecepcion() {
+  const yaRecibida = recibida();
+  $('#recibida').hidden = !yaRecibida; $('#aRecibir').hidden = yaRecibida;
+  if (yaRecibida) {
+    $('#recibida').replaceChildren(el('strong', { textContent: `Mercadería recibida el ${fechaHora(compra.recibida_en)}.` }),
+      el('div', { className: 'ayuda', textContent: compra.items.map(it => `${it.producto}: ${cant(it.cantidad_base, it.unidad_base)} en ${it.ubicacion || '—'}${it.lote ? ' (lote ' + it.lote + ')' : ''}`).join(' · ') }),
+      el('div', { className: 'botonera' }, el('button', { type: 'button', className: 'prim', textContent: 'Siguiente: factura y pago', onclick: () => ir('pago') })));
+    return mostrarPaso('recepcion');
+  }
+  opcionesUbicacion($('#rUbic'), almacenes, null, 'Elegir por producto…');
+  filas($('#rItems'), compra.items, it => {
+    const ubic = el('select'); opcionesUbicacion(ubic, almacenes, null, 'Elegir…');
+    const lote = el('input', { placeholder: 'automático', style: 'width:120px', disabled: !it.perecedero });
+    const venc = el('input', { type: 'date', disabled: !it.perecedero });
+    if (it.perecedero && it.vida_util_dias) venc.value = sumarDias(hoy(), it.vida_util_dias);
+    const nombre = 'dec-' + it.id, tieneCosto = it.costo_compra != null;
+    // En el asistente se propone actualizar el costo vigente con el de esta compra; se puede mantener.
+    const decision = tieneCosto ? el('div', { className: 'decision' },
+      el('label', {}, el('input', { type: 'radio', name: nombre, value: '1', checked: true }), 'Actualizar'),
+      el('label', {}, el('input', { type: 'radio', name: nombre, value: '0' }), 'Mantener')) : el('span', { className: 'mut', textContent: 'sin precio' });
+    const varTxt = it.variacion_pct != null ? ` (${it.variacion_pct.startsWith('-') ? '' : '+'}${num(it.variacion_pct)}%)` : '';
+    const tr = el('tr', {}, td(it.producto, 'wrap'), td(cant(it.cantidad_base, it.unidad_base), 'num'), el('td', {}, ubic),
+      el('td', {}, it.perecedero ? lote : el('span', { className: 'mut', textContent: 'no perecedero' })), el('td', {}, it.perecedero ? venc : ''),
+      td(tieneCosto ? `${pesos(it.costo_compra)}/${it.unidad_ref}${varTxt}` : '—', 'num'),
+      el('td', {}, (it.costo_vigente != null ? pesos(it.costo_vigente) + '/' + it.unidad_ref + ' ' : 'sin costo '), decision));
+    Object.assign(tr, { it, lote, venc });
+    tr.leer = () => { const r = tr.querySelector(`input[name="${nombre}"]:checked`);
+      return { id: it.id, ubicacion_id: ubic.value || null, lote_codigo: lote.value, vencimiento: venc.value, actualizar_costo: tieneCosto ? (r ? r.value === '1' : null) : null }; };
+    return tr;
+  }, 'Sin productos.', 7);
+  // Si hay un solo lugar posible, ya queda elegido.
+  if ($('#rUbic').options.length === 2) { $('#rUbic').selectedIndex = 1; $('#rUbic').onchange(); }
+  mostrarPaso('recepcion');
+}
+$('#rUbic').onchange = () => { if ($('#rUbic').value) $$('#rItems select').forEach(s => s.value = $('#rUbic').value); };
+$('#escR').append(escaner(async d => {
+  if (d.desconocido) throw new Error(`El código ${d.lectura.gtin} no está cargado.`);
+  const tr = $$('#rItems tr').filter(t => t.it && t.it.producto_id === d.producto.id).find(t => !t.lote.value) ||
+             $$('#rItems tr').find(t => t.it && t.it.producto_id === d.producto.id);
+  if (!tr) throw new Error(`${d.producto.nombre} no está en esta compra.`);
+  if (d.lectura.lote) tr.lote.value = d.lectura.lote;
+  if (d.lectura.vencimiento) tr.venc.value = d.lectura.vencimiento;
+  tr.style.background = 'var(--ok-bg)'; msg(describirLectura(d), 'ok', '#msg3');
+}, { placeholder: 'Escanear caja del proveedor (lote y vencimiento)' }));
+$('#atras3').onclick = () => ir('productos');
+$('#despuesR').onclick = () => { location.href = 'index.html#abastecimiento'; };
+$('#confirmarR').onclick = async () => {
+  const items = $$('#rItems tr').filter(tr => tr.leer).map(tr => tr.leer());
+  if (items.some(x => !x.ubicacion_id)) return msg('Elegí dónde se guarda cada producto.', 'mal', '#msg3');
+  $('#confirmarR').disabled = true;
+  try {
+    await api(`compras/${compra.id}/recibir`, { method: 'POST', body: { items } });
+    catalogo._p = null; productos = await catalogo.productos();
+    await cargarCompra(compra.id); ir('pago');
+  } catch (err) { msg(err.message, 'mal', '#msg3'); }
+  finally { $('#confirmarR').disabled = false; }
+};
+
+// ── 4. Factura y pago ──
+const f4a = $('#f4a'), f4b = $('#f4b'), f4c = $('#f4c');
+function verPago() {
+  for (const f of [f4a, f4b, f4c]) f.hidden = true;
+  $('#finCompleto').replaceChildren();
+  $('#sinFin4').hidden = yo.puede.finanzas;
+  if (!yo.puede.finanzas) return mostrarPaso('pago');
+  if (!comp) {
+    // a) Falta el comprobante: los renglones salen de la compra.
+    f4a.reset(); f4a.letra.value = letraSugerida(proveedores.find(p => p.id === compra.proveedor_id));
+    f4a.fecha_comp.value = compra.fecha; delete f4a.dataset.vencTocado; proponerVenc4(); aplicar4a();
+    f4a.hidden = false;
+  } else if (comp.estado === 'borrador') {
+    // b) Borrador: percepciones, total impreso y registrar.
+    $('#leyB').textContent = `Confirmar ${comp.nro}`;
+    $('#editarFac').href = 'comprobantes.html#' + comp.id;
+    $('#tribs tbody').replaceChildren(); comp.tributos.forEach(filaTrib);
+    f4b.total.value = miles(comp.calculado); resumenB(); f4b.hidden = false;
+  } else if (comp.estado === 'registrado' && alPeso(comp.pendiente || '0') > 0n) {
+    // c) Registrada con saldo: pagar.
+    const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
+    $('#leyC').textContent = `Pagar ${comp.nro} · debe ${pesos(comp.pendiente)}`;
+    opciones(f4c.cuenta, usables.map(c => [c.id, `${c.nombre} · ${c.tipo === 'caja' ? 'efectivo' : 'transferencia'} · saldo ${pesos(c.saldo)}`]), null, usables.length ? undefined : 'No hay cajas ni bancos: cargalos en Tesorería');
+    f4c.importe.value = miles(comp.pendiente); f4c.fecha.value = hoy(); f4c.referencia.value = '';
+    $('#opCompleta').href = `ordenes-pago.html?proveedor=${compra.proveedor_id}&comprobante=${comp.id}`;
+    f4c.hidden = false;
+  } else {
+    // d) Todo hecho.
+    $('#finCompleto').append(el('div', { className: 'listo' },
+      el('strong', { textContent: 'Proceso completo: mercadería recibida y factura pagada.' }),
+      el('div', { className: 'botonera' },
+        el('a', { href: 'index.html', className: 'boton', textContent: 'Volver al panel' }),
+        el('a', { href: 'abastecimiento.html#nuevo/llegada', textContent: 'Cargar otra llegada de mercadería' }),
+        el('a', { href: 'compras.html#' + compra.id, textContent: 'Ver la compra' }),
+        el('a', { href: 'comprobantes.html#' + comp.id, textContent: 'Ver la factura' }))));
+  }
+  mostrarPaso('pago');
+}
+function aplicar4a() {
+  const fis = f4a.comp.value === 'fiscal';
+  f4a.querySelector('.soloFiscal').hidden = !fis;
+  f4a.querySelector('.lblPv').textContent = fis ? 'Punto de venta *' : 'Punto de venta';
+  f4a.querySelector('.lblNum').textContent = fis ? 'Número *' : 'Número (opcional)';
+}
+function proponerVenc4() {
+  if (f4a.dataset.vencTocado) return;
+  f4a.vencimiento.value = sumarDias(f4a.fecha_comp.value || hoy(), (proveedores.find(p => p.id === compra.proveedor_id) || {}).plazo_pago_dias);
+}
+f4a.comp.forEach(r => r.onchange = aplicar4a);
+f4a.fecha_comp.oninput = proponerVenc4;
+f4a.vencimiento.oninput = () => { f4a.dataset.vencTocado = '1'; };
+f4a.onsubmit = async e => {
+  e.preventDefault();
+  const x = f4a.comp.value === 'X';
+  try {
+    await api(`abastecimiento/${compra.id}/comprobante`, { method: 'POST', body: { letra: x ? 'X' : f4a.letra.value,
+      punto_venta: f4a.punto_venta.value, numero: f4a.numero.value, fecha: f4a.fecha_comp.value, vencimiento: f4a.vencimiento.value } });
+    await cargarCompra(compra.id); verPago();
+  } catch (err) { msg(err.message, 'mal', '#msg4a'); }
+};
+function filaTrib(t = {}) {
+  const tipo = el('select'); opciones(tipo, Object.entries(TRIB), t.tipo || 'percepcion_iibb');
+  const jur = el('input', { value: t.jurisdiccion || '', placeholder: 'CABA, Buenos Aires…' });
+  const imp = el('input', { inputMode: 'numeric', value: miles(t.importe), style: 'width:120px' });
+  const tr = el('tr', {}, el('td', {}, tipo), el('td', {}, jur), el('td', {}, imp),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumenB(); } })));
+  tr.leer = () => ({ tipo: tipo.value, jurisdiccion: jur.value, importe: imp.value });
+  tr.addEventListener('input', resumenB);
+  $('#tribs tbody').append(tr);
+}
+$('#agregarTrib').onclick = () => filaTrib();
+const tributos = () => $$('#tribs tbody tr').map(tr => tr.leer()).filter(t => t.importe);
+// Resumen de la factura como en el papel: neto gravado, IVA por alícuota, percepciones y total.
+function resumenB() {
+  const percep = tributos().reduce((s, t) => s + centavos(t.importe), 0n);
+  const neto = comp.alicuotas.reduce((s, a) => s + centavos(a.neto), 0n);
+  const filasR = [...(comp.alicuotas.length ? ['Neto gravado', pesos(deCentavos(neto)), ...comp.alicuotas.flatMap(a => [`IVA ${coma(a.alicuota)}%`, pesos(a.iva)])] : []),
+    ...(!/^0+(\.0+)?$/.test(comp.no_gravado || '0') ? [comp.alicuotas.length ? 'No gravado y exento' : 'Subtotal', pesos(comp.no_gravado)] : []),
+    ...(percep ? ['Percepciones', pesos(deCentavos(percep))] : [])];
+  const total = centavos(comp.calculado) - centavos(comp.tributos.reduce((s, t) => s + Number(t.importe), 0).toFixed(2)) + percep;
+  $('#resB').replaceChildren(...filasR.map(t => el('span', { textContent: t })),
+    el('span', { className: 'tot', textContent: 'Total calculado' }), el('span', { className: 'tot', textContent: pesos(deCentavos(total)) }));
+  const t = f4b.total.value.trim(), dif = t ? centavos(t) - total : 0n, abs = dif < 0n ? -dif : dif;
+  $('#difTotal').replaceChildren(t ? el('span', { className: 'msg ' + (abs <= 100n ? 'ok' : 'mal'), textContent: abs === 0n ? 'coincide' : abs <= 100n ? 'diferencia de redondeo' : `diferencia ${pesos(deCentavos(dif))}` }) : '');
+  f4b.dataset.calculado = deCentavos(total);
+}
+f4b.total.oninput = resumenB;
+f4b.onsubmit = async e => {
+  e.preventDefault();
+  if (!f4b.total.value.trim()) return msg('Cargá el total impreso en el comprobante.', 'mal', '#msg4b');
+  try {
+    // Con percepciones nuevas, primero se guardan en el borrador (los renglones quedan como están).
+    const trib = tributos();
+    if (JSON.stringify(trib.map(t => [t.tipo, t.jurisdiccion || null, String(alPeso(t.importe))])) !==
+        JSON.stringify(comp.tributos.map(t => [t.tipo, t.jurisdiccion || null, String(alPeso(t.importe))]))) {
+      const c = comp;
+      await api('fin/comprobantes/' + c.id, { method: 'PUT', body: { proveedor_id: c.proveedor_id, tipo: c.tipo, letra: c.letra,
+        punto_venta: c.letra === 'X' && !c.numero ? '' : c.punto_venta, numero: c.numero, fecha: c.fecha, vencimiento: c.vencimiento, cae: c.cae, notas: c.notas,
+        asociado_id: c.asociado_id, compras: c.compras.map(x => x.id), tributos: trib,
+        items: c.items.map(i => ({ producto_id: i.producto_id, compra_item_id: i.compra_item_id, descripcion: i.descripcion, unidad: i.unidad,
+          cantidad: i.cantidad, precio: i.precio, descuento: i.descuento, alicuota: i.alicuota ?? '' })) } });
+    }
+    await api(`fin/comprobantes/${comp.id}/registrar`, { method: 'POST', body: { total: f4b.total.value } });
+    await cargarCompra(compra.id); verPago();
+  } catch (err) { msg(err.message, 'mal', '#msg4b'); }
+};
+f4c.onsubmit = async e => {
+  e.preventDefault();
+  const cuenta = cuentas.find(c => c.id === f4c.cuenta.value);
+  if (!cuenta) return msg('Elegí de qué caja o banco sale.', 'mal', '#msg4c');
+  try {
+    await pagarComprobante({ proveedor_id: compra.proveedor_id, comprobante_id: comp.id, cuenta, importe: f4c.importe.value,
+      fecha: f4c.fecha.value, referencia: f4c.referencia.value });
+    ({ cuentas } = await api('fin/cuentas'));
+    await cargarCompra(compra.id); verPago();
+  } catch (err) { msg(err.message, 'mal', '#msg4c'); }
+};
+$('#pagarDespues').onclick = () => { location.href = 'index.html#abastecimiento'; };
+
+// ── Arranque: #nuevo/llegada, #nuevo/pedido, #<compra> (retoma donde falta) o #<compra>/<paso> ──
+// Otro proceso desde esta misma pantalla ("cargar otra llegada"): se arranca de cero. Los cambios de
+// paso usan replaceState, que no dispara esto.
+addEventListener('hashchange', () => location.reload());
+(async () => {
+  try {
+    ({ usuario: yo } = await cargarSesion());
+    [{ proveedores }, productos, almacenes, unidades] = await Promise.all([api('proveedores'), catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
+    if (yo.puede.finanzas) ({ cuentas } = await api('fin/cuentas'));
+    $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
+    const [a, b] = location.hash.slice(1).split('/');
+    if (!a || a === 'nuevo') { modo = b === 'pedido' ? 'pedido' : 'llegada'; encabezado(); return verProveedor(); }
+    await cargarCompra(a);
+    ir(PASOS.includes(b) ? b : pasoQueFalta());
+  } catch (e) { msg(e.message, 'mal', '#msg1'); $('#pProveedor').hidden = false; }
+})();
+</script>
+</body>
+</html>

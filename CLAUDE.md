@@ -256,6 +256,25 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   entero va 1 por el total con la cantidad en la descripción. Los archivos importados (extractos, POS)
   conservan su separador decimal. Cantidades: la coma es decimal (decisión de Fer): "1,5" kg son 1500 g.
 
+### Proceso de abastecimiento (24/10/2026)
+- Idea de Fer: un **asistente paso a paso** para usuarios no técnicos, que **convive** con las pantallas de
+  Compras y Facturas (decisión de Fer). `abastecimiento.html` + `app/abastecimiento.js`. Pasos: proveedor y
+  comprobante (fiscal, no fiscal X o "todavía no") → productos (se cargan UNA vez: arman la compra y los
+  renglones de la factura) → recepción (ubicación, lote, vencimiento, decisión de costo propuesta en
+  "actualizar") → factura y pago (cargar el comprobante si faltaba, percepciones, total impreso, registrar y
+  pagar desde caja o banco, o "pagar después").
+- **No hay tablas nuevas**: cada paso guarda en `logic.compra`, `fin.comprobante` y órdenes de pago. La compra
+  nace `pedida`; con comprobante, se arma su borrador con los renglones de la compra (`compra_item_id`
+  vinculado). Se edita hasta recibir (`PUT /abastecimiento/:id`). Dos entradas: "Llegó mercadería" y
+  "Hacer un pedido" (el pedido queda esperando mercadería).
+- **Bandeja** dentro del Panel, común por ahora (decisión de Fer; después, por rol): **se deduce** del
+  estado (`GET /abastecimiento/pendientes`), como el stock: carga sin terminar, esperando mercadería, falta
+  la factura, factura sin registrar, por pagar (primero lo vencido), más las facturas por pagar cargadas
+  sin compra. Cada pendiente abre el asistente en el paso que falta (`#<compra>/<paso>`). Los importes,
+  sólo para finanzas.
+- Segunda vuelta (decisión de Fer): mandar el pedido al proveedor (imprimir, PDF o WhatsApp). Mismo molde
+  para el abastecimiento del local (pedido, remito, recepción) y el cierre de ventas del POS.
+
 ### Puntos de venta (fase 4, 21/10/2026)
 - Esquema `pos`. Fer: **Fudo y Maxirest**, por **API o archivo según haya**, **ticket por ticket**, y lo que
   no alcanza **queda en negativo**.
