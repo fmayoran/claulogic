@@ -319,9 +319,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Sede central, puntos de venta y medios de pago** (decisiones de Fer, 25/10/2026; migración 20261104):
   - **Sede central** (`org.sede.es_central`, una sola, configurable en Sedes para usar la app en otro negocio;
     hoy CF CENTRAL): consolida las finanzas del grupo y **no tiene puntos de venta**.
-  - **Punto de venta = un sistema** (`pos.integracion`, con `codigo`), de un local. Nace con su **cuenta de
-    efectivo** (`Efectivo · <nombre>`, `cuenta_efectivo_id`): su saldo es lo que tiene pendiente de rendir a la
-    central; rendir es una transferencia a la caja de la central.
+  - **Una sede tipo "punto de venta" (`tipo = 'local'`) ES un sistema de venta** (decisión de Fer, 25/10/2026;
+    migración 20261105): su configuración (sistema, modo, código, credenciales), sus artículos y sus medios se
+    cargan en la **ficha de la sede** (`sedes.html`, sólo el administrador); no hay pantalla de puntos de
+    venta (`puntos-venta.html` redirige). Por debajo sigue `pos.integracion`, **una por sede**
+    (`integracion_sede_ux`), con el nombre de la sede y su única ubicación. Si un local tiene dos sistemas, son
+    dos sedes. El tipo de una sede no cambia. Un local tiene **un solo almacén y una sola ubicación, de tipo
+    depósito** (triggers `local_un_almacen` y `local_una_ubicacion`): lo de adentro del local está fuera de
+    control; **stock y frío se gestionan sólo en el centro**. Nace con su **cuenta de efectivo**
+    (`Efectivo · <sede>`, `cuenta_efectivo_id`): su saldo es lo que tiene pendiente de rendir a la central;
+    rendir es una transferencia a la caja de la central.
   - **Medios de pago globales** (`fin.procesador` + `fin.medio_pago`, pantalla `medios-pago.html`):
     procesador (Mercado Pago, Getnet, Fudo Pagos) × tipo de operación (QR, transferencia, débito, crédito), más
     el efectivo. Cada procesador acredita en **una** cuenta (si no se elige, se crea "<procesador> a

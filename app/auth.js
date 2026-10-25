@@ -264,13 +264,13 @@ const POLITICA = [
   // POS: la sede concreta la verifica cada handler. Configurar la integración y las equivalencias
   // de artículos es de encargado; importar y descontar el consumo, de quien opera; los cobros y la
   // cuenta de cada medio, de finanzas.
-  [/^\/pos\/integraciones(\/[^/]+)?$/, 'gestionar'],
+  // La configuración del sistema de venta de una sede (y sus artículos y medios) es del administrador.
+  [/^\/pos\/integraciones(\/[^/]+)?$/, 'admin'],
   [/^\/pos\/integraciones\/[^/]+\/(sincronizar|importar)$/, 'operar'],
   [/^\/pos\/importaciones\/[^/]+\/(consumo|anular)$/, 'operar'],
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
-  [/^\/pos\/articulos\//, 'gestionar'],
-  // Asignar a cada medio del sistema su medio de pago global: el encargado del local o finanzas.
-  [/^\/pos\/medios\//, 'medios'],
+  [/^\/pos\/articulos\//, 'admin'],
+  [/^\/pos\/medios\//, 'admin'],
   [/^\/proveedores(\/[^/]+)?$/, 'proveedor'],
   // Proceso de abastecimiento: la compra es del catálogo (por defecto); la factura armada desde la
   // compra, de finanzas (y el handler lo vuelve a exigir cuando la compra trae comprobante).

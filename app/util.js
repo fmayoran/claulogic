@@ -64,6 +64,7 @@ const UNICOS = {
   producto_codigo_key: 'Ya existe un producto con ese código.',
   categoria_nombre_ux: 'Ya existe una categoría con ese nombre.',
   categoria_prefijo_ux: 'Ese prefijo ya lo usa otra categoría.',
+  integracion_sede_ux: 'Esta sede ya tiene su sistema de venta: es uno por sede (si un local tiene dos sistemas, se carga como dos sedes).',
   presentacion_producto_id_nombre_key: 'Hay dos presentaciones con el mismo nombre.',
   unidad_pkey: 'Ya existe una unidad con ese código.',
   almacen_nombre_ux: 'Ya existe un almacén con ese nombre en la sede.',

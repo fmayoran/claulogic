@@ -16,7 +16,7 @@
 <main class="ancho">
   <h1>Ventas de los locales</h1>
   <p class="sub">Lo que vendió cada local según su POS. Importar sólo guarda los tickets; después se descuenta el consumo teórico del stock del local y, por separado, finanzas procesa los cobros.</p>
-  <div class="barra"><label>Punto de venta<select id="integ"></select></label><a id="config" href="puntos-venta.html">Configurar</a></div>
+  <div class="barra"><label>Punto de venta<select id="integ"></select></label><a id="config" href="sedes.html">Configurar</a></div>
 
   <fieldset id="fsImportar">
     <legend>Importar</legend>
@@ -182,7 +182,7 @@ async function abrir(id) {
   $('#anular').hidden = !(viva && im.puede.anular);
   filas($('#dArt'), im.articulos, a => el('tr', {}, td(a.nombre), td(num(a.cantidad), 'num'),
     el('td', {}, a.sin_consumo ? el('span', { className: 'tag', textContent: 'no consume' }) : a.plato ? a.plato
-      : sesion && sesion.puede.gestionar ? el('a', { href: 'puntos-venta.html#' + integ.id, className: 'tag mal', textContent: 'sin receta' })
+      : sesion && sesion.puede.admin ? el('a', { href: 'sedes.html#' + integ.sede_id, className: 'tag mal', textContent: 'sin receta' })
       : el('span', { className: 'tag mal', textContent: 'sin receta' }),
       a.pendiente && (a.plato || a.sin_consumo) ? el('span', { className: 'tag aviso', textContent: ' sin descontar' }) : '')), 'Sin artículos.', 3);
   filas($('#dMed'), im.medios, m => el('tr', {}, td(m.nombre), td(pesos(m.importe), 'num'),
@@ -228,14 +228,14 @@ function elegir() {
   history.replaceState(null, '', 'ventas.html#' + integ.id);
   $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo';
   // El enlace no está si el usuario no puede configurar (lo quita la navegación común).
-  if ($('#config')) $('#config').href = 'puntos-venta.html#' + integ.id;
+  if ($('#config')) $('#config').href = 'sedes.html#' + integ.sede_id;
   cargar().catch(e => alert(e.message));
 }
 $('#integ').onchange = elegir;
 (async () => {
   try {
     await cargarIntegraciones();
-    if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Ventas > Puntos de venta.'))); return; }
+    if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Configuración > Sedes.'))); return; }
     opciones($('#integ'), integraciones.filter(i => i.activa).map(i => [i.id, `${i.nombre} (${i.sede})`]), location.hash.slice(1) || null);
     $('#desde').value = $('#hasta').value = hoy();
     elegir();

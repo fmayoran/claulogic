@@ -17,6 +17,7 @@ function leerSede(b) {
     es_central: !!b.es_central,
   };
   if (s.es_central && !s.activa) throw new ErrorUsuario('La sede central tiene que estar activa.');
+  if (s.es_central && s.tipo === 'local') throw new ErrorUsuario('Un punto de venta no puede ser la sede central: la central consolida, no vende.');
   if (!['centro', 'local'].includes(s.tipo)) throw new ErrorUsuario('El tipo es centro o local.');
   return s;
 }
@@ -31,7 +32,8 @@ r.post('/sedes', h(async (req, res) => {
     const { rows: [n] } = await c.query(
       'INSERT INTO org.sede (nombre, tipo, direccion, activa, es_central) VALUES ($1,$2,$3,$4,$5) RETURNING id',
       [s.nombre, s.tipo, s.direccion, s.activa, s.es_central]);
-    if (req.body.crear_almacen !== false) {
+    // Un punto de venta siempre lo tiene: es el único lugar por donde pasa su mercadería.
+    if (s.tipo === 'local' || req.body.crear_almacen !== false) {
       const { rows: [a] } = await c.query(
         `INSERT INTO logic.almacen (nombre, sede_id, direccion) VALUES ('Depósito', $1, $2) RETURNING id`, [n.id, s.direccion]);
       await c.query(`INSERT INTO logic.ubicacion (almacen_id, nombre, tipo) VALUES ($1, 'General', 'deposito')`, [a.id]);
@@ -67,8 +69,16 @@ r.put('/sedes/:id', h(async (req, res) => {
       const { rows: [era] } = await c.query('SELECT es_central FROM org.sede WHERE id = $1', [req.params.id]);
       if (era.es_central) throw new ErrorUsuario('Siempre tiene que haber una sede central: marcá otra como central y esta deja de serlo.');
     }
+    // El tipo no cambia: un local tiene un solo almacén y una sola ubicación, un centro no tiene sistema de venta.
+    if (ant.tipo !== s.tipo) throw new ErrorUsuario('El tipo de una sede no cambia: creá una sede nueva.');
     await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4, es_central=$5 WHERE id=$6',
       [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, req.params.id]);
+    // El sistema de venta y su cuenta de efectivo llevan el nombre de la sede.
+    const { rows: [pv] } = await c.query('SELECT id, nombre, cuenta_efectivo_id FROM pos.integracion WHERE sede_id = $1', [req.params.id]);
+    if (pv && pv.nombre !== s.nombre) {
+      await c.query('UPDATE pos.integracion SET nombre = $1 WHERE id = $2', [s.nombre, pv.id]);
+      if (pv.cuenta_efectivo_id) await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + s.nombre, pv.cuenta_efectivo_id]);
+    }
   });
   res.json({ ok: true, id: req.params.id });
 }));

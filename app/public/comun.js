@@ -131,7 +131,7 @@ const GRUPOS = [
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
-  ['Ventas', [['ventas.html', 'Ventas'], ['platos.html', 'Platos de carta'], ['puntos-venta.html', 'Puntos de venta']]],
+  ['Ventas', [['ventas.html', 'Ventas'], ['platos.html', 'Platos de carta']]],
   ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['medios-pago.html', 'Medios de pago'], ['cheques.html', 'Cheques'], ['conciliacion.html', 'Conciliación']]],
   ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
@@ -204,7 +204,7 @@ function navegacion() {
       if (!u.puede[permiso]) $$(`a[href="${href}"]`).forEach(a => a.remove());
     // Puntos de venta: los configura el encargado y finanzas les asigna las cuentas de cobro.
     // El tablero: encargados (sus sedes) y finanzas (todas, con el flujo de caja).
-    if (!u.puede.gestionar && !u.puede.finanzas) $$('a[href="puntos-venta.html"], a[href="tablero.html"]').forEach(a => a.remove());
+    if (!u.puede.gestionar && !u.puede.finanzas) $$('a[href="tablero.html"]').forEach(a => a.remove());
     // Las compras son del centro: quien sólo tiene rol en locales no las ve.
     if (!u.es_admin && !u.finanzas && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
     $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });

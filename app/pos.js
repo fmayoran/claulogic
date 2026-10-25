@@ -104,13 +104,13 @@ r.get('/pos/integraciones', h(async (req, res) => {
 
 function leerIntegracion(b) {
   const i = {
-    nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
+    nombre: texto(b.nombre),
     codigo: texto(b.codigo),
     sede_id: texto(b.sede_id, { campo: 'el local', requerido: true }),
     sistema: texto(b.sistema, { campo: 'el sistema', requerido: true }),
     modo: texto(b.modo, { campo: 'el modo', requerido: true }),
-    almacen_id: texto(b.almacen_id, { campo: 'el almacén de consumo', requerido: true }),
-    ubicacion_id: texto(b.ubicacion_id, { campo: 'la ubicación', requerido: true }),
+    almacen_id: texto(b.almacen_id),
+    ubicacion_id: texto(b.ubicacion_id),
     activa: b.activa === undefined ? true : !!b.activa,
     apiKey: texto(b.apiKey), apiSecret: texto(b.apiSecret),
   };
@@ -123,15 +123,24 @@ function leerIntegracion(b) {
 // Las credenciales se cifran con la clave propia de ClauLogic y nunca se devuelven.
 const cifrar = i => i.apiKey ? crypto.encrypt(JSON.stringify({ apiKey: i.apiKey, apiSecret: i.apiSecret })) : null;
 
-// Un punto de venta es un sistema de un local. Nace con su cuenta de efectivo ("Efectivo · <nombre>"):
-// su saldo es lo que tiene pendiente de rendir a la central. La central no tiene puntos de venta.
+// El sistema de venta de una sede punto de venta (una por sede; se configura desde la ficha de la sede).
+// Toma el nombre de la sede y descuenta de su única ubicación. Nace con su cuenta de efectivo
+// ("Efectivo · <sede>"): su saldo es lo que tiene pendiente de rendir a la central.
+async function datosDeSede(c, i) {
+  const { rows: [sd] } = await c.query('SELECT nombre, tipo, es_central FROM org.sede WHERE id = $1::uuid', [i.sede_id]);
+  if (!sd) throw new ErrorUsuario('No existe esa sede.');
+  if (sd.tipo !== 'local' || sd.es_central) throw new ErrorUsuario('Sólo una sede punto de venta tiene sistema de venta.');
+  const { rows: [u] } = await c.query(
+    `SELECT u.id, u.almacen_id FROM logic.ubicacion u JOIN logic.almacen a ON a.id = u.almacen_id
+      WHERE a.sede_id = $1 AND a.activo AND u.activa ORDER BY u.nombre LIMIT 1`, [i.sede_id]);
+  if (!u) throw new ErrorUsuario('La sede no tiene su depósito: revisalo en Almacenes.');
+  return { ...i, nombre: sd.nombre, almacen_id: u.almacen_id, ubicacion_id: u.id };
+}
 r.post('/pos/integraciones', h(async (req, res) => {
-  const i = leerIntegracion(req.body);
-  exigirEncargadoDe(req, i.sede_id);
+  let i = leerIntegracion(req.body);
   if (i.modo === 'api' && !i.apiKey) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
   const id = await enTransaccion(async c => {
-    const { rows: [sd] } = await c.query('SELECT es_central FROM org.sede WHERE id = $1::uuid', [i.sede_id]);
-    if (sd && sd.es_central) throw new ErrorUsuario('La sede central no tiene puntos de venta: consolida lo que rinden los locales.');
+    i = await datosDeSede(c, i);
     const { rows: [n] } = await c.query(
       `INSERT INTO pos.integracion (nombre, codigo, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
@@ -145,11 +154,11 @@ r.post('/pos/integraciones', h(async (req, res) => {
 }));
 
 r.put('/pos/integraciones/:id', h(async (req, res) => {
-  const i = leerIntegracion(req.body);
+  let i = leerIntegracion(req.body);
   await enTransaccion(async c => {
     const ant = await integracion(c, req, req.params.id, true);
-    exigirEncargadoDe(req, ant.sede_id, ant.sede);
-    if (ant.sede_id !== i.sede_id) throw new ErrorUsuario('Una integración no cambia de local.');
+    if (ant.sede_id !== i.sede_id) throw new ErrorUsuario('El sistema de venta no cambia de sede.');
+    i = await datosDeSede(c, i);
     // Sin credenciales nuevas se conservan las que había (no se muestran, así que no se reenvían).
     const cred = i.modo !== 'api' ? null : i.apiKey ? cifrar(i) : ant.credenciales;
     if (i.modo === 'api' && !cred) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
