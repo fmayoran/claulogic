@@ -10,6 +10,10 @@
   .cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:0 0 16px;}
   .cifras div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);}
   .cifras span{display:block;color:var(--mut);font-size:.82rem;} .cifras strong{font-size:1.15rem;}
+  .alertas{display:grid;gap:6px;margin:0 0 14px;padding:0;list-style:none;}
+  .alertas li{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);}
+  .alertas li.bloquea, .alertas li.diferencia{border-color:var(--mal);background:var(--mal-bg);}
+  .alertas li.aviso{border-color:var(--aviso);background:var(--aviso-bg);}
 </style>
 </head>
 <body>
@@ -23,7 +27,7 @@
     <div id="porApi" hidden>
       <div class="barra"><label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
         <button class="prim" id="sincronizar">Traer ventas de Fudo</button></div>
-      <p class="ayuda">Trae las ventas cerradas y anuladas del rango (hasta un mes). Las que ya estaban no se duplican.</p>
+      <p class="ayuda">Trae las ventas del rango por su día de apertura, como las cuenta Fudo (hasta un mes). Las que ya estaban no se duplican; las mesas todavía abiertas se avisan y llegan al volver a traer el día.</p>
     </div>
     <div id="porArchivo" hidden>
       <div class="barra">
@@ -41,7 +45,27 @@
     <span class="msg" id="msgI"></span>
   </fieldset>
 
-  <h2>Importaciones</h2>
+  <h2>Días</h2>
+  <p class="ayuda">Lo financiero se controla por día: los cobros de un día se procesan todos juntos (todo o nada), cuando todos sus medios
+    tienen su medio de pago asignado y lo cobrado coincide con lo vendido (si no coincide, sólo con un motivo).</p>
+  <div class="tabla-wrap"><table class="datos movil" id="tDias">
+    <thead><tr><th>Día</th><th>Ventas</th><th>Vendido</th><th>Cobrado</th><th>Estado</th></tr></thead>
+    <tbody id="dias"></tbody></table></div>
+
+  <section id="jornada" hidden style="margin-top:18px">
+    <h2 id="jTitulo"></h2>
+    <div class="cifras" id="jCifras"></div>
+    <ul class="alertas" id="jAlertas"></ul>
+    <h3>Cobros por medio</h3>
+    <div class="tabla-wrap"><table class="datos movil" id="tJMed">
+      <thead><tr><th>Medio en el sistema</th><th>Medio de pago</th><th>Va a la cuenta</th><th>Importe</th></tr></thead>
+      <tbody id="jMed"></tbody></table></div>
+    <div id="jForzar" hidden class="fila" style="margin-top:12px"><label>Motivo para procesar con diferencia *<input id="jMotivo" placeholder="qué explica la diferencia"></label></div>
+    <div class="acciones" style="margin-top:12px"><button type="button" class="prim" id="jCobrar" hidden>Procesar cobros del día</button><span class="msg" id="msgJ"></span></div>
+    <div id="jProc"></div>
+  </section>
+
+  <h2 style="margin-top:24px">Importaciones</h2>
   <div class="tabla-wrap"><table class="datos">
     <thead><tr><th>Importada</th><th>Período</th><th>Origen</th><th class="num">Tickets</th><th class="num">Vendido</th><th class="num">Cobrado</th><th>Pendiente</th></tr></thead>
     <tbody id="imps"></tbody></table></div>
@@ -52,6 +76,7 @@
     <div class="acciones fijo" style="margin:0 0 14px">
       <button type="button" class="prim" id="consumo" hidden>Descontar consumo del stock</button>
       <button type="button" class="prim" id="cobros" hidden>Procesar cobros</button>
+      <span class="ayuda">Los cobros se procesan por día, en la lista de arriba.</span>
       <button type="button" id="verTickets">Ver tickets</button>
       <button type="button" class="peligro" id="anular" hidden>Anular importación</button>
       <span class="msg" id="msgD"></span>
@@ -135,7 +160,7 @@ $('#importar').onclick = async () => {
       archivo: archivos.ventas.nombre, decimal: $('#decimal').value, ventas: v.filas, pagos: p.filas, mapeo: { ventas: v.mapeo, pagos: p.mapeo } } });
     resultado(d);
     archivos = { ventas: null, pagos: null }; $('#archVentas').value = $('#archPagos').value = ''; pintarMapa('ventas'); pintarMapa('pagos');
-    await cargarIntegraciones(); await cargar(d.id);
+    await cargarIntegraciones(); await Promise.all([cargar(d.id), cargarDias()]);
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
   finally { $('#importar').disabled = false; }
 };
@@ -143,7 +168,8 @@ $('#sincronizar').onclick = async () => {
   $('#sincronizar').disabled = true; msg('Consultando Fudo…', '', '#msgI');
   try {
     const d = await api(`pos/integraciones/${integ.id}/sincronizar`, { method: 'POST', body: { desde: $('#desde').value, hasta: $('#hasta').value } });
-    resultado(d); await cargar(d.id);
+    resultado(d); await Promise.all([cargar(d.id), cargarDias()]);
+    if (d.abiertas) msg(`${$('#msgI').textContent} Había ${d.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.`, 'aviso', '#msgI');
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
   finally { $('#sincronizar').disabled = false; }
 };
@@ -178,7 +204,7 @@ async function abrir(id) {
     cifra('Renglones sin descontar', String(im.renglones_pendientes)), cifra('Pagos sin procesar', String(im.pagos_pendientes)));
   const viva = im.estado !== 'anulada';
   $('#consumo').hidden = !(viva && im.puede.consumo && im.renglones_pendientes - im.renglones_sin_receta > 0);
-  $('#cobros').hidden = !(viva && im.puede.cobros && im.pagos_pendientes - im.pagos_sin_cuenta > 0);
+  $('#cobros').hidden = true;
   $('#anular').hidden = !(viva && im.puede.anular);
   filas($('#dArt'), im.articulos, a => el('tr', {}, td(a.nombre), td(num(a.cantidad), 'num'),
     el('td', {}, a.sin_consumo ? el('span', { className: 'tag', textContent: 'no consume' }) : a.plato ? a.plato
@@ -207,7 +233,7 @@ $('#cobros').onclick = async () => {
 $('#anular').onclick = async () => {
   const motivo = prompt('Motivo (se revierte lo descontado y lo cobrado, y se borran sus tickets para poder importarlos bien):');
   if (!motivo) return;
-  try { await api(`pos/importaciones/${actual}/anular`, { method: 'POST', body: { motivo } }); await cargar(); await abrir(actual); }
+  try { await api(`pos/importaciones/${actual}/anular`, { method: 'POST', body: { motivo } }); await cargar(); await abrir(actual); await cargarDias(); }
   catch (e) { msg(e.message, 'mal', '#msgD'); }
 };
 $('#verTickets').onclick = async () => {
@@ -219,17 +245,79 @@ $('#verTickets').onclick = async () => {
     td(t.pagos.map(p => `${p.medio} ${pesos(p.importe)}`).join(', '), 'wrap'), td(pesos(t.total), 'num')), 'Sin tickets.', 5);
 };
 
+// ── Días ──
+const ESTADO_DIA = { pendientes: ['con pendientes', 'mal'], diferencia: ['diferencia', 'mal'], listo: ['listo para cobrar', 'aviso'], cobrado: ['cobrado', 'ok'], 'sin cobros': ['sin cobros', ''] };
+let diaActual = null;
+async function cargarDias() {
+  const { jornadas } = await api('pos/jornadas?integracion=' + integ.id);
+  filas($('#dias'), jornadas, j => {
+    const [et, ec] = ESTADO_DIA[j.estado] || [j.estado, ''];
+    const tr = el('tr', { className: 'clic' + (j.dia === diaActual ? ' sel' : '') }, td(fecha(j.dia)),
+      td(String(j.ventas) + (j.anuladas ? ` (${j.anuladas} anul.)` : '')), td(pesos(j.vendido)), td(pesos(j.cobrado)),
+      el('td', {}, el('span', { className: 'tag ' + ec, textContent: et }), j.abiertas ? el('span', { className: 'tag aviso', textContent: ` ${j.abiertas} abiertas` }) : ''));
+    tr.onclick = () => abrirDia(j.dia);
+    return tr;
+  }, 'Todavía no hay ventas importadas de este punto de venta.', 5);
+  etiquetarTabla($('#tDias'));
+}
+async function abrirDia(dia) {
+  diaActual = dia; msg('', '', '#msgJ');
+  const { jornada: j } = await api(`pos/jornadas/${integ.id}/${dia}`);
+  $('#jornada').hidden = false;
+  const [et] = ESTADO_DIA[j.estado] || [j.estado];
+  $('#jTitulo').textContent = `${j.punto_venta} · ${fecha(j.dia)} · ${et}`;
+  const cifra = (t, v) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }));
+  $('#jCifras').replaceChildren(cifra('Ventas', String(j.ventas)), cifra('Vendido', pesos(j.vendido)), cifra('Cobrado', pesos(j.cobrado)),
+    cifra('Diferencia', pesos(j.diferencia)), cifra('Por procesar', pesos(j.por_cobrar)));
+  $('#jAlertas').replaceChildren(...j.alertas.map(a => el('li', { className: a.tipo }, a.texto,
+    a.tipo === 'bloquea' ? el('span', { textContent: ' Asignalo abajo, en "Cobros por medio".', style: 'margin-left:4px' }) : '')));
+  // Mientras el día no esté cobrado, quien procesa (finanzas o el administrador) corrige acá el medio de pago que
+  // falta asignar, sin salir del día; la última opción da de alta uno nuevo.
+  const corrige = (j.puede.cobros || (sesion && sesion.puede.admin)) && j.estado !== 'cobrado';
+  const mediosPago = corrige ? (await api('pos/medios-pago')).medios : [];
+  filas($('#jMed'), j.medios, m => {
+    let celda;
+    if (corrige && (!m.medio_pago_id || (m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente)))) {
+      celda = el('select');
+      opcionesConAlta(celda, mediosPago.map(x => [x.id, etiquetaMedio(x)]), m.medio_pago_id, 'Falta asignar', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      celda.addEventListener('change', async () => {
+        if (!celda.value) return;
+        try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: celda.value } }); await abrirDia(diaActual); msg('Medio asignado.', 'ok', '#msgJ'); }
+        catch (e) { msg(e.message, 'mal', '#msgJ'); }
+      });
+    } else celda = m.medio_pago_id ? etiquetaMedio(m) : el('span', { className: 'tag mal', textContent: 'falta asignar' });
+    return el('tr', {}, td(m.nombre), el('td', {}, celda), td(m.cuenta || '—'),
+      el('td', {}, pesos(m.importe), m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente) ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : ''));
+  }, 'Sin cobros.', 4);
+  etiquetarTabla($('#tJMed'));
+  const puedeCobrar = j.puede.cobros && ['listo', 'diferencia'].includes(j.estado);
+  $('#jCobrar').hidden = !puedeCobrar; $('#jForzar').hidden = !(puedeCobrar && j.estado === 'diferencia'); $('#jMotivo').value = '';
+  $('#jCobrar').textContent = j.estado === 'diferencia' ? 'Procesar con la diferencia' : 'Procesar cobros del día';
+  $('#jProc').replaceChildren(...(j.cobros.length ? [el('h3', { textContent: 'Procesado' }), ...j.cobros.map(c => el('p', { className: 'ayuda',
+    textContent: `${fechaHora(c.creado_en)} · ${c.pagos} pago(s) por ${c.creado_por}${c.estado === 'anulado' ? ' (anulado)' : ''}${c.motivo_diferencia ? ` · con diferencia ${pesos(c.diferencia)}: ${c.motivo_diferencia}` : ''}` }))] : []));
+  cargarDias();
+}
+$('#jCobrar').onclick = async () => {
+  const motivo = $('#jMotivo').value.trim();
+  if (!$('#jForzar').hidden && !motivo) return msg('Indicá el motivo de la diferencia.', 'mal', '#msgJ');
+  try {
+    const d = await api(`pos/jornadas/${integ.id}/${diaActual}/cobros`, { method: 'POST', body: { motivo } });
+    await abrirDia(diaActual); await cargar();
+    msg(`Procesados ${d.pagos} pago(s) en ${d.movimientos} movimiento(s) de tesorería.`, 'ok', '#msgJ');
+  } catch (e) { msg(e.message, 'mal', '#msgJ'); }
+};
+
 // ── Integración elegida ──
 async function cargarIntegraciones() { ({ integraciones } = await api('pos/integraciones')); }
 function elegir() {
   integ = integraciones.find(i => i.id === $('#integ').value);
-  $('#detalle').hidden = true; msg('', '', '#msgI');
+  $('#detalle').hidden = true; $('#jornada').hidden = true; diaActual = null; msg('', '', '#msgI');
   if (!integ) return;
   history.replaceState(null, '', 'ventas.html#' + integ.id);
   $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo';
   // El enlace no está si el usuario no puede configurar (lo quita la navegación común).
   if ($('#config')) $('#config').href = 'sedes.html#' + integ.sede_id;
-  cargar().catch(e => alert(e.message));
+  Promise.all([cargar(), cargarDias()]).catch(e => alert(e.message));
 }
 $('#integ').onchange = elegir;
 (async () => {
@@ -237,7 +325,9 @@ $('#integ').onchange = elegir;
     await cargarIntegraciones();
     if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Configuración > Sedes.'))); return; }
     opciones($('#integ'), integraciones.filter(i => i.activa).map(i => [i.id, `${i.nombre} (${i.sede})`]), location.hash.slice(1) || null);
-    $('#desde').value = $('#hasta').value = hoy();
+    // El día en curso no se importa: por defecto, ayer.
+    const ayer = new Date(Date.now() - new Date().getTimezoneOffset() * 60000 - 86400000).toISOString().slice(0, 10);
+    $('#desde').value = $('#hasta').value = ayer; $('#desde').max = $('#hasta').max = ayer;
     elegir();
   } catch (e) { alert(e.message); }
 })();

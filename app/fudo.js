@@ -65,18 +65,20 @@ function ids(rel) {
 
 // Ventas ABIERTAS entre dos instantes UTC ('AAAA-MM-DDTHH:MM:SSZ'), los dos incluidos: el día de una venta es el
 // de su apertura, como lo cuenta Fudo. El filtro por apertura exige `and(gte.<desde>,lte.<hasta>)` (el de
-// cierre, en cambio, exige `lt`: verificado contra la API real el 25/10/2026). Se traen las cerradas y las
-// anuladas; una mesa todavía abierta llega cuando se vuelva a sincronizar ese día (la importación no duplica).
+// cierre, en cambio, exige `lt`: verificado contra la API real el 25/10/2026). Se importan las cerradas y las
+// anuladas; las que siguen abiertas (mesas sin cerrar) sólo se cuentan por día (`abiertas`): llegan cuando se
+// vuelva a sincronizar ese día (la importación no duplica).
 // Las ventas vacías (sin productos ni pagos: se abrieron y cerraron sin cargar nada) se ignoran.
 async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   const tk = await token(integracionId, cred);
-  const tickets = [];
+  const tickets = [], abiertas = {};
+  // Día de la cocina (Buenos Aires, UTC-3, sin horario de verano) de un instante UTC.
+  const diaLocal = iso => new Date(new Date(iso).getTime() - 3 * 3600000).toISOString().slice(0, 10);
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const q = new URLSearchParams({
       'filter[createdAt]': `and(gte.${desdeUtc},lte.${hastaUtc})`,
-      'filter[saleState]': 'in.(CLOSED,CANCELED)',
       include: 'items,items.product,payments,payments.paymentMethod,table,waiter',
-      'page[size]': String(TAMANO), 'page[number]': String(pagina), sort: 'closedAt',
+      'page[size]': String(TAMANO), 'page[number]': String(pagina), sort: 'createdAt',
     });
     const r = await pedir(`${API_URL}/sales?${q}`, { headers: { Authorization: `Bearer ${tk}` } });
     const datos = Array.isArray(r.data) ? r.data : [];
@@ -84,7 +86,10 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
     const de = (tipo, id) => incl.get(`${tipo}:${id}`);
     for (const v of datos) {
       const a = v.attributes || {}, rel = v.relationships || {};
-      if (!a.closedAt) continue;
+      if (!['CLOSED', 'CANCELED'].includes(a.saleState) || !a.closedAt) {
+        if (a.createdAt) abiertas[diaLocal(a.createdAt)] = (abiertas[diaLocal(a.createdAt)] || 0) + 1;
+        continue;
+      }
       // En Fudo, `price` es el total del RENGLÓN (2 × $20.000 viene como price 40000), no el unitario:
       // verificado contra la cuenta real (la suma de los renglones da el total de la venta).
       const items = ids(rel.items).map(id => de('Item', id)).filter(Boolean).map(it => {
@@ -110,7 +115,7 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
         personas: a.people ?? null, items, pagos,
       });
     }
-    if (datos.length < TAMANO) return { tickets };
+    if (datos.length < TAMANO) return { tickets, abiertas };
   }
   throw new ErrorFudo(`El rango tiene más de ${MAX_PAGINAS * TAMANO} ventas: importalo en partes.`);
 }

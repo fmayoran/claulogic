@@ -643,3 +643,39 @@ function etiquetarTabla(tabla) {
   const titulos = [...tabla.querySelectorAll('thead th')].map(th => th.textContent.trim());
   tabla.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { if (titulos[i]) td.dataset.label = titulos[i]; }));
 }
+
+// ── Medios de pago del grupo ────────────────────────────────────────────────────────────────
+const TIPO_OP = { efectivo: 'Efectivo', transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
+const etiquetaMedio = m => m.procesador ? `${m.procesador} · ${TIPO_OP[m.tipo_operacion]}` : TIPO_OP[m.tipo_operacion];
+// Alta rápida de un medio de pago: un procesador existente con un tipo nuevo, o un procesador nuevo
+// (su cuenta a acreditar se crea sola). Devuelve [id, etiqueta] del medio.
+function nuevoMedioPago() {
+  return new Promise(async resolve => {
+    const { procesadores } = await api('fin/procesadores');
+    const f2 = el('form', { novalidate: true }), proc = el('select'), nombre = el('input', { placeholder: 'Mercado Pago, Getnet, Fudo Pagos…' });
+    const tipo = el('select'); opciones(tipo, Object.entries(TIPO_OP).filter(([k]) => k !== 'efectivo'), 'qr');
+    opciones(proc, procesadores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, '— procesador nuevo —');
+    const m = el('span', { className: 'msg' }); let hecho = null;
+    const filaNombre = el('div', { className: 'fila' }, el('label', {}, 'Nombre del procesador nuevo *', nombre));
+    proc.onchange = () => { filaNombre.hidden = !!proc.value; };
+    const dlg = el('dialog', {}, el('h2', { textContent: 'Medio de pago nuevo' }), f2);
+    f2.append(el('div', { className: 'fila' }, el('label', {}, 'Procesador', proc), el('label', {}, 'Tipo de operación *', tipo)), filaNombre,
+      el('div', { className: 'acciones' }, el('button', { type: 'submit', className: 'prim', textContent: 'Agregar' }),
+        el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+      el('p', { className: 'ayuda', textContent: 'Un procesador nuevo acredita en su propia cuenta ("<nombre> a acreditar"), que se crea sola.' }));
+    f2.onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const p = procesadores.find(x => x.id === proc.value);
+        if (p) await api('fin/procesadores/' + p.id, { method: 'PUT', body: { nombre: p.nombre, cuenta_id: p.cuenta_id, activo: true, tipos: [...new Set([...p.tipos, tipo.value])] } });
+        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, tipos: [tipo.value] } });
+        const { medios: mediosPago } = await api('pos/medios-pago');
+        const n = mediosPago.find(x => x.tipo_operacion === tipo.value && (p ? x.procesador_id === p.id : (x.procesador || '').toLowerCase() === nombre.value.trim().toLowerCase()));
+        hecho = n ? [n.id, etiquetaMedio(n)] : null; dlg.close();
+      } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+    };
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(hecho); });
+    document.body.append(dlg); dlg.showModal();
+  });
+}
+

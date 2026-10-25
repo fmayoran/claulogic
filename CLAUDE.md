@@ -349,6 +349,24 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     finanzas; finanzas puede dar de alta un medio desde la última opción). La cuenta del medio **se deriva**
     (trigger `pos.medio_cuenta`: la del procesador, o la de efectivo del punto de venta) y se recalcula si
     cambia la cuenta del procesador. El procesamiento de cobros no cambió: usa `pos.medio.cuenta_id`.
+- **El día del punto de venta es la unidad financiera** (decisiones de Fer, 25/10/2026; migración 20261107):
+  - Estado **deducido** (`pos.jornada`, como el stock): *con pendientes* (algún pago con un medio del sistema
+    sin su medio de pago) → *diferencia* (lo cobrado no coincide con lo vendido) → *listo para cobrar* →
+    *cobrado*. Alertas: medios sin asignar, diferencia, ventas anuladas, y ventas que seguían **abiertas** al
+    sincronizar (`pos.sincronizacion_dia`, lo único que se guarda: ese día no está completo).
+  - Los **cobros se procesan por día y todo o nada** (`POST /pos/jornadas/:integracion/:dia/cobros`, finanzas):
+    con un medio sin asignar no se procesa; con diferencia, sólo con un **motivo**, que queda en `pos.cobro`
+    con la diferencia. La ruta vieja por importación procesa cada día que trae, con las mismas reglas.
+  - Anular una importación revierte enteros los cobros que tocan sus pagos (los de otras importaciones del día
+    vuelven a pendientes). La anula el encargado del local o finanzas (antes un usuario sólo de finanzas no
+    podía, aunque la regla decía que era suya).
+  - En Ventas, la lista de **Días** con su estado y el detalle del día (cifras, alertas, medios y su cuenta,
+    procesar). Lo financiero no depende del consumo: los artículos y las recetas quedan para después (Fer).
+  - Un día con un medio sin asignar queda bloqueado, pero **se corrige desde el detalle del día**: quien procesa
+    (finanzas o el administrador) asigna ahí el medio de pago, con "+ Agregar medio de pago…" al final
+    (`nuevoMedioPago` en `comun.js`), y termina de cobrar. Por eso `PUT /pos/medios/` es admin o finanzas.
+  - **El día en curso no se importa** (decisión de Fer): ni Fudo (el rango tiene que terminar ayer) ni un
+    archivo con ventas de hoy. Ventas propone ayer por defecto.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
   (subitems), propinas.
 

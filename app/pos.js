@@ -236,8 +236,10 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   const { rows: [rango] } = await pool.query(
     `SELECT to_char(($1::date::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS d,
             to_char((($2::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' - interval '1 second', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS h,
-            $2::date - $1::date AS dias`, [desde, hasta]);
+            $2::date - $1::date AS dias, $2::date >= current_date AS hasta_hoy`, [desde, hasta]);
   if (rango.dias < 0) throw new ErrorUsuario('El rango está al revés.');
+  // El día en curso no se importa: todavía hay mesas abiertas y cobros por hacer (decisión de Fer).
+  if (rango.hasta_hoy) throw new ErrorUsuario('El día de hoy todavía está en curso: se trae a partir de mañana. Elegí hasta ayer.');
   if (rango.dias > 31) throw new ErrorUsuario('Sincronizá de a un mes como máximo.');
   let datos;
   try { datos = await fudo.ventas(integ.id, JSON.parse(crypto.decrypt(integ.credenciales)), rango.d, rango.h); }
@@ -250,7 +252,14 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   const out = await enTransaccion(async c => {
     const o = await recibir(c, integ, 'api', { desde, hasta, tickets: datos.tickets });
     await c.query('UPDATE pos.integracion SET ultima_sincronizacion = now() WHERE id = $1', [integ.id]);
-    return o;
+    // Por cada día del rango, cuántas ventas seguían abiertas: ese día todavía no está completo.
+    await c.query(
+      `INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas)
+       SELECT $1, d::date, COALESCE(($4::jsonb ->> to_char(d, 'YYYY-MM-DD'))::int, 0)
+         FROM generate_series($2::date, $3::date, interval '1 day') d
+       ON CONFLICT (integracion_id, dia) DO UPDATE SET abiertas = EXCLUDED.abiertas, sincronizado_en = now()`,
+      [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {})]);
+    return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0) };
   });
   res.status(201).json({ ok: true, ...out });
 }));
@@ -316,6 +325,9 @@ r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
   const lista = [...tickets.values()];
   const out = await enTransaccion(async c => {
     const fechas = lista.map(t => t.cerrado_en.slice(0, 10)).sort();
+    // El día en curso no se importa (decisión de Fer): el archivo tiene que terminar ayer.
+    const { rows: [hoyDb] } = await c.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS d`);
+    if (fechas.at(-1) >= hoyDb.d) throw new ErrorUsuario('El archivo trae ventas de hoy: el día en curso no se importa. Exportá hasta ayer.');
     const o = await recibir(c, integ, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets: lista });
     // Se recuerdan las columnas elegidas para la próxima vez.
     if (b.mapeo && typeof b.mapeo === 'object')
@@ -467,34 +479,116 @@ r.post('/pos/importaciones/:id/consumo', h(async (req, res) => {
 }));
 
 // ── Cobros ───────────────────────────────────────────────────────────────────────────────────
-// Lo cobrado, por cuenta y por día, entra a la cuenta de cada medio. Un medio sin cuenta queda
-// pendiente hasta que se le asigne.
+// ── El día del punto de venta (unidad financiera) ───────────────────────────────────────────
+// Estado deducido (pos.jornada): con pendientes (un medio sin su medio de pago) → diferencia (lo cobrado no
+// coincide con lo vendido) → listo para cobrar → cobrado. Los cobros se procesan por día y todo o nada.
+function estadoJornada(j) {
+  const dif = Number(j.cobrado) - Number(j.vendido);
+  const alertas = [];
+  if (j.pagos_sin_asignar) alertas.push({ tipo: 'bloquea', texto: `${j.pagos_sin_asignar} pago(s) con un medio del sistema sin su medio de pago asignado.` });
+  if (Math.abs(dif) >= 0.01) alertas.push({ tipo: 'diferencia', texto: `Lo cobrado (${j.cobrado}) no coincide con lo vendido (${j.vendido}): diferencia ${dif.toFixed(2)}.` });
+  if (j.abiertas) alertas.push({ tipo: 'aviso', texto: `Al sincronizar había ${j.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.` });
+  if (j.anuladas) alertas.push({ tipo: 'info', texto: `${j.anuladas} venta(s) anulada(s) en el día (no suman).` });
+  const estado = !j.pagos_pendientes && j.pagos_procesados ? 'cobrado'
+    : j.pagos_sin_asignar ? 'pendientes' : Math.abs(dif) >= 0.01 ? 'diferencia' : j.pagos_pendientes ? 'listo' : 'sin cobros';
+  return { ...j, diferencia: dif.toFixed(2), estado, alertas };
+}
+const JORNADA_SQL = `SELECT j.integracion_id, to_char(j.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text,
+                            j.por_cobrar::text, j.pagos_pendientes, j.pagos_sin_asignar, j.pagos_procesados, COALESCE(j.abiertas, 0) AS abiertas,
+                            j.sincronizado_en
+                       FROM pos.jornada j`;
+
+r.get('/pos/jornadas', h(async (req, res) => {
+  const integ = await integracion(pool, req, texto(req.query.integracion, { campo: 'el punto de venta', requerido: true }));
+  const { rows } = await pool.query(`${JORNADA_SQL} WHERE j.integracion_id = $1 ORDER BY j.dia DESC LIMIT 120`, [integ.id]);
+  res.json({ ok: true, jornadas: rows.map(estadoJornada) });
+}));
+
+r.get('/pos/jornadas/:integracion/:dia', h(async (req, res) => {
+  const integ = await integracion(pool, req, req.params.integracion);
+  const dia = fecha(req.params.dia, { campo: 'El día', requerido: true });
+  const { rows: [j] } = await pool.query(`${JORNADA_SQL} WHERE j.integracion_id = $1 AND j.dia = $2`, [integ.id, dia]);
+  if (!j) throw new ErrorUsuario('No hay ventas importadas de ese día.', 404);
+  const [medios, cobros, anuladas, imps] = await Promise.all([
+    pool.query(
+      `SELECT m.id, m.nombre, m.medio_pago_id, mp.tipo_operacion, pr.nombre AS procesador, cu.nombre AS cuenta,
+              SUM(p.importe)::text AS importe, SUM(p.importe) FILTER (WHERE p.cobro_id IS NULL)::text AS pendiente, count(*)::int AS pagos
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+         JOIN pos.medio m ON m.id = p.medio_id
+         LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+         LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
+        WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'cerrado' AND NOT p.anulado
+        GROUP BY m.id, mp.tipo_operacion, pr.nombre, cu.nombre ORDER BY SUM(p.importe) DESC`, [integ.id, dia]),
+    pool.query(`SELECT id, pagos, estado, diferencia::text, motivo_diferencia, creado_por, creado_en FROM pos.cobro
+                 WHERE integracion_id = $1 AND dia = $2 ORDER BY creado_en`, [integ.id, dia]),
+    pool.query(`SELECT t.id_externo, t.total::text FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+                 WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'anulado' ORDER BY t.abierto_en, t.cerrado_en`, [integ.id, dia]),
+    pool.query(`SELECT DISTINCT im.id, im.creado_en, im.origen FROM pos.importacion im JOIN pos.ticket t ON t.importacion_id = im.id
+                 WHERE t.integracion_id = $1 AND t.dia = $2 AND im.estado = 'recibida' ORDER BY im.creado_en`, [integ.id, dia]),
+  ]);
+  res.json({ ok: true, jornada: { ...estadoJornada(j), punto_venta: integ.nombre, sede_id: integ.sede_id, medios: medios.rows,
+    cobros: cobros.rows, anuladas: anuladas.rows, importaciones: imps.rows, puede: { cobros: puede(req.usuario, 'finanzas') } } });
+}));
+
+// Procesa los cobros pendientes de un día, todo o nada: con un medio sin asignar no se procesa; con lo cobrado
+// distinto de lo vendido, sólo con un motivo (que queda en el cobro con la diferencia). Lo de cada medio entra,
+// por día, a su cuenta: efectivo a la del punto de venta (a rendir), cada procesador a la suya (a acreditar).
+async function procesarJornada(c, integ, dia, motivo) {
+  await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['jornada:' + integ.id + ':' + dia]);
+  const { rows: [jr] } = await c.query(`${JORNADA_SQL} WHERE j.integracion_id = $1 AND j.dia = $2`, [integ.id, dia]);
+  if (!jr) throw new ErrorUsuario('No hay ventas importadas de ese día.');
+  const j = estadoJornada(jr);
+  if (j.pagos_sin_asignar) {
+    const { rows } = await c.query(
+      `SELECT DISTINCT m.nombre FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+        WHERE t.integracion_id = $1 AND t.dia = $2 AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NULL`, [integ.id, dia]);
+    throw new ErrorUsuario(`No se procesan los cobros del ${dia} hasta asignar el medio de pago de: ${rows.map(x => x.nombre).join(', ')} (en la ficha de la sede).`);
+  }
+  if (!j.pagos_pendientes) throw new ErrorUsuario(`Los cobros del ${dia} ya están procesados.`);
+  if (j.estado === 'diferencia' && !motivo)
+    throw new ErrorUsuario(`Lo cobrado (${j.cobrado}) no coincide con lo vendido (${j.vendido}): diferencia ${j.diferencia}. Para procesar igual, indicá el motivo.`, 409);
+  const { rows: pagos } = await c.query(
+    `SELECT p.id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+      WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL FOR UPDATE OF p`, [integ.id, dia]);
+  const ids = pagos.map(p => p.id);
+  const { rows: [co] } = await c.query(
+    `INSERT INTO pos.cobro (integracion_id, dia, pagos, diferencia, motivo_diferencia) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+    [integ.id, dia, ids.length, j.estado === 'diferencia' ? j.diferencia : null, j.estado === 'diferencia' ? motivo : null]);
+  const { rows: grupos } = await c.query(
+    `SELECT m.cuenta_id, string_agg(DISTINCT m.nombre, ', ') AS medios, SUM(p.importe)::numeric(16,2)::text AS importe
+       FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id WHERE p.id = ANY($1::uuid[]) GROUP BY m.cuenta_id`, [ids]);
+  for (const g of grupos) {
+    if (esCero(g.importe)) continue;
+    const sale = g.importe.startsWith('-');
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, pos_cobro_id) VALUES ($1,$2,'cobro',$3,$4,$5,$6)`,
+      [dia, g.cuenta_id, sale ? 0 : g.importe, sale ? g.importe.slice(1) : 0, `Cobros ${integ.nombre} ${dia} · ${g.medios}`, co.id]);
+  }
+  await c.query('UPDATE pos.ticket_pago SET cobro_id = $1 WHERE id = ANY($2::uuid[])', [co.id, ids]);
+  return { cobro_id: co.id, pagos: ids.length, movimientos: grupos.length, diferencia: j.estado === 'diferencia' ? j.diferencia : null };
+}
+
+r.post('/pos/jornadas/:integracion/:dia/cobros', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Procesar cobros es de finanzas.', 403);
+  const dia = fecha(req.params.dia, { campo: 'El día', requerido: true });
+  const out = await enTransaccion(async c => procesarJornada(c, await integracion(c, req, req.params.integracion), dia, texto(req.body.motivo)));
+  res.status(201).json({ ok: true, ...out });
+}));
+
+// Compatibilidad: procesar los cobros "de una importación" es procesar cada día que trae, con las mismas reglas.
 r.post('/pos/importaciones/:id/cobros', h(async (req, res) => {
   if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Procesar cobros es de finanzas.', 403);
   const out = await enTransaccion(async c => {
     const im = await importacion(c, req, req.params.id, true);
     if (im.estado !== 'recibida') throw new ErrorUsuario('La importación está anulada.');
-    const { rows: pagos } = await c.query(
-      `SELECT p.id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
-        WHERE t.importacion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NOT NULL
-        FOR UPDATE OF p`, [im.id]);
-    if (!pagos.length) throw new ErrorUsuario('No hay cobros para procesar: ya se procesaron, o falta asignar el medio de pago de cada medio del sistema (en Puntos de venta).');
-    const ids = pagos.map(p => p.id);
-    const { rows: [co] } = await c.query('INSERT INTO pos.cobro (importacion_id, pagos) VALUES ($1,$2) RETURNING id', [im.id, ids.length]);
-    const { rows: grupos } = await c.query(
-      `SELECT m.cuenta_id, t.dia,
-              string_agg(DISTINCT m.nombre, ', ') AS medios, SUM(p.importe)::numeric(16,2)::text AS importe
-         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
-        WHERE p.id = ANY($1::uuid[]) GROUP BY m.cuenta_id, dia ORDER BY dia`, [ids]);
-    for (const g of grupos) {
-      if (esCero(g.importe)) continue;
-      const sale = g.importe.startsWith('-');
-      await c.query(
-        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, pos_cobro_id) VALUES ($1,$2,'cobro',$3,$4,$5,$6)`,
-        [g.dia, g.cuenta_id, sale ? 0 : g.importe, sale ? g.importe.slice(1) : 0, `Cobros ${im.integracion} ${g.dia} · ${g.medios}`, co.id]);
-    }
-    await c.query('UPDATE pos.ticket_pago SET cobro_id = $1 WHERE id = ANY($2::uuid[])', [co.id, ids]);
-    return { cobro_id: co.id, pagos: ids.length, movimientos: grupos.length };
+    const integ = await integracion(c, req, im.integracion_id);
+    const { rows: dias } = await c.query(
+      `SELECT DISTINCT to_char(t.dia, 'YYYY-MM-DD') AS dia FROM pos.ticket t JOIN pos.ticket_pago p ON p.ticket_id = t.id
+        WHERE t.importacion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL ORDER BY 1`, [im.id]);
+    if (!dias.length) throw new ErrorUsuario('No hay cobros para procesar: ya se procesaron.');
+    const hechos = [];
+    for (const d of dias) hechos.push(await procesarJornada(c, integ, d.dia, texto(req.body.motivo)));
+    return { pagos: hechos.reduce((s, x) => s + x.pagos, 0), movimientos: hechos.reduce((s, x) => s + x.movimientos, 0) };
   });
   res.status(201).json({ ok: true, ...out });
 }));
@@ -506,9 +600,15 @@ r.post('/pos/importaciones/:id/anular', h(async (req, res) => {
   const motivo = texto(req.body.motivo, { campo: 'el motivo', requerido: true });
   await enTransaccion(async c => {
     const im = await importacion(c, req, req.params.id, true);
-    exigirEncargadoDe(req, im.sede_id, im.sede);
+    if (!puede(req.usuario, 'finanzas')) exigirEncargadoDe(req, im.sede_id, im.sede);
     if (im.estado === 'anulada') throw new ErrorUsuario('La importación ya está anulada.');
-    const { rows: cobros } = await c.query(`SELECT id FROM pos.cobro WHERE importacion_id = $1 AND estado = 'procesado'`, [im.id]);
+    // Los cobros que incluyen pagos de esta importación (por día o de la importación): se revierten enteros, y
+    // los pagos de otras importaciones de ese día vuelven a quedar pendientes.
+    const { rows: cobros } = await c.query(
+      `SELECT DISTINCT co.id FROM pos.cobro co
+        WHERE co.estado = 'procesado' AND (co.importacion_id = $1 OR EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id
+                                                                              WHERE p.cobro_id = co.id AND t.importacion_id = $1))`, [im.id]);
+    const idsCobro = cobros.map(x => x.id);
     if (cobros.length && !puede(req.usuario, 'finanzas'))
       throw new ErrorUsuario('La importación tiene cobros procesados: la anula alguien de finanzas.', 403);
     await c.query(
@@ -519,10 +619,10 @@ r.post('/pos/importaciones/:id/anular', h(async (req, res) => {
     await c.query(
       `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, anula_a, pos_cobro_id)
        SELECT current_date, m.cuenta_id, 'anulacion', m.salida, m.entrada, 'Anula: ' || m.concepto || ' — ' || $2, m.id, m.pos_cobro_id
-         FROM fin.movimiento_tes m JOIN pos.cobro co ON co.id = m.pos_cobro_id
-        WHERE co.importacion_id = $1 AND co.estado = 'procesado' AND m.anula_a IS NULL`, [im.id, motivo]);
+         FROM fin.movimiento_tes m WHERE m.pos_cobro_id = ANY($1::uuid[]) AND m.anula_a IS NULL`, [idsCobro, motivo]);
     await c.query(`UPDATE pos.consumo SET estado = 'anulado' WHERE importacion_id = $1`, [im.id]);
-    await c.query(`UPDATE pos.cobro SET estado = 'anulado' WHERE importacion_id = $1`, [im.id]);
+    await c.query(`UPDATE pos.cobro SET estado = 'anulado' WHERE id = ANY($1::uuid[])`, [idsCobro]);
+    await c.query('UPDATE pos.ticket_pago SET cobro_id = NULL WHERE cobro_id = ANY($1::uuid[])', [idsCobro]);
     await c.query('DELETE FROM pos.ticket WHERE importacion_id = $1', [im.id]);
     await c.query(`UPDATE pos.importacion SET estado = 'anulada', anulado_en = now(), anulado_por = org.usuario_actual(), motivo_anulacion = $2
                     WHERE id = $1`, [im.id, motivo]);

@@ -199,7 +199,8 @@ function puede(u, permiso) {
     case 'catalogo': return roles.some(r => r.rol === 'encargado' && r.tipo === 'centro');
     case 'finanzas': return !!u.finanzas;
     case 'proveedor': return puede(u, 'catalogo') || puede(u, 'finanzas');
-    case 'medios': return puede(u, 'gestionar') || puede(u, 'finanzas');
+    case 'medios': return puede(u, 'admin') || puede(u, 'finanzas');
+    case 'anular_pos': return puede(u, 'operar') || puede(u, 'finanzas');
     default: return false;
   }
 }
@@ -212,7 +213,8 @@ const NOMBRE_PERMISO = {
   admin: 'Sólo un administrador puede hacer esto.',
   finanzas: 'Hace falta permiso de finanzas para esto.',
   proveedor: 'Los proveedores los cargan el encargado del centro o finanzas.',
-  medios: 'Los medios de cobro los asigna el encargado del local o finanzas.',
+  medios: 'Los medios de cobro los asigna el administrador o finanzas.',
+  anular_pos: 'Una importación la anula el encargado del local o finanzas.',
 };
 
 function exigir(req, permiso) {
@@ -267,10 +269,14 @@ const POLITICA = [
   // La configuración del sistema de venta de una sede (y sus artículos y medios) es del administrador.
   [/^\/pos\/integraciones(\/[^/]+)?$/, 'admin'],
   [/^\/pos\/integraciones\/[^/]+\/(sincronizar|importar)$/, 'operar'],
-  [/^\/pos\/importaciones\/[^/]+\/(consumo|anular)$/, 'operar'],
+  [/^\/pos\/importaciones\/[^/]+\/consumo$/, 'operar'],
+  // Anular: el encargado del local, o finanzas (que es quien la anula si tiene cobros procesados).
+  [/^\/pos\/importaciones\/[^/]+\/anular$/, 'anular_pos'],
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
+  [/^\/pos\/jornadas\/[^/]+\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/articulos\//, 'admin'],
-  [/^\/pos\/medios\//, 'admin'],
+  // Asignar el medio de pago de un medio del sistema: el administrador, o finanzas para terminar de cobrar un día.
+  [/^\/pos\/medios\//, 'medios'],
   [/^\/proveedores(\/[^/]+)?$/, 'proveedor'],
   // Proceso de abastecimiento: la compra es del catálogo (por defecto); la factura armada desde la
   // compra, de finanzas (y el handler lo vuelve a exigir cuando la compra trae comprobante).
