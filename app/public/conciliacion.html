@@ -5,80 +5,119 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Conciliación · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
 <style>
+  .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
+  /* Estado: lo primero que se lee */
+  .estado{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;justify-content:space-between;margin:0 0 20px;}
+  .estado .titulo{font-size:1.35rem;font-weight:700;margin:0 0 4px;}
+  .estado .titulo.ok{color:var(--sube);}
+  .estado .detalle{color:var(--mut);font-size:.9rem;margin:0;max-width:640px;}
+  .estado .detalle b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600;}
+  .estado .botones{display:flex;gap:8px;flex-wrap:wrap;}
+  #msgA{display:block;flex-basis:100%;}
+  /* Para resolver */
+  .grupo-p{margin:0 0 16px;}
+  .grupo-p h3{margin:0 0 2px;font-size:1rem;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .grupo-p h3 small{color:var(--mut);font-weight:400;font-size:.88rem;}
+  .grupo-p .cap{margin:0 0 8px;}
+  .pend{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:12px 4px;border-top:1px solid var(--g-grilla);}
+  .pend .q{display:flex;flex-direction:column;min-width:0;}
+  .pend .q b{font-weight:600;} .pend .q small{color:var(--mut);font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pend .imp{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
+  .neg{color:var(--baja);}
+  .pend .acc{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .pend .acc button{font-size:.85rem;padding:5px 12px;}
+  .pend .acc input{flex:1 1 220px;max-width:340px;padding:6px 10px;}
+  .vacio-ok{text-align:center;padding:28px 10px;color:var(--mut);}
+  .vacio-ok b{display:block;color:var(--sube);font-size:1.1rem;margin-bottom:4px;}
+  /* Resumen del procesador */
+  .fila-c{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 14px;padding:9px 2px;border-top:1px solid var(--g-grilla);align-items:baseline;font-size:.92rem;}
+  .fila-c:first-of-type{border-top:0;} .fila-c .p{font-weight:700;font-variant-numeric:tabular-nums;} .fila-c .m{color:var(--mut);font-size:.82rem;text-align:right;}
+  /* Lo conciliado: respaldo, cerrado */
+  details.card > summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  details.card > summary::-webkit-details-marker{display:none;}
+  details.card > summary::after{content:'Ver';color:var(--acento);font-weight:600;font-size:.9rem;}
+  details.card[open] > summary::after{content:'Ocultar';}
+  details.card > summary small{color:var(--mut);font-weight:400;font-size:.88rem;}
+  .hecha{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:2px 14px;align-items:center;padding:8px 2px;border-top:1px solid var(--g-grilla);font-size:.88rem;}
+  .hecha .f{color:var(--mut);font-variant-numeric:tabular-nums;} .hecha .d{min-width:0;} .hecha .d small{display:block;color:var(--mut);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .hecha .i{font-variant-numeric:tabular-nums;text-align:right;} .hecha button{font-size:.8rem;padding:3px 10px;}
+  /* Importar */
   .mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
-  .cand{display:flex;gap:6px;align-items:center;flex-wrap:wrap;} .neg{color:var(--mal);}
-  .cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 12px;}
-  .cifras div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel);}
-  .cifras span{display:block;color:var(--mut);font-size:.82rem;} .cifras strong{font-size:1.1rem;font-variant-numeric:tabular-nums;}
-  .cifras small{display:block;color:var(--mut);font-size:.78rem;margin-top:2px;}
-  #proc{margin:0 0 22px;} #proc h2{margin-top:0;}
+  @media (max-width:600px){ .hecha{grid-template-columns:minmax(0,1fr) auto;} .hecha .f{grid-column:1 / -1;} }
 </style>
 </head>
 <body>
 <main class="ancho">
-  <h1>Conciliación</h1>
-  <p class="sub">Se importa el extracto del banco (o de la cuenta de un procesador, como Pago24) y se parea cada línea con su movimiento. Lo que queda sin parear de un lado o del otro es lo que hay que explicar.
-    En la cuenta de un procesador, "Conciliar automáticamente" parea los ingresos con los cobros de las ventas y asienta sus cargos e impuestos.</p>
-  <div class="barra"><label>Cuenta<select id="cuenta"></select></label><span id="saldo" class="mut"></span></div>
+  <div class="t-cab">
+    <h1>Conciliación</h1>
+    <p class="sub">Se importa el extracto de una cuenta (un banco, o la cuenta donde deposita un procesador como Pago24) y se parea cada línea con
+      su movimiento. En la cuenta de un procesador, la conciliación es automática: los ingresos se parean con los cobros de las ventas y se asientan
+      sus cargos e impuestos. Lo que queda es lo que hay que resolver; lo conciliado queda como respaldo.</p>
+    <div class="t-filtros"><select id="cuenta" aria-label="Cuenta"></select></div>
+  </div>
 
-  <fieldset>
-    <legend>Importar extracto (CSV)</legend>
+  <section class="card estado" id="estado">
+    <div><p class="titulo" id="eTitulo"></p><p class="detalle" id="eDetalle"></p></div>
+    <div class="botones">
+      <button type="button" id="importarBtn">Importar extracto</button>
+      <button type="button" class="prim" id="auto" hidden>Conciliar automáticamente</button>
+    </div>
+    <span class="msg" id="msgA"></span>
+  </section>
+  <input type="file" id="archivo" accept=".csv,.txt,text/csv" hidden>
+
+  <section class="card" id="importar" hidden style="margin:0 0 20px">
+    <div class="card-cab"><h2 id="iTitulo">Importar extracto</h2></div>
+    <p class="cap">Revisá qué es cada columna: hace falta la fecha y un importe con signo, o débito y crédito por separado. Con la columna de saldo se
+      controla contra el saldo del extracto (y, si la cuenta no tiene movimientos, el saldo inicial queda como apertura).</p>
     <div class="barra">
-      <input type="file" id="archivo" accept=".csv,.txt,text/csv">
       <label>Decimales<select id="decimal"><option value=",">coma (1.234,56)</option><option value=".">punto (1,234.56)</option></select></label>
       <label class="check"><input type="checkbox" id="encabezado" checked> La primera fila es el encabezado</label>
     </div>
-    <div id="mapa" hidden>
-      <p class="ayuda">Indicá qué es cada columna. Hace falta la fecha y, o bien un importe con signo, o bien débito y crédito por separado.
-        Con la columna de saldo se toman el saldo inicial y el final del extracto: si la cuenta no tiene movimientos, el inicial queda como apertura.</p>
-      <div class="tabla-wrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
-      <div class="acciones fijo"><button type="button" class="prim" id="importar">Importar</button><span class="msg" id="msgI"></span></div>
-    </div>
-    <p class="ayuda">Volver a importar el mismo extracto, o uno que se superpone, no duplica líneas. Si el banco sólo exporta Excel, guardalo como CSV.</p>
-  </fieldset>
-
-  <section id="proc" hidden>
-    <h2 id="pTitulo"></h2>
-    <div class="cifras" id="pCifras"></div>
-    <div class="acciones"><button type="button" class="prim" id="auto">Conciliar automáticamente</button><span class="msg" id="msgA"></span></div>
-    <div class="dos" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));margin-top:12px">
-      <div><h3>Costo por tipo de operación</h3>
-        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Tipo</th><th class="num">Acreditado</th><th class="num">Cargo e IVA</th>
-          <th class="num">Imp. déb./créd.</th><th class="num">Costo</th></tr></thead><tbody id="pCostos"></tbody></table></div>
-        <p class="ayuda">El IVA de los cargos es crédito fiscal; el impuesto a los débitos y créditos se toma en parte a cuenta de Ganancias.</p></div>
-      <div><h3>Vendido sin acreditar</h3>
-        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Día de venta</th><th>Tipo</th><th class="num">Pagos</th><th class="num">Importe</th></tr></thead>
-          <tbody id="pPend"></tbody></table></div></div>
-    </div>
+    <div class="tabla-wrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
+    <div class="acciones"><button type="button" class="prim" id="importarOk">Importar</button><button type="button" id="importarNo">Cancelar</button><span class="msg" id="msgI"></span></div>
   </section>
 
-  <h2>Líneas del extracto sin conciliar</h2>
-  <div class="tabla-wrap"><table class="datos">
-    <thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Importe</th><th>Se parea con</th></tr></thead>
-    <tbody id="lineas"></tbody></table></div>
+  <h2>Para resolver</h2>
+  <div id="resolver"></div>
 
-  <h2 style="margin-top:22px">Movimientos sin conciliar</h2>
-  <p class="ayuda">Están en el sistema pero todavía no aparecieron en el extracto (o aparecieron con otro importe).</p>
-  <div class="tabla-wrap"><table class="datos">
-    <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Importe</th></tr></thead>
-    <tbody id="movs"></tbody></table></div>
+  <div class="t-grid t-g2" id="resumen" hidden>
+    <section class="card">
+      <h2>Costo por tipo de operación</h2>
+      <p class="cap">Cargos con su IVA, más el impuesto a los débitos y créditos, sobre lo acreditado.</p>
+      <div id="rCostos"></div>
+    </section>
+    <section class="card">
+      <h2>Vendido sin acreditar</h2>
+      <p class="cap" id="rPendCap"></p>
+      <div id="rPend"></div>
+    </section>
+  </div>
 
-  <h2 style="margin-top:22px">Conciliadas recientemente</h2>
-  <div class="tabla-wrap"><table class="datos">
-    <thead><tr><th>Fecha</th><th>Línea del extracto</th><th>Movimiento</th><th class="num">Importe</th><th>Por</th><th></th></tr></thead>
-    <tbody id="hechas"></tbody></table></div>
+  <details class="card" id="hechas" style="margin-top:16px">
+    <summary><span>Lo conciliado <small id="hResumen"></small></span></summary>
+    <div class="barra" style="margin-top:12px"><input type="search" id="hBuscar" placeholder="Buscar por concepto o importe"></div>
+    <div id="hLista"></div>
+    <div class="acciones" id="hMasWrap" hidden><button type="button" id="hMas">Mostrar más</button></div>
+  </details>
 </main>
 <script src="comun.js"></script>
 <script>
-let bancos = [], csv = null;
+let bancos = [], csv = null, datos = null;
 const cuenta = () => $('#cuenta').value;
 const conSigno = v => el('span', { className: String(v).startsWith('-') ? 'neg' : '', textContent: pesos(v) });
+const TIPO_OP_C = { transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
+const suma = arr => deCentavos(arr.reduce((s, x) => s + centavos(x.importe), 0n));
+// "Recaudacion - 1580185668 (Bruto) " -> nombre "Recaudacion" y número de operación aparte.
+function partes(concepto) {
+  const m = String(concepto || '').trim().match(/^(.*?)\s*-\s*(\d{6,})(?:\s*-\s*(.*?))?\s*(\([^)]*\))?\s*$/);
+  return m ? { nombre: (m[3] ? `${m[1]} · ${m[3]}` : m[1]).trim(), numero: m[2] } : { nombre: String(concepto || '').trim(), numero: '' };
+}
 
-// ── CSV ──
+// ── Importar: el botón abre el archivo; el mapeo aparece recién con el archivo elegido ──
 const ROLES = [['', 'ignorar'], ['fecha', 'Fecha'], ['concepto', 'Concepto'], ['referencia', 'Referencia'], ['importe', 'Importe (con signo)'], ['debito', 'Débito'], ['credito', 'Crédito'], ['saldo', 'Saldo']];
-const TIPO_OP_C = { transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Débito', credito: 'Crédito', otro: 'Otro' };
-// Propuesta por el nombre de la columna: es lo que más se repite entre bancos.
 function adivinar(n) {
   n = (n || '').toLowerCase();
   if (/fecha|date/.test(n)) return 'fecha';
@@ -90,110 +129,173 @@ function adivinar(n) {
   if (/refer|comprob|n[uú]mero|obs|objs/.test(n)) return 'referencia';
   return '';
 }
+$('#importarBtn').onclick = () => $('#archivo').click();
 $('#archivo').onchange = async () => {
   const a = $('#archivo').files[0]; if (!a) return;
   csv = { nombre: a.name, filas: parsearCSV(await leerTexto(a)) };
-  pintarMapa();
+  pintarMapa(); $('#importar').hidden = false; $('#importar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 $('#encabezado').onchange = () => csv && pintarMapa();
+$('#importarNo').onclick = () => { csv = null; $('#archivo').value = ''; $('#importar').hidden = true; msg('', '', '#msgI'); };
 function pintarMapa() {
   const enc = $('#encabezado').checked, filas = csv.filas, cols = Math.max(...filas.map(f => f.length));
+  $('#iTitulo').textContent = `Importar ${csv.nombre} · ${filas.length - (enc ? 1 : 0)} filas`;
   $('#mHead').replaceChildren(el('tr', {}, ...Array.from({ length: cols }, (_, i) => {
     const s = el('select'); opciones(s, ROLES, enc ? adivinar(filas[0][i]) : ''); s.dataset.col = i;
     return el('th', {}, el('div', { className: 'mut', textContent: enc ? filas[0][i] || '' : `Columna ${i + 1}` }), s);
   })));
-  $('#mBody').replaceChildren(...filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 6).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
-  $('#mapa').hidden = false; msg(`${filas.length - (enc ? 1 : 0)} filas en el archivo.`, '', '#msgI');
+  $('#mBody').replaceChildren(...filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 4).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
 }
-$('#importar').onclick = async () => {
+$('#importarOk').onclick = async () => {
   const mapa = {}; $$('#mHead select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
   if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
     return msg('Falta indicar la fecha y el importe (o débito y crédito).', 'mal', '#msgI');
   const filas = csv.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(Object.entries(mapa).map(([k, i]) => [k, f[i] ?? ''])));
+  $('#importarOk').disabled = true; msg('Importando…', '', '#msgI');
   try {
     const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: cuenta(), archivo: csv.nombre, decimal: $('#decimal').value, filas } });
-    msg(`Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban.` : '.')
-      + (d.apertura ? ` Saldo de apertura: ${pesos(d.apertura)}.` : '') + (d.saldo_final ? ` Saldo final del extracto: ${pesos(d.saldo_final)}.` : ''), 'ok', '#msgI');
-    $('#archivo').value = ''; csv = null; $('#mapa').hidden = true;
-    cargar();
+    $('#importarNo').click();
+    const txt = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '') + '.';
+    // En la cuenta de un procesador se concilia en el mismo paso.
+    if (!$('#auto').hidden) await conciliarAuto(txt); else { msg(txt, 'ok', '#msgA'); await cargar(); }
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
+  finally { $('#importarOk').disabled = false; }
 };
 
-// ── Pareo ──
-async function conciliar(body) {
-  try { await api('fin/conciliacion', { method: 'POST', body }); await cargar(); } catch (e) { alert(e.message); }
-}
-async function cargar() {
-  if (!cuenta()) return;
-  const b = bancos.find(x => x.id === cuenta());
-  const [{ lineas, movimientos, conciliadas, procesador }, { cuentas }] = await Promise.all([api('fin/conciliacion?cuenta=' + cuenta()), api('fin/cuentas')]);
-  pintarProcesador(procesador);
-  const c = cuentas.find(x => x.id === cuenta());
-  $('#saldo').textContent = c ? `Saldo en el sistema ${pesos(c.saldo)}` : '';
-  filas($('#lineas'), lineas, l => {
-    const concepto = el('input', { placeholder: 'concepto (comisión, impuesto…)', style: 'width:220px', value: l.concepto });
-    const cand = el('div', { className: 'cand' },
-      ...l.candidatos.slice(0, 3).map(k => el('button', { type: 'button', className: 'chico', textContent: `${k.tipo === 'cheque' ? 'Débito de cheque' : fecha(k.fecha) + ' · ' + k.descripcion}`,
-        title: 'Conciliar con este', onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) })),
-      l.candidatos.length ? '' : concepto,
-      l.candidatos.length ? '' : el('button', { type: 'button', className: 'chico', textContent: 'Registrar movimiento',
-        title: 'Crea el ingreso o egreso con la fecha y el importe de la línea, y lo concilia',
-        onclick: () => concepto.value.trim() ? conciliar({ linea_id: l.id, crear: { concepto: concepto.value } }) : alert('Poné el concepto.') }));
-    return el('tr', {}, td(fecha(l.fecha)), td([l.concepto, l.referencia].filter(Boolean).join(' · '), 'wrap'), el('td', { className: 'num' }, conSigno(l.importe)), el('td', {}, cand));
-  }, 'No hay líneas pendientes: todo lo importado está conciliado.', 4);
-  filas($('#movs'), movimientos, m => el('tr', {}, td(fecha(m.fecha)), td(m.concepto || m.tipo, 'wrap'), el('td', { className: 'num' }, conSigno(m.importe))),
-    'Todos los movimientos están conciliados.', 3);
-  filas($('#hechas'), conciliadas, k => el('tr', {}, td(fecha(k.fecha)), td(k.concepto, 'wrap'), td(k.movimiento, 'wrap'),
-    el('td', { className: 'num' }, conSigno(k.importe)), td(k.conciliado_por),
-    el('td', {}, el('button', { className: 'chico', textContent: 'Deshacer', onclick: async () => {
-      if (!confirm('¿Deshacer este pareo? Si lo concilió la acreditación automática, se anula su movimiento y el cobro vuelve a quedar sin acreditar; si no, el movimiento queda y sólo se separa de la línea.')) return;
-      try { await api('fin/conciliacion/' + k.linea_id, { method: 'DELETE' }); cargar(); } catch (e) { alert(e.message); } } }))),
-    'Todavía no hay nada conciliado.', 6);
-  history.replaceState(null, '', 'conciliacion.html#' + cuenta());
-}
-// ── Cuenta de un procesador ──
-const cifra = (t, v, nota) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), nota ? el('small', { textContent: nota }) : '');
-function pintarProcesador(p) {
-  $('#proc').hidden = !p; if (!p) return;
-  $('#pTitulo').textContent = `${p.nombre}: acreditaciones`;
-  const e = p.extracto || {}, dif = e.saldo_final != null ? centavos(e.saldo_final) - centavos(p.saldo_sistema) : null;
-  $('#pCifras').replaceChildren(
-    cifra('Saldo en el sistema', pesos(p.saldo_sistema)),
-    cifra('Saldo según el extracto', e.saldo_final != null ? pesos(e.saldo_final) : '—', e.hasta ? `al ${fecha(e.hasta)}` : 'importá un extracto con la columna de saldo'),
-    cifra('Diferencia', dif == null ? '—' : pesos(deCentavos(dif)), e.lineas_pendientes ? `${e.lineas_pendientes} línea(s) sin conciliar por ${pesos(e.importe_pendiente)}` : 'sin líneas pendientes'),
-    cifra(`Vendido sin acreditar`, pesos(p.saldo_pendiente), p.cuenta_pendiente_nombre));
-  // Cargo e IVA: lo que cobra el procesador (el cargo con su IVA, incluido o en línea aparte); el IVA, además, en chico.
-  filas($('#pCostos'), p.costos, x => el('tr', {}, td(TIPO_OP_C[x.tipo_operacion] || x.tipo_operacion), td(`${pesos(x.bruto)} (${x.pagos})`, 'num'),
-    el('td', { className: 'num' }, pesos(deCentavos(centavos(x.costo) - centavos(x.imp_debitos_creditos) - centavos(x.retencion))), el('small', { className: 'mut', textContent: ` IVA ${pesos(x.iva)}` })),
-    td(pesos(x.imp_debitos_creditos), 'num'),
-    el('td', { className: 'num' }, el('strong', { textContent: pesos(x.costo) }), x.costo_pct ? el('div', { className: 'mut', textContent: num(x.costo_pct) + '%' }) : '')), 'Todavía no hay nada acreditado.', 5);
-  filas($('#pPend'), p.pendientes, x => el('tr', {}, td(fecha(x.dia)), td(TIPO_OP_C[x.tipo_operacion] || x.tipo_operacion), td(String(x.pagos), 'num'),
-    el('td', { className: 'num' }, pesos(x.importe), x.dias > 5 ? el('span', { className: 'tag aviso', textContent: ` hace ${x.dias} días`, style: 'margin-left:6px' }) : '')),
-    'Todo lo vendido está acreditado.', 4);
-}
-$('#auto').onclick = async () => {
-  $('#auto').disabled = true; msg('Conciliando…', '', '#msgA');
+// ── Conciliar ──
+async function conciliarAuto(previo = '') {
+  $('#auto').disabled = true; msg((previo ? previo + ' ' : '') + 'Conciliando…', '', '#msgA');
   try {
     const d = await api('fin/conciliacion/automatica', { method: 'POST', body: { cuenta_id: cuenta() } });
-    const g = d.gastos, partes = [`${d.acreditadas} cobro(s) acreditado(s) por ${pesos(d.acreditado)}`];
-    if (g.comision) partes.push(`cargos ${pesos(g.comision)}`);
-    if (g.iva_credito) partes.push(`IVA ${pesos(g.iva_credito)}`);
-    if (g.imp_debitos_creditos) partes.push(`imp. débitos y créditos ${pesos(g.imp_debitos_creditos)}`);
-    if (g.retencion) partes.push(`retenciones ${pesos(g.retencion)}`);
-    if (d.compensadas) partes.push(`${d.compensadas} línea(s) compensadas con su reverso`);
-    msg(partes.join(' · ') + `. Quedan ${d.quedan} línea(s) para revisar.`, 'ok', '#msgA');
+    const costos = Object.values(d.gastos).reduce((s, v) => s + centavos(v), 0n);
+    const txt = d.acreditadas || costos || d.compensadas
+      ? `Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.'
+      : 'No había nada nuevo para conciliar.';
+    msg([previo, txt].filter(Boolean).join(' '), 'ok', '#msgA');
     await cargar();
   } catch (e) { msg(e.message, 'mal', '#msgA'); }
   finally { $('#auto').disabled = false; }
-};
-$('#cuenta').onchange = cargar;
+}
+$('#auto').onclick = () => conciliarAuto();
+async function conciliar(body) {
+  try { await api('fin/conciliacion', { method: 'POST', body }); msg('Conciliado.', 'ok', '#msgA'); await cargar(); } catch (e) { alert(e.message); }
+}
+
+// ── Estado y lo que hay que resolver ──
+async function cargar() {
+  if (!cuenta()) return;
+  history.replaceState(null, '', 'conciliacion.html#' + cuenta());
+  const [d, { cuentas }] = await Promise.all([api('fin/conciliacion?cuenta=' + cuenta()), api('fin/cuentas')]);
+  datos = d;
+  const c = cuentas.find(x => x.id === cuenta()), p = d.procesador, e = (p && p.extracto) || {};
+  $('#auto').hidden = !p;
+  const nPend = d.lineas.length + d.movimientos.length;
+  $('#eTitulo').textContent = !d.conciliado.lineas && !d.lineas.length ? 'Todavía no se importó ningún extracto'
+    : nPend ? `Faltan resolver ${nPend} ${nPend === 1 ? 'línea' : 'líneas'}` : 'Todo conciliado';
+  $('#eTitulo').className = 'titulo' + (!nPend && d.conciliado.lineas ? ' ok' : '');
+  // Saldo del sistema contra el del extracto: la diferencia la tienen que explicar las líneas pendientes.
+  const det = [el('span', {}, 'Saldo en el sistema ', el('b', { textContent: pesos(c ? c.saldo : '0') }))];
+  if (p && e.saldo_final != null) {
+    const dif = centavos(e.saldo_final) - centavos(p.saldo_sistema), expl = centavos(e.importe_pendiente || '0');
+    det.push(' · según el extracto al ' + fecha(e.hasta) + ' ', el('b', { textContent: pesos(e.saldo_final) }));
+    if (dif === 0n) det.push('. Coinciden.');
+    else if (dif === expl) det.push('. La diferencia, ', el('b', { textContent: pesos(deCentavos(dif)) }), ', es lo que falta resolver.');
+    else det.push('. Diferencia ', el('b', { textContent: pesos(deCentavos(dif)) }), `, de la que ${pesos(deCentavos(dif - expl))} no está en las líneas pendientes: revisá movimientos posteriores al extracto.`);
+  }
+  $('#eDetalle').replaceChildren(...det);
+  pintarResolver(d);
+  pintarResumen(p);
+  const k = d.conciliado;
+  $('#hResumen').textContent = k.lineas ? `· ${k.lineas} línea(s): ingresos ${pesos(k.ingresos)}, egresos ${pesos(k.egresos)}` + (k.compensadas ? ` · ${k.compensadas} compensadas con su reverso` : '') : '· nada todavía';
+  if ($('#hechas').open) cargarHechas();
+}
+function pintarResolver(d) {
+  const egresos = d.lineas.filter(l => l.importe.startsWith('-')), ingresos = d.lineas.filter(l => !l.importe.startsWith('-'));
+  const grupos = [];
+  const grupo = (titulo, lista, cap, fila) => el('section', { className: 'card grupo-p' },
+    el('h3', {}, titulo, el('small', { textContent: `${lista.length} · ${pesos(suma(lista))}` })), el('p', { className: 'cap', textContent: cap }), ...lista.map(fila));
+  if (egresos.length) grupos.push(grupo('Egresos sin identificar', egresos,
+    'Plata que salió de la cuenta y no tiene movimiento: un pago a un proveedor (se concilia con su orden de pago hecha desde esta cuenta) o un gasto que hay que registrar.', filaLinea));
+  if (ingresos.length) grupos.push(grupo('Ingresos sin identificar', ingresos,
+    d.procesador ? 'No coinciden con ningún cobro de las ventas: puede ser una venta de un día que todavía no se importó (traela y volvé a conciliar) o un ingreso que no viene de ventas (registralo).'
+      : 'Plata que entró a la cuenta y no tiene movimiento: registrala o conciliala con el movimiento que corresponde.', filaLinea));
+  if (d.movimientos.length) grupos.push(grupo('En el sistema, pero no en el extracto', d.movimientos,
+    'Movimientos que todavía no aparecieron en el extracto: puede que no se hayan acreditado o debitado todavía, o que el banco los haya registrado con otro importe.', filaMov));
+  $('#resolver').replaceChildren(...(grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },
+    el('b', { textContent: d.conciliado.lineas ? 'Nada para resolver' : 'Nada para resolver todavía' }),
+    d.conciliado.lineas ? 'Todo lo importado está conciliado. El detalle queda abajo, en "Lo conciliado".' : 'Importá el extracto de la cuenta para empezar.')]));
+}
+function filaLinea(l) {
+  const pp = partes(l.concepto), acc = el('div', { className: 'acc' });
+  const k = l.candidatos[0];
+  if (k) acc.append(el('button', { type: 'button', className: 'prim', textContent: k.tipo === 'cheque' ? 'Es el débito del ' + k.descripcion : `Conciliar con: ${k.descripcion} (${fecha(k.fecha)})`,
+    onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) }));
+  const registrar = el('button', { type: 'button', textContent: k ? 'Otro: registrar movimiento' : 'Registrar movimiento' });
+  registrar.onclick = () => {
+    const inp = el('input', { placeholder: l.importe.startsWith('-') ? 'Qué es: gasto bancario, impuesto…' : 'Qué es: aporte, reintegro…', value: pp.nombre });
+    const ok = el('button', { type: 'button', className: 'prim', textContent: 'Registrar' });
+    ok.onclick = () => inp.value.trim() ? conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim() } }) : inp.focus();
+    acc.replaceChildren(inp, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => pintarResolver(datos) }));
+    inp.focus(); inp.select();
+  };
+  acc.append(registrar);
+  return el('div', { className: 'pend' },
+    el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
+      el('small', { textContent: [pp.numero && 'Nº ' + pp.numero, l.referencia].filter(Boolean).join(' · ') })),
+    el('div', { className: 'imp' }, conSigno(l.importe)), acc);
+}
+function filaMov(m) {
+  return el('div', { className: 'pend' },
+    el('div', { className: 'q' }, el('b', { textContent: `${fecha(m.fecha)} · ${m.concepto || m.tipo}` }), el('small', { textContent: m.tipo })),
+    el('div', { className: 'imp' }, conSigno(m.importe)));
+}
+function pintarResumen(p) {
+  $('#resumen').hidden = !p; if (!p) return;
+  $('#rCostos').replaceChildren(...(p.costos.length ? p.costos.map(x => el('div', { className: 'fila-c' },
+    el('span', {}, TIPO_OP_C[x.tipo_operacion] || x.tipo_operacion),
+    el('span', { className: 'p', textContent: x.costo_pct ? num(x.costo_pct) + '%' : '—' }),
+    el('span', { className: 'm', textContent: `${pesos(x.costo)} sobre ${pesos(x.bruto)}` }))) : [el('p', { className: 'g-vacio', textContent: 'Todavía no hay nada acreditado.' })]));
+  const viejos = p.pendientes.filter(x => x.dias > 5);
+  $('#rPendCap').textContent = p.pendientes.length ? `${pesos(p.saldo_pendiente)} en ${p.cuenta_pendiente_nombre}.` + (viejos.length ? ` ${viejos.length} día(s) con más de 5 días sin acreditar.` : '')
+    : 'Todo lo vendido con este procesador está acreditado.';
+  $('#rPend').replaceChildren(...p.pendientes.slice(0, 8).map(x => el('div', { className: 'fila-c' },
+    el('span', {}, `${fecha(x.dia)} · ${TIPO_OP_C[x.tipo_operacion] || x.tipo_operacion}`),
+    el('span', { className: 'p', textContent: pesos(x.importe) }),
+    el('span', { className: 'm' }, x.dias > 5 ? el('span', { className: 'tag aviso', textContent: `hace ${x.dias} días` }) : `${x.pagos} pago(s)`))),
+    p.pendientes.length > 8 ? el('p', { className: 'ayuda', textContent: `y ${p.pendientes.length - 8} día(s) más.` }) : '');
+}
+
+// ── Lo conciliado (respaldo) ──
+let hDesde = 0, _hb;
+async function cargarHechas(mas = false) {
+  hDesde = mas ? hDesde + 100 : 0;
+  const q = $('#hBuscar').value.trim();
+  const d = await api(`fin/conciliacion/hechas?cuenta=${cuenta()}&desde=${hDesde}` + (q ? '&q=' + encodeURIComponent(q) : ''));
+  const filas = d.conciliadas.map(k => {
+    const pp = partes(k.concepto);
+    return el('div', { className: 'hecha' }, el('span', { className: 'f', textContent: fecha(k.fecha) }),
+      el('span', { className: 'd' }, pp.nombre, el('small', { textContent: k.movimiento })),
+      el('span', { className: 'i' }, conSigno(k.importe)),
+      el('button', { type: 'button', textContent: 'Deshacer', onclick: async () => {
+        if (!confirm('¿Deshacer este pareo? Si lo concilió la acreditación automática, se anula su movimiento y el cobro vuelve a quedar sin acreditar; si no, el movimiento queda y sólo se separa de la línea.')) return;
+        try { await api('fin/conciliacion/' + k.linea_id, { method: 'DELETE' }); await cargar(); } catch (e) { alert(e.message); } } }));
+  });
+  if (mas) $('#hLista').append(...filas);
+  else $('#hLista').replaceChildren(...(filas.length ? filas : [el('p', { className: 'g-vacio', textContent: q ? 'Nada coincide con la búsqueda.' : 'Todavía no hay nada conciliado.' })]));
+  $('#hMasWrap').hidden = !d.hay_mas;
+}
+$('#hechas').addEventListener('toggle', () => { if ($('#hechas').open) cargarHechas().catch(e => alert(e.message)); });
+$('#hBuscar').oninput = () => { clearTimeout(_hb); _hb = setTimeout(() => cargarHechas().catch(e => alert(e.message)), 300); };
+$('#hMas').onclick = () => cargarHechas(true).catch(e => alert(e.message));
+
+$('#cuenta').onchange = () => { msg('', '', '#msgA'); $('#hechas').open = false; $('#hBuscar').value = ''; cargar().catch(e => msg(e.message, 'mal', '#msgA')); };
 (async () => {
   try {
     bancos = (await api('fin/cuentas')).cuentas.filter(c => c.tipo === 'banco');
-    if (!bancos.length) { $('#lineas').replaceChildren(el('tr', {}, td('No hay cuentas bancarias: cargalas en Tesorería.'))); return; }
+    if (!bancos.length) { $('#eTitulo').textContent = 'No hay cuentas bancarias'; $('#eDetalle').textContent = 'Cargalas en Cajas y bancos.'; $('#importarBtn').hidden = true; return; }
     opciones($('#cuenta'), bancos.map(b => [b.id, b.nombre]), location.hash.slice(1) || bancos[0].id);
     await cargar();
-  } catch (e) { alert(e.message); }
+  } catch (e) { msg(e.message, 'mal', '#msgA'); }
 })();
 </script>
 </body>

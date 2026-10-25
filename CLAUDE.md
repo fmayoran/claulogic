@@ -410,6 +410,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   vendido sin acreditar por día y el **costo real por tipo de operación** (en la prueba con el extracto real:
   transferencia 4,23%, débito 6,5%, crédito 10,2%). Deshacer una línea conciliada así anula su movimiento (las dos
   patas de la acreditación) y el pago vuelve a pendiente; esos movimientos no se anulan desde Cajas y bancos.
+  **La pantalla pone el foco en lo que falta resolver** (pedido de Fer): arriba el estado en una frase ("Faltan
+  resolver N líneas" o "Todo conciliado") con el saldo del sistema contra el del extracto; luego "Para resolver",
+  agrupado (egresos sin identificar, ingresos sin identificar, en el sistema pero no en el extracto) con qué puede
+  ser cada cosa y su acción; el costo por tipo y lo vendido sin acreditar en una tarjeta chica; lo conciliado,
+  cerrado, como respaldo (`GET /fin/conciliacion/hechas`, de a 100 y con búsqueda). Importar un extracto en la
+  cuenta de un procesador concilia en el mismo paso. Los movimientos sin conciliar sólo cuentan desde el inicio de
+  los extractos y sin los anulados.
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo

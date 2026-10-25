@@ -463,14 +463,19 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     pool.query(`SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
                  WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
+    // Los movimientos que deberían aparecer en el extracto: desde que empiezan los extractos importados (la apertura
+    // y lo anterior no van a aparecer nunca), y sin los anulados ni sus anulaciones (se cancelan entre sí).
     pool.query(`SELECT m.id, m.fecha, m.tipo, m.concepto, (m.entrada - m.salida)::text AS importe FROM fin.movimiento_tes m
                  WHERE m.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id)
+                   AND m.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)
+                   AND m.fecha >= COALESCE((SELECT MIN(desde) FROM fin.extracto e WHERE e.cuenta_id = m.cuenta_id), '-infinity'::date)
                  ORDER BY m.fecha, m.id`, [cuenta]),
     pool.query(`SELECT id, numero, fecha_pago, (-importe)::text AS importe, proveedor_id FROM fin.cheque
                  WHERE cuenta_id = $1::uuid AND tipo = 'propio' AND estado = 'emitido'`, [cuenta]),
-    pool.query(`SELECT l.id AS linea_id, l.fecha, l.concepto, l.importe::text, m.concepto AS movimiento, k.conciliado_por, k.conciliado_en
-                  FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id JOIN fin.movimiento_tes m ON m.id = k.movimiento_id
-                 WHERE l.cuenta_id = $1::uuid ORDER BY k.conciliado_en DESC LIMIT 50`, [cuenta]),
+    pool.query(`SELECT COUNT(*)::int AS lineas, COALESCE(SUM(l.importe) FILTER (WHERE l.importe > 0), 0)::text AS ingresos,
+                       COALESCE(-SUM(l.importe) FILTER (WHERE l.importe < 0), 0)::text AS egresos,
+                       (SELECT COUNT(*)::int FROM fin.extracto_linea c WHERE c.cuenta_id = $1::uuid AND c.compensa_a IS NOT NULL) AS compensadas
+                  FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id WHERE l.cuenta_id = $1::uuid`, [cuenta]),
   ]);
   // Importes exactos (texto NUMERIC normalizado), distancia de fechas en días: no hay float en juego.
   const norm = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
@@ -484,7 +489,20 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     ].sort((a, b) => a.dias - b.dias);
     return { ...l, candidatos: cand };
   });
-  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliadas: hechas.rows, procesador: await resumenProcesador(cuenta) });
+  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta) });
+}));
+
+// Lo ya conciliado, para consultar: de a 100, lo último primero, con búsqueda por concepto o importe.
+r.get('/fin/conciliacion/hechas', h(async (req, res) => {
+  const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
+  const q = texto(req.query.q), desde = Math.max(0, Number(req.query.desde) || 0);
+  const { rows } = await pool.query(
+    `SELECT l.id AS linea_id, l.fecha, l.concepto, l.referencia, l.importe::text, m.concepto AS movimiento, m.gasto, k.conciliado_por, k.conciliado_en
+       FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id JOIN fin.movimiento_tes m ON m.id = k.movimiento_id
+      WHERE l.cuenta_id = $1::uuid
+        AND ($2::text IS NULL OR l.concepto ILIKE '%' || $2 || '%' OR m.concepto ILIKE '%' || $2 || '%' OR l.importe::text LIKE '%' || replace($2, '.', '') || '%')
+      ORDER BY l.fecha DESC, l.id DESC LIMIT 101 OFFSET $3`, [cuenta, q, desde]);
+  res.json({ ok: true, conciliadas: rows.slice(0, 100), hay_mas: rows.length > 100 });
 }));
 
 r.post('/fin/conciliacion', h(async (req, res) => {
