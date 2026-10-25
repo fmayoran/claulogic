@@ -232,13 +232,18 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API.');
   const { rows: [rango] } = await pool.query(
     `SELECT to_char(($1::date::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS d,
-            to_char((($2::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' - interval '1 second', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS h,
+            to_char((($2::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS h,
             $2::date - $1::date AS dias`, [desde, hasta]);
   if (rango.dias < 0) throw new ErrorUsuario('El rango está al revés.');
   if (rango.dias > 31) throw new ErrorUsuario('Sincronizá de a un mes como máximo.');
   let datos;
   try { datos = await fudo.ventas(integ.id, JSON.parse(crypto.decrypt(integ.credenciales)), rango.d, rango.h); }
-  catch (e) { if (e instanceof fudo.ErrorFudo) throw new ErrorUsuario(e.message, 502); throw e; }
+  // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página y el detalle se pierde.
+  catch (e) {
+    if (!(e instanceof fudo.ErrorFudo)) throw e;
+    console.error(`Fudo (${integ.nombre}):`, e.message);
+    throw new ErrorUsuario(e.message, 424);
+  }
   const out = await enTransaccion(async c => {
     const o = await recibir(c, integ, 'api', { desde, hasta, tickets: datos.tickets });
     await c.query('UPDATE pos.integracion SET ultima_sincronizacion = now() WHERE id = $1', [integ.id]);

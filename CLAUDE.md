@@ -299,8 +299,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `api.fu.do/v1alpha1/sales` con `filter[closedAt]`, `include=items.product,payments.paymentMethod`,
   páginas de 500. Requiere plan Pro y habilitar "API Pública General". Su OpenAPI no es del todo
   JSON:API (las relaciones a veces vienen como lista de `{data}`): el adaptador acepta las dos formas.
-  **Probado sólo contra un simulador** hecho según la especificación: hay que verificarlo con una cuenta
-  real. `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas. Credenciales cifradas con `crypto.js`.
+  **Verificado con la cuenta real de Fer el 25/10/2026**: el token y la forma de los datos coinciden con la
+  especificación, pero el filtro exige `filter[closedAt]=and(gte.<desde>,lt.<hasta>)` con el hasta EXCLUIDO
+  (con `lte` responde 400): se pide desde las 00:00 del primer día hasta las 00:00 del día siguiente al último.
+  Las ventas traen además `discounts`, `tips` y `shippingCosts`, que todavía no se leen. Los errores de Fudo
+  llevan su detalle (`errors[].detail`). `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas (el
+  simulador también rechaza `lte`). Credenciales cifradas con `crypto.js`.
 - **Maxirest no tiene API pública**: va por archivo (sus informes de ventas salen a Excel; se guardan
   como CSV). La importación por archivo sirve para cualquier POS: renglones de venta y pagos, con mapeo
   de columnas que se recuerda por integración (`pos.integracion.mapeo`).
@@ -448,6 +452,11 @@ Vive en ClaUsina porque el cron ya estaba armado ahí; es la única dependencia 
 dos y está anotada a propósito.
 
 ## Trampas conocidas
+- **Nunca responder 502 desde la app**: el proxy de EasyPanel (`bad-gateway-error-page` en
+  `/etc/easypanel/traefik/config/main.yaml`) reemplaza todo 502 por su propia página HTML y el detalle se
+  pierde (el navegador veía "respuesta inválida"). Para fallas de un servicio externo (Fudo, Open Food Facts)
+  se usa **424** con el mensaje, y se registra en el log. Si al navegador le llega algo que no es JSON,
+  `api()` muestra el código HTTP.
 - El proxy de Cloudflare va **apagado** en el A record. Prendido, Traefik no puede resolver el
   desafío de Let's Encrypt y el certificado nunca sale.
 - El VPS **no tiene swap** y son 7,8 GB de RAM compartidos con ClaUsina, n8n y Chatwoot. Un pico

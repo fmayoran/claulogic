@@ -34,7 +34,11 @@ async function pedir(url, opciones = {}) {
   try { cuerpo = texto ? JSON.parse(texto) : null; } catch { /* respuesta que no es JSON */ }
   if (r.status === 401 || r.status === 403) throw new ErrorFudo('Fudo rechazó las credenciales (revisá apiKey y apiSecret, y los permisos del usuario de la API).');
   if (r.status === 429) throw new ErrorFudo('Fudo limitó la cantidad de pedidos: probá de nuevo en unos minutos.');
-  if (!r.ok) throw new ErrorFudo(`Fudo respondió ${r.status}.`);
+  // Con el detalle que da Fudo (JSON:API: errors[].detail), para saber qué rechazó.
+  if (!r.ok) {
+    const det = cuerpo && Array.isArray(cuerpo.errors) ? cuerpo.errors.map(e => e.detail || e.title).filter(Boolean).join(' / ') : texto.slice(0, 200);
+    throw new ErrorFudo(`Fudo respondió ${r.status}${det ? ': ' + det : ''}.`);
+  }
   if (!cuerpo) throw new ErrorFudo('Fudo devolvió una respuesta inválida.');
   return cuerpo;
 }
@@ -59,13 +63,14 @@ function ids(rel) {
   return [];
 }
 
-// Ventas cerradas entre dos instantes UTC ('AAAA-MM-DDTHH:MM:SSZ').
+// Ventas cerradas entre dos instantes UTC ('AAAA-MM-DDTHH:MM:SSZ'): desde incluido, hasta EXCLUIDO. La API
+// real exige `and(gte.<desde>,lt.<hasta>)`: con `lte` responde 400 (verificado contra Fudo el 25/10/2026).
 async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   const tk = await token(integracionId, cred);
   const tickets = [];
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const q = new URLSearchParams({
-      'filter[closedAt]': `and(gte.${desdeUtc},lte.${hastaUtc})`,
+      'filter[closedAt]': `and(gte.${desdeUtc},lt.${hastaUtc})`,
       'filter[saleState]': 'in.(CLOSED,CANCELED)',
       include: 'items,items.product,payments,payments.paymentMethod,table,waiter',
       'page[size]': String(TAMANO), 'page[number]': String(pagina), sort: 'closedAt',

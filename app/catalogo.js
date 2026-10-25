@@ -90,7 +90,8 @@ r.get('/catalogo/:gtin/imagen', h(async (req, res) => {
   let b = c.imagen;
   if (!b || !c.miniatura) {
     try { [b] = await bajarCatalogo(gtin, c); }
-    catch (e) { return res.status(502).json({ ok: false, error: 'No se pudo traer la foto.' }); }
+    // 424 y no 502: el proxy reemplaza los 502 por su propia página.
+    catch (e) { console.error('Open Food Facts (foto):', e.message); return res.status(424).json({ ok: false, error: 'No se pudo traer la foto de Open Food Facts: ' + e.message }); }
   }
   res.set({ 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=3600' });
   res.send(b);

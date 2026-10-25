@@ -14,7 +14,10 @@ async function api(url, opt = {}) {
     ...opt, headers: { 'content-type': 'application/json' },
     body: opt.body ? JSON.stringify(opt.body) : modifica ? '{}' : undefined,
   });
-  const d = await r.json().catch(() => ({ ok: false, error: 'Respuesta inválida del servidor.' }));
+  // Lo que no es JSON no lo contestó la app: el proxy (502/504: la app no respondió o se reinició) u otra cosa.
+  const d = await r.json().catch(() => ({ ok: false, error: [502, 503, 504].includes(r.status)
+    ? `El servidor no respondió (HTTP ${r.status}): puede estar reiniciándose. Probá de nuevo en un minuto.`
+    : `Respuesta inesperada del servidor (HTTP ${r.status} en ${url.split('?')[0]}).` }));
   // Sin sesión, al login; con clave temporal, a cambiarla. Vuelve a donde estaba después.
   if (r.status === 401 && d.sesion === false) irA('login.html');
   if (r.status === 403 && d.cambiar_clave) irA('cuenta.html');
