@@ -274,6 +274,7 @@ const POLITICA = [
   [/^\/pos\/importaciones\/[^/]+\/anular$/, 'anular_pos'],
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/jornadas\/[^/]+\/[^/]+\/cobros$/, 'finanzas'],
+  [/^\/pos\/jornadas\/[^/]+\/procesar$/, 'finanzas'],
   [/^\/pos\/articulos\//, 'admin'],
   // Asignar el medio de pago de un medio del sistema: el administrador, o finanzas para terminar de cobrar un día.
   [/^\/pos\/medios\//, 'medios'],

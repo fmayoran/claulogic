@@ -91,7 +91,7 @@
     <section>
       <div id="bPuntos"><h2>Por punto de venta</h2>
         <div class="tabla-wrap"><table class="datos"><thead><tr><th>Punto de venta</th><th class="num">Ventas</th><th class="num">Vendido</th><th class="num">Promedio</th></tr></thead><tbody id="tPuntos"></tbody></table></div></div>
-      <h2>Salón y para llevar</h2>
+      <h2>Por tipo de venta</h2>
       <div class="tabla-wrap"><table class="datos"><thead><tr><th>Tipo</th><th class="num">Ventas</th><th class="num">Vendido</th><th class="num">Promedio</th></tr></thead><tbody id="tTipos"></tbody></table></div>
     </section>
   </div>
@@ -274,7 +274,7 @@ function pintarVentas() {
       td(diaHora(v.abierto_en || v.cerrado_en)),
       // El cierre, sólo la hora si es el mismo día.
       td(v.abierto_en && v.cerrado_en && mismoDia(v.abierto_en, v.cerrado_en) ? hora(v.cerrado_en) : diaHora(v.cerrado_en)),
-      v.mesa ? td(v.mesa, 'mesa') : td(v.tipo === 'para llevar' ? 'para llevar' : ''), td(v.mozo || ''), el('td', {}, ...pagos), td(pesos(v.total), 'num'));
+      v.mesa ? td(v.mesa, 'mesa') : td(v.tipo && v.tipo !== 'salón' ? v.tipo : ''), td(v.mozo || ''), el('td', {}, ...pagos), td(pesos(v.total), 'num'));
     tr.onclick = () => abrirVenta(v.id);
     return tr;
   }, q ? 'Ninguna venta coincide con la búsqueda.' : 'Sin ventas en el período.', 7);

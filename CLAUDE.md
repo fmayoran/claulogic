@@ -308,7 +308,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   - En Fudo, el `price` de un renglón es el **total del renglón**, no el unitario: se guarda como `importe` y
     el unitario es price / cantidad.
   - Las **ventas vacías** (sin productos ni pagos) se ignoran. Una mesa todavía abierta llega al volver a
-    sincronizar ese día.
+    sincronizar ese día. **Abierta = ni CLOSED ni CANCELED**: Fudo anula sin `closedAt` los deliveries
+    descartados (el 22/10 dos así figuraban como abiertos); una anulada sin cierre toma la apertura.
+  - `saleType`: `EAT-IN` salón, `TAKEAWAY` para llevar, `DELIVERY` delivery (antes del 25/10 el delivery se
+    guardaba como salón; los tickets ya importados no se reescriben).
   Las ventas traen además `discounts`, `tips` y `shippingCosts`, que todavía no se leen. Los errores de Fudo
   llevan su detalle (`errors[].detail`). `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas (el
   simulador también rechaza `lte`). Credenciales cifradas con `crypto.js`.
@@ -354,6 +357,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     sin su medio de pago) → *diferencia* (lo cobrado no coincide con lo vendido) → *listo para cobrar* →
     *cobrado*. Alertas: medios sin asignar, diferencia, ventas anuladas, y ventas que seguían **abiertas** al
     sincronizar (`pos.sincronizacion_dia`, lo único que se guarda: ese día no está completo).
+  - **Los días sin observaciones se procesan solos** (decisión de Fer, 25/10/2026): al sincronizar o importar,
+    si quien lo hace tiene finanzas, `procesarListos` procesa cada día del rango con medios asignados, cobrado
+    = vendido y sin ventas abiertas, cada uno en su transacción; la respuesta trae `cobros.procesados` y
+    `cobros.revisar` (con el motivo). Sin finanzas quedan "listos" y finanzas los procesa todos con
+    `POST /pos/jornadas/:integracion/procesar` (botón en Procesar ventas). A mano sólo lo que tiene algo.
   - Los **cobros se procesan por día y todo o nada** (`POST /pos/jornadas/:integracion/:dia/cobros`, finanzas):
     con un medio sin asignar no se procesa; con diferencia, sólo con un **motivo**, que queda en `pos.cobro`
     con la diferencia. La ruta vieja por importación procesa cada día que trae, con las mismas reglas.

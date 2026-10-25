@@ -17,6 +17,7 @@ const API_URL = (process.env.FUDO_API_URL || 'https://api.fu.do/v1alpha1').repla
 const TAMANO = 500, MAX_PAGINAS = 60, ESPERA_MS = 20000;
 
 class ErrorFudo extends Error {}
+const TIPO_VENTA = { 'EAT-IN': 'salón', TAKEAWAY: 'para llevar', DELIVERY: 'delivery' };
 
 // Token en memoria por integración, hasta 5 minutos antes de que venza.
 const tokens = new Map();
@@ -86,7 +87,11 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
     const de = (tipo, id) => incl.get(`${tipo}:${id}`);
     for (const v of datos) {
       const a = v.attributes || {}, rel = v.relationships || {};
-      if (!['CLOSED', 'CANCELED'].includes(a.saleState) || !a.closedAt) {
+      // Abierta es la que no está cerrada ni anulada. Una anulada nunca está abierta, aunque no tenga cierre: Fudo
+      // anula sin fecha de cierre las ventas que se abrieron y se descartaron (verificado el 25/10/2026: dos
+      // deliveries vacíos del 22/10 figuraban como abiertos).
+      const anulada = a.saleState === 'CANCELED';
+      if (!anulada && (a.saleState !== 'CLOSED' || !a.closedAt)) {
         if (a.createdAt) abiertas[diaLocal(a.createdAt)] = (abiertas[diaLocal(a.createdAt)] || 0) + 1;
         continue;
       }
@@ -108,8 +113,8 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
       if (!items.length && !pagos.length) continue;
       const mesa = ids(rel.table)[0], mozo = ids(rel.waiter)[0];
       tickets.push({
-        id: String(v.id), cerrado_en: a.closedAt, abierto_en: a.createdAt || null, estado: a.saleState === 'CANCELED' ? 'anulado' : 'cerrado',
-        total: a.total != null ? String(a.total) : null, tipo: a.saleType === 'TAKEAWAY' ? 'para llevar' : 'salón',
+        id: String(v.id), cerrado_en: a.closedAt || a.createdAt, abierto_en: a.createdAt || null, estado: anulada ? 'anulado' : 'cerrado',
+        total: a.total != null ? String(a.total) : null, tipo: TIPO_VENTA[a.saleType] || 'salón',
         mesa: mesa ? ((de('Table', mesa) || {}).attributes || {}).number ?? mesa : null,
         mozo: mozo ? ((de('User', mozo) || {}).attributes || {}).name ?? null : null,
         personas: a.people ?? null, items, pagos,

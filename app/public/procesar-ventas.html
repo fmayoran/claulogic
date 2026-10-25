@@ -14,6 +14,7 @@
   .alertas li{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);}
   .alertas li.bloquea, .alertas li.diferencia{border-color:var(--mal);background:var(--mal-bg);}
   .alertas li.aviso{border-color:var(--aviso);background:var(--aviso-bg);}
+  .alertas li.ok{border-color:var(--acento);background:var(--ok-bg);}
 </style>
 </head>
 <body>
@@ -46,8 +47,11 @@
   </fieldset>
 
   <h2>Días</h2>
-  <p class="ayuda">Lo financiero se controla por día: los cobros de un día se procesan todos juntos (todo o nada), cuando todos sus medios
-    tienen su medio de pago asignado y lo cobrado coincide con lo vendido (si no coincide, sólo con un motivo).</p>
+  <p class="ayuda">Lo financiero se controla por día. Los días sin observaciones (medios asignados, lo cobrado igual a lo vendido y sin
+    ventas abiertas) se procesan solos al traer las ventas, si quien las trae es de finanzas. Los que tienen alguna quedan acá para revisar:
+    se corrigen en el detalle del día y, si lo cobrado no coincide con lo vendido, se procesan con un motivo.</p>
+  <div class="acciones" id="accListos" hidden><button type="button" class="prim" id="procListos"></button></div>
+  <div id="resListos"></div>
   <div class="tabla-wrap"><table class="datos movil" id="tDias">
     <thead><tr><th>Día</th><th>Ventas</th><th>Vendido</th><th>Cobrado</th><th>Estado</th></tr></thead>
     <tbody id="dias"></tbody></table></div>
@@ -174,8 +178,28 @@ $('#sincronizar').onclick = async () => {
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
   finally { $('#sincronizar').disabled = false; }
 };
-const resultado = d => msg(d.nuevos ? `Importados ${d.nuevos} ticket(s)` + (d.repetidos ? `; ${d.repetidos} ya estaban.` : '.')
-  : `No había nada nuevo: los ${d.repetidos} ticket(s) ya estaban importados.`, d.nuevos ? 'ok' : '', '#msgI');
+const resultado = d => {
+  msg(d.nuevos ? `Importados ${d.nuevos} ticket(s)` + (d.repetidos ? `; ${d.repetidos} ya estaban.` : '.')
+    : `No había nada nuevo: los ${d.repetidos} ticket(s) ya estaban importados.`, d.nuevos ? 'ok' : '', '#msgI');
+  pintarProcesados(d.cobros);
+};
+// Lo que se procesó solo y lo que quedó para revisar a mano, con el porqué.
+function pintarProcesados(c) {
+  if (!c) return $('#resListos').replaceChildren();
+  const total = c.procesados.reduce((s, p) => s + Number(p.importe), 0);
+  $('#resListos').replaceChildren(el('ul', { className: 'alertas' },
+    c.procesados.length ? el('li', { className: 'ok' }, `Cobros procesados: ${c.procesados.length} día(s) por ${pesos(String(total))} (`
+      + c.procesados.map(p => fecha(p.dia).slice(0, 5)).join(', ') + ').') : '',
+    ...c.revisar.map(r => el('li', { className: r.estado === 'pendientes' || r.estado === 'diferencia' ? 'bloquea' : 'aviso' },
+      el('strong', { textContent: `${fecha(r.dia)}: ` }), r.motivo || 'para revisar.')),
+    !c.procesados.length && !c.revisar.length ? el('li', {}, 'No había cobros por procesar.') : ''));
+}
+$('#procListos').onclick = async () => {
+  $('#procListos').disabled = true;
+  try { const d = await api(`pos/jornadas/${integ.id}/procesar`, { method: 'POST' }); pintarProcesados(d); await cargarDias(); if (diaActual) await abrirDia(diaActual); }
+  catch (e) { $('#resListos').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
+  finally { $('#procListos').disabled = false; }
+};
 
 // ── Importaciones ──
 async function cargar(abrirId) {
@@ -260,6 +284,10 @@ async function cargarDias() {
     return tr;
   }, 'Todavía no hay ventas importadas de este punto de venta.', 5);
   etiquetarTabla($('#tDias'));
+  const listos = jornadas.filter(j => j.estado === 'listo' && !j.abiertas).length;
+  const u = (await cargarSesion()).usuario;
+  $('#accListos').hidden = !(listos && u && u.puede.finanzas);
+  $('#procListos').textContent = `Procesar los ${listos} día(s) sin observaciones`;
 }
 async function abrirDia(dia) {
   diaActual = dia; msg('', '', '#msgJ');
@@ -313,7 +341,7 @@ $('#jCobrar').onclick = async () => {
 async function cargarIntegraciones() { ({ integraciones } = await api('pos/integraciones')); }
 function elegir() {
   integ = integraciones.find(i => i.id === $('#integ').value);
-  $('#detalle').hidden = true; $('#jornada').hidden = true; diaActual = null; msg('', '', '#msgI');
+  $('#detalle').hidden = true; $('#jornada').hidden = true; diaActual = null; msg('', '', '#msgI'); $('#resListos').replaceChildren();
   if (!integ) return;
   history.replaceState(null, '', 'procesar-ventas.html#' + integ.id);
   $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo';

@@ -20,6 +20,8 @@ const esCero = v => /^-?0+(\.0+)?$/.test(String(v));
 // cuentas a los medios y procesar los cobros). El resto, sólo las de sus sedes.
 const sedesPos = req => puede(req.usuario, 'finanzas') && !req.query.sede ? null : filtroSedes(req);
 const accede = (req, sedeId) => !!rolEn(req.usuario, sedeId) || puede(req.usuario, 'finanzas');
+// Importe para los mensajes, al peso como en pantalla: "$2.500".
+const $p = v => (Number(v) < 0 ? '-$' : '$') + Math.round(Math.abs(Number(v))).toLocaleString('es-AR');
 const limpiar = v => v == null ? null : String(v).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
 // ── Recetas de venta ─────────────────────────────────────────────────────────────────────────
@@ -261,7 +263,7 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
       [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {})]);
     return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0) };
   });
-  res.status(201).json({ ok: true, ...out });
+  res.status(201).json({ ok: true, ...out, cobros: await procesarListos(req, integ, desde, hasta) });
 }));
 
 // Por archivo: renglones de venta (uno por artículo de cada ticket) y, opcionalmente, pagos. Las
@@ -332,9 +334,9 @@ r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
     // Se recuerdan las columnas elegidas para la próxima vez.
     if (b.mapeo && typeof b.mapeo === 'object')
       await c.query('UPDATE pos.integracion SET mapeo = $1 WHERE id = $2', [JSON.stringify(b.mapeo).slice(0, 4000), integ.id]);
-    return o;
+    return { ...o, desde: fechas[0], hasta: fechas.at(-1) };
   });
-  res.status(201).json({ ok: true, ...out });
+  res.status(201).json({ ok: true, ...out, cobros: await procesarListos(req, integ, out.desde, out.hasta) });
 }));
 
 // ── Importaciones ────────────────────────────────────────────────────────────────────────────
@@ -587,7 +589,7 @@ function estadoJornada(j) {
   const dif = Number(j.cobrado) - Number(j.vendido);
   const alertas = [];
   if (j.pagos_sin_asignar) alertas.push({ tipo: 'bloquea', texto: `${j.pagos_sin_asignar} pago(s) con un medio del sistema sin su medio de pago asignado.` });
-  if (Math.abs(dif) >= 0.01) alertas.push({ tipo: 'diferencia', texto: `Lo cobrado (${j.cobrado}) no coincide con lo vendido (${j.vendido}): diferencia ${dif.toFixed(2)}.` });
+  if (Math.abs(dif) >= 0.01) alertas.push({ tipo: 'diferencia', texto: `Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(dif)}.` });
   if (j.abiertas) alertas.push({ tipo: 'aviso', texto: `Al sincronizar había ${j.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.` });
   if (j.anuladas) alertas.push({ tipo: 'info', texto: `${j.anuladas} venta(s) anulada(s) en el día (no suman).` });
   const estado = !j.pagos_pendientes && j.pagos_procesados ? 'cobrado'
@@ -647,7 +649,7 @@ async function procesarJornada(c, integ, dia, motivo) {
   }
   if (!j.pagos_pendientes) throw new ErrorUsuario(`Los cobros del ${dia} ya están procesados.`);
   if (j.estado === 'diferencia' && !motivo)
-    throw new ErrorUsuario(`Lo cobrado (${j.cobrado}) no coincide con lo vendido (${j.vendido}): diferencia ${j.diferencia}. Para procesar igual, indicá el motivo.`, 409);
+    throw new ErrorUsuario(`Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(j.diferencia)}. Para procesar igual, indicá el motivo.`, 409);
   const { rows: pagos } = await c.query(
     `SELECT p.id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
       WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL FOR UPDATE OF p`, [integ.id, dia]);
@@ -674,6 +676,39 @@ r.post('/pos/jornadas/:integracion/:dia/cobros', h(async (req, res) => {
   const dia = fecha(req.params.dia, { campo: 'El día', requerido: true });
   const out = await enTransaccion(async c => procesarJornada(c, await integracion(c, req, req.params.integracion), dia, texto(req.body.motivo)));
   res.status(201).json({ ok: true, ...out });
+}));
+
+// Los días sin observaciones se procesan solos (decisión de Fer, 25/10/2026): medios todos asignados, lo cobrado
+// igual a lo vendido y ninguna venta abierta al sincronizar. Lo que tiene algo de eso queda para revisar a mano.
+// Cada día en su propia transacción: uno que falle no frena a los demás. Sólo con permiso de finanzas (la base lo
+// vuelve a exigir para asentar en tesorería); sin él, los días quedan listos para que finanzas los procese.
+async function procesarListos(req, integ, desde = null, hasta = null) {
+  if (!puede(req.usuario, 'finanzas')) return null;
+  const { rows } = await pool.query(
+    `${JORNADA_SQL} WHERE j.integracion_id = $1 AND ($2::date IS NULL OR j.dia >= $2) AND ($3::date IS NULL OR j.dia <= $3)
+      ORDER BY j.dia`, [integ.id, desde, hasta]);
+  const procesados = [], revisar = [];
+  for (const j of rows.map(estadoJornada)) {
+    if (!j.pagos_pendientes) continue;
+    if (j.estado !== 'listo' || j.abiertas) {
+      revisar.push({ dia: j.dia, estado: j.estado, motivo: j.alertas.filter(a => a.tipo !== 'info').map(a => a.texto).join(' ') });
+      continue;
+    }
+    try {
+      const o = await enTransaccion(c => procesarJornada(c, integ, j.dia, null));
+      procesados.push({ dia: j.dia, pagos: o.pagos, importe: j.por_cobrar });
+    } catch (e) {
+      if (!(e instanceof ErrorUsuario)) throw e;
+      revisar.push({ dia: j.dia, estado: j.estado, motivo: e.message });
+    }
+  }
+  return { procesados, revisar };
+}
+
+r.post('/pos/jornadas/:integracion/procesar', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Procesar cobros es de finanzas.', 403);
+  const integ = await integracion(pool, req, req.params.integracion);
+  res.status(201).json({ ok: true, ...await procesarListos(req, integ) });
 }));
 
 // Compatibilidad: procesar los cobros "de una importación" es procesar cada día que trae, con las mismas reglas.
