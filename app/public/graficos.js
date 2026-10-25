@@ -19,6 +19,12 @@ const Graf = (() => {
     const k = m <= 1 ? 1 : m <= 1.5 ? 1.5 : m <= 2 ? 2 : m <= 3 ? 3 : m <= 5 ? 5 : m <= 7.5 ? 7.5 : 10;
     return [k * paso, [1.5, 3, 7.5].includes(k) ? 3 : k === 5 ? 5 : 4];
   }
+  // Eje con números redondos que incluye el cero, también con valores negativos: [piso, tope, paso].
+  function rangoEje(min, max) {
+    const [s, d] = escala(Math.max(max - min, 0) || 1), paso = s / d;
+    const piso = Math.floor(min / paso) * paso, tope = Math.max(Math.ceil(max / paso) * paso, piso + paso);
+    return [piso, tope, paso];
+  }
   const dibujos = new Map();
   let _rz; addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => dibujos.forEach(fn => fn()), 150); });
   const dibujar = (cont, fn) => { dibujos.set(cont, fn); fn(); };
@@ -65,15 +71,15 @@ const Graf = (() => {
       if (!etiquetas.length) return cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
       const w = ancho(cont), izq = 52, der = 8, arriba = 10, abajo = 26, H = alto - arriba - abajo;
       const vs = serie.valores.map(n), va = anterior ? anterior.valores.map(n) : [];
-      const [tope, div] = escala(Math.max(...vs, ...va, 0));
+      const [piso, tope, paso] = rangoEje(Math.min(...vs, ...va, 0), Math.max(...vs, ...va, 0));
       const uno = etiquetas.length === 1;
       const x = i => uno ? izq + (w - izq - der) / 2 : izq + (w - izq - der) * i / (etiquetas.length - 1);
-      const y = v => arriba + H - H * v / tope;
+      const y = v => arriba + H - H * (v - piso) / (tope - piso);
       const svg = svgEl('svg', { viewBox: `0 0 ${w} ${alto}`, role: 'img', 'aria-label': serie.nombre, class: 'g-svg' });
-      for (let k = 0; k <= div; k++) {
-        const v = tope * k / div;
-        svg.append(svgEl('line', { x1: izq, x2: w - der, y1: y(v), y2: y(v), class: k ? 'grilla' : 'base' }));
-        const t = svgEl('text', { x: izq - 8, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = fmt(v); svg.append(t);
+      for (let v = piso; v <= tope + paso / 2; v += paso) {
+        const cero = Math.abs(v) < paso / 2;
+        svg.append(svgEl('line', { x1: izq, x2: w - der, y1: y(v), y2: y(v), class: cero ? 'base' : 'grilla' }));
+        const t = svgEl('text', { x: izq - 8, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = fmt(cero ? 0 : v); svg.append(t);
       }
       const camino = arr => arr.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
       if (anterior && va.length) svg.append(svgEl('path', { d: camino(va.slice(0, etiquetas.length)), class: 'linea anterior' }));
@@ -147,6 +153,56 @@ const Graf = (() => {
     });
   }
 
+  // Columnas agrupadas de 2 o más series (orden fijo de colores), con leyenda arriba y tooltip por grupo.
+  function columnasSeries(cont, { etiquetas, series, ejeX = e => e, titulo = e => e, fmt = compacto, alto = 220 }) {
+    dibujar(cont, () => {
+      cont.replaceChildren(el('div', { className: 'g-leyenda-fila' }, ...series.map((s, j) => el('span', {}, el('i', { style: `--c:var(--serie-${j + 1})` }), s.nombre))));
+      if (!etiquetas.length) return cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
+      const w = ancho(cont), izq = 52, arriba = 8, abajo = 26, H = alto - arriba - abajo;
+      const [tope, div] = escala(Math.max(...series.flatMap(s => s.valores.map(n)), 0)), y = v => arriba + H - H * v / tope;
+      const banda = (w - izq) / etiquetas.length, gap = 2, col = Math.max(3, Math.min(18, (banda * .7 - gap * (series.length - 1)) / series.length));
+      const svg = svgEl('svg', { viewBox: `0 0 ${w} ${alto}`, role: 'img', class: 'g-svg' });
+      for (let k = 0; k <= div; k++) {
+        const v = tope * k / div;
+        svg.append(svgEl('line', { x1: izq, x2: w, y1: y(v), y2: y(v), class: k ? 'grilla' : 'base' }));
+        const t = svgEl('text', { x: izq - 8, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = fmt(v); svg.append(t);
+      }
+      const tp = tip(cont), cada = Math.ceil(etiquetas.length / Math.max(1, Math.floor((w - izq) / 48)));
+      etiquetas.forEach((e, i) => {
+        const cx = izq + banda * i + banda / 2, ancho_g = series.length * col + gap * (series.length - 1);
+        series.forEach((s, j) => {
+          const v = n(s.valores[i]); if (v <= 0) return;
+          const x0 = cx - ancho_g / 2 + j * (col + gap), yt = y(v), b = y(0), r = Math.min(4, (b - yt) / 2, col / 2);
+          svg.append(svgEl('path', { d: `M${x0} ${b} V${yt + r} Q${x0} ${yt} ${x0 + r} ${yt} H${x0 + col - r} Q${x0 + col} ${yt} ${x0 + col} ${yt + r} V${b} Z`, style: `fill:var(--serie-${j + 1})` }));
+        });
+        if (i % cada === 0) { const t = svgEl('text', { x: cx, y: alto - 6, 'text-anchor': 'middle' }); t.textContent = ejeX(e); svg.append(t); }
+        const zona = svgEl('rect', { x: cx - banda / 2, y: 0, width: banda, height: alto - abajo, class: 'g-zona barra-zona' });
+        zona.addEventListener('pointermove', ev => { const [px, py] = pos(cont, ev); tp.mostrar(px, py, titulo(e, i), series.map((s, j) => [`--serie-${j + 1}`, `${s.nombre}: ${pesos(String(n(s.valores[i])))}`])); });
+        zona.addEventListener('pointerleave', () => tp.ocultar());
+        svg.insertBefore(zona, svg.firstChild);
+      });
+      cont.append(svg);
+    });
+  }
+
+  // Barra con referencia (bullet): el valor como barra y la referencia como marca vertical, en filas que se
+  // pueden tocar. Para el food cost real contra el teórico de cada local.
+  function referencia(cont, { items, fmt = v => num(String(v)) + '%', max, nombreValor = 'Real', nombreRef = 'Teórico', alElegir, elegido = null }) {
+    const tope = max ?? Math.max(...items.flatMap(it => [n(it.valor), n(it.ref)]), 1) * 1.15;
+    cont.replaceChildren(...items.map(it => {
+      const pv = Math.min(100, n(it.valor) / tope * 100), pr = Math.min(100, n(it.ref) / tope * 100);
+      const b = el('button', { type: 'button', disabled: !alElegir,
+        className: 'g-rank g-ref' + (elegido != null && it.clave === elegido ? ' act' : '') + (it.alerta ? ' alerta' : '') },
+        el('span', { className: 'n', textContent: it.etiqueta }),
+        el('span', { className: 'v' }, it.valor == null ? '—' : fmt(it.valor), it.alerta ? el('span', { className: 'tag mal', textContent: it.alerta, style: 'margin-left:6px' }) : ''),
+        el('span', { className: 'pista' }, el('i', { style: `width:${pv.toFixed(1)}%` }), it.ref != null ? el('b', { className: 'marca-ref', style: `left:${pr.toFixed(1)}%`, title: `${nombreRef}: ${fmt(it.ref)}` }) : ''),
+        el('span', { className: 'nota', textContent: it.nota || (it.ref != null ? `${nombreRef}: ${fmt(it.ref)}` : '') }));
+      if (alElegir) b.onclick = () => alElegir(it.clave);
+      return b;
+    }));
+    if (!items.length) cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
+  }
+
   // Dona con el total en el centro y su leyenda al lado: cada parte con su color (orden fijo, hasta 6; el resto
   // se junta en "Otros"), su porcentaje e importe. Tocar una parte o su renglón llama a alElegir(clave).
   function dona(cont, { items, centro, sub, fmt = v => pesos(String(v)), alElegir, elegido = null, maximo = 6 }) {
@@ -202,14 +258,16 @@ const Graf = (() => {
     if (!items.length) cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
   }
 
-  // Variación contra el período anterior: flecha y texto, nunca sólo el color.
-  function variacion(actual, anterior) {
+  // Variación contra el período anterior: flecha y texto, nunca sólo el color. `malo`: subir es malo (un costo);
+  // `puntos`: la diferencia va en puntos (para porcentajes como el food cost), no en variación relativa.
+  function variacion(actual, anterior, { malo = false, puntos = false } = {}) {
     const a = n(actual), b = n(anterior);
-    if (!b) return el('span', { className: 'g-var', textContent: a ? 'sin datos para comparar' : '' });
-    const p = (a - b) / b * 100, sube = p > 0.05, baja = p < -0.05;
-    return el('span', { className: 'g-var ' + (sube ? 'sube' : baja ? 'baja' : '') },
-      el('b', { textContent: (sube ? '▲ ' : baja ? '▼ ' : '= ') + Math.abs(p).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%' }));
+    if (actual == null || anterior == null || (!b && !puntos)) return el('span', { className: 'g-var', textContent: a ? 'sin datos para comparar' : '' });
+    const p = puntos ? a - b : (a - b) / b * 100, sube = p > 0.05, baja = p < -0.05;
+    const bueno = malo ? baja : sube, peor = malo ? sube : baja;
+    return el('span', { className: 'g-var ' + (bueno ? 'bueno' : peor ? 'malo' : '') },
+      el('b', { textContent: (sube ? '▲ ' : baja ? '▼ ' : '= ') + Math.abs(p).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + (puntos ? ' pp' : '%') }));
   }
 
-  return { mini, area, columnas, dona, ranking, variacion, compacto, escala };
+  return { mini, area, columnas, columnasSeries, referencia, dona, ranking, variacion, compacto, escala };
 })();

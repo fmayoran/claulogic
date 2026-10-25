@@ -408,8 +408,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   transferencias ni depósitos de cheques, que no son flujo) y saldo proyectado a 8 semanas: disponible
   (bancos + cajas) menos lo vencido, menos facturas por vencimiento y cheques propios por fecha de pago,
   más cheques de terceros en cartera. No proyecta ventas futuras.
-- Lo ve el encargado (sus sedes), finanzas y el administrador (todas). `app/tablero.js`, `tablero.html`;
-  gráficos en SVG propio, paleta validada para claro y oscuro, con tabla al lado de cada uno.
+- Lo ve el encargado (sus sedes), finanzas y el administrador (todas). `app/tablero.js`, `tablero.html`.
+- **Mismo estilo que Ventas** (pedido de Fer, 25/10/2026), con `graficos.js`: período en botones (este mes, mes
+  anterior, 7 días, fechas), sede e IVA arriba, y dos pestañas (**Food cost** y **Flujo de caja**, ésta sólo
+  finanzas; se recuerda la última). Cifras con variación contra el período anterior de la misma duración (se
+  pide `operativo` dos veces; en costos, subir es malo, y el food cost varía en puntos); food cost por local en
+  barra con el teórico como marca (`Graf.referencia`; "alto" si el real pasa al teórico por más de 3 puntos;
+  tocar un local abre sus productos); dona de la composición del consumo real (tocar una parte ordena los
+  productos por ese concepto); productos con desvío y platos (food cost, "alto" sobre 35%) en barras, cada uno
+  con su tabla en "Ver como tabla". Caja: entradas y salidas por semana (`Graf.columnasSeries`) y saldo
+  proyectado en área (admite negativos y avisa la semana en que baja de cero). Sin cambios en la API.
 - **Pendiente de definir con Fer cuando avancen las pruebas** (21/10/2026): verificar Fudo con una cuenta
   real; confirmar la valorización de los no perecederos a costo vigente; confirmar el IVA 21% incluido
   por defecto en las ventas del POS; probar usuarios y permisos por rol (después del circuito básico).

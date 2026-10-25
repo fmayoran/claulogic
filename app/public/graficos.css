@@ -42,7 +42,7 @@
 .kpi .pie{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:.8rem;color:var(--mut);min-height:1.2em;}
 .kpi .curva{height:36px;margin-top:6px;}
 .g-var{font-size:.8rem;color:var(--mut);} .g-var b{font-weight:650;}
-.g-var.sube b{color:var(--sube);} .g-var.baja b{color:var(--baja);}
+.g-var.bueno b{color:var(--sube);} .g-var.malo b{color:var(--baja);}
 
 /* Gráficos SVG */
 .g-svg{display:block;width:100%;height:auto;overflow:visible;}
@@ -79,18 +79,29 @@
 .g-leyenda{display:grid;gap:2px;flex:1 1 200px;min-width:0;}
 .g-ley{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:8px;
   padding:7px 8px;border-radius:10px;font-size:.88rem;cursor:pointer;}
-.g-ley:disabled{cursor:default;} .g-ley:not(:disabled):hover{background:var(--sel);} .g-ley.act{background:var(--sel);}
+.g-ley:disabled{cursor:default;opacity:1;} .g-ley:not(:disabled):hover{background:var(--sel);} .g-ley.act{background:var(--sel);}
 .g-ley:focus-visible{outline:2px solid var(--acento);}
 .g-ley .n{overflow-wrap:anywhere;line-height:1.25;} .g-ley .v{font-variant-numeric:tabular-nums;font-weight:600;}
 .g-ley .p{color:var(--mut);font-size:.8rem;min-width:3.4em;text-align:right;font-variant-numeric:tabular-nums;}
 
 /* Ranking en barras horizontales */
 .g-rank{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;width:100%;padding:8px 8px;border-radius:10px;cursor:pointer;}
-.g-rank:disabled{cursor:default;} .g-rank:not(:disabled):hover{background:var(--sel);} .g-rank.act{background:var(--sel);}
+.g-rank:disabled{cursor:default;opacity:1;} .g-rank:not(:disabled):hover{background:var(--sel);} .g-rank.act{background:var(--sel);}
 .g-rank .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem;} .g-rank .v{font-weight:600;font-variant-numeric:tabular-nums;font-size:.9rem;}
 .g-rank .pista{grid-column:1 / -1;height:6px;border-radius:3px;background:var(--g-grilla);overflow:hidden;}
 .g-rank .pista i{display:block;height:100%;border-radius:3px;background:var(--serie-1);}
 .g-rank .nota{grid-column:1 / -1;color:var(--mut);font-size:.78rem;}
+
+/* Barra con referencia: la marca es el teórico */
+.g-ref .pista{position:relative;overflow:visible;height:8px;border-radius:4px;}
+.g-ref .pista i{border-radius:4px;}
+.g-ref .marca-ref{position:absolute;top:-4px;width:2px;height:16px;margin-left:-1px;background:var(--fg);border-radius:1px;}
+.g-ref.alerta .pista i{background:var(--serie-2);}
+.g-leyenda-fila{display:flex;gap:14px;font-size:.82rem;color:var(--mut);margin:0 0 6px;flex-wrap:wrap;}
+.g-leyenda-fila i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--c);vertical-align:-1px;}
+
+/* Pestañas de un tablero (mismo aspecto que los botones de período) */
+.pestanas{margin:0 0 18px;}
 
 /* Filtros activos del detalle */
 .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
@@ -110,4 +121,5 @@ dialog.panel-lado::backdrop{background:rgba(10,16,14,.35);}
   .kpis > :first-child{grid-column:1 / -1;} .kpis > :first-child .va{font-size:1.8rem;}
   .kpi .va{font-size:1.3rem;} .card{padding:14px 14px;border-radius:14px;}
   .t-cab h1{flex-basis:100%;} .segm{width:100%;justify-content:space-between;} .segm button{padding:6px 10px;font-size:.85rem;}
+  .segm.pestanas{width:auto;justify-content:flex-start;}
 }

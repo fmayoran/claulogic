@@ -5,298 +5,294 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tablero · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
 <style>
-  /* Colores de los gráficos por rol. Paleta validada (validate_palette.js) contra el panel claro
-     (#fff) y el oscuro (#1a1f1d): serie 1 azul, serie 2 naranja, en ese orden fijo. */
-  .viz{--serie-1:#2a78d6;--serie-2:#eb6834;--grilla:#e3e7e4;--eje:#5b6762;--tinta:#18201d;--sup:#fff;}
-  @media (prefers-color-scheme:dark){.viz{--serie-1:#3987e5;--serie-2:#d95926;--grilla:#2b3330;--eje:#93a09a;--tinta:#e8ece9;--sup:#1a1f1d;}}
-  .viz{position:relative;background:var(--sup);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 10px;}
-  .viz svg{display:block;width:100%;height:auto;overflow:visible;}
-  .viz text{fill:var(--eje);font-size:12px;font-variant-numeric:tabular-nums;}
-  .viz .etq{fill:var(--tinta);}
-  .viz .grilla{stroke:var(--grilla);stroke-width:1;}
-  .viz .cero{stroke:var(--eje);stroke-width:1;}
-  /* Las marcas no capturan el mouse: lo recibe la zona de la categoría entera, que es más grande. */
-  .viz path,.viz text,.viz circle,.viz line{pointer-events:none;}
-  .viz .zona{fill:transparent;cursor:default;} .viz .zona:hover{fill:var(--sel);opacity:.5;}
-  .leyenda{display:flex;gap:16px;flex-wrap:wrap;font-size:.85rem;color:var(--mut);margin:0 0 8px;}
-  .leyenda i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px;}
-  .tip{position:absolute;pointer-events:none;background:var(--panel);color:var(--fg);border:1px solid var(--borde);border-radius:8px;
-    padding:8px 10px;font-size:.85rem;box-shadow:0 4px 14px rgba(0,0,0,.12);white-space:nowrap;z-index:2;}
-  .tip b{display:block;margin-bottom:2px;} .tip i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:0 0 18px;}
-  .kpi{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;background:var(--panel);}
-  .kpi span{display:block;color:var(--mut);font-size:.84rem;} .kpi strong{font-size:1.6rem;font-weight:700;}
-  .kpi small{display:block;color:var(--mut);font-size:.8rem;margin-top:2px;}
-  .bloque{margin:0 0 28px;} .bloque h2{margin-bottom:4px;}
-  .dos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));}
-  td.alto{color:var(--mal);font-weight:600;}
+  .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
+  #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
+  .t-filtros .iva{font-size:.85rem;padding:7px 12px;}
+  details.tabla summary{cursor:pointer;color:var(--mut);font-size:.85rem;margin-top:10px;}
+  details.tabla .tabla-wrap{margin-top:8px;}
+  td.alto{color:var(--baja);font-weight:600;}
+  .aviso-costo{color:var(--mut);font-size:.82rem;margin:10px 0 0;}
+  .card-cab select{width:auto;border-radius:999px;padding:5px 12px;font-size:.88rem;}
+  /* Las tarjetas toman su alto: con un solo local, la de food cost no se estira vacía. */
+  .t-grid{align-items:start;}
 </style>
 </head>
 <body>
 <main class="ancho">
-  <h1>Tablero</h1>
-  <p class="sub">Food cost, consumo teórico contra real y flujo de caja. Todo sale de los movimientos registrados: no hay números cargados a mano.</p>
-  <div class="barra">
-    <label>Desde<input id="desde" type="date"></label>
-    <label>Hasta<input id="hasta" type="date"></label>
-    <select id="sede" hidden></select>
-    <label>Ventas del POS<select id="iva"><option value="21">con IVA 21% incluido</option><option value="10.5">con IVA 10,5% incluido</option><option value="0">sin IVA</option></select></label>
-  </div>
-
-  <section class="bloque">
-    <div class="kpis" id="kpis"></div>
-    <h2>Food cost por local</h2>
-    <p class="ayuda">Teórico: lo que llevan los platos vendidos. Real: el teórico más mermas, vencimientos, diferencias de los conteos y consumos internos. Sobre ventas netas.</p>
-    <div class="viz" id="gFood"></div>
-    <div class="tabla-wrap" style="margin-top:12px"><table class="datos">
-      <thead><tr><th>Sede</th><th class="num">Ventas netas</th><th class="num">Teórico</th><th class="num">Mermas y venc.</th><th class="num">Diferencias de conteo</th>
-        <th class="num">Otros consumos</th><th class="num">Real</th><th class="num">FC teórico</th><th class="num">FC real</th><th class="num">Stock valorizado</th></tr></thead>
-      <tbody id="tSedes"></tbody></table></div>
-    <p class="ayuda" id="avisoCosto"></p>
-  </section>
-
-  <section class="bloque">
-    <h2>Dónde está la diferencia</h2>
-    <div class="barra"><label>Sede<select id="sedeProd"></select></label></div>
-    <div class="tabla-wrap"><table class="datos">
-      <thead><tr><th>Producto</th><th class="num">Teórico</th><th class="num">Mermas</th><th class="num">Diferencia de conteo</th><th class="num">Otros</th><th class="num">Desvío total</th></tr></thead>
-      <tbody id="tProd"></tbody></table></div>
-  </section>
-
-  <section class="bloque">
-    <h2>Rentabilidad por plato</h2>
-    <p class="ayuda">El costo de la porción es con el costo vigente de hoy de cada ingrediente.</p>
-    <div class="tabla-wrap"><table class="datos">
-      <thead><tr><th>Plato</th><th class="num">Vendidos</th><th class="num">Ventas</th><th class="num">Precio promedio</th><th class="num">Costo porción</th><th class="num">Food cost</th><th class="num">Margen</th></tr></thead>
-      <tbody id="tPlatos"></tbody></table></div>
-  </section>
-
-  <section class="bloque" id="secFlujo" hidden>
-    <h2>Flujo de caja</h2>
-    <div class="kpis" id="kpisCaja"></div>
-    <div class="dos">
-      <div><h3>Entradas y salidas por semana</h3><div class="viz" id="gHist"></div></div>
-      <div><h3>Saldo proyectado, próximas 8 semanas</h3><div class="viz" id="gProy"></div></div>
+  <div class="t-cab">
+    <h1>Tablero</h1>
+    <p class="sub">Food cost, consumo teórico contra real y flujo de caja. Todo sale de los movimientos registrados: no hay números cargados a mano.
+      Teórico es lo que llevan los platos vendidos; real, el teórico más mermas, vencimientos, diferencias de los conteos y consumos internos.
+      Se valoriza al costo del lote; lo que no tiene lote, al costo vigente de hoy.</p>
+    <div class="t-filtros">
+      <select id="sede" aria-label="Sede" hidden></select>
+      <select id="iva" class="iva" aria-label="IVA de las ventas del POS"><option value="21">Ventas con IVA 21%</option><option value="10.5">Ventas con IVA 10,5%</option><option value="0">Ventas sin IVA</option></select>
     </div>
-    <div class="tabla-wrap" style="margin-top:12px"><table class="datos">
-      <thead><tr><th>Semana del</th><th class="num">Facturas a pagar</th><th class="num">Cheques propios</th><th class="num">Cheques a cobrar</th><th class="num">Saldo proyectado</th></tr></thead>
-      <tbody id="tProy"></tbody></table></div>
-    <p class="ayuda" id="ayudaProy"></p>
+  </div>
+  <div class="t-cab" style="margin-top:-8px">
+    <div class="segm" id="periodo" role="group" aria-label="Período">
+      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button>
+      <button type="button" data-p="7">7 días</button><button type="button" data-p="otro">Fechas</button>
+    </div>
+    <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
+  </div>
+  <p class="t-rango" id="rango"></p>
+  <div class="segm pestanas" id="pestanas" role="tablist">
+    <button type="button" data-t="costos" class="act">Food cost</button><button type="button" data-t="caja" hidden>Flujo de caja</button>
+  </div>
+  <span class="msg" id="msg"></span>
+
+  <section id="tCostos">
+    <div class="kpis" id="kpis"></div>
+    <div class="t-grid t-g2">
+      <section class="card">
+        <h2>Food cost por local</h2>
+        <p class="cap">La barra es el real; la marca, el teórico. Tocá un local para ver sus productos.</p>
+        <div id="gFood"></div>
+        <details class="tabla"><summary>Ver como tabla</summary>
+          <div class="tabla-wrap"><table class="datos">
+            <thead><tr><th>Sede</th><th class="num">Ventas netas</th><th class="num">Teórico</th><th class="num">Mermas y venc.</th><th class="num">Dif. de conteo</th>
+              <th class="num">Otros</th><th class="num">Real</th><th class="num">FC teórico</th><th class="num">FC real</th><th class="num">Stock valorizado</th></tr></thead>
+            <tbody id="tSedes"></tbody></table></div></details>
+        <p class="aviso-costo" id="avisoCosto"></p>
+      </section>
+      <section class="card">
+        <h2>Composición del consumo real</h2>
+        <p class="cap">Tocá una parte para ordenar los productos por ella.</p>
+        <div id="gComp"></div>
+      </section>
+    </div>
+    <div class="t-grid t-g2">
+      <section class="card" id="cProd">
+        <div class="card-cab"><h2>Dónde está la diferencia</h2><select id="sedeProd" aria-label="Sede"></select></div>
+        <p class="cap" id="capProd">Los productos que más se apartan del teórico.</p>
+        <div class="chips" id="chipsProd"></div>
+        <div id="gProd"></div>
+        <details class="tabla"><summary>Ver como tabla</summary>
+          <div class="tabla-wrap"><table class="datos">
+            <thead><tr><th>Producto</th><th class="num">Teórico</th><th class="num">Mermas</th><th class="num">Dif. de conteo</th><th class="num">Otros</th><th class="num">Desvío</th></tr></thead>
+            <tbody id="tProd"></tbody></table></div></details>
+      </section>
+      <section class="card">
+        <h2>Rentabilidad por plato</h2>
+        <p class="cap">Food cost de cada plato con el costo vigente de hoy de sus ingredientes; marcados los que pasan el 35%.</p>
+        <div id="gPlatos"></div>
+        <details class="tabla"><summary>Ver como tabla</summary>
+          <div class="tabla-wrap"><table class="datos">
+            <thead><tr><th>Plato</th><th class="num">Vendidos</th><th class="num">Ventas</th><th class="num">Precio prom.</th><th class="num">Costo porción</th><th class="num">Food cost</th><th class="num">Margen</th></tr></thead>
+            <tbody id="tPlatos"></tbody></table></div></details>
+      </section>
+    </div>
+  </section>
+
+  <section id="tCaja" hidden>
+    <div class="kpis" id="kpisCaja"></div>
+    <div class="t-grid t-g2">
+      <section class="card">
+        <h2>Entradas y salidas por semana</h2>
+        <p class="cap">Del período elegido. Sin transferencias entre cuentas ni depósitos de cheques, que no son flujo.</p>
+        <div id="gHist"></div>
+      </section>
+      <section class="card">
+        <h2>Saldo proyectado</h2>
+        <p class="cap" id="capProy">Próximas 8 semanas, con lo comprometido.</p>
+        <div id="gProy"></div>
+        <details class="tabla"><summary>Ver como tabla</summary>
+          <div class="tabla-wrap"><table class="datos">
+            <thead><tr><th>Semana del</th><th class="num">Facturas</th><th class="num">Cheques propios</th><th class="num">Cheques a cobrar</th><th class="num">Saldo</th></tr></thead>
+            <tbody id="tProy"></tbody></table></div></details>
+      </section>
+    </div>
   </section>
 </main>
 <script src="comun.js"></script>
+<script src="graficos.js"></script>
 <script>
+const n = v => v == null || v === '' ? 0 : Number(v);
 const cero = v => v == null || /^-?0+(\.0+)?$/.test(String(v));
 const pct = v => v == null ? '—' : num(v) + '%';
-// Geometría en Number (sólo para dibujar); los textos salen de los valores exactos de la base.
-const n = v => v == null ? 0 : Number(v);
-const svgEl = (tag, attrs = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
-const compacto = v => { const a = Math.abs(v); return (v < 0 ? '-' : '') + (a >= 1e6 ? '$' + (a / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M'
-  : a >= 1e3 ? '$' + (a / 1e3).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + ' mil' : '$' + a.toLocaleString('es-AR', { maximumFractionDigits: 0 })); };
-// Escala con números redondos: el tope y en cuántas marcas se divide (50 en 5, no en 4 de 12,5).
-function escala(max) {
-  if (max <= 0) return [1, 4];
-  const paso = Math.pow(10, Math.floor(Math.log10(max))), m = max / paso;
-  const k = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10;
-  return [k * paso, k === 5 ? 5 : 4];
-}
-// Cada gráfico se dibuja al ancho real de su caja (el texto queda a 12 px de verdad, no escalado)
-// y se vuelve a dibujar si cambia el ancho.
-const graficos = new Map();
-const anchoDe = cont => Math.max(280, cont.clientWidth - 34);
-function dibujar(cont, fn) { graficos.set(cont, fn); fn(); }
-let _rz; addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => graficos.forEach(fn => fn()), 150); });
-function tooltip(cont) {
-  const t = el('div', { className: 'tip', hidden: true }); cont.append(t);
-  return {
-    mostrar(ev, titulo, filas) {
-      t.replaceChildren(el('b', { textContent: titulo }), ...filas.map(([color, txt]) => el('div', {}, color ? Object.assign(el('i'), { style: `background:var(${color})` }) : '', txt)));
-      t.hidden = false;
-      const r = cont.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-      t.style.left = Math.min(x + 14, r.width - t.offsetWidth - 4) + 'px'; t.style.top = Math.max(0, y - t.offsetHeight - 10) + 'px';
-    },
-    ocultar() { t.hidden = true; },
-  };
-}
-const leyenda = series => el('div', { className: 'leyenda' }, ...series.map(s => el('span', {}, Object.assign(el('i'), { style: `background:var(${s.color})` }), s.nombre)));
-
-// Barras horizontales agrupadas (2 series): una banda por categoría, barras finas con el extremo redondeado.
-function barrasH(cont, categorias, series, fmt) {
-  cont.replaceChildren(leyenda(series));
-  const ancho = anchoDe(cont), izq = Math.min(120, ancho * .3), der = 56, barra = 12, gap = 2, banda = series.length * barra + gap * (series.length - 1) + 18;
-  const alto = categorias.length * banda + 24;
-  const max = Math.max(...categorias.flatMap((_, i) => series.map(s => n(s.valores[i]))), 0);
-  const [tope, div] = escala(max), x = v => izq + (ancho - izq - der) * (v / tope);
-  const svg = svgEl('svg', { viewBox: `0 0 ${ancho} ${alto}`, role: 'img', 'aria-label': 'Gráfico de barras' });
-  for (let k = 0; k <= div; k++) {
-    const v = tope * k / div, gx = x(v);
-    svg.append(svgEl('line', { x1: gx, x2: gx, y1: 0, y2: alto - 20, class: k ? 'grilla' : 'cero' }));
-    const t = svgEl('text', { x: gx, y: alto - 4, 'text-anchor': 'middle' }); t.textContent = fmt.eje(v); svg.append(t);
-  }
-  const tip = tooltip(cont);
-  categorias.forEach((cat, i) => {
-    const y0 = i * banda + 8;
-    const et = svgEl('text', { x: izq - 10, y: y0 + banda / 2 - 6, 'text-anchor': 'end', class: 'etq' }); et.textContent = cat; svg.append(et);
-    series.forEach((s, j) => {
-      const v = s.valores[i]; if (v == null) return;
-      const y = y0 + j * (barra + gap), x1 = Math.max(x(n(v)), izq + 4), r = 4;
-      svg.append(svgEl('path', { d: `M${izq} ${y} H${x1 - r} Q${x1} ${y} ${x1} ${y + r} V${y + barra - r} Q${x1} ${y + barra} ${x1 - r} ${y + barra} H${izq} Z`,
-        style: `fill:var(${s.color})` }));
-      const tv = svgEl('text', { x: x1 + 6, y: y + barra - 2, class: 'etq' }); tv.textContent = fmt.valor(v); svg.append(tv);
-    });
-    const zona = svgEl('rect', { x: 0, y: y0 - 4, width: ancho, height: banda - 6, class: 'zona' });
-    zona.addEventListener('mousemove', ev => tip.mostrar(ev, cat, series.map(s => [s.color, `${s.nombre}: ${s.valores[i] == null ? 'sin datos' : fmt.valor(s.valores[i])}`])));
-    zona.addEventListener('mouseleave', () => tip.ocultar());
-    svg.insertBefore(zona, svg.firstChild);
-  });
-  cont.append(svg);
-}
-
-// Columnas agrupadas por semana (2 series).
-function columnas(cont, etiquetas, series) {
-  cont.replaceChildren(leyenda(series));
-  const ancho = anchoDe(cont), alto = 220, abajo = 26, izq = 58, col = Math.min(20, ((ancho - izq) / etiquetas.length - 10) / series.length), gap = 2;
-  const max = Math.max(...etiquetas.flatMap((_, i) => series.map(s => n(s.valores[i]))), 0);
-  const [tope, div] = escala(max), y = v => (alto - abajo) - (alto - abajo - 8) * (v / tope);
-  const svg = svgEl('svg', { viewBox: `0 0 ${ancho} ${alto}`, role: 'img', 'aria-label': 'Entradas y salidas por semana' });
-  for (let k = 0; k <= div; k++) {
-    const v = tope * k / div;
-    svg.append(svgEl('line', { x1: izq, x2: ancho, y1: y(v), y2: y(v), class: k ? 'grilla' : 'cero' }));
-    const t = svgEl('text', { x: izq - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = compacto(v); svg.append(t);
-  }
-  const tip = tooltip(cont), banda = (ancho - izq) / etiquetas.length;
-  etiquetas.forEach((et, i) => {
-    const cx = izq + banda * i + banda / 2, w = series.length * col + gap * (series.length - 1);
-    series.forEach((s, j) => {
-      const v = n(s.valores[i]); if (!v) return;
-      const x0 = cx - w / 2 + j * (col + gap), yt = y(v), b = y(0), r = Math.min(4, (b - yt) / 2);
-      svg.append(svgEl('path', { d: `M${x0} ${b} V${yt + r} Q${x0} ${yt} ${x0 + r} ${yt} H${x0 + col - r} Q${x0 + col} ${yt} ${x0 + col} ${yt + r} V${b} Z`, style: `fill:var(${s.color})` }));
-    });
-    const t = svgEl('text', { x: cx, y: alto - 8, 'text-anchor': 'middle' }); t.textContent = fecha(et).slice(0, 5); svg.append(t);
-    const zona = svgEl('rect', { x: cx - banda / 2, y: 0, width: banda, height: alto - abajo, class: 'zona' });
-    zona.addEventListener('mousemove', ev => tip.mostrar(ev, 'Semana del ' + fecha(et), series.map(s => [s.color, `${s.nombre}: ${pesos(s.valores[i] || '0')}`])));
-    zona.addEventListener('mouseleave', () => tip.ocultar());
-    svg.insertBefore(zona, svg.firstChild);
-  });
-  cont.append(svg);
-}
-
-// Línea del saldo proyectado (una serie: el título la nombra, sin leyenda).
-function linea(cont, etiquetas, valores) {
-  cont.replaceChildren();
-  const ancho = anchoDe(cont), alto = 220, abajo = 26, izq = 64, der = 16;
-  const vs = valores.map(n), min = Math.min(0, ...vs), max = Math.max(...vs, 1);
-  const [tope, div] = escala(max - min), base = min < 0 ? -escala(-min)[0] : 0, techo = base + tope;
-  const x = i => izq + (ancho - izq - der) * (etiquetas.length > 1 ? i / (etiquetas.length - 1) : 0.5);
-  const y = v => (alto - abajo) - (alto - abajo - 8) * ((v - base) / (techo - base));
-  const svg = svgEl('svg', { viewBox: `0 0 ${ancho} ${alto}`, role: 'img', 'aria-label': 'Saldo proyectado' });
-  for (let k = 0; k <= div; k++) {
-    const v = base + (techo - base) * k / div;
-    svg.append(svgEl('line', { x1: izq, x2: ancho - der, y1: y(v), y2: y(v), class: Math.abs(v) < 1e-9 ? 'cero' : 'grilla' }));
-    const t = svgEl('text', { x: izq - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = compacto(v); svg.append(t);
-  }
-  svg.append(svgEl('path', { d: vs.map((v, i) => `${i ? 'L' : 'M'}${x(i)} ${y(v)}`).join(' '), fill: 'none', style: 'stroke:var(--serie-1)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
-  const tip = tooltip(cont);
-  etiquetas.forEach((et, i) => {
-    if (i === etiquetas.length - 1) {
-      svg.append(svgEl('circle', { cx: x(i), cy: y(vs[i]), r: 5, style: 'fill:var(--serie-1);stroke:var(--sup)', 'stroke-width': 2 }));
-      const t = svgEl('text', { x: x(i) - 8, y: y(vs[i]) - 10, 'text-anchor': 'end', class: 'etq' }); t.textContent = pesos(valores[i]); svg.append(t);
-    }
-    if (i % 2 === 0 || i === etiquetas.length - 1) { const t = svgEl('text', { x: x(i), y: alto - 8, 'text-anchor': 'middle' }); t.textContent = fecha(et).slice(0, 5); svg.append(t); }
-    const w = (ancho - izq - der) / Math.max(etiquetas.length - 1, 1);
-    const zona = svgEl('rect', { x: x(i) - w / 2, y: 0, width: w, height: alto - abajo, class: 'zona' });
-    zona.addEventListener('mousemove', ev => tip.mostrar(ev, 'Semana del ' + fecha(et), [['--serie-1', 'Saldo: ' + pesos(valores[i])]]));
-    zona.addEventListener('mouseleave', () => tip.ocultar());
-    svg.insertBefore(zona, svg.firstChild);
-  });
-  cont.append(svg);
-}
-
-// ── Datos ──
-const kpi = (titulo, valor, nota) => el('div', { className: 'kpi' }, el('span', { textContent: titulo }), el('strong', { textContent: valor }), nota ? el('small', { textContent: nota }) : '');
 // Porcentaje exacto con BigInt: a / b en décimas de punto, redondeado como en la base.
 const ratio = (a, b) => { const A = centavos(a), Bc = centavos(b); if (Bc <= 0n) return null; const d = (A * 2000n / Bc + (A < 0n ? -1n : 1n)) / 2n; return (d / 10n) + '.' + (d % 10n < 0n ? -(d % 10n) : d % 10n); };
-const sumar = (filas, k) => deCentavos(filas.reduce((s, f) => s + centavos(f[k]), 0n));
+const sumar = (filas, k) => deCentavos(filas.reduce((s, f) => s + centavos(f[k] || '0'), 0n));
+const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const diaLargo = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d)}`;
+const iso = d => d.toISOString().slice(0, 10);
+const corrido = (d, dias) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + dias); return iso(x); };
 
-function params(extra = {}) {
-  const p = new URLSearchParams({ iva: $('#iva').value });
-  if ($('#desde').value) p.set('desde', $('#desde').value);
-  if ($('#hasta').value) p.set('hasta', $('#hasta').value);
+// ── Período y filtros ──
+let yo = null, sedesCargadas = false, operativoAct = null, ordenProd = null;
+function rango(p) {
+  const h = hoy();
+  if (p === 'mes') return [h.slice(0, 8) + '01', h];
+  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00Z'); x.setUTCDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
+  if (p === '7') return [corrido(h, -6), h];
+  return null;
+}
+function elegirPeriodo(p) {
+  $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
+  $('#fechas').hidden = p !== 'otro';
+  const r = rango(p); if (r) [$('#desde').value, $('#hasta').value] = r;
+}
+// El período anterior de la misma duración, que termina el día antes.
+function anterior() {
+  const d = $('#desde').value, h = $('#hasta').value, largo = Math.round((new Date(h) - new Date(d)) / 864e5) + 1;
+  return [corrido(d, -largo), corrido(d, -1)];
+}
+function params(extra = {}, [desde, hasta] = [$('#desde').value, $('#hasta').value]) {
+  const p = new URLSearchParams({ iva: $('#iva').value, desde, hasta });
   if ($('#sede').value) p.set('sede', $('#sede').value);
   for (const [k, v] of Object.entries(extra)) p.set(k, v);
   return p;
 }
-async function operativo() {
-  const { sedes } = await api('tablero/operativo?' + params());
+$$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); todo(); });
+$('#desde').onchange = $('#hasta').onchange = todo;
+$('#iva').onchange = todo;
+$('#sede').onchange = () => { $('#sedeProd').value = $('#sede').value || $('#sedeProd').value; todo(); };
+$$('#pestanas button').forEach(b => b.onclick = () => {
+  $$('#pestanas button').forEach(x => x.classList.toggle('act', x === b));
+  $('#tCostos').hidden = b.dataset.t !== 'costos'; $('#tCaja').hidden = b.dataset.t !== 'caja';
+  try { localStorage.setItem('tablero-pestana', b.dataset.t); } catch {}
+  if (b.dataset.t === 'caja') flujo().catch(e => msg(e.message, 'mal'));
+  else if (operativoAct) pintarOperativo();   // los gráficos se dibujan al ancho de su caja, que oculta era 0
+});
+
+const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+  el('span', { className: 'va', textContent: valor ?? '—' }), el('span', { className: 'pie' }, variacion || '', nota ? el('span', { textContent: nota }) : ''));
+const vs = v => [v, v && v.textContent && !/sin datos/.test(v.textContent) ? 'vs. anterior' : ''];
+
+// ── Food cost ──
+const totales = sedes => {
   const locales = sedes.filter(s => s.tipo === 'local' || !cero(s.ventas_netas));
   const netas = sumar(locales, 'ventas_netas'), real = sumar(locales, 'real'), teo = sumar(locales, 'teorico');
-  $('#kpis').replaceChildren(kpi('Ventas netas', pesos(netas), `${locales.reduce((s, x) => s + x.tickets, 0)} tickets`),
-    kpi('Consumo real', pesos(real), 'teórico ' + pesos(teo)), kpi('Food cost real', pct(ratio(real, netas)), 'teórico ' + pct(ratio(teo, netas))),
-    kpi('Desvío sobre el teórico', pesos(deCentavos(centavos(real) - centavos(teo))), 'mermas, conteos y consumos internos'));
-  dibujar($('#gFood'), () => barrasH($('#gFood'), locales.map(s => s.sede), [
-    { nombre: 'Teórico', color: '--serie-1', valores: locales.map(s => s.fc_teorico) },
-    { nombre: 'Real', color: '--serie-2', valores: locales.map(s => s.fc_real) }],
-    { valor: v => num(v) + '%', eje: v => Math.round(v) + '%' }));
+  return { locales, netas, real, teo, desvio: deCentavos(centavos(real) - centavos(teo)), fcReal: ratio(real, netas), fcTeo: ratio(teo, netas),
+           tickets: locales.reduce((s, x) => s + x.tickets, 0), stock: sumar(sedes, 'stock_valorizado') };
+};
+async function operativo() {
+  const [act, ant] = await Promise.all([api('tablero/operativo?' + params()), api('tablero/operativo?' + params({}, anterior()))]);
+  operativoAct = { sedes: act.sedes, ant: totales(ant.sedes) };
+  // Las sedes que el servidor deja ver (encargado: las suyas; finanzas y admin: todas).
+  if (!sedesCargadas) {
+    opciones($('#sede'), act.sedes.map(s => [s.sede_id, s.sede]), null, 'Todas las sedes');
+    $('#sede').hidden = act.sedes.length < 2; sedesCargadas = true;
+  }
+  const t = totales(act.sedes), sel = $('#sedeProd'), previo = sel.value;
+  opciones(sel, act.sedes.map(s => [s.sede_id, s.sede]), previo || (t.locales[0] || act.sedes[0] || {}).sede_id);
+  pintarOperativo();
+}
+function pintarOperativo() {
+  const { sedes, ant: a } = operativoAct, t = totales(sedes);
+  const [v1, n1] = vs(Graf.variacion(t.netas, a.netas)), [v2, n2] = vs(Graf.variacion(t.real, a.real, { malo: true }));
+  const [v3] = vs(Graf.variacion(t.fcReal, a.fcReal, { malo: true, puntos: true })), [v4, n4] = vs(Graf.variacion(t.desvio, a.desvio, { malo: true }));
+  const sinCosto = sedes.reduce((s, x) => s + x.movimientos_sin_costo + x.stock_sin_costo, 0);
+  $('#kpis').replaceChildren(
+    kpi('Ventas netas', pesos(t.netas), v1, `${n1 ? n1 + ' · ' : ''}${num(String(t.tickets))} ventas`),
+    kpi('Consumo real', pesos(t.real), v2, n2),
+    kpi('Food cost real', t.fcReal && pct(t.fcReal), v3, `teórico ${pct(t.fcTeo)}`),
+    kpi('Desvío sobre el teórico', pesos(t.desvio), v4, n4 || 'mermas, conteos e internos'),
+    kpi('Stock valorizado', pesos(t.stock), null, sinCosto ? `${sinCosto} sin costo` : 'al costo de cada lote'));
+
+  Graf.referencia($('#gFood'), {
+    items: t.locales.map(s => ({ clave: s.sede_id, etiqueta: s.sede, valor: s.fc_real, ref: s.fc_teorico,
+      alerta: s.fc_real && s.fc_teorico && n(s.fc_real) - n(s.fc_teorico) > 3 ? 'alto' : '',
+      nota: `Ventas netas ${pesos(s.ventas_netas)} · teórico ${pct(s.fc_teorico)}` })),
+    alElegir: id => { $('#sedeProd').value = id; productos().catch(e => msg(e.message, 'mal')); $('#cProd').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+    elegido: $('#sedeProd').value || null });
   filas($('#tSedes'), sedes, s => el('tr', {}, td(s.sede), td(pesos(s.ventas_netas), 'num'), td(pesos(s.teorico), 'num'), td(pesos(s.perdida), 'num'),
     td(pesos(s.diferencia), 'num'), td(pesos(deCentavos(centavos(s.consumo_interno) + centavos(s.venta_manual))), 'num'), td(pesos(s.real), 'num'),
-    td(pct(s.fc_teorico), 'num'), td(pct(s.fc_real), 'num' + (s.fc_real && s.fc_teorico && Number(s.fc_real) - Number(s.fc_teorico) > 3 ? ' alto' : '')),
+    td(pct(s.fc_teorico), 'num'), td(pct(s.fc_real), 'num' + (s.fc_real && s.fc_teorico && n(s.fc_real) - n(s.fc_teorico) > 3 ? ' alto' : '')),
     td(pesos(s.stock_valorizado), 'num')), 'Sin sedes.', 10);
-  const sinCosto = sedes.reduce((a, s) => a + s.movimientos_sin_costo + s.stock_sin_costo, 0);
-  $('#avisoCosto').textContent = (sinCosto ? `Hay ${sinCosto} movimiento(s) o saldo(s) de productos sin costo cargado: no suman. ` : '')
-    + 'Se valoriza al costo del lote; lo que no tiene lote, al costo vigente de hoy.';
-  // Las sedes que el servidor deja ver (encargado: las suyas; finanzas y admin: todas).
-  if (!$('#sede').options.length) {
-    opciones($('#sede'), sedes.map(s => [s.sede_id, s.sede]), null, 'Todas las sedes');
-    $('#sede').hidden = sedes.length < 2;
-  }
-  const sel = $('#sedeProd'), previo = sel.value;
-  opciones(sel, sedes.map(s => [s.sede_id, s.sede]), previo || (locales[0] || sedes[0] || {}).sede_id);
+  $('#avisoCosto').textContent = sinCosto ? `Hay ${sinCosto} movimiento(s) o saldo(s) de productos sin costo cargado: no suman.` : '';
+
+  const L = t.locales;
+  Graf.dona($('#gComp'), { items: [
+      { clave: 'teorico', etiqueta: 'Teórico (lo vendido)', valor: sumar(L, 'teorico') },
+      { clave: 'perdida', etiqueta: 'Mermas y vencimientos', valor: sumar(L, 'perdida') },
+      { clave: 'diferencia', etiqueta: 'Diferencias de conteo', valor: sumar(L, 'diferencia') },
+      { clave: 'otros', etiqueta: 'Consumos internos y otros', valor: deCentavos(centavos(sumar(L, 'consumo_interno')) + centavos(sumar(L, 'venta_manual'))) }],
+    centro: Graf.compacto(n(t.real)), sub: 'consumo real', alElegir: c => { ordenProd = ordenProd === c ? null : c; pintarDona(); pintarProductos(); }, elegido: ordenProd });
 }
+const pintarDona = () => pintarOperativo();
+
+let prodActuales = [];
+const ETQ_ORDEN = { teorico: 'teórico', perdida: 'mermas y vencimientos', diferencia: 'diferencias de conteo', otros: 'consumos internos y otros' };
 async function productos() {
   if (!$('#sedeProd').value) return;
-  const { productos } = await api('tablero/productos?' + params({ sede: $('#sedeProd').value }));
-  filas($('#tProd'), productos, p => el('tr', {}, td(p.nombre + (p.sin_costo ? ' (sin costo)' : '')), td(pesos(p.teorico), 'num'), td(pesos(p.perdida), 'num'),
+  ({ productos: prodActuales } = await api('tablero/productos?' + params({ sede: $('#sedeProd').value })));
+  pintarProductos();
+}
+function pintarProductos() {
+  const k = ordenProd || 'desvio';
+  const lista = [...prodActuales].sort((x, y) => Math.abs(n(y[k])) - Math.abs(n(x[k]))).filter(p => !cero(p[k]));
+  $('#capProd').textContent = ordenProd ? `Ordenados por ${ETQ_ORDEN[ordenProd]}.` : 'Los productos que más se apartan del teórico.';
+  $('#chipsProd').replaceChildren(...(ordenProd ? [el('span', { className: 'chip' }, ETQ_ORDEN[ordenProd],
+    el('button', { type: 'button', textContent: '×', title: 'Quitar', onclick: () => { ordenProd = null; pintarOperativo(); pintarProductos(); } }))] : []));
+  Graf.ranking($('#gProd'), { items: lista.slice(0, 10).map(p => ({ clave: p.producto_id, etiqueta: p.nombre + (p.sin_costo ? ' (sin costo)' : ''), valor: p[k], p })),
+    nota: x => [`teórico ${pesos(x.p.teorico)}`, !cero(x.p.perdida) && `mermas ${pesos(x.p.perdida)}`, !cero(x.p.diferencia) && `conteo ${pesos(x.p.diferencia)}`,
+      !cero(x.p.otros) && `otros ${pesos(x.p.otros)}`, x.p.desvio_cant && !cero(x.p.desvio_cant) && cant(x.p.desvio_cant, x.p.unidad_base)].filter(Boolean).join(' · ') });
+  if (!lista.length) $('#gProd').replaceChildren(el('p', { className: 'g-vacio', textContent: 'Sin consumos en el período.' }));
+  filas($('#tProd'), prodActuales, p => el('tr', {}, td(p.nombre + (p.sin_costo ? ' (sin costo)' : '')), td(pesos(p.teorico), 'num'), td(pesos(p.perdida), 'num'),
     td(pesos(p.diferencia), 'num'), td(pesos(p.otros), 'num'),
     td(`${pesos(p.desvio)}` + (p.desvio_cant && !cero(p.desvio_cant) ? ` (${cant(p.desvio_cant, p.unidad_base)})` : ''), 'num')), 'Sin consumos en el período.', 6);
 }
 async function platos() {
   const { platos } = await api('tablero/platos?' + params());
+  Graf.referencia($('#gPlatos'), {
+    items: platos.slice(0, 12).map(p => ({ clave: p.id, etiqueta: p.nombre, valor: p.incompleto ? null : p.food_cost, ref: null,
+      alerta: p.food_cost && n(p.food_cost) > 35 ? 'alto' : p.incompleto ? 'falta costo' : '',
+      nota: `${num(p.cantidad)} vendidos · ${pesos(p.ventas)} · ${p.incompleto ? 'sin costo completo' : 'margen ' + pesos(p.margen)}` })),
+    max: Math.max(50, ...platos.map(p => n(p.food_cost))) });
+  if (!platos.length) $('#gPlatos').replaceChildren(el('p', { className: 'g-vacio', textContent: 'No hay ventas de platos con receta en el período.' }));
   filas($('#tPlatos'), platos, p => el('tr', {}, td(p.nombre), td(num(p.cantidad), 'num'), td(pesos(p.ventas), 'num'), td(pesos(p.precio_promedio), 'num'),
-    td(p.incompleto ? 'falta costo' : pesos(p.costo_porcion), 'num'), td(pct(p.food_cost), 'num' + (p.food_cost && Number(p.food_cost) > 35 ? ' alto' : '')),
+    td(p.incompleto ? 'falta costo' : pesos(p.costo_porcion), 'num'), td(pct(p.food_cost), 'num' + (p.food_cost && n(p.food_cost) > 35 ? ' alto' : '')),
     td(p.incompleto ? '—' : pesos(p.margen), 'num')), 'No hay ventas de platos con receta en el período.', 7);
 }
+
+// ── Flujo de caja ──
 async function flujo() {
   const fl = await api('tablero/flujo?' + params());
   const saldo = t => (fl.saldos.find(s => s.tipo === t) || {}).saldo || '0';
   const disp = deCentavos(centavos(saldo('banco')) + centavos(saldo('caja')));
-  $('#kpisCaja').replaceChildren(kpi('Disponible hoy', pesos(disp), `bancos ${pesos(saldo('banco'))} · cajas ${pesos(saldo('caja'))}`),
-    kpi('A acreditar', pesos(saldo('cobranza')), 'tarjetas y QR'), kpi('Cheques en cartera', pesos(saldo('cartera'))),
-    kpi('Facturas vencidas', pesos(fl.vencido), 'sin pagar'));
-  if (fl.historico.length) dibujar($('#gHist'), () => columnas($('#gHist'), fl.historico.map(h => h.semana), [
-    { nombre: 'Entradas', color: '--serie-1', valores: fl.historico.map(h => h.entradas) },
-    { nombre: 'Salidas', color: '--serie-2', valores: fl.historico.map(h => h.salidas) }]));
-  else graficos.delete($('#gHist')), $('#gHist').replaceChildren(el('p', { className: 'vacio', textContent: 'Sin movimientos de caja en el período.' }));
-  dibujar($('#gProy'), () => linea($('#gProy'), fl.proyeccion.map(p => p.semana), fl.proyeccion.map(p => p.saldo)));
-  filas($('#tProy'), fl.proyeccion, p => el('tr', {}, td(fecha(p.semana)), td(cero(p.facturas) ? '' : pesos(p.facturas), 'num'),
+  $('#kpisCaja').replaceChildren(kpi('Disponible hoy', pesos(disp), null, `bancos ${pesos(saldo('banco'))} · cajas ${pesos(saldo('caja'))}`),
+    kpi('A acreditar', pesos(saldo('cobranza')), null, 'tarjetas, QR y transferencias'), kpi('Cheques en cartera', pesos(saldo('cartera')), null, 'de terceros'),
+    kpi('Facturas vencidas', pesos(fl.vencido), null, 'sin pagar'));
+  Graf.columnasSeries($('#gHist'), { etiquetas: fl.historico.map(h => h.semana), ejeX: s => fecha(s).slice(0, 5), titulo: s => 'Semana del ' + fecha(s),
+    series: [{ nombre: 'Entradas', valores: fl.historico.map(h => h.entradas) }, { nombre: 'Salidas', valores: fl.historico.map(h => h.salidas) }] });
+  const pr = fl.proyeccion, negativa = pr.find(p => p.saldo.startsWith('-'));
+  Graf.area($('#gProy'), { etiquetas: pr.map(p => p.semana), ejeX: s => fecha(s).slice(0, 5), titulo: s => 'Semana del ' + fecha(s),
+    serie: { nombre: 'Saldo', valores: pr.map(p => p.saldo), texto: i => [pesos(pr[i].saldo), !cero(pr[i].facturas) && `facturas ${pesos(pr[i].facturas)}`,
+      !cero(pr[i].cheques_propios) && `cheques propios ${pesos(pr[i].cheques_propios)}`, !cero(pr[i].cheques_terceros) && `a cobrar ${pesos(pr[i].cheques_terceros)}`].filter(Boolean).join(' · ') },
+    alto: matchMedia('(max-width:899px)').matches ? 220 : 260 });
+  const ad = fl.mas_adelante;
+  $('#capProy').textContent = (negativa ? `El saldo queda en negativo la semana del ${fecha(negativa.semana)}. ` : 'Próximas 8 semanas, con lo comprometido. ')
+    + 'Parte de lo disponible hoy menos lo vencido; no incluye ventas futuras ni lo que falta acreditar.'
+    + (!cero(ad.facturas) || !cero(ad.cheques_propios) ? ` Más adelante: facturas ${pesos(ad.facturas)}, cheques propios ${pesos(ad.cheques_propios)}.` : '');
+  filas($('#tProy'), pr, p => el('tr', {}, td(fecha(p.semana)), td(cero(p.facturas) ? '' : pesos(p.facturas), 'num'),
     td(cero(p.cheques_propios) ? '' : pesos(p.cheques_propios), 'num'), td(cero(p.cheques_terceros) ? '' : pesos(p.cheques_terceros), 'num'),
     td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' alto' : ''))), '', 5);
-  const ad = fl.mas_adelante;
-  $('#ayudaProy').textContent = 'Parte de lo disponible hoy menos lo vencido sin pagar. No incluye ventas futuras ni lo que falta acreditar.'
-    + (!cero(ad.facturas) || !cero(ad.cheques_propios) ? ` Más allá de 8 semanas: facturas ${pesos(ad.facturas)}, cheques propios ${pesos(ad.cheques_propios)}.` : '');
 }
-let yo = null;
+
 async function todo() {
-  try { await operativo(); await Promise.all([productos(), platos(), yo.puede.finanzas ? flujo() : null]); }
-  catch (e) { msg(e.message, 'mal'); $('#kpis').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
+  if (!$('#desde').value || !$('#hasta').value) return;
+  const [a0, a1] = anterior();
+  $('#rango').textContent = ($('#desde').value === $('#hasta').value ? diaLargo($('#desde').value) : `Del ${fecha($('#desde').value)} al ${fecha($('#hasta').value)}`)
+    + ` · comparado con ${fecha(a0).slice(0, 5)} al ${fecha(a1)}`;
+  msg('Cargando…');
+  try {
+    await operativo();
+    await Promise.all([productos(), platos(), !$('#tCaja').hidden ? flujo() : null]);
+    msg('');
+  } catch (e) { msg(e.message, 'mal'); }
 }
-for (const s of ['#desde', '#hasta', '#iva']) $(s).onchange = todo;
-$('#sedeProd').onchange = () => productos().catch(e => alert(e.message));
+$('#sedeProd').onchange = () => { productos().catch(e => msg(e.message, 'mal')); if (operativoAct) pintarOperativo(); };
 (async () => {
   yo = (await cargarSesion()).usuario;
-  $('#secFlujo').hidden = !yo.puede.finanzas;
-  $('#desde').value = hoy().slice(0, 8) + '01'; $('#hasta').value = hoy();
-  $('#sede').onchange = todo;
+  const caja = $('#pestanas [data-t=caja]');
+  caja.hidden = !yo.puede.finanzas;
+  elegirPeriodo('mes');
+  let guardada = null; try { guardada = localStorage.getItem('tablero-pestana'); } catch {}
+  if (guardada === 'caja' && yo.puede.finanzas) caja.click();
   todo();
 })();
 </script>
