@@ -63,14 +63,17 @@ function ids(rel) {
   return [];
 }
 
-// Ventas cerradas entre dos instantes UTC ('AAAA-MM-DDTHH:MM:SSZ'): desde incluido, hasta EXCLUIDO. La API
-// real exige `and(gte.<desde>,lt.<hasta>)`: con `lte` responde 400 (verificado contra Fudo el 25/10/2026).
+// Ventas ABIERTAS entre dos instantes UTC ('AAAA-MM-DDTHH:MM:SSZ'), los dos incluidos: el día de una venta es el
+// de su apertura, como lo cuenta Fudo. El filtro por apertura exige `and(gte.<desde>,lte.<hasta>)` (el de
+// cierre, en cambio, exige `lt`: verificado contra la API real el 25/10/2026). Se traen las cerradas y las
+// anuladas; una mesa todavía abierta llega cuando se vuelva a sincronizar ese día (la importación no duplica).
+// Las ventas vacías (sin productos ni pagos: se abrieron y cerraron sin cargar nada) se ignoran.
 async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   const tk = await token(integracionId, cred);
   const tickets = [];
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const q = new URLSearchParams({
-      'filter[closedAt]': `and(gte.${desdeUtc},lt.${hastaUtc})`,
+      'filter[createdAt]': `and(gte.${desdeUtc},lte.${hastaUtc})`,
       'filter[saleState]': 'in.(CLOSED,CANCELED)',
       include: 'items,items.product,payments,payments.paymentMethod,table,waiter',
       'page[size]': String(TAMANO), 'page[number]': String(pagina), sort: 'closedAt',
@@ -82,11 +85,14 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
     for (const v of datos) {
       const a = v.attributes || {}, rel = v.relationships || {};
       if (!a.closedAt) continue;
+      // En Fudo, `price` es el total del RENGLÓN (2 × $20.000 viene como price 40000), no el unitario:
+      // verificado contra la cuenta real (la suma de los renglones da el total de la venta).
       const items = ids(rel.items).map(id => de('Item', id)).filter(Boolean).map(it => {
         const ia = it.attributes || {}, pid = ids((it.relationships || {}).product)[0];
-        const prod = pid && de('Product', pid);
+        const prod = pid && de('Product', pid), q = Number(ia.quantity ?? 0);
         return { codigo: pid ? String(pid) : 'sin-producto', nombre: prod ? (prod.attributes || {}).name || `Producto ${pid}` : 'Sin producto',
-                 cantidad: String(ia.quantity ?? 0), precio: ia.price != null ? String(ia.price) : null, anulado: !!ia.canceled };
+                 cantidad: String(ia.quantity ?? 0), importe: ia.price != null ? String(ia.price) : null,
+                 precio: ia.price != null && q ? String(Math.round(Number(ia.price) / q * 10000) / 10000) : null, anulado: !!ia.canceled };
       }).filter(x => Number(x.cantidad) > 0);
       const pagos = ids(rel.payments).map(id => de('Payment', id)).filter(Boolean).map(p => {
         const pa = p.attributes || {}, mid = ids((p.relationships || {}).paymentMethod)[0];
@@ -94,9 +100,10 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
         return { codigo: mid ? String(mid) : 'sin-medio', nombre: m ? (m.attributes || {}).name || `Medio ${mid}` : 'Sin medio',
                  importe: String(pa.amount ?? 0), anulado: !!pa.canceled };
       });
+      if (!items.length && !pagos.length) continue;
       const mesa = ids(rel.table)[0], mozo = ids(rel.waiter)[0];
       tickets.push({
-        id: String(v.id), cerrado_en: a.closedAt, estado: a.saleState === 'CANCELED' ? 'anulado' : 'cerrado',
+        id: String(v.id), cerrado_en: a.closedAt, abierto_en: a.createdAt || null, estado: a.saleState === 'CANCELED' ? 'anulado' : 'cerrado',
         total: a.total != null ? String(a.total) : null, tipo: a.saleType === 'TAKEAWAY' ? 'para llevar' : 'salón',
         mesa: mesa ? ((de('Table', mesa) || {}).attributes || {}).number ?? mesa : null,
         mozo: mozo ? ((de('User', mozo) || {}).attributes || {}).name ?? null : null,

@@ -52,7 +52,7 @@ r.get('/tablero/operativo', h(async (req, res) => {
        SELECT i.sede_id, SUM(COALESCE(it.importe, it.cantidad * it.precio)) AS bruto, COUNT(DISTINCT t.id) AS tickets
          FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.ticket_item it ON it.ticket_id = t.id AND NOT it.anulado, rango
-        WHERE t.estado = 'cerrado' AND (t.cerrado_en AT TIME ZONE 'America/Argentina/Buenos_Aires')::date BETWEEN rango.desde AND rango.hasta
+        WHERE t.estado = 'cerrado' AND t.dia BETWEEN rango.desde AND rango.hasta
           AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
         GROUP BY i.sede_id),
      st AS (
@@ -126,7 +126,7 @@ r.get('/tablero/platos', h(async (req, res) => {
          FROM pos.ticket_item it JOIN pos.ticket t ON t.id = it.ticket_id JOIN pos.articulo a ON a.id = it.articulo_id
          JOIN pos.integracion i ON i.id = t.integracion_id, rango
         WHERE t.estado = 'cerrado' AND NOT it.anulado AND a.plato_id IS NOT NULL
-          AND (t.cerrado_en AT TIME ZONE 'America/Argentina/Buenos_Aires')::date BETWEEN rango.desde AND rango.hasta
+          AND t.dia BETWEEN rango.desde AND rango.hasta
           AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
         GROUP BY a.plato_id)
      SELECT pl.id, pl.nombre, trim_scale(v.cantidad)::text AS cantidad, round(v.bruto, 2)::text AS ventas,

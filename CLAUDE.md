@@ -299,9 +299,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `api.fu.do/v1alpha1/sales` con `filter[closedAt]`, `include=items.product,payments.paymentMethod`,
   páginas de 500. Requiere plan Pro y habilitar "API Pública General". Su OpenAPI no es del todo
   JSON:API (las relaciones a veces vienen como lista de `{data}`): el adaptador acepta las dos formas.
-  **Verificado con la cuenta real de Fer el 25/10/2026**: el token y la forma de los datos coinciden con la
-  especificación, pero el filtro exige `filter[closedAt]=and(gte.<desde>,lt.<hasta>)` con el hasta EXCLUIDO
-  (con `lte` responde 400): se pide desde las 00:00 del primer día hasta las 00:00 del día siguiente al último.
+  **Verificado con la cuenta real de Fer el 25/10/2026** contra lo que muestra Fudo:
+  - El **día de una venta es el de su apertura** (`createdAt`), como lo cuenta Fudo: así coinciden ventas,
+    cobros y medios (por cierre, la mesa cobrada después de medianoche caía en el día siguiente). Se pide
+    `filter[createdAt]=and(gte.<desde>,lte.<hasta>)` (este filtro exige `lte`; el de cierre exige `lt`).
+    `pos.ticket.abierto_en` y `pos.ticket.dia` (migración 20261106): `dia` es la apertura, o la fecha si el
+    POS no la trae (archivos); cobros por día y tablero agrupan por `dia`.
+  - En Fudo, el `price` de un renglón es el **total del renglón**, no el unitario: se guarda como `importe` y
+    el unitario es price / cantidad.
+  - Las **ventas vacías** (sin productos ni pagos) se ignoran. Una mesa todavía abierta llega al volver a
+    sincronizar ese día.
   Las ventas traen además `discounts`, `tips` y `shippingCosts`, que todavía no se leen. Los errores de Fudo
   llevan su detalle (`errors[].detail`). `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas (el
   simulador también rechaza `lte`). Credenciales cifradas con `crypto.js`.

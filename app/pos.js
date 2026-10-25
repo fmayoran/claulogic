@@ -201,9 +201,12 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
   for (const t of tickets) {
     // El id del POS hace idempotente la importación: un ticket que ya está, no se toca.
     const { rows: [nt] } = await c.query(
-      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas)
-       VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10) ON CONFLICT (integracion_id, id_externo) DO NOTHING RETURNING id`,
-      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas]);
+      // El día de la venta: el de su apertura si el POS la trae (Fudo), si no el de su fecha (archivos).
+      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas, abierto_en, dia)
+       VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11::timestamptz,
+               (COALESCE($11::timestamptz, $4::timestamptz) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date)
+       ON CONFLICT (integracion_id, id_externo) DO NOTHING RETURNING id`,
+      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas, t.abierto_en || null]);
     if (!nt) continue;
     nuevos++;
     for (const it of t.items)
@@ -232,7 +235,7 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API.');
   const { rows: [rango] } = await pool.query(
     `SELECT to_char(($1::date::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS d,
-            to_char((($2::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS h,
+            to_char((($2::date + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC' - interval '1 second', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS h,
             $2::date - $1::date AS dias`, [desde, hasta]);
   if (rango.dias < 0) throw new ErrorUsuario('El rango está al revés.');
   if (rango.dias > 31) throw new ErrorUsuario('Sincronizá de a un mes como máximo.');
@@ -479,7 +482,7 @@ r.post('/pos/importaciones/:id/cobros', h(async (req, res) => {
     const ids = pagos.map(p => p.id);
     const { rows: [co] } = await c.query('INSERT INTO pos.cobro (importacion_id, pagos) VALUES ($1,$2) RETURNING id', [im.id, ids.length]);
     const { rows: grupos } = await c.query(
-      `SELECT m.cuenta_id, (t.cerrado_en AT TIME ZONE 'America/Argentina/Buenos_Aires')::date AS dia,
+      `SELECT m.cuenta_id, t.dia,
               string_agg(DISTINCT m.nombre, ', ') AS medios, SUM(p.importe)::numeric(16,2)::text AS importe
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
         WHERE p.id = ANY($1::uuid[]) GROUP BY m.cuenta_id, dia ORDER BY dia`, [ids]);
