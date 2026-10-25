@@ -360,13 +360,21 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   - Anular una importación revierte enteros los cobros que tocan sus pagos (los de otras importaciones del día
     vuelven a pendientes). La anula el encargado del local o finanzas (antes un usuario sólo de finanzas no
     podía, aunque la regla decía que era suya).
-  - En Ventas, la lista de **Días** con su estado y el detalle del día (cifras, alertas, medios y su cuenta,
+  - En Procesar ventas, la lista de **Días** con su estado y el detalle del día (cifras, alertas, medios y su cuenta,
     procesar). Lo financiero no depende del consumo: los artículos y las recetas quedan para después (Fer).
   - Un día con un medio sin asignar queda bloqueado, pero **se corrige desde el detalle del día**: quien procesa
     (finanzas o el administrador) asigna ahí el medio de pago, con "+ Agregar medio de pago…" al final
     (`nuevoMedioPago` en `comun.js`), y termina de cobrar. Por eso `PUT /pos/medios/` es admin o finanzas.
   - **El día en curso no se importa** (decisión de Fer): ni Fudo (el rango tiene que terminar ayer) ni un
-    archivo con ventas de hoy. Ventas propone ayer por defecto.
+    archivo con ventas de hoy. Procesar ventas propone ayer por defecto.
+- **Ventas = tablero; Procesar ventas = back office** (decisión de Fer, 25/10/2026). `ventas.html` es para ver y
+  analizar: punto de venta (o todos los visibles) y período por día de apertura (hasta un año); cifras (vendido,
+  ventas, ticket promedio y por persona, cobrado y diferencia), cobros por medio de pago global (o por el nombre
+  del sistema si falta asignarlo; tocar un medio filtra el detalle), por día, por hora de apertura, por punto de
+  venta y salón/para llevar, y el detalle de cada venta (artículos y pagos, con su cobro procesado o no). Sólo
+  lectura, sin tablas nuevas: `GET /pos/ventas/resumen`, `/pos/ventas` (máximo 1.000, de a 100 en pantalla) y
+  `/pos/ventas/:id`, con el mismo alcance por sede que las importaciones. Las horas se muestran en la de Buenos
+  Aires. `procesar-ventas.html` tiene lo que antes era Ventas: importar, días y cobros, importaciones y consumo.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
   (subitems), propinas.
 

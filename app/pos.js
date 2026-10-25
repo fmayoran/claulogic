@@ -414,6 +414,107 @@ r.get('/pos/importaciones/:id/tickets', h(async (req, res) => {
   res.json({ ok: true, tickets: rows });
 }));
 
+// ── Ventas: el tablero (sólo lectura) ────────────────────────────────────────────────────────
+// Lo vendido por punto de venta y período (día de apertura), sobre los tickets guardados: totales, cobros por
+// medio de pago, por día, por hora y por tipo, y el detalle de cada venta. Cada medio se agrupa por su medio de
+// pago global (procesador + tipo); el que todavía no tiene uno asignado, por su nombre en el sistema.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function filtroVentas(req) {
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  if (hasta < desde) throw new ErrorUsuario('El período termina antes de empezar.');
+  if ((new Date(hasta) - new Date(desde)) / 864e5 > 366) throw new ErrorUsuario('El período puede ser de hasta un año.');
+  const integ = texto(req.query.integracion);
+  if (integ && !UUID.test(integ)) throw new ErrorUsuario('Punto de venta inválido.');
+  // Un medio de pago global (su id) o un medio del sistema todavía sin asignar ('m:' + su id).
+  const medio = texto(req.query.medio);
+  if (medio && !UUID.test(medio.replace(/^m:/, ''))) throw new ErrorUsuario('Medio de pago inválido.');
+  return [sedesPos(req), integ, desde, hasta, medio];
+}
+// Los tickets del filtro ($1 sedes, $2 punto de venta, $3 desde, $4 hasta, $5 medio), sólo de importaciones vigentes.
+const VENTAS_CTE = `
+  WITH t AS (
+    SELECT t.*, i.nombre AS punto_venta,
+           COALESCE(t.total, (SELECT SUM(COALESCE(it.importe, it.cantidad * it.precio)) FROM pos.ticket_item it
+                               WHERE it.ticket_id = t.id AND NOT it.anulado), 0) AS vendido
+      FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+      JOIN pos.integracion i ON i.id = t.integracion_id
+     WHERE ($1::uuid[] IS NULL OR i.sede_id = ANY($1)) AND ($2::uuid IS NULL OR t.integracion_id = $2)
+       AND t.dia BETWEEN $3::date AND $4::date
+       AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+                                         WHERE p.ticket_id = t.id AND NOT p.anulado
+                                           AND COALESCE(m.medio_pago_id::text, 'm:' || m.id) = $5)))`;
+const CLAVE_MEDIO = `COALESCE(m.medio_pago_id::text, 'm:' || m.id)`;
+
+r.get('/pos/ventas/resumen', h(async (req, res) => {
+  const f = filtroVentas(req);
+  const q = sql => pool.query(VENTAS_CTE + sql, f).then(r => r.rows);
+  const [[tot], medios, dias, horas, tipos, puntos] = await Promise.all([
+    q(`SELECT count(*) FILTER (WHERE estado = 'cerrado')::int AS ventas, count(*) FILTER (WHERE estado = 'anulado')::int AS anuladas,
+              COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado'), 0)::numeric(16,2)::text AS vendido,
+              COALESCE(SUM(personas) FILTER (WHERE estado = 'cerrado'), 0)::int AS personas,
+              COALESCE((SELECT SUM(p.importe) FROM pos.ticket_pago p JOIN t ON t.id = p.ticket_id
+                         WHERE t.estado = 'cerrado' AND NOT p.anulado), 0)::numeric(16,2)::text AS cobrado,
+              COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS vendido_anuladas
+         FROM t`),
+    // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
+    q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, m.medio_pago_id IS NULL AS sin_asignar,
+              string_agg(DISTINCT m.nombre, ', ') AS nombres, SUM(p.importe)::numeric(16,2)::text AS importe,
+              count(*)::int AS pagos, count(DISTINCT t.id)::int AS ventas
+         FROM t JOIN pos.ticket_pago p ON p.ticket_id = t.id AND NOT p.anulado JOIN pos.medio m ON m.id = p.medio_id
+         LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+        WHERE t.estado = 'cerrado'
+        GROUP BY 1, 2, 3, 4 ORDER BY SUM(p.importe) DESC`),
+    q(`SELECT to_char(dia, 'YYYY-MM-DD') AS dia, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+         FROM t WHERE estado = 'cerrado' GROUP BY dia ORDER BY dia`),
+    // La hora de apertura (la del cierre si el POS no trae apertura), en la hora de la cocina.
+    q(`SELECT extract(hour FROM COALESCE(abierto_en, cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires')::int AS hora,
+              count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+         FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY 1`),
+    q(`SELECT COALESCE(tipo, 'sin dato') AS tipo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+         FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
+    q(`SELECT integracion_id AS id, punto_venta AS nombre, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+         FROM t WHERE estado = 'cerrado' GROUP BY 1, 2 ORDER BY SUM(vendido) DESC`),
+  ]);
+  res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos });
+}));
+
+r.get('/pos/ventas', h(async (req, res) => {
+  const f = filtroVentas(req);
+  const { rows } = await pool.query(VENTAS_CTE + `
+    SELECT t.id, t.id_externo, t.punto_venta, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.abierto_en, t.cerrado_en, t.estado,
+           t.vendido::numeric(16,2)::text AS total, t.tipo, t.mesa, t.mozo, t.personas,
+           COALESCE((SELECT json_agg(json_build_object('clave', ${CLAVE_MEDIO}, 'medio', m.nombre, 'procesador', pr.nombre,
+                                                       'tipo_operacion', mp.tipo_operacion, 'importe', p.importe::text) ORDER BY p.importe DESC)
+                       FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+                       LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+                      WHERE p.ticket_id = t.id AND NOT p.anulado), '[]') AS pagos
+      FROM t ORDER BY COALESCE(t.abierto_en, t.cerrado_en) DESC LIMIT 1001`, f);
+  res.json({ ok: true, ventas: rows.slice(0, 1000), recortado: rows.length > 1000 });
+}));
+
+r.get('/pos/ventas/:id', h(async (req, res) => {
+  if (!UUID.test(req.params.id)) throw new ErrorUsuario('No existe esa venta.', 404);
+  const { rows: [t] } = await pool.query(
+    `SELECT t.id, t.id_externo, t.integracion_id, i.nombre AS punto_venta, i.sede_id, to_char(t.dia, 'YYYY-MM-DD') AS dia,
+            t.abierto_en, t.cerrado_en, t.estado, t.total::text, t.tipo, t.mesa, t.mozo, t.personas, im.estado AS importacion
+       FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id JOIN pos.importacion im ON im.id = t.importacion_id
+      WHERE t.id = $1`, [req.params.id]);
+  if (!t) throw new ErrorUsuario('No existe esa venta.', 404);
+  if (!accede(req, t.sede_id)) throw new ErrorUsuario('No tenés acceso a esa sede.', 403);
+  const [items, pagos] = await Promise.all([
+    pool.query(`SELECT a.nombre AS articulo, a.codigo_externo, trim_scale(i.cantidad)::text AS cantidad,
+                       COALESCE(i.importe, i.cantidad * i.precio)::numeric(16,2)::text AS importe, i.anulado
+                  FROM pos.ticket_item i JOIN pos.articulo a ON a.id = i.articulo_id WHERE i.ticket_id = $1 ORDER BY a.nombre`, [t.id]),
+    pool.query(`SELECT m.nombre AS medio, pr.nombre AS procesador, mp.tipo_operacion, p.importe::text, p.anulado,
+                       p.cobro_id IS NOT NULL AS procesado, cu.nombre AS cuenta
+                  FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+                  LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+                  LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
+                 WHERE p.ticket_id = $1 ORDER BY p.importe DESC`, [t.id]),
+  ]);
+  res.json({ ok: true, venta: { ...t, items: items.rows, pagos: pagos.rows } });
+}));
+
 // ── Consumo teórico ──────────────────────────────────────────────────────────────────────────
 // Lo vendido con receta, por ingrediente, descontado del almacén del local por FEFO (sin lotes
 // vencidos). Lo que no alcanza queda en negativo (decisión de Fer): un perecedero, en el último

@@ -51,7 +51,7 @@
       </fieldset>
       <div class="acciones">
         <button type="submit" class="prim" id="guardar">Guardar</button>
-        <a id="irVentas" href="ventas.html" hidden>Ir a sus ventas</a>
+        <a id="irVentas" href="procesar-ventas.html" hidden>Traer y procesar sus ventas</a>
         <span class="msg" id="msg"></span>
       </div>
     </form>
@@ -120,7 +120,7 @@ async function abrir(id) {
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
   f.apiKey.value = f.apiSecret.value = ''; f.apiKey.placeholder = f.apiSecret.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
   $('#efectivoInfo').textContent = i && i.cuenta_efectivo ? `Su efectivo entra en "${i.cuenta_efectivo}" (a rendir a la central: ${pesos(i.efectivo_a_rendir || '0')}). Rendirlo es una transferencia desde Tesorería.` : '';
-  $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'ventas.html#' + i.id;
+  $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'procesar-ventas.html#' + i.id;
   aplicarTipo(); sinCambios(f);
   $('#secArt').hidden = $('#secMed').hidden = true;
   if (s.tipo === 'local' && i) await Promise.all([cargarArticulos(i), cargarMedios(i)]);

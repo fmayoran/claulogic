@@ -134,7 +134,7 @@ const GRUPOS = [
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
-  ['Ventas', [['ventas.html', 'Ventas'], ['platos.html', 'Platos de carta']]],
+  ['Ventas', [['ventas.html', 'Ventas'], ['procesar-ventas.html', 'Procesar ventas'], ['platos.html', 'Platos de carta']]],
   ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['medios-pago.html', 'Medios de pago'], ['cheques.html', 'Cheques'], ['conciliacion.html', 'Conciliación']]],
   ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
