@@ -391,8 +391,29 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `graficos.css` (tarjetas, cifras, botones de período, chips, panel lateral `dialog.panel-lado`; ojo: la clase
   `lateral` es la barra del menú). Paleta categórica de 6 en orden fijo validada para claro y oscuro contra los
   fondos de la app; la leyenda lleva valor y porcentaje porque en claro tres colores quedan bajo 3:1.
+- **Acreditación de los procesadores** (decisiones de Fer, 25/10/2026; migración 20261108). Dos cuentas por
+  procesador: la **"a acreditar"** (cobranza: lo vendido que todavía no depositó) y la **cuenta real** donde deposita
+  (`fin.procesador.cuenta_acredita_id`, tipo banco; Pago24: "Pago24 · 210973"), que se elige en Medios de pago. Su
+  extracto se importa en **Conciliación** (con la columna de **saldo**: toma el inicial y el final; si la cuenta no
+  tiene movimientos, el inicial queda como **apertura** el día anterior) y **"Conciliar automáticamente"**:
+  1. compensa cada línea con su **reverso** (`extracto_linea.compensa_a`, sin movimientos);
+  2. parea cada **ingreso** con un pago de venta de ese procesador ya procesado (mismo importe, del día de la venta
+     hasta 4 días después, el más cercano): transferencia de "a acreditar" a la cuenta real, conciliada, y
+     `ticket_pago.acreditado_linea_id`;
+  3. asienta **cargos** (`gasto = comision`, con `iva` incluido si el procesador no lo cobra en línea aparte: el
+     "Cargo de Pago24" de las transferencias es 3% + IVA), **IVA** (`iva_credito`), **impuesto a los débitos y
+     créditos** (`imp_debitos_creditos`) y **retenciones**, atados al pago por el **número de operación** del
+     procesador (`extracto_linea.operacion`, sacado de la referencia: "#1580009466", "Pago Cliente - …");
+  4. lo demás queda pendiente (la **Recaudación** de Pago24 son pagos que salen de esa cuenta: se conciliarán con
+     las órdenes de pago a proveedores, decisión de Fer).
+  El resumen muestra saldo del sistema contra el del extracto (la diferencia la explican las líneas pendientes), lo
+  vendido sin acreditar por día y el **costo real por tipo de operación** (en la prueba con el extracto real:
+  transferencia 4,23%, débito 6,5%, crédito 10,2%). Deshacer una línea conciliada así anula su movimiento (las dos
+  patas de la acreditación) y el pago vuelve a pendiente; esos movimientos no se anulan desde Cajas y bancos.
+  Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
+  "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
-  (subitems), propinas.
+  (subitems), propinas; acreditación de Mercado Pago y Fudo Pagos (con sus extractos); rendición del efectivo.
 
 ### Tablero (fase 5, 21/10/2026)
 - **No guarda nada**: `logic.kardex` abre cada movimiento en una fila por punta (sede, signo, costo) y

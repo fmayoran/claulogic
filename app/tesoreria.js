@@ -4,6 +4,9 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion } = require('./util');
+// Plata exacta en centavos (BigInt) para sumar importes en texto sin pasar por float.
+const centavos = v => { const s = String(v), neg = s.startsWith('-'), [e, d = ''] = s.replace('-', '').split('.'); const c = BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -c : c; };
+const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
 
 const r = express.Router();
 
@@ -122,6 +125,8 @@ r.post('/fin/movimientos/:id/anular', h(async (req, res) => {
     if (!m) throw new ErrorUsuario('No existe ese movimiento.');
     if (!['ingreso', 'egreso', 'transferencia'].includes(m.tipo))
       throw new ErrorUsuario('Ese movimiento es de una orden de pago, un cheque o un arqueo: se corrige desde ahí.');
+    if (m.ticket_pago_id || m.gasto)
+      throw new ErrorUsuario('Ese movimiento lo creó la conciliación de un procesador: se deshace desde Conciliación (Deshacer en su línea).');
     const { rows: patas } = await c.query(
       m.transferencia_id ? 'SELECT * FROM fin.movimiento_tes WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> \'anulacion\'' : 'SELECT * FROM fin.movimiento_tes WHERE id = $1',
       [m.transferencia_id || m.id]);
@@ -378,6 +383,15 @@ function fechaExtracto(v, n) {
   return `${anio}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 }
 
+// El número de operación del procesador al que se refiere una línea: un cargo o un impuesto lo nombran en la
+// referencia ("Gasto por transferencia: 1580009466", "... Ingreso #1580009466", "Pago Cliente - 1580387104"); un
+// ingreso es su propio número, el que va en el concepto ("Transferencia Bancaria Ingreso - 1580009466").
+const numeroEnConcepto = l => (String(l.concepto).match(/\b(\d{6,})\b/) || [])[1] || null;
+function operacionDe(l) {
+  const m = String(l.referencia).match(/(?:#|Pago Cliente\s*-\s*|transferencia:\s*)(\d{6,})/i);
+  return m ? m[1] : numeroEnConcepto(l);
+}
+
 r.post('/fin/extractos', h(async (req, res) => {
   const b = req.body;
   const cuenta = texto(b.cuenta_id, { campo: 'la cuenta', requerido: true });
@@ -386,7 +400,13 @@ r.post('/fin/extractos', h(async (req, res) => {
   if (!filas.length) throw new ErrorUsuario('El extracto no tiene filas.');
   if (filas.length > 5000) throw new ErrorUsuario('Demasiadas filas: importá el extracto por mes.');
   const lineas = [], vistas = new Map();
+  let saldoInicial = null, saldoFinal = null;
   filas.forEach((f, i) => {
+    // Filas sin fecha: totales al pie y renglones en blanco.
+    if (!String(f.fecha ?? '').trim()) return;
+    // Los saldos que trae el extracto (si se indicó la columna): el inicial y el final, para controlar.
+    if (f.saldo !== undefined && /saldo\s+inicial/i.test(f.concepto || '')) { saldoInicial = { fecha: fechaExtracto(f.fecha, i + 1), saldo: importeExtracto(f.saldo, decimal, i + 1) }; return; }
+    if (f.saldo !== undefined && /saldo\s+final/i.test(f.concepto || '')) { saldoFinal = importeExtracto(f.saldo, decimal, i + 1); return; }
     // Débito y crédito en columnas separadas o un solo importe con signo: las dos formas existen.
     let imp = f.importe !== undefined && f.importe !== '' ? importeExtracto(f.importe, decimal, i + 1) : null;
     if (imp === null) {
@@ -397,6 +417,7 @@ r.post('/fin/extractos', h(async (req, res) => {
     if (imp === null || /^-?0+(\.0+)?$/.test(imp)) return;   // saldos iniciales, filas vacías
     const l = { fecha: fechaExtracto(f.fecha, i + 1), concepto: String(f.concepto || '').trim().slice(0, 300),
                 referencia: String(f.referencia || '').trim().slice(0, 100), importe: imp };
+    l.operacion = operacionDe(l);
     const clave = [l.fecha, l.importe, l.concepto, l.referencia].join('|');
     l.ocurrencia = (vistas.get(clave) || 0) + 1; vistas.set(clave, l.ocurrencia);
     lineas.push(l);
@@ -404,16 +425,32 @@ r.post('/fin/extractos', h(async (req, res) => {
   const out = await enTransaccion(async c => {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');
-    const { rows: [e] } = await c.query('INSERT INTO fin.extracto (cuenta_id, archivo) VALUES ($1,$2) RETURNING id', [cuenta, texto(b.archivo)]);
+    const fechas = lineas.map(l => l.fecha).sort();
+    const { rows: [e] } = await c.query(
+      'INSERT INTO fin.extracto (cuenta_id, archivo, saldo_inicial, saldo_final, desde, hasta) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [cuenta, texto(b.archivo), saldoInicial && saldoInicial.saldo, saldoFinal, (saldoInicial && saldoInicial.fecha) || fechas[0] || null, fechas.at(-1) || null]);
+    // Una cuenta que recién empieza (sin movimientos) toma como apertura el saldo inicial del extracto, el día
+    // anterior: así su saldo puede coincidir con el del extracto desde el primer día (decisión de Fer).
+    let apertura = null;
+    if (saldoInicial && !/^-?0+(\.0+)?$/.test(saldoInicial.saldo)) {
+      const { rows: [{ hay }] } = await c.query('SELECT EXISTS (SELECT 1 FROM fin.movimiento_tes WHERE cuenta_id = $1) AS hay', [cuenta]);
+      if (!hay) {
+        const neg = saldoInicial.saldo.startsWith('-');
+        await c.query(
+          `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1::date - 1, $2, $3, $4, $5, 'Saldo de apertura según extracto')`,
+          [saldoInicial.fecha, cuenta, neg ? 'egreso' : 'ingreso', neg ? 0 : saldoInicial.saldo, neg ? saldoInicial.saldo.slice(1) : 0]);
+        apertura = saldoInicial.saldo;
+      }
+    }
     let nuevas = 0;
     for (const l of lineas) {
       const { rowCount } = await c.query(
-        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia]);
+        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia, operacion)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia, l.operacion]);
       nuevas += rowCount;
     }
     await c.query('UPDATE fin.extracto SET lineas_nuevas = $1, lineas_repetidas = $2 WHERE id = $3', [nuevas, lineas.length - nuevas, e.id]);
-    return { nuevas, repetidas: lineas.length - nuevas };
+    return { nuevas, repetidas: lineas.length - nuevas, apertura, saldo_final: saldoFinal };
   });
   res.status(201).json({ ok: true, ...out });
 }));
@@ -424,7 +461,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
   const [lineas, movs, cheques, hechas] = await Promise.all([
     pool.query(`SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
-                 WHERE l.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
+                 WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
     pool.query(`SELECT m.id, m.fecha, m.tipo, m.concepto, (m.entrada - m.salida)::text AS importe FROM fin.movimiento_tes m
                  WHERE m.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id)
@@ -447,7 +484,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     ].sort((a, b) => a.dias - b.dias);
     return { ...l, candidatos: cand };
   });
-  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliadas: hechas.rows });
+  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliadas: hechas.rows, procesador: await resumenProcesador(cuenta) });
 }));
 
 r.post('/fin/conciliacion', h(async (req, res) => {
@@ -474,10 +511,177 @@ r.post('/fin/conciliacion', h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
+// Deshacer un pareo. Si el movimiento lo creó la conciliación de un procesador (una acreditación o un cargo), no
+// alcanza con separarlo de la línea: se anula (las dos patas de la acreditación, con su misma fecha) y el pago de la
+// venta vuelve a quedar sin acreditar, para que la línea se pueda volver a conciliar.
 r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
-  await pool.query('DELETE FROM fin.conciliacion WHERE linea_id = $1', [numero(req.params.linea, { campo: 'la línea', requerido: true })]);
+  const linea = numero(req.params.linea, { campo: 'la línea', requerido: true });
+  await enTransaccion(async c => {
+    const { rows: [m] } = await c.query(
+      `SELECT m.* FROM fin.conciliacion k JOIN fin.movimiento_tes m ON m.id = k.movimiento_id WHERE k.linea_id = $1 FOR UPDATE OF k`, [linea]);
+    await c.query('DELETE FROM fin.conciliacion WHERE linea_id = $1', [linea]);
+    if (!m || !(m.ticket_pago_id || m.gasto)) return;
+    const { rows: patas } = await c.query(
+      m.transferencia_id ? `SELECT * FROM fin.movimiento_tes WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> 'anulacion'` : 'SELECT * FROM fin.movimiento_tes WHERE id = $1',
+      [m.transferencia_id || m.id]);
+    for (const p of patas)
+      await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a)
+         VALUES ($1, $2, 'anulacion', $3, $4, $5, $6, $7)`,
+        [p.fecha, p.cuenta_id, p.salida, p.entrada, 'Anula (se deshizo la conciliación): ' + (p.concepto || p.tipo), p.transferencia_id, p.id]);
+    await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = NULL WHERE acreditado_linea_id = $1', [linea]);
+  });
   res.json({ ok: true });
 }));
+
+// ── Conciliación de la cuenta de un procesador ──────────────────────────────────────────────
+// El extracto de la cuenta donde deposita un procesador (Pago24, Mercado Pago…) se concilia solo contra los pagos de
+// las ventas (decisiones de Fer, 25/10/2026):
+//   1. un movimiento y su reverso (mismo concepto, importe opuesto, uno dice "reverso") se compensan;
+//   2. cada ingreso se parea con un pago de la venta cobrado con ese procesador: mismo importe, del día de la venta
+//      hasta 4 días después (la tarjeta de crédito liquida a los 2 días), el más cercano primero. Pasa de la cuenta
+//      "a acreditar" a la cuenta real con una transferencia, y el pago queda acreditado con esa línea;
+//   3. cargos, IVA de los cargos, impuesto a los débitos y créditos y retenciones se asientan como egresos
+//      clasificados de la cuenta real, atados al pago por el número de operación del procesador;
+//   4. lo demás queda sin conciliar (los pagos que salen de esa cuenta, por ejemplo), para hacerlo a mano.
+const GASTOS = [
+  ['iva_credito', /AR_IVA|cobro\s+iva|iva\s+\d+%?\s*(por|s\/)/i],
+  ['imp_debitos_creditos', /AR_DCB|deb\/cred|d[eé]b(itos)?\s*y\s*cr[eé]d|ley\s*25\.?413/i],
+  ['retencion', /AR_IIBB|AR_GAN|retenci[oó]n\s+(de\s+)?(iibb|ingresos\s+brutos|ganancias|iva)|percepci[oó]n/i],
+  ['comision', /cargo\s+de|gasto\s+transacci|comisi[oó]n|arancel/i],
+];
+const clasificar = l => (GASTOS.find(([, re]) => re.test(`${l.concepto} ${l.referencia}`)) || [])[0] || null;
+const esReverso = l => /reverso/i.test(`${l.concepto} ${l.referencia}`);
+const normImp = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
+const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
+
+r.post('/fin/conciliacion/automatica', h(async (req, res) => {
+  const cuenta = texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true });
+  const out = await enTransaccion(async c => {
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
+    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+    if (!pr) throw new ErrorUsuario('Esta cuenta no es la de un procesador: en Medios de pago, indicá en qué cuenta deposita.');
+    const { rows: todas } = await c.query(
+      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a,
+              EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
+         FROM fin.extracto_linea l WHERE l.cuenta_id = $1 ORDER BY l.fecha, l.id`, [cuenta]);
+    const pend = todas.filter(l => !l.conciliada && !l.compensa_a), usadas = new Set();
+    const conciliar = (linea, mov) => c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, mov]);
+
+    // 1. Reversos.
+    let compensadas = 0;
+    for (const rv of pend.filter(esReverso)) {
+      if (usadas.has(rv.id)) continue;
+      const o = pend.find(l => !usadas.has(l.id) && l.id !== rv.id && !esReverso(l) && l.concepto === rv.concepto && normImp(l.importe) === normImp(opuesto(rv.importe)));
+      if (!o) continue;
+      await c.query('UPDATE fin.extracto_linea SET compensa_a = CASE id WHEN $1::bigint THEN $2::bigint ELSE $1::bigint END WHERE id IN ($1, $2)', [rv.id, o.id]);
+      usadas.add(rv.id); usadas.add(o.id); compensadas += 2;
+    }
+
+    // 2. Ingresos contra los pagos de las ventas (sólo los ya procesados: su bruto está en "a acreditar").
+    const { rows: pagos } = await c.query(
+      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+        ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [pr.id]);
+    const libres = new Set(pagos.map(p => p.id));
+    // Operación del procesador -> pago de la venta, con lo acreditado antes (para atar costos que llegan después).
+    const { rows: previos } = await c.query(
+      `SELECT l.operacion, p.id FROM pos.ticket_pago p JOIN fin.extracto_linea l ON l.id = p.acreditado_linea_id
+        WHERE l.cuenta_id = $1 AND l.operacion IS NOT NULL`, [cuenta]);
+    const pagoDe = new Map(previos.map(x => [x.operacion, x.id]));
+    let acreditadas = 0, acreditado = 0n;
+    for (const l of pend.filter(l => !usadas.has(l.id) && !l.importe.startsWith('-'))) {
+      const dias = p => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5;
+      const p = pagos.filter(p => libres.has(p.id) && normImp(p.importe) === normImp(l.importe) && dias(p) >= 0 && dias(p) <= 4)
+        .sort((a, b) => dias(a) - dias(b))[0];
+      if (!p) continue;
+      libres.delete(p.id);
+      const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}`;
+      const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+      await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6)`,
+        [l.fecha, p.cuenta_id, l.importe, concepto, tr, p.id]);
+      const { rows: [ent] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6) RETURNING id`,
+        [l.fecha, cuenta, l.importe, concepto, tr, p.id]);
+      await conciliar(l.id, ent.id);
+      await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = $1 WHERE id = $2', [l.id, p.id]);
+      if (l.operacion) pagoDe.set(l.operacion, p.id);
+      usadas.add(l.id); acreditadas++; acreditado += centavos(l.importe);
+    }
+
+    // 3. Cargos, IVA, impuestos y retenciones. El IVA de un cargo viene en su propia línea (que nombra al cargo) o
+    // incluido en el cargo (Pago24 en las transferencias: "Cargo de Pago24" es 3% + IVA).
+    const opDeNumero = new Map(todas.map(l => [numeroEnConcepto(l), l.operacion]).filter(([k]) => k));
+    const conIvaAparte = new Set(todas.filter(l => clasificar(l) === 'iva_credito').map(l => l.operacion));
+    const gastos = {};
+    for (const l of pend.filter(l => !usadas.has(l.id) && l.importe.startsWith('-'))) {
+      const g = clasificar(l); if (!g) continue;
+      const op = g === 'iva_credito' && opDeNumero.has(l.operacion) ? opDeNumero.get(l.operacion) : l.operacion;
+      const ivaIncluido = g === 'comision' && !conIvaAparte.has(numeroEnConcepto(l));
+      const { rows: [mov] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto, iva, ticket_pago_id)
+         VALUES ($1, $2, 'egreso', $3::numeric, $4, $5, CASE WHEN $6 THEN round($3::numeric * 21 / 121, 2) END, $7) RETURNING id`,
+        [l.fecha, cuenta, l.importe.slice(1), `${pr.nombre} · ${l.concepto}`.slice(0, 300), g, ivaIncluido, pagoDe.get(op) || null]);
+      await conciliar(l.id, mov.id);
+      usadas.add(l.id); gastos[g] = (gastos[g] || 0n) + centavos(l.importe.slice(1));
+    }
+    const quedan = pend.filter(l => !usadas.has(l.id)).length;
+    return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan,
+             gastos: Object.fromEntries(Object.entries(gastos).map(([k, v]) => [k, deCentavos(v)])) };
+  });
+  res.status(201).json({ ok: true, ...out });
+}));
+
+// Resumen de la cuenta de un procesador: saldo contra el extracto, lo vendido que falta acreditar (por día) y el
+// costo real de cada tipo de operación (lo acreditado contra sus cargos e impuestos).
+async function resumenProcesador(cuenta) {
+  const { rows: [pr] } = await pool.query(
+    `SELECT p.id, p.nombre, p.cuenta_id AS cuenta_pendiente, cp.nombre AS cuenta_pendiente_nombre, sp.saldo::text AS saldo_pendiente,
+            sc.saldo::text AS saldo_sistema
+       FROM fin.procesador p JOIN fin.cuenta cp ON cp.id = p.cuenta_id JOIN fin.saldo_cuenta sp ON sp.cuenta_id = cp.id
+       JOIN fin.saldo_cuenta sc ON sc.cuenta_id = p.cuenta_acredita_id
+      WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
+  if (!pr) return null;
+  const [{ rows: [ext] }, { rows: pendientes }, { rows: costos }, { rows: [sinLinea] }] = await Promise.all([
+    pool.query(`SELECT to_char(MAX(hasta), 'YYYY-MM-DD') AS hasta,
+                       (SELECT saldo_final::text FROM fin.extracto WHERE cuenta_id = $1 AND saldo_final IS NOT NULL ORDER BY hasta DESC, importado_en DESC LIMIT 1) AS saldo_final,
+                       (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+                           AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS lineas_pendientes,
+                       (SELECT COALESCE(SUM(l.importe), 0)::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+                           AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS importe_pendiente
+                  FROM fin.extracto WHERE cuenta_id = $1`, [cuenta]),
+    pool.query(`SELECT to_char(t.dia, 'YYYY-MM-DD') AS dia, mp.tipo_operacion, COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe,
+                       (current_date - t.dia)::int AS dias
+                  FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+                  JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                 GROUP BY t.dia, mp.tipo_operacion ORDER BY t.dia, mp.tipo_operacion`, [pr.id]),
+    pool.query(`WITH ac AS (
+                  SELECT p.id, p.importe, mp.tipo_operacion FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+                    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.extracto_linea l ON l.id = p.acreditado_linea_id
+                   WHERE l.cuenta_id = $1),
+                g AS (
+                  SELECT ac.tipo_operacion, mt.gasto, mt.salida, COALESCE(mt.iva, 0) AS iva
+                    FROM fin.movimiento_tes mt JOIN ac ON ac.id = mt.ticket_pago_id
+                   WHERE mt.cuenta_id = $1 AND mt.gasto IS NOT NULL)
+                SELECT t.tipo_operacion, t.pagos, t.bruto::text,
+                       COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'comision'), 0)::text AS comision,
+                       (COALESCE(SUM(g.iva) FILTER (WHERE g.gasto = 'comision'), 0) + COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'iva_credito'), 0))::text AS iva,
+                       COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'imp_debitos_creditos'), 0)::text AS imp_debitos_creditos,
+                       COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'retencion'), 0)::text AS retencion,
+                       COALESCE(SUM(g.salida), 0)::text AS costo,
+                       round(COALESCE(SUM(g.salida), 0) / NULLIF(t.bruto, 0) * 100, 2)::text AS costo_pct
+                  FROM (SELECT tipo_operacion, COUNT(*)::int AS pagos, SUM(importe) AS bruto FROM ac GROUP BY tipo_operacion) t
+                  LEFT JOIN g ON g.tipo_operacion = t.tipo_operacion
+                 GROUP BY t.tipo_operacion, t.pagos, t.bruto ORDER BY t.bruto DESC`, [cuenta]),
+    pool.query(`SELECT COUNT(*)::int AS movimientos, COALESCE(SUM(salida), 0)::text AS importe FROM fin.movimiento_tes
+                 WHERE cuenta_id = $1 AND gasto IS NOT NULL AND ticket_pago_id IS NULL`, [cuenta]),
+  ]);
+  return { ...pr, extracto: ext, pendientes, costos, gastos_sin_venta: sinLinea };
+}
 
 // ── Medios de pago globales ──────────────────────────────────────────────────────────────────
 // Procesador (Mercado Pago, Getnet, Fudo Pagos…) + tipo de operación, más el efectivo. Cada procesador
@@ -491,14 +695,17 @@ const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, mp.
 r.get('/fin/procesadores', h(async (req, res) => {
   const { rows: procesadores } = await pool.query(
     `SELECT pr.id, pr.nombre, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
+            pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita,
             COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
                        WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
        FROM fin.procesador pr JOIN fin.cuenta cu ON cu.id = pr.cuenta_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = cu.id
+       LEFT JOIN fin.cuenta ca ON ca.id = pr.cuenta_acredita_id
       ORDER BY pr.activo DESC, pr.nombre`);
   res.json({ ok: true, procesadores });
 }));
 function leerProcesador(b) {
   const p = { nombre: texto(b.nombre, { campo: 'el nombre del procesador', requerido: true }), cuenta_id: texto(b.cuenta_id),
+              cuenta_acredita_id: texto(b.cuenta_acredita_id),
               activo: b.activo === undefined ? true : !!b.activo,
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String) };
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
@@ -522,11 +729,21 @@ async function cuentaProcesador(c, p) {
   const { rows: [n] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo) VALUES ($1, 'cobranza') RETURNING id`, [`${p.nombre} a acreditar`]);
   return n.id;
 }
+// La cuenta donde el procesador deposita de verdad (su extracto se concilia contra los cobros): un banco, o una
+// billetera cargada como banco. No puede ser la misma "a acreditar".
+async function cuentaAcredita(c, p, cuentaPendiente) {
+  if (!p.cuenta_acredita_id) return null;
+  const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid AND activa', [p.cuenta_acredita_id]);
+  if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('La cuenta donde deposita el procesador es una cuenta de tipo banco (una billetera se carga como banco).');
+  if (p.cuenta_acredita_id === cuentaPendiente) throw new ErrorUsuario('La cuenta donde deposita no puede ser la misma "a acreditar".');
+  return p.cuenta_acredita_id;
+}
 r.post('/fin/procesadores', h(async (req, res) => {
   const p = leerProcesador(req.body);
   const id = await enTransaccion(async c => {
     const cuenta = await cuentaProcesador(c, p);
-    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo) VALUES ($1,$2,$3) RETURNING id', [p.nombre, cuenta, p.activo]);
+    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta)]);
     await guardarTipos(c, n.id, p.tipos);
     return n.id;
   });
@@ -538,7 +755,8 @@ r.put('/fin/procesadores/:id', h(async (req, res) => {
     const { rows: [ant] } = await c.query('SELECT cuenta_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
     if (!ant) throw new ErrorUsuario('No existe ese procesador.', 404);
     const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
-    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3 WHERE id = $4', [p.nombre, cuenta, p.activo, req.params.id]);
+    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4 WHERE id = $5',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id]);
     await guardarTipos(c, req.params.id, p.tipos);
   });
   res.json({ ok: true });

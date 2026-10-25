@@ -27,8 +27,11 @@
         <div class="fila"><label>Nombre *<input name="nombre" maxlength="60" placeholder="Mercado Pago"></label></div>
         <div>Tipos de operación *</div>
         <div class="tipos" id="tipos"></div>
-        <div class="fila"><label>Acredita en<select name="cuenta_id"></select></label></div>
+        <div class="fila"><label>Lo cobrado queda en<select name="cuenta_id"></select></label></div>
         <p class="ayuda" id="ayudaCuenta"></p>
+        <div class="fila"><label>Deposita en<select name="cuenta_acredita_id"></select></label></div>
+        <p class="ayuda">La cuenta real donde el procesador deposita (un banco, o su billetera cargada como banco). Su extracto se importa en
+          Conciliación y se concilia solo contra los cobros: lo acreditado pasa de "a acreditar" a esta cuenta, con sus cargos e impuestos.</p>
         <label class="check" id="activoWrap" hidden><input type="checkbox" name="activo" checked> Activo</label>
       </fieldset>
       <div class="acciones"><button type="submit" class="prim" id="guardar">Guardar</button><span class="msg" id="msg"></span></div>
@@ -61,23 +64,27 @@ async function cargar() {
 function llenarCuentas(valor) {
   opciones(f.cuenta_id, cuentas.filter(c => c.activa && (c.tipo === 'cobranza' || c.tipo === 'banco')).map(c => [c.id, c.nombre]), valor,
     actual ? undefined : 'Crear su propia cuenta "a acreditar"');
-  $('#ayudaCuenta').textContent = actual ? 'Si cambiás la cuenta, los puntos de venta que usan este procesador pasan a acreditar en la nueva.'
-    : 'Lo habitual es una cuenta propia del procesador; pasa al banco con una transferencia cuando el procesador liquida.';
+  $('#ayudaCuenta').textContent = actual ? 'Lo vendido que el procesador todavía no depositó. Si cambiás la cuenta, los puntos de venta que usan este procesador pasan a la nueva.'
+    : 'Lo habitual es una cuenta propia del procesador "a acreditar": lo vendido que todavía no depositó.';
+}
+function llenarDeposita(valor) {
+  opciones(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar');
 }
 function nuevo() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo procesador'; $('#activoWrap').hidden = true;
-  llenarCuentas(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
+  llenarCuentas(null); llenarDeposita(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
 function abrir(id) {
   const p = procesadores.find(x => x.id === id); if (!p) return nuevo();
   actual = id; msg(''); $('#titulo').textContent = p.nombre;
   f.nombre.value = p.nombre; f.activo.checked = p.activo; $('#activoWrap').hidden = false;
   $$('#tipos input').forEach(x => { x.checked = p.tipos.includes(x.value); });
-  llenarCuentas(p.cuenta_id); sinCambios(f); cargar();
+  llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); sinCambios(f); cargar();
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, activo: actual ? f.activo.checked : true };
+  const body = { nombre: f.nombre.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
+                 activo: actual ? f.activo.checked : true };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'fin/procesadores/' + actual : 'fin/procesadores', { method: actual ? 'PUT' : 'POST', body });
