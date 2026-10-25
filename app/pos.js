@@ -430,9 +430,15 @@ function filtroVentas(req) {
   // Un medio de pago global (su id) o un medio del sistema todavía sin asignar ('m:' + su id).
   const medio = texto(req.query.medio);
   if (medio && !UUID.test(medio.replace(/^m:/, ''))) throw new ErrorUsuario('Medio de pago inválido.');
-  return [sedesPos(req), integ, desde, hasta, medio];
+  // Para ir abriendo el detalle desde los gráficos: el tipo de venta y la hora de apertura.
+  const tipo = texto(req.query.tipo), hora = req.query.hora == null || req.query.hora === '' ? null : Number(req.query.hora);
+  if (hora != null && !(Number.isInteger(hora) && hora >= 0 && hora <= 23)) throw new ErrorUsuario('Hora inválida.');
+  return [sedesPos(req), integ, desde, hasta, medio, tipo, hora, texto(req.query.mozo)];
 }
-// Los tickets del filtro ($1 sedes, $2 punto de venta, $3 desde, $4 hasta, $5 medio), sólo de importaciones vigentes.
+// La hora de apertura (la del cierre si el POS no trae apertura), en la hora de la cocina.
+const HORA_SQL = `extract(hour FROM COALESCE(abierto_en, cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires')::int`;
+// Los tickets del filtro ($1 sedes, $2 punto de venta, $3 desde, $4 hasta, $5 medio, $6 tipo, $7 hora, $8 mozo),
+// sólo de importaciones vigentes.
 const VENTAS_CTE = `
   WITH t AS (
     SELECT t.*, i.nombre AS punto_venta,
@@ -444,20 +450,36 @@ const VENTAS_CTE = `
        AND t.dia BETWEEN $3::date AND $4::date
        AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
                                          WHERE p.ticket_id = t.id AND NOT p.anulado
-                                           AND COALESCE(m.medio_pago_id::text, 'm:' || m.id) = $5)))`;
+                                           AND COALESCE(m.medio_pago_id::text, 'm:' || m.id) = $5))
+       AND ($6::text IS NULL OR COALESCE(t.tipo, 'sin dato') = $6)
+       AND ($7::int IS NULL OR extract(hour FROM COALESCE(t.abierto_en, t.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires')::int = $7)
+       AND ($8::text IS NULL OR COALESCE(t.mozo, 'sin mozo') = $8))`;
 const CLAVE_MEDIO = `COALESCE(m.medio_pago_id::text, 'm:' || m.id)`;
 
 r.get('/pos/ventas/resumen', h(async (req, res) => {
   const f = filtroVentas(req);
-  const q = sql => pool.query(VENTAS_CTE + sql, f).then(r => r.rows);
-  const [[tot], medios, dias, horas, tipos, puntos] = await Promise.all([
-    q(`SELECT count(*) FILTER (WHERE estado = 'cerrado')::int AS ventas, count(*) FILTER (WHERE estado = 'anulado')::int AS anuladas,
+  const q = (sql, params = f) => pool.query(VENTAS_CTE + sql, params).then(r => r.rows);
+  // El período anterior de la misma duración, terminando el día antes de `desde`: para comparar.
+  const largo = Math.round((new Date(f[3]) - new Date(f[2])) / 864e5) + 1;
+  const corrido = (d, n) => new Date(new Date(d + 'T12:00:00Z').getTime() - n * 864e5).toISOString().slice(0, 10);
+  const ant = [f[0], f[1], corrido(f[2], largo), corrido(f[3], largo), ...f.slice(4)];
+  const TOTALES = `SELECT count(*) FILTER (WHERE estado = 'cerrado')::int AS ventas, count(*) FILTER (WHERE estado = 'anulado')::int AS anuladas,
               COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado'), 0)::numeric(16,2)::text AS vendido,
               COALESCE(SUM(personas) FILTER (WHERE estado = 'cerrado'), 0)::int AS personas,
+              -- El promedio por cubierto, sólo sobre las ventas que traen cubiertos (el salón): lo de para llevar y
+              -- delivery no tiene personas y lo inflaría.
+              COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado' AND personas > 0), 0)::numeric(16,2)::text AS vendido_con_personas,
+              count(*) FILTER (WHERE estado = 'cerrado' AND personas > 0)::int AS ventas_con_personas,
               COALESCE((SELECT SUM(p.importe) FROM pos.ticket_pago p JOIN t ON t.id = p.ticket_id
                          WHERE t.estado = 'cerrado' AND NOT p.anulado), 0)::numeric(16,2)::text AS cobrado,
               COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS vendido_anuladas
-         FROM t`),
+         FROM t`;
+  const DIAS = `SELECT to_char(dia, 'YYYY-MM-DD') AS dia, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido,
+                       COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas,
+                       COALESCE(SUM(vendido) FILTER (WHERE personas > 0), 0)::numeric(16,2)::text AS vendido_con_personas
+                  FROM t WHERE estado = 'cerrado' GROUP BY dia ORDER BY dia`;
+  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos] = await Promise.all([
+    q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
     // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
     q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, m.medio_pago_id IS NULL AS sin_asignar,
               string_agg(DISTINCT m.nombre, ', ') AS nombres, SUM(p.importe)::numeric(16,2)::text AS importe,
@@ -466,18 +488,22 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
          LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
         WHERE t.estado = 'cerrado'
         GROUP BY 1, 2, 3, 4 ORDER BY SUM(p.importe) DESC`),
-    q(`SELECT to_char(dia, 'YYYY-MM-DD') AS dia, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
-         FROM t WHERE estado = 'cerrado' GROUP BY dia ORDER BY dia`),
-    // La hora de apertura (la del cierre si el POS no trae apertura), en la hora de la cocina.
-    q(`SELECT extract(hour FROM COALESCE(abierto_en, cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires')::int AS hora,
+    q(DIAS),
+    q(`SELECT ${HORA_SQL} AS hora,
               count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
          FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY 1`),
-    q(`SELECT COALESCE(tipo, 'sin dato') AS tipo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+    q(`SELECT COALESCE(tipo, 'sin dato') AS tipo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido,
+              COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas,
+              COALESCE(SUM(vendido) FILTER (WHERE personas > 0), 0)::numeric(16,2)::text AS vendido_con_personas
          FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
     q(`SELECT integracion_id AS id, punto_venta AS nombre, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
          FROM t WHERE estado = 'cerrado' GROUP BY 1, 2 ORDER BY SUM(vendido) DESC`),
+    q(`SELECT COALESCE(mozo, 'sin mozo') AS mozo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido,
+              COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas
+         FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
   ]);
-  res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos });
+  res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos,
+    anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt } });
 }));
 
 r.get('/pos/ventas', h(async (req, res) => {

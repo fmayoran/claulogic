@@ -376,13 +376,21 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   - **El día en curso no se importa** (decisión de Fer): ni Fudo (el rango tiene que terminar ayer) ni un
     archivo con ventas de hoy. Procesar ventas propone ayer por defecto.
 - **Ventas = tablero; Procesar ventas = back office** (decisión de Fer, 25/10/2026). `ventas.html` es para ver y
-  analizar: punto de venta (o todos los visibles) y período por día de apertura (hasta un año); cifras (vendido,
-  ventas, ticket promedio y por persona, cobrado y diferencia), cobros por medio de pago global (o por el nombre
-  del sistema si falta asignarlo; tocar un medio filtra el detalle), por día, por hora de apertura, por punto de
-  venta y salón/para llevar, y el detalle de cada venta (artículos y pagos, con su cobro procesado o no). Sólo
-  lectura, sin tablas nuevas: `GET /pos/ventas/resumen`, `/pos/ventas` (máximo 1.000, de a 100 en pantalla) y
-  `/pos/ventas/:id`, con el mismo alcance por sede que las importaciones. Las horas se muestran en la de Buenos
-  Aires. `procesar-ventas.html` tiene lo que antes era Ventas: importar, días y cobros, importaciones y consumo.
+  analizar, con estilo de tablero (pedido de Fer: moderno, minimalista, gráficos de resumen y el detalle a medida
+  que se navega): período en botones (ayer, 7 días, este mes, mes anterior, fechas) y local; **cifras** (vendido,
+  ventas, ticket promedio, cubiertos, por cubierto) con **variación contra el período anterior** de la misma
+  duración y mini curva por día; **área** de ventas por día con el anterior punteado (un solo día: columnas por
+  hora); **dona** de medios de pago (global, o el nombre del sistema si falta asignarlo) con cobrado contra vendido;
+  por hora, **dona** por tipo de venta y ranking por mozo (por local si hay varios). **Tocar** un día, medio, hora,
+  tipo o mozo agrega un filtro (chips) y abre el detalle; una venta se abre en un panel lateral. El promedio por
+  cubierto es lo vendido en las ventas con personas sobre esas personas (para llevar y delivery no traen
+  cubiertos). Sólo lectura: `GET /pos/ventas/resumen` (con `anterior`), `/pos/ventas` (filtros `medio`, `tipo`,
+  `hora`, `mozo`; máximo 1.000) y `/pos/ventas/:id`, con el alcance por sede de las importaciones. Horas en la de
+  Buenos Aires. `procesar-ventas.html` tiene importar, días y cobros, importaciones y consumo.
+- **Gráficos de los tableros**: `graficos.js` (`Graf.area`, `columnas`, `dona`, `mini`, `ranking`, `variacion`) y
+  `graficos.css` (tarjetas, cifras, botones de período, chips, panel lateral `dialog.panel-lado`; ojo: la clase
+  `lateral` es la barra del menú). Paleta categórica de 6 en orden fijo validada para claro y oscuro contra los
+  fondos de la app; la leyenda lleva valor y porcentaje porque en claro tres colores quedan bajo 3:1.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
   (subitems), propinas.
 

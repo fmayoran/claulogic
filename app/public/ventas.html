@@ -5,176 +5,137 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Ventas · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
 <style>
-  /* Misma paleta validada que el Tablero: una sola serie, azul. */
-  .viz{--serie-1:#2a78d6;--grilla:#e3e7e4;--eje:#5b6762;--tinta:#18201d;--sup:#fff;}
-  @media (prefers-color-scheme:dark){.viz{--serie-1:#3987e5;--grilla:#2b3330;--eje:#93a09a;--tinta:#e8ece9;--sup:#1a1f1d;}}
-  .viz{position:relative;background:var(--sup);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 10px;}
-  .viz svg{display:block;width:100%;height:auto;overflow:visible;}
-  .viz text{fill:var(--eje);font-size:12px;font-variant-numeric:tabular-nums;}
-  .viz .grilla{stroke:var(--grilla);stroke-width:1;} .viz .cero{stroke:var(--eje);stroke-width:1;}
-  .viz path,.viz text,.viz line{pointer-events:none;}
-  .viz .zona{fill:transparent;} .viz .zona:hover{fill:var(--sel);opacity:.5;}
-  .tip{position:absolute;pointer-events:none;background:var(--panel);color:var(--fg);border:1px solid var(--borde);border-radius:8px;
-    padding:8px 10px;font-size:.85rem;box-shadow:0 4px 14px rgba(0,0,0,.12);white-space:nowrap;z-index:2;}
-  .tip b{display:block;margin-bottom:2px;}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 20px;}
-  .kpi{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;background:var(--panel);}
-  .kpi span{display:block;color:var(--mut);font-size:.84rem;} .kpi strong{font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums;}
-  .kpi small{display:block;color:var(--mut);font-size:.8rem;margin-top:2px;}
-  .bloque{margin:0 0 26px;} .bloque h2{margin-bottom:6px;}
-  .dos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));}
-  /* Medios de pago: una fila por medio con su barra de participación; tocarla filtra el detalle. */
-  .medios{list-style:none;margin:0;padding:0;display:grid;gap:4px;}
-  .medios button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;width:100%;
-    padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;}
-  .medios button:hover{background:var(--sel);} .medios button:focus-visible{outline:2px solid var(--acento);}
-  .medios button.act{border-color:var(--acento);background:var(--sel);}
-  .medios .imp{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
-  .medios .det{color:var(--mut);font-size:.82rem;}
-  .medios .pista{grid-column:1 / -1;height:8px;border-radius:4px;background:var(--grilla, var(--line));overflow:hidden;}
-  .medios .pista i{display:block;height:100%;border-radius:4px;background:var(--serie-1);}
-  .filtro{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;}
-  details.tabla summary{cursor:pointer;color:var(--mut);font-size:.85rem;margin-top:8px;}
-  .datos tr.inactivo td{color:var(--mut);} #bPuntos{margin-bottom:18px;}
-  /* En el celular, cada venta en dos o tres líneas: número y total; hora, mesa y mozo; cómo se cobró. */
-  @media (max-width:700px){
-    #tVentas thead{display:none;}
-    #tVentas tbody tr{display:flex;flex-wrap:wrap;gap:2px 10px;padding:10px 12px;border-bottom:1px solid var(--line);}
-    #tVentas td{padding:0;border:0;white-space:normal;}
-    #tVentas td:nth-child(1){flex:1 1 auto;min-width:60%;} #tVentas td:nth-child(7){font-weight:600;}
-    #tVentas td:nth-child(2),#tVentas td:nth-child(4),#tVentas td:nth-child(5){order:2;color:var(--mut);font-size:.88rem;}
-    #tVentas td:nth-child(3){display:none;} #tVentas td:nth-child(6){order:3;flex-basis:100%;font-size:.88rem;}
-    #tVentas td.mesa::before{content:'mesa ';}
-    #tVentas td:empty{display:none;}
-  }
-  #dlgVenta{width:min(560px,94vw);} #dlgVenta h2{margin-top:0;}
+  .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
+  #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
+  .medios-pie{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;color:var(--mut);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .medios-pie b{color:var(--fg);font-variant-numeric:tabular-nums;}
+  .medios-pie .difiere b{color:var(--baja);}
+  /* Detalle de ventas: renglones livianos, sin grilla. */
+  .ventas{display:grid;margin:8px 0 0;}
+  .venta{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(80px,auto) minmax(0,1fr) auto;gap:2px 16px;align-items:center;
+    padding:11px 10px;border-radius:10px;cursor:pointer;border-bottom:1px solid var(--g-grilla);}
+  .venta:hover{background:var(--sel);} .venta:focus-visible{outline:2px solid var(--acento);}
+  .venta .num{font-weight:650;} .venta .hora{color:var(--mut);font-size:.84rem;}
+  .venta .med{color:var(--mut);font-size:.84rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .venta .tot{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
+  .venta.anulada{opacity:.55;}
+  .venta .dato{display:flex;flex-direction:column;min-width:0;}
+  #abrirDet{margin-top:6px;}
+  .det-barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 4px;}
+  .det-barra input{flex:1 1 220px;border-radius:999px;padding:8px 14px;}
+  /* Panel de una venta */
+  #dlgVenta h2{margin:0 0 2px;font-size:1.25rem;padding-right:36px;} #dlgVenta .cap{color:var(--mut);font-size:.88rem;margin:0 0 16px;}
+  .lineas{display:grid;gap:0;margin:0 0 18px;}
+  .lineas > div{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--g-grilla);font-size:.92rem;}
+  .lineas .c{color:var(--mut);font-variant-numeric:tabular-nums;} .lineas .i{text-align:right;font-variant-numeric:tabular-nums;}
+  .lineas .total{font-weight:700;border-bottom:0;} .lineas .anul{opacity:.5;text-decoration:line-through;}
+  .lineas .sub{display:block;color:var(--mut);font-size:.8rem;}
+  #dlgVenta h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 4px;font-weight:600;}
+  .cerrar-x{all:unset;position:absolute;top:14px;right:14px;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mut);font-size:1.3rem;}
+  .cerrar-x:hover{background:var(--sel);color:var(--fg);}
+  @media (max-width:600px){ .venta{grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;} .venta .dato:first-child{grid-column:1 / -1;flex-direction:row;gap:8px;align-items:baseline;} }
 </style>
 </head>
 <body>
 <main class="ancho">
-  <h1>Ventas</h1>
-  <p class="sub">Lo que vendió cada local, según las ventas traídas de su POS: totales, cobros por medio de pago y el detalle de cada venta.
-    Cada venta cuenta en el día en que se abrió, como en el POS. Traer las ventas y procesar sus cobros se hace en Procesar ventas.</p>
-  <div class="barra">
-    <label>Punto de venta<select id="integ"></select></label>
-    <label>Período<select id="periodo">
-      <option value="ayer">Ayer</option><option value="7">Últimos 7 días</option><option value="mes">Este mes</option>
-      <option value="mesant">Mes anterior</option><option value="otro">Elegir fechas</option></select></label>
-    <label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
+  <div class="t-cab">
+    <h1>Ventas</h1>
+    <p class="sub">Lo que vendió cada local, según las ventas traídas de su POS. Cada venta cuenta en el día en que se abrió, como en el POS.
+      Tocá un día, un medio de pago, una hora, un tipo o un mozo para ver esas ventas. Traer las ventas y procesar sus cobros se hace en Procesar ventas.</p>
+    <div class="t-filtros"><select id="integ" aria-label="Punto de venta"></select></div>
   </div>
+  <div class="t-cab" style="margin-top:-8px">
+    <div class="segm" id="periodo" role="group" aria-label="Período">
+      <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
+      <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+    </div>
+    <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
+  </div>
+  <p class="t-rango" id="rango"></p>
   <span class="msg" id="msg"></span>
 
   <div class="kpis" id="kpis"></div>
 
-  <div class="dos bloque">
-    <section>
-      <h2>Cobros por medio de pago</h2>
-      <p class="ayuda">Tocá un medio para ver sólo las ventas cobradas con él.</p>
-      <div class="viz"><ul class="medios" id="medios"></ul></div>
+  <div class="t-grid t-g2">
+    <section class="card">
+      <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Anterior</span></div></div>
+      <p class="cap" id="capPrincipal">Tocá un día para ver sus ventas.</p>
+      <div id="gPrincipal"></div>
     </section>
-    <section id="bDias">
-      <h2>Ventas por día</h2>
-      <div class="viz" id="gDias"></div>
-      <details class="tabla"><summary>Ver como tabla</summary>
-        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Día</th><th class="num">Ventas</th><th class="num">Vendido</th></tr></thead><tbody id="tDias"></tbody></table></div></details>
+    <section class="card">
+      <h2>Medios de pago</h2>
+      <p class="cap">Lo cobrado, por medio. Tocá uno para ver esas ventas.</p>
+      <div id="gMedios"></div>
+      <div class="medios-pie" id="cobrado"></div>
     </section>
   </div>
 
-  <div class="dos bloque">
-    <section>
+  <div class="t-grid t-g3">
+    <section class="card" id="cHoras">
       <h2>Por hora de apertura</h2>
-      <div class="viz" id="gHoras"></div>
-      <details class="tabla"><summary>Ver como tabla</summary>
-        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Hora</th><th class="num">Ventas</th><th class="num">Vendido</th></tr></thead><tbody id="tHoras"></tbody></table></div></details>
+      <p class="cap">Cuándo se abren las mesas.</p>
+      <div id="gHoras"></div>
     </section>
-    <section>
-      <div id="bPuntos"><h2>Por punto de venta</h2>
-        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Punto de venta</th><th class="num">Ventas</th><th class="num">Vendido</th><th class="num">Promedio</th></tr></thead><tbody id="tPuntos"></tbody></table></div></div>
-      <h2>Por tipo de venta</h2>
-      <div class="tabla-wrap"><table class="datos"><thead><tr><th>Tipo</th><th class="num">Ventas</th><th class="num">Vendido</th><th class="num">Promedio</th></tr></thead><tbody id="tTipos"></tbody></table></div>
+    <section class="card">
+      <h2>Tipo de venta</h2>
+      <p class="cap" id="capTipos"></p>
+      <div id="gTipos"></div>
+    </section>
+    <section class="card">
+      <h2 id="tRank">Por mozo</h2>
+      <p class="cap" id="capRank"></p>
+      <div id="gRank"></div>
     </section>
   </div>
 
-  <section class="bloque">
-    <h2>Detalle de las ventas</h2>
-    <div class="filtro" id="filtroMedio" hidden></div>
-    <div class="barra"><input type="search" id="buscar" placeholder="Buscar por número, mesa o mozo"></div>
-    <div class="tabla-wrap"><table class="datos" id="tVentas">
-      <thead><tr><th>Venta</th><th>Abierta</th><th>Cerrada</th><th>Mesa</th><th>Mozo</th><th>Cobrada con</th><th class="num">Total</th></tr></thead>
-      <tbody id="ventas"></tbody></table></div>
-    <div class="acciones" id="masWrap" hidden><button type="button" id="mas">Mostrar más</button></div>
-    <p class="ayuda" id="recorte" hidden>Se muestran las 1.000 ventas más recientes del período: acotá las fechas para ver el resto.</p>
+  <section class="card" id="cDetalle">
+    <div class="card-cab"><h2 id="tDetalle">Ventas del período</h2><span class="cap" id="cuenta" style="margin:0"></span></div>
+    <div class="chips" id="chips"></div>
+    <button type="button" id="abrirDet">Ver el detalle</button>
+    <div id="detalle" hidden>
+      <div class="det-barra"><input type="search" id="buscar" placeholder="Buscar por número, mesa o mozo"></div>
+      <div class="ventas" id="ventas"></div>
+      <div class="acciones" id="masWrap" hidden><button type="button" id="mas">Mostrar más</button></div>
+      <p class="ayuda" id="recorte" hidden>Se muestran las 1.000 ventas más recientes: acotá el período o elegí un filtro para ver el resto.</p>
+    </div>
   </section>
 </main>
 
-<dialog id="dlgVenta">
+<dialog id="dlgVenta" class="panel-lado">
+  <button type="button" class="cerrar-x" id="vCerrar" aria-label="Cerrar">×</button>
   <h2 id="vTitulo"></h2>
-  <p class="ayuda" id="vDatos"></p>
+  <p class="cap" id="vDatos"></p>
   <h3>Artículos</h3>
-  <div class="tabla-wrap"><table class="datos"><thead><tr><th class="num">Cant.</th><th>Artículo</th><th class="num">Importe</th></tr></thead><tbody id="vItems"></tbody></table></div>
+  <div class="lineas" id="vItems"></div>
   <h3>Pagos</h3>
-  <div class="tabla-wrap"><table class="datos"><thead><tr><th>Medio</th><th>Medio de pago</th><th class="num">Importe</th></tr></thead><tbody id="vPagos"></tbody></table></div>
-  <div class="acciones"><button type="button" id="vCerrar">Cerrar</button></div>
+  <div class="lineas" id="vPagos"></div>
 </dialog>
 
 <script src="comun.js"></script>
+<script src="graficos.js"></script>
 <script>
-const n = v => v == null ? 0 : Number(v);
-const etiqueta = m => m.sin_asignar ? m.nombres : etiquetaMedio(m);
-const svgEl = (tag, attrs = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
-const compacto = v => v >= 1e6 ? '$' + (v / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' M'
-  : v >= 1e3 ? '$' + (v / 1e3).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + ' mil' : '$' + v.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+const n = v => v == null || v === '' ? 0 : Number(v);
+const etiquetaM = m => m.sin_asignar ? m.nombres : etiquetaMedio(m);
 // Promedio al peso, en enteros: los importes llegan como texto exacto de la base.
-const promedio = (total, cant) => cant ? pesos(String(Math.round(n(total) / cant))) : '—';
-function escala(max) {
-  if (max <= 0) return [1, 4];
-  const paso = Math.pow(10, Math.floor(Math.log10(max))), m = max / paso;
-  const k = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10;
-  return [k * paso, k === 5 ? 5 : 4];
-}
-// Columnas de una serie, dibujadas al ancho real de la caja; se redibujan si cambia el ancho.
-const graficos = new Map();
-let _rz; addEventListener('resize', () => { clearTimeout(_rz); _rz = setTimeout(() => graficos.forEach(fn => fn()), 150); });
-function columnas(cont, puntos, titulo) {
-  const fn = () => {
-    cont.replaceChildren();
-    if (!puntos.length) return cont.append(el('p', { className: 'ayuda', textContent: 'Sin ventas en el período.' }));
-    const ancho = Math.max(280, cont.clientWidth - 34), alto = 200, abajo = 24, izq = 58;
-    const banda = (ancho - izq) / puntos.length, col = Math.max(3, Math.min(24, banda - 6));
-    const [tope, div] = escala(Math.max(...puntos.map(p => n(p.valor)))), y = v => (alto - abajo) - (alto - abajo - 8) * (v / tope);
-    const svg = svgEl('svg', { viewBox: `0 0 ${ancho} ${alto}`, role: 'img', 'aria-label': titulo });
-    for (let k = 0; k <= div; k++) {
-      const v = tope * k / div;
-      svg.append(svgEl('line', { x1: izq, x2: ancho, y1: y(v), y2: y(v), class: k ? 'grilla' : 'cero' }));
-      const t = svgEl('text', { x: izq - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = compacto(v); svg.append(t);
-    }
-    const tip = el('div', { className: 'tip', hidden: true }); cont.append(tip);
-    const cadaCuanto = Math.ceil(puntos.length / Math.max(1, Math.floor((ancho - izq) / 44)));
-    puntos.forEach((p, i) => {
-      const cx = izq + banda * i + banda / 2, v = n(p.valor);
-      if (v > 0) {
-        const x0 = cx - col / 2, yt = y(v), b = y(0), r = Math.min(4, (b - yt) / 2, col / 2);
-        svg.append(svgEl('path', { d: `M${x0} ${b} V${yt + r} Q${x0} ${yt} ${x0 + r} ${yt} H${x0 + col - r} Q${x0 + col} ${yt} ${x0 + col} ${yt + r} V${b} Z`, style: 'fill:var(--serie-1)' }));
-      }
-      if (i % cadaCuanto === 0) { const t = svgEl('text', { x: cx, y: alto - 6, 'text-anchor': 'middle' }); t.textContent = p.eje; svg.append(t); }
-      const zona = svgEl('rect', { x: cx - banda / 2, y: 0, width: banda, height: alto - abajo, class: 'zona' });
-      zona.addEventListener('mousemove', ev => {
-        tip.replaceChildren(el('b', { textContent: p.titulo }), el('div', { textContent: `${pesos(p.valor)} · ${p.ventas} venta(s)` }));
-        tip.hidden = false;
-        const rc = cont.getBoundingClientRect(), x = ev.clientX - rc.left, yy = ev.clientY - rc.top;
-        tip.style.left = Math.max(0, Math.min(x + 14, rc.width - tip.offsetWidth - 4)) + 'px'; tip.style.top = Math.max(0, yy - tip.offsetHeight - 10) + 'px';
-      });
-      zona.addEventListener('mouseleave', () => { tip.hidden = true; });
-      svg.insertBefore(zona, svg.firstChild);
-    });
-    cont.append(svg);
-  };
-  graficos.set(cont, fn); fn();
+const prom = (total, cant) => cant ? String(Math.round(n(total) / cant)) : null;
+const ZONA = { timeZone: 'America/Argentina/Buenos_Aires' };
+const hora = v => v ? new Date(v).toLocaleTimeString('es-AR', { ...ZONA, hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const diaHora = v => v ? new Date(v).toLocaleString('es-AR', { ...ZONA, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const diaCorto = d => fecha(d).slice(0, 5);
+const diaLargo = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d)}`;
+// Los días corridos entre dos fechas (los que no tuvieron ventas van en cero).
+function diasEntre(desde, hasta) {
+  const out = [], d = new Date(desde + 'T12:00:00Z'), h = new Date(hasta + 'T12:00:00Z');
+  for (; d <= h; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+  return out;
 }
 
-// ── Filtros ──
-let integraciones = [], medioSel = null, ventas = [], resumen = null;
+// ── Período ──
+let integraciones = [], resumen = null, ventas = [];
+const filtros = {};   // dia, medio, hora, tipo, mozo: lo que se fue eligiendo en los gráficos
 const ayer = () => { const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
 function rango(p) {
   const a = ayer(), d = new Date(a + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
@@ -184,120 +145,183 @@ function rango(p) {
   if (p === 'mesant') { const h = new Date(hoy().slice(0, 8) + '01T12:00:00'); h.setDate(0); return [iso(h).slice(0, 8) + '01', iso(h)]; }
   return null;
 }
-$('#periodo').onchange = () => { const r = rango($('#periodo').value); if (r) [$('#desde').value, $('#hasta').value] = r; cargar(); };
-$('#desde').onchange = $('#hasta').onchange = () => { $('#periodo').value = 'otro'; cargar(); };
-$('#integ').onchange = () => { medioSel = null; cargar(); };
-$('#buscar').oninput = () => { mostrar = DE_A; pintarVentas(); };
+function elegirPeriodo(p) {
+  $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
+  $('#fechas').hidden = p !== 'otro';
+  const r = rango(p); if (r) [$('#desde').value, $('#hasta').value] = r;
+}
+const limpiarFiltros = () => { for (const k of Object.keys(filtros)) delete filtros[k]; };
+$$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); limpiarFiltros(); cargar(); });
+$('#desde').onchange = $('#hasta').onchange = () => { limpiarFiltros(); cargar(); };
+$('#integ').onchange = () => { limpiarFiltros(); cargar(); };
 
-function parametros() {
+function base() {
   const p = new URLSearchParams({ desde: $('#desde').value, hasta: $('#hasta').value });
   if ($('#integ').value) p.set('integracion', $('#integ').value);
-  if (medioSel) p.set('medio', medioSel);
   return p;
 }
 async function cargar() {
   if (!$('#desde').value || !$('#hasta').value) return;
-  const p = parametros();
-  history.replaceState(null, '', 'ventas.html#' + new URLSearchParams([...p].filter(([k]) => k !== 'medio')));
+  const p = base();
+  history.replaceState(null, '', 'ventas.html#' + p);
   msg('Cargando…');
   try {
-    // El resumen es del período entero; el detalle, filtrado por el medio elegido.
-    const sinMedio = new URLSearchParams(p); sinMedio.delete('medio');
-    const [r, v] = await Promise.all([api('pos/ventas/resumen?' + sinMedio), api('pos/ventas?' + p)]);
-    resumen = r; ventas = v.ventas; mostrar = DE_A; $('#recorte').hidden = !v.recortado;
-    pintarResumen(); pintarVentas(); msg('');
+    resumen = await api('pos/ventas/resumen?' + p);
+    msg(''); pintar(); await cargarVentas();
   } catch (e) { msg(e.message, 'mal'); }
 }
 
 // ── Resumen ──
-function pintarResumen() {
-  const t = resumen.totales, kpi = (titulo, valor, nota) => el('div', { className: 'kpi' }, el('span', { textContent: titulo }), el('strong', { textContent: valor }), nota ? el('small', { textContent: nota }) : '');
-  const dif = n(t.cobrado) - n(t.vendido);
+function pintar() {
+  const r = resumen, t = r.totales, a = r.anterior.totales, unDia = $('#desde').value === $('#hasta').value;
+  $('#rango').textContent = (unDia ? diaLargo($('#desde').value) : `Del ${fecha($('#desde').value)} al ${fecha($('#hasta').value)}`)
+    + ` · comparado con ${r.anterior.desde === r.anterior.hasta ? diaLargo(r.anterior.desde) : `${diaCorto(r.anterior.desde)} al ${fecha(r.anterior.hasta)}`}`;
+
+  // Series por día (los días sin ventas en cero), para las mini curvas y el gráfico principal.
+  const dias = diasEntre($('#desde').value, $('#hasta').value), porDia = new Map(r.dias.map(d => [d.dia, d]));
+  const serie = campo => dias.map(d => n((porDia.get(d) || {})[campo]));
+  const diasAnt = diasEntre(r.anterior.desde, r.anterior.hasta), porDiaAnt = new Map(r.anterior.dias.map(d => [d.dia, d]));
+  const vend = serie('vendido'), cant = serie('ventas'), pers = serie('personas'), vcp = serie('vendido_con_personas');
+
+  const kpi = (et, valor, act, ant, curva) => {
+    const c = el('div', { className: 'curva' });
+    const card = el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }), el('span', { className: 'va', textContent: valor ?? '—' }),
+      el('span', { className: 'pie' }, act != null ? Graf.variacion(act, ant) : '', act != null && n(ant) ? el('span', { textContent: 'vs. anterior' }) : ''), c);
+    if (curva && !unDia) requestAnimationFrame(() => Graf.mini(c, curva));
+    return card;
+  };
+  const tk = prom(t.vendido, t.ventas), tkA = prom(a.vendido, a.ventas), pc = prom(t.vendido_con_personas, t.personas), pcA = prom(a.vendido_con_personas, a.personas);
   $('#kpis').replaceChildren(
-    kpi('Vendido', pesos(t.vendido), t.anuladas ? `${t.anuladas} anulada(s) por ${pesos(t.vendido_anuladas)}, no suman` : ''),
-    kpi('Ventas', num(String(t.ventas))),
-    kpi('Ticket promedio', promedio(t.vendido, t.ventas), t.personas ? `${num(String(t.personas))} personas · ${promedio(t.vendido, t.personas)} por persona` : ''),
-    kpi('Cobrado', pesos(t.cobrado), Math.abs(dif) >= 1 ? `Diferencia con lo vendido: ${pesos(String(dif))}` : 'Coincide con lo vendido'));
+    kpi('Vendido', pesos(t.vendido), t.vendido, a.vendido, vend),
+    kpi('Ventas', num(String(t.ventas)), t.ventas, a.ventas, cant),
+    kpi('Ticket promedio', tk && pesos(tk), tk, tkA, dias.map((_, i) => cant[i] ? vend[i] / cant[i] : 0)),
+    kpi('Cubiertos', t.personas ? num(String(t.personas)) : null, t.personas || null, a.personas, pers),
+    kpi('Por cubierto', pc && pesos(pc), pc, pcA, dias.map((_, i) => pers[i] ? vcp[i] / pers[i] : 0)));
 
-  const total = resumen.medios.reduce((s, m) => s + n(m.importe), 0);
-  $('#medios').replaceChildren(...(resumen.medios.length ? resumen.medios.map(m => {
-    const part = total ? n(m.importe) / total * 100 : 0;
-    const b = el('button', { type: 'button', className: m.clave === medioSel ? 'act' : '', 'aria-pressed': String(m.clave === medioSel) },
-      el('span', {}, etiqueta(m), m.sin_asignar ? el('span', { className: 'tag aviso', textContent: 'sin asignar', style: 'margin-left:6px' }) : ''),
-      el('span', { className: 'imp', textContent: pesos(m.importe) }),
-      el('span', { className: 'pista' }, Object.assign(el('i'), { style: `width:${part.toFixed(1)}%` })),
-      el('span', { className: 'det', textContent: `${num(part.toFixed(1))}% · ${m.ventas} venta(s)` }),
-      el('span', { className: 'det', textContent: m.sin_asignar ? '' : m.nombres, style: 'text-align:right' }));
-    b.onclick = () => { medioSel = medioSel === m.clave ? null : m.clave; cargar(); };
-    return el('li', {}, b);
-  }) : [el('li', { className: 'ayuda', textContent: 'Sin cobros en el período.' })]));
+  // Principal: por día; si el período es un solo día, por hora.
+  $('#cHoras').hidden = unDia;
+  $('#leyPrincipal').hidden = unDia;
+  if (unDia) {
+    $('#tPrincipal').textContent = 'Ventas por hora'; $('#capPrincipal').textContent = 'Por hora de apertura. Tocá una hora para ver sus ventas.';
+    pintarHoras($('#gPrincipal'), matchMedia('(max-width:899px)').matches ? 220 : 330);
+  } else {
+    $('#tPrincipal').textContent = 'Ventas por día'; $('#capPrincipal').textContent = 'Tocá un día para ver sus ventas.';
+    const vAnt = d => n((porDiaAnt.get(d) || {}).vendido);
+    Graf.area($('#gPrincipal'), {
+      etiquetas: dias, ejeX: diaCorto, titulo: d => diaLargo(d),
+      serie: { nombre: 'Vendido', valores: vend, texto: i => `${pesos(String(vend[i]))} · ${cant[i]} venta(s)` },
+      anterior: { nombre: 'Anterior', valores: diasAnt.map(vAnt), texto: i => `${pesos(String(vAnt(diasAnt[i])))} (${diaLargo(diasAnt[i])})` },
+      alElegir: i => alternar('dia', dias[i]), elegido: filtros.dia ? dias.indexOf(filtros.dia) : null,
+      alto: matchMedia('(max-width:899px)').matches ? 220 : 330,
+    });
+    pintarHoras($('#gHoras'), 190);
+  }
 
-  const dias = resumen.dias;
-  $('#bDias').hidden = dias.length < 2;
-  columnas($('#gDias'), dias.map(d => ({ eje: fecha(d.dia).slice(0, 5), titulo: fecha(d.dia), valor: d.vendido, ventas: d.ventas })), 'Vendido por día');
-  filas($('#tDias'), dias, d => el('tr', {}, td(fecha(d.dia)), td(String(d.ventas), 'num'), td(pesos(d.vendido), 'num')), 'Sin ventas.', 3);
+  Graf.dona($('#gMedios'), {
+    items: r.medios.map(m => ({ clave: m.clave, etiqueta: etiquetaM(m), valor: m.importe,
+      marca: m.sin_asignar ? el('span', { className: 'tag aviso', textContent: 'sin asignar', style: 'margin-left:6px' }) : '' })),
+    centro: Graf.compacto(n(t.cobrado)), sub: 'cobrado', alElegir: c => alternar('medio', c), elegido: filtros.medio ?? null });
+  const dif = n(t.cobrado) - n(t.vendido);
+  $('#cobrado').replaceChildren(el('span', {}, 'Cobrado ', el('b', { textContent: pesos(t.cobrado) })),
+    Math.abs(dif) >= 1 ? el('span', { className: 'difiere' }, 'Difiere de lo vendido en ', el('b', { textContent: pesos(String(dif)) }))
+      : el('span', { textContent: 'Coincide con lo vendido' }));
+
+  const conPers = r.tipos.filter(x => x.personas);
+  $('#capTipos').textContent = conPers.length
+    ? conPers.map(x => `${x.tipo}: ${num(String(x.personas))} cubiertos, ${pesos(prom(x.vendido_con_personas, x.personas))} por cubierto`).join(' · ')
+    : 'Salón, para llevar y delivery.';
+  Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${x.tipo} (${x.ventas})`, valor: x.vendido })),
+    sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
+
+  // Varios locales: el ranking es por local (tocar uno lo elige arriba); uno solo: por mozo.
+  const varios = !$('#integ').value && r.puntos.length > 1;
+  $('#tRank').textContent = varios ? 'Por local' : 'Por mozo';
+  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
+  if (varios) Graf.ranking($('#gRank'), { items: r.puntos.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas })),
+    nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: id => { $('#integ').value = id; limpiarFiltros(); cargar(); } });
+  else Graf.ranking($('#gRank'), { items: r.mozos.slice(0, 8).map(x => ({ clave: x.mozo, etiqueta: x.mozo, valor: x.vendido, ventas: x.ventas, personas: x.personas })),
+    nota: x => `${x.ventas} ventas` + (x.personas ? ` · ${num(String(x.personas))} cubiertos` : ''), alElegir: m => alternar('mozo', m), elegido: filtros.mozo ?? null });
+}
+function pintarHoras(cont, alto) {
   // Las horas de corrido desde la primera a la última con ventas, para que se vean los huecos.
   const hs = resumen.horas, porHora = new Map(hs.map(h => [h.hora, h]));
-  const horas = hs.length ? Array.from({ length: hs[hs.length - 1].hora - hs[0].hora + 1 }, (_, i) => porHora.get(hs[0].hora + i) || { hora: hs[0].hora + i, ventas: 0, vendido: '0' }) : [];
-  columnas($('#gHoras'), horas.map(h => ({ eje: h.hora + ' h', titulo: `De ${h.hora} a ${h.hora + 1} h`, valor: h.vendido, ventas: h.ventas })), 'Vendido por hora de apertura');
-  filas($('#tHoras'), hs, h => el('tr', {}, td(`${h.hora} h`), td(String(h.ventas), 'num'), td(pesos(h.vendido), 'num')), 'Sin ventas.', 3);
-  $('#bPuntos').hidden = !!$('#integ').value || resumen.puntos.length < 2;
-  filas($('#tPuntos'), resumen.puntos, p => el('tr', {}, td(p.nombre), td(String(p.ventas), 'num'), td(pesos(p.vendido), 'num'), td(promedio(p.vendido, p.ventas), 'num')), 'Sin ventas.', 4);
-  filas($('#tTipos'), resumen.tipos, p => el('tr', {}, td(p.tipo), td(String(p.ventas), 'num'), td(pesos(p.vendido), 'num'), td(promedio(p.vendido, p.ventas), 'num')), 'Sin ventas.', 4);
-
-  const sel = resumen.medios.find(m => m.clave === medioSel);
-  $('#filtroMedio').hidden = !medioSel;
-  if (medioSel) $('#filtroMedio').replaceChildren(el('span', {}, 'Cobradas con ', el('strong', { textContent: sel ? etiqueta(sel) : 'el medio elegido' })),
-    el('button', { type: 'button', textContent: 'Ver todas', onclick: () => { medioSel = null; cargar(); } }));
+  const horas = hs.length ? Array.from({ length: hs.at(-1).hora - hs[0].hora + 1 }, (_, i) => porHora.get(hs[0].hora + i) || { hora: hs[0].hora + i, ventas: 0, vendido: '0' }) : [];
+  const elegida = filtros.hora != null ? horas.findIndex(h => h.hora === filtros.hora) : -1;
+  Graf.columnas(cont, { etiquetas: horas.map(h => h.hora), valores: horas.map(h => h.vendido), alto,
+    ejeX: h => h + ' h', titulo: h => `De ${h} a ${h + 1} h`, texto: i => `${pesos(horas[i].vendido)} · ${horas[i].ventas} venta(s)`,
+    alElegir: i => alternar('hora', horas[i].hora), elegido: elegida >= 0 ? elegida : null });
 }
 
-// ── Detalle ──
-// Las horas, siempre en la de la cocina (como el día de la venta), aunque el navegador esté en otra zona.
-const ZONA = { timeZone: 'America/Argentina/Buenos_Aires' };
-const hora = v => v ? new Date(v).toLocaleTimeString('es-AR', { ...ZONA, hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-const diaHora = v => v ? new Date(v).toLocaleString('es-AR', { ...ZONA, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-const mismoDia = (a, b) => new Date(a).toLocaleDateString('es-AR', ZONA) === new Date(b).toLocaleDateString('es-AR', ZONA);
-const DE_A = 100;
+// ── Detalle: se abre a medida que se elige algo en los gráficos ──
+const NOMBRE_FILTRO = { dia: v => diaLargo(v), medio: v => { const m = resumen.medios.find(x => x.clave === v); return m ? etiquetaM(m) : 'medio'; },
+  hora: v => `de ${v} a ${v + 1} h`, tipo: v => v, mozo: v => v };
+function alternar(k, v) {
+  if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
+  pintar(); abrirDetalle(true); cargarVentas();
+}
+function abrirDetalle(desplazar) {
+  $('#detalle').hidden = false; $('#abrirDet').hidden = true;
+  if (desplazar && matchMedia('(max-width:899px)').matches) $('#cDetalle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+$('#abrirDet').onclick = () => abrirDetalle(false);
+const DE_A = 50;
 let mostrar = DE_A;
 $('#mas').onclick = () => { mostrar += DE_A; pintarVentas(); };
+$('#buscar').oninput = () => { mostrar = DE_A; pintarVentas(); };
+async function cargarVentas() {
+  const p = base();
+  if (filtros.dia) { p.set('desde', filtros.dia); p.set('hasta', filtros.dia); }
+  for (const k of ['medio', 'tipo', 'hora', 'mozo']) if (filtros[k] != null) p.set(k, filtros[k]);
+  $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
+    el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  try {
+    const v = await api('pos/ventas?' + p);
+    ventas = v.ventas; mostrar = DE_A; $('#recorte').hidden = !v.recortado;
+    const cerradas = ventas.filter(x => x.estado === 'cerrado'), mas = v.recortado ? '+' : '';
+    $('#tDetalle').textContent = Object.keys(filtros).length ? 'Ventas elegidas' : 'Ventas del período';
+    $('#cuenta').textContent = `${cerradas.length}${mas} ventas · ${pesos(String(cerradas.reduce((s, x) => s + n(x.total), 0)))}`;
+    $('#abrirDet').textContent = `Ver las ${ventas.length}${mas} ventas`;
+    pintarVentas();
+  } catch (e) { msg(e.message, 'mal'); }
+}
 function pintarVentas() {
   const q = $('#buscar').value.trim().toLowerCase();
   const lista = q ? ventas.filter(v => [v.id_externo, v.mesa, v.mozo].some(x => x && String(x).toLowerCase().includes(q))) : ventas;
   const varios = !$('#integ').value;
   $('#masWrap').hidden = lista.length <= mostrar;
-  filas($('#ventas'), lista.slice(0, mostrar), v => {
-    const pagos = v.pagos.map(p => el('div', { className: medioSel && p.clave !== medioSel ? 'mut' : '' },
-      `${p.procesador || p.tipo_operacion ? etiquetaMedio(p) : p.medio} ${pesos(p.importe)}`));
-    const tr = el('tr', { className: 'clic' + (v.estado === 'anulado' ? ' inactivo' : '') },
-      el('td', {}, el('strong', { textContent: '#' + v.id_externo }), v.estado === 'anulado' ? el('span', { className: 'tag', textContent: 'anulada', style: 'margin-left:6px' }) : '',
-        varios ? el('div', { className: 'mut', textContent: v.punto_venta }) : ''),
-      td(diaHora(v.abierto_en || v.cerrado_en)),
-      // El cierre, sólo la hora si es el mismo día.
-      td(v.abierto_en && v.cerrado_en && mismoDia(v.abierto_en, v.cerrado_en) ? hora(v.cerrado_en) : diaHora(v.cerrado_en)),
-      v.mesa ? td(v.mesa, 'mesa') : td(v.tipo && v.tipo !== 'salón' ? v.tipo : ''), td(v.mozo || ''), el('td', {}, ...pagos), td(pesos(v.total), 'num'));
-    tr.onclick = () => abrirVenta(v.id);
-    return tr;
-  }, q ? 'Ninguna venta coincide con la búsqueda.' : 'Sin ventas en el período.', 7);
-  etiquetarTabla($('#tVentas'));
+  $('#ventas').replaceChildren(...(lista.length ? lista.slice(0, mostrar).map(v => {
+    const medios = v.pagos.map(p => p.procesador || p.tipo_operacion ? etiquetaMedio(p) : p.medio).join(' + ');
+    const lugar = v.mesa ? `mesa ${v.mesa}` : v.tipo && v.tipo !== 'salón' ? v.tipo : '';
+    const b = el('button', { type: 'button', className: 'venta' + (v.estado === 'anulado' ? ' anulada' : '') },
+      el('span', { className: 'dato' }, el('span', { className: 'num', textContent: '#' + v.id_externo }), el('span', { className: 'hora', textContent: diaHora(v.abierto_en || v.cerrado_en) })),
+      el('span', { className: 'dato' }, el('span', { textContent: [lugar, v.mozo, v.personas ? `${v.personas} cub.` : ''].filter(Boolean).join(' · ') || v.tipo || '' }),
+        el('span', { className: 'med', textContent: (v.estado === 'anulado' ? 'anulada · ' : '') + (medios || 'sin pagos') + (varios ? ' · ' + v.punto_venta : '') })),
+      el('span', { className: 'tot', textContent: pesos(v.total) }));
+    b.onclick = () => abrirVenta(v.id);
+    return b;
+  }) : [el('p', { className: 'g-vacio', textContent: q ? 'Ninguna venta coincide con la búsqueda.' : 'Sin ventas.' })]));
 }
 async function abrirVenta(id) {
   try {
     const { venta: v } = await api('pos/ventas/' + id);
-    $('#vTitulo').textContent = `Venta #${v.id_externo}` + (v.estado === 'anulado' ? ' (anulada)' : '');
-    $('#vDatos').textContent = [v.punto_venta, v.abierto_en ? 'abierta ' + diaHora(v.abierto_en) : '', v.cerrado_en ? 'cerrada ' + diaHora(v.cerrado_en) : '',
-      v.tipo, v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + ' persona(s)' : ''].filter(Boolean).join(' · ');
-    filas($('#vItems'), v.items, i => el('tr', { className: i.anulado ? 'inactivo' : '' }, td(num(i.cantidad), 'num'),
-      td(i.articulo + (i.anulado ? ' (anulado)' : '')), td(pesos(i.importe), 'num')), 'Sin artículos.', 3);
+    const mismoDia = v.abierto_en && v.cerrado_en && diaHora(v.abierto_en).slice(0, 5) === diaHora(v.cerrado_en).slice(0, 5);
+    $('#vTitulo').textContent = `Venta #${v.id_externo}` + (v.estado === 'anulado' ? ' · anulada' : '');
+    $('#vDatos').textContent = [v.punto_venta, v.tipo, v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + (v.personas === 1 ? ' cubierto' : ' cubiertos') : '',
+      v.abierto_en ? 'abierta ' + diaHora(v.abierto_en) : '', v.cerrado_en ? 'cerrada ' + (mismoDia ? hora(v.cerrado_en) : diaHora(v.cerrado_en)) : '']
+      .filter(Boolean).join(' · ');
     const totalItems = v.items.filter(i => !i.anulado).reduce((s, i) => s + n(i.importe), 0);
-    $('#vItems').append(el('tr', {}, td(''), el('td', {}, el('strong', { textContent: 'Total' })), el('td', { className: 'num' }, el('strong', { textContent: pesos(v.total ?? String(totalItems)) }))));
-    filas($('#vPagos'), v.pagos, p => el('tr', { className: p.anulado ? 'inactivo' : '' }, td(p.medio + (p.anulado ? ' (anulado)' : '')),
-      el('td', {}, p.tipo_operacion ? etiquetaMedio(p) : el('span', { className: 'tag aviso', textContent: 'sin asignar' }),
-        !p.anulado ? el('div', { className: 'mut', textContent: p.procesado ? `cobro procesado en ${p.cuenta}` : 'cobro sin procesar' }) : ''),
-      td(pesos(p.importe), 'num')), 'Sin pagos.', 3);
+    $('#vItems').replaceChildren(...v.items.map(i => el('div', { className: i.anulado ? 'anul' : '' },
+      el('span', { className: 'c', textContent: num(i.cantidad) + ' ×' }), el('span', { textContent: i.articulo }), el('span', { className: 'i', textContent: pesos(i.importe) }))),
+      el('div', { className: 'total' }, el('span'), el('span', { textContent: 'Total' }), el('span', { className: 'i', textContent: pesos(v.total ?? String(totalItems)) })));
+    $('#vPagos').replaceChildren(...(v.pagos.length ? v.pagos.map(p => el('div', { className: p.anulado ? 'anul' : '' }, el('span'),
+      el('span', {}, p.tipo_operacion ? etiquetaMedio(p) : p.medio, !p.tipo_operacion ? el('span', { className: 'tag aviso', textContent: 'sin asignar', style: 'margin-left:6px' }) : '',
+        el('span', { className: 'sub', textContent: p.anulado ? 'anulado' : p.procesado ? `cobro procesado · ${p.cuenta}` : 'cobro sin procesar' })),
+      el('span', { className: 'i', textContent: pesos(p.importe) }))) : [el('p', { className: 'g-vacio', textContent: 'Sin pagos.' })]));
     $('#dlgVenta').showModal();
   } catch (e) { msg(e.message, 'mal'); }
 }
 $('#vCerrar').onclick = () => $('#dlgVenta').close();
+$('#dlgVenta').addEventListener('click', e => { if (e.target === $('#dlgVenta')) $('#dlgVenta').close(); });
 
 (async () => {
   try {
@@ -306,10 +330,13 @@ $('#vCerrar').onclick = () => $('#dlgVenta').close();
     if (!activas.length) { msg('No hay puntos de venta configurados: cargalos en Configuración > Sedes.', 'aviso'); return; }
     // El enlace puede traer sólo el punto de venta (desde Sedes) o el filtro completo.
     const h = location.hash.slice(1), p = new URLSearchParams(h.includes('=') ? h : h ? 'integracion=' + h : '');
-    opciones($('#integ'), activas.map(i => [i.id, i.nombre]), p.get('integracion') || (activas.length === 1 ? activas[0].id : ''), activas.length > 1 ? 'Todos' : undefined);
+    opciones($('#integ'), activas.map(i => [i.id, i.nombre]), p.get('integracion') || (activas.length === 1 ? activas[0].id : ''), activas.length > 1 ? 'Todos los locales' : undefined);
     const max = ayer(); $('#desde').max = $('#hasta').max = max;
-    if (p.get('desde') && p.get('hasta')) { $('#desde').value = p.get('desde'); $('#hasta').value = p.get('hasta'); $('#periodo').value = 'otro'; }
-    else { $('#periodo').value = '7'; [$('#desde').value, $('#hasta').value] = rango('7'); }
+    if (p.get('desde') && p.get('hasta')) {
+      const coincide = ['ayer', '7', 'mes', 'mesant'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });
+      elegirPeriodo(coincide || 'otro');
+      if (!coincide) { $('#desde').value = p.get('desde'); $('#hasta').value = p.get('hasta'); }
+    } else elegirPeriodo('7');
     await cargar();
   } catch (e) { msg(e.message, 'mal'); }
 })();
