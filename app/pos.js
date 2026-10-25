@@ -12,6 +12,7 @@ const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase } = require(
 const { rolEn, exigirOperarEn, exigirEncargadoDe, filtroSedes, puede } = require('./auth');
 const crypto = require('./crypto');
 const fudo = require('./fudo');
+const { MEDIOS_SQL } = require('./tesoreria');
 
 const r = express.Router();
 const esCero = v => /^-?0+(\.0+)?$/.test(String(v));
@@ -91,8 +92,10 @@ r.get('/pos/integraciones', h(async (req, res) => {
             i.ubicacion_id, u.nombre AS ubicacion, i.activa, i.ultima_sincronizacion, i.mapeo,
             i.credenciales IS NOT NULL AS tiene_credenciales,
             (SELECT COUNT(*)::int FROM pos.articulo_pendiente p WHERE p.integracion_id = i.id) AS articulos_sin_receta,
-            (SELECT COUNT(*)::int FROM pos.medio m WHERE m.integracion_id = i.id AND m.cuenta_id IS NULL) AS medios_sin_cuenta
+            (SELECT COUNT(*)::int FROM pos.medio m WHERE m.integracion_id = i.id AND m.cuenta_id IS NULL) AS medios_sin_cuenta,
+            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+       LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
        JOIN logic.almacen a ON a.id = i.almacen_id JOIN logic.ubicacion u ON u.id = i.ubicacion_id
       WHERE $1::uuid[] IS NULL OR i.sede_id = ANY($1)
       ORDER BY s.nombre, i.nombre`, [sedesPos(req)]);
@@ -102,6 +105,7 @@ r.get('/pos/integraciones', h(async (req, res) => {
 function leerIntegracion(b) {
   const i = {
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
+    codigo: texto(b.codigo),
     sede_id: texto(b.sede_id, { campo: 'el local', requerido: true }),
     sistema: texto(b.sistema, { campo: 'el sistema', requerido: true }),
     modo: texto(b.modo, { campo: 'el modo', requerido: true }),
@@ -119,15 +123,25 @@ function leerIntegracion(b) {
 // Las credenciales se cifran con la clave propia de ClauLogic y nunca se devuelven.
 const cifrar = i => i.apiKey ? crypto.encrypt(JSON.stringify({ apiKey: i.apiKey, apiSecret: i.apiSecret })) : null;
 
+// Un punto de venta es un sistema de un local. Nace con su cuenta de efectivo ("Efectivo · <nombre>"):
+// su saldo es lo que tiene pendiente de rendir a la central. La central no tiene puntos de venta.
 r.post('/pos/integraciones', h(async (req, res) => {
   const i = leerIntegracion(req.body);
   exigirEncargadoDe(req, i.sede_id);
   if (i.modo === 'api' && !i.apiKey) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
-  const { rows: [n] } = await pool.query(
-    `INSERT INTO pos.integracion (nombre, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [i.nombre, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null]);
-  res.status(201).json({ ok: true, id: n.id });
+  const id = await enTransaccion(async c => {
+    const { rows: [sd] } = await c.query('SELECT es_central FROM org.sede WHERE id = $1::uuid', [i.sede_id]);
+    if (sd && sd.es_central) throw new ErrorUsuario('La sede central no tiene puntos de venta: consolida lo que rinden los locales.');
+    const { rows: [n] } = await c.query(
+      `INSERT INTO pos.integracion (nombre, codigo, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [i.nombre, i.codigo, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null]);
+    const { rows: [cu] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id) VALUES ($1, 'caja', $2) RETURNING id`,
+      ['Efectivo · ' + i.nombre, i.sede_id]);
+    await c.query('UPDATE pos.integracion SET cuenta_efectivo_id = $1 WHERE id = $2', [cu.id, n.id]);
+    return n.id;
+  });
+  res.status(201).json({ ok: true, id });
 }));
 
 r.put('/pos/integraciones/:id', h(async (req, res) => {
@@ -139,8 +153,11 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
     // Sin credenciales nuevas se conservan las que había (no se muestran, así que no se reenvían).
     const cred = i.modo !== 'api' ? null : i.apiKey ? cifrar(i) : ant.credenciales;
     if (i.modo === 'api' && !cred) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
-    await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7
-                    WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id]);
+    await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9
+                    WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo]);
+    // La cuenta de efectivo acompaña el nombre del punto de venta.
+    if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre)
+      await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + i.nombre, ant.cuenta_efectivo_id]);
     if (i.apiKey) fudo.olvidarToken(ant.id);
   });
   res.json({ ok: true, id: req.params.id });
@@ -444,7 +461,7 @@ r.post('/pos/importaciones/:id/cobros', h(async (req, res) => {
       `SELECT p.id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
         WHERE t.importacion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NOT NULL
         FOR UPDATE OF p`, [im.id]);
-    if (!pagos.length) throw new ErrorUsuario('No hay cobros para procesar: ya se procesaron o a sus medios les falta la cuenta.');
+    if (!pagos.length) throw new ErrorUsuario('No hay cobros para procesar: ya se procesaron, o falta asignar el medio de pago de cada medio del sistema (en Puntos de venta).');
     const ids = pagos.map(p => p.id);
     const { rows: [co] } = await c.query('INSERT INTO pos.cobro (importacion_id, pagos) VALUES ($1,$2) RETURNING id', [im.id, ids.length]);
     const { rows: grupos } = await c.query(
@@ -521,21 +538,41 @@ r.put('/pos/articulos/:id', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Los medios con que el sistema nombra los pagos ("TARJETA DEBITO", "MP QR"), con el medio de pago global
+// asignado y la cuenta que sale de él.
 r.get('/pos/integraciones/:id/medios', h(async (req, res) => {
   const integ = await integracion(pool, req, req.params.id);
   const { rows } = await pool.query(
-    `SELECT m.id, m.codigo_externo, m.nombre, m.cuenta_id, cu.nombre AS cuenta FROM pos.medio m
-       LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id WHERE m.integracion_id = $1 ORDER BY m.cuenta_id IS NULL DESC, m.nombre`, [integ.id]);
+    `SELECT m.id, m.codigo_externo, m.nombre, m.medio_pago_id, m.cuenta_id, cu.nombre AS cuenta
+       FROM pos.medio m LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
+      WHERE m.integracion_id = $1 ORDER BY m.medio_pago_id IS NULL DESC, m.nombre`, [integ.id]);
   res.json({ ok: true, medios: rows });
 }));
 
+// El catálogo global de medios de pago, para asignarlos (procesador + tipo de operación, y el efectivo).
+r.get('/pos/medios-pago', h(async (req, res) => {
+  const { rows } = await pool.query(`${MEDIOS_SQL} WHERE mp.activo AND (pr.id IS NULL OR pr.activo)
+                                      ORDER BY pr.nombre NULLS FIRST, mp.tipo_operacion`);
+  res.json({ ok: true, medios: rows });
+}));
+
+// Asignar a un medio del sistema su medio de pago global: la cuenta sale de ahí (la del procesador, o la de
+// efectivo del punto de venta). Se acepta todavía una cuenta directa, sin medio global, por compatibilidad.
 r.put('/pos/medios/:id', h(async (req, res) => {
+  const medioPago = texto(req.body.medio_pago_id);
+  if (medioPago) {
+    const { rows: [mp] } = await pool.query('SELECT 1 FROM fin.medio_pago WHERE id = $1::uuid AND activo', [medioPago]);
+    if (!mp) throw new ErrorUsuario('Ese medio de pago no existe o está inactivo.');
+    const { rowCount } = await pool.query('UPDATE pos.medio SET medio_pago_id = $1 WHERE id = $2::uuid', [medioPago, req.params.id]);
+    if (!rowCount) throw new ErrorUsuario('No existe ese medio.', 404);
+    return res.json({ ok: true });
+  }
   const cuenta = texto(req.body.cuenta_id);
   if (cuenta) {
     const { rows: [cu] } = await pool.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid AND activa', [cuenta]);
     if (!cu || cu.tipo === 'cartera') throw new ErrorUsuario('Elegí una caja, un banco o una cuenta de cobranza activa.');
   }
-  const { rowCount } = await pool.query('UPDATE pos.medio SET cuenta_id = $1 WHERE id = $2::uuid', [cuenta, req.params.id]);
+  const { rowCount } = await pool.query('UPDATE pos.medio SET medio_pago_id = NULL, cuenta_id = $1 WHERE id = $2::uuid', [cuenta, req.params.id]);
   if (!rowCount) throw new ErrorUsuario('No existe ese medio.', 404);
   res.json({ ok: true });
 }));

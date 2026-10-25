@@ -44,9 +44,11 @@
 
 <dialog id="dCuenta"><form id="fc" novalidate>
   <h2 id="dcTitulo">Nueva cuenta</h2>
-  <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label>
-    <label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label></div>
-  <div class="fila" id="fcSede"><label>Sede *<select name="sede_id"></select></label></div>
+  <div class="fila"><label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label>
+    <label id="fcSede">Sede *<select name="sede_id"></select></label></div>
+  <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label></div>
+  <p class="ayuda">Las cuentas de efectivo de los puntos de venta y las de los procesadores (Mercado Pago, Getnet…) se crean solas, desde
+    Puntos de venta y Medios de pago.</p>
   <div class="fila" id="fcBanco"><label>Banco<input name="banco"></label><label>Número de cuenta<input name="numero"></label></div>
   <div class="fila" id="fcCbu"><label>CBU<input name="cbu" inputmode="numeric" maxlength="22"></label><label>Alias<input name="alias"></label></div>
   <label class="check" id="fcActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>

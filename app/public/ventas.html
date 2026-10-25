@@ -186,7 +186,7 @@ async function abrir(id) {
       : el('span', { className: 'tag mal', textContent: 'sin receta' }),
       a.pendiente && (a.plato || a.sin_consumo) ? el('span', { className: 'tag aviso', textContent: ' sin descontar' }) : '')), 'Sin artículos.', 3);
   filas($('#dMed'), im.medios, m => el('tr', {}, td(m.nombre), td(pesos(m.importe), 'num'),
-    el('td', {}, m.cuenta || el('span', { className: 'tag mal', textContent: 'sin cuenta' }), m.pendiente && m.cuenta ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : '')), 'Sin cobros.', 3);
+    el('td', {}, m.cuenta || el('span', { className: 'tag mal', textContent: 'falta el medio de pago' }), m.pendiente && m.cuenta ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : '')), 'Sin cobros.', 3);
   filas($('#dProc'), im.procesos, p => el('tr', {}, td(fechaHora(p.creado_en)),
     td((p.tipo === 'consumo' ? `Consumo: ${p.cantidad} renglón(es)` : `Cobros: ${p.cantidad} pago(s)`) + (p.estado === 'anulado' ? ' (anulado)' : '')), td(p.creado_por)),
     'Todavía no se procesó nada.', 3);
@@ -235,7 +235,7 @@ $('#integ').onchange = elegir;
 (async () => {
   try {
     await cargarIntegraciones();
-    if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Configuración > Puntos de venta.'))); return; }
+    if (!integraciones.length) { $('#fsImportar').hidden = true; $('#imps').replaceChildren(el('tr', {}, td('No hay puntos de venta configurados: cargalos en Ventas > Puntos de venta.'))); return; }
     opciones($('#integ'), integraciones.filter(i => i.activa).map(i => [i.id, `${i.nombre} (${i.sede})`]), location.hash.slice(1) || null);
     $('#desde').value = $('#hasta').value = hoy();
     elegir();

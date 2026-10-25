@@ -10,7 +10,7 @@ const r = express.Router();
 const ROLES = ['encargado', 'operador', 'consulta'];
 
 r.get('/sedes', h(async (req, res) => {
-  const { rows } = await pool.query('SELECT id, nombre, tipo, direccion, activa FROM org.sede ORDER BY tipo, nombre');
+  const { rows } = await pool.query('SELECT id, nombre, tipo, direccion, activa, es_central FROM org.sede ORDER BY es_central DESC, tipo, nombre');
   res.json({ ok: true, sedes: rows });
 }));
 

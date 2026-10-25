@@ -199,6 +199,7 @@ function puede(u, permiso) {
     case 'catalogo': return roles.some(r => r.rol === 'encargado' && r.tipo === 'centro');
     case 'finanzas': return !!u.finanzas;
     case 'proveedor': return puede(u, 'catalogo') || puede(u, 'finanzas');
+    case 'medios': return puede(u, 'gestionar') || puede(u, 'finanzas');
     default: return false;
   }
 }
@@ -211,6 +212,7 @@ const NOMBRE_PERMISO = {
   admin: 'Sólo un administrador puede hacer esto.',
   finanzas: 'Hace falta permiso de finanzas para esto.',
   proveedor: 'Los proveedores los cargan el encargado del centro o finanzas.',
+  medios: 'Los medios de cobro los asigna el encargado del local o finanzas.',
 };
 
 function exigir(req, permiso) {
@@ -267,7 +269,8 @@ const POLITICA = [
   [/^\/pos\/importaciones\/[^/]+\/(consumo|anular)$/, 'operar'],
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/articulos\//, 'gestionar'],
-  [/^\/pos\/medios\//, 'finanzas'],
+  // Asignar a cada medio del sistema su medio de pago global: el encargado del local o finanzas.
+  [/^\/pos\/medios\//, 'medios'],
   [/^\/proveedores(\/[^/]+)?$/, 'proveedor'],
   // Proceso de abastecimiento: la compra es del catálogo (por defecto); la factura armada desde la
   // compra, de finanzas (y el handler lo vuelve a exigir cuando la compra trae comprobante).

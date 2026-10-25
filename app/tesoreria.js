@@ -479,4 +479,70 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Medios de pago globales ──────────────────────────────────────────────────────────────────
+// Procesador (Mercado Pago, Getnet, Fudo Pagos…) + tipo de operación, más el efectivo. Cada procesador
+// acredita en UNA cuenta (de cobranza): si no se elige, se crea "<procesador> a acreditar". El tipo de
+// operación queda en cada cobro para calcular después el costo de operar con cada uno.
+const TIPOS_OP = ['transferencia', 'qr', 'debito', 'credito', 'otro'];
+const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, mp.tipo_operacion, mp.activo,
+                           pr.cuenta_id, cu.nombre AS cuenta
+                      FROM fin.medio_pago mp LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+                      LEFT JOIN fin.cuenta cu ON cu.id = pr.cuenta_id`;
+r.get('/fin/procesadores', h(async (req, res) => {
+  const { rows: procesadores } = await pool.query(
+    `SELECT pr.id, pr.nombre, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
+            COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
+                       WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
+       FROM fin.procesador pr JOIN fin.cuenta cu ON cu.id = pr.cuenta_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = cu.id
+      ORDER BY pr.activo DESC, pr.nombre`);
+  res.json({ ok: true, procesadores });
+}));
+function leerProcesador(b) {
+  const p = { nombre: texto(b.nombre, { campo: 'el nombre del procesador', requerido: true }), cuenta_id: texto(b.cuenta_id),
+              activo: b.activo === undefined ? true : !!b.activo,
+              tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String) };
+  if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
+  if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
+  return p;
+}
+// Deja activos exactamente los tipos elegidos (los que se sacan se desactivan: puede haber cobros con ellos).
+async function guardarTipos(c, procesadorId, tipos) {
+  await c.query('UPDATE fin.medio_pago SET activo = false WHERE procesador_id = $1', [procesadorId]);
+  for (const t of tipos) {
+    const { rowCount } = await c.query('UPDATE fin.medio_pago SET activo = true WHERE procesador_id = $1 AND tipo_operacion = $2', [procesadorId, t]);
+    if (!rowCount) await c.query('INSERT INTO fin.medio_pago (procesador_id, tipo_operacion) VALUES ($1, $2)', [procesadorId, t]);
+  }
+}
+async function cuentaProcesador(c, p) {
+  if (p.cuenta_id) {
+    const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid AND activa', [p.cuenta_id]);
+    if (!cu || !['cobranza', 'banco'].includes(cu.tipo)) throw new ErrorUsuario('La cuenta de un procesador es una cuenta de cobranza (o un banco).');
+    return p.cuenta_id;
+  }
+  const { rows: [n] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo) VALUES ($1, 'cobranza') RETURNING id`, [`${p.nombre} a acreditar`]);
+  return n.id;
+}
+r.post('/fin/procesadores', h(async (req, res) => {
+  const p = leerProcesador(req.body);
+  const id = await enTransaccion(async c => {
+    const cuenta = await cuentaProcesador(c, p);
+    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo) VALUES ($1,$2,$3) RETURNING id', [p.nombre, cuenta, p.activo]);
+    await guardarTipos(c, n.id, p.tipos);
+    return n.id;
+  });
+  res.status(201).json({ ok: true, id });
+}));
+r.put('/fin/procesadores/:id', h(async (req, res) => {
+  const p = leerProcesador(req.body);
+  await enTransaccion(async c => {
+    const { rows: [ant] } = await c.query('SELECT cuenta_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
+    if (!ant) throw new ErrorUsuario('No existe ese procesador.', 404);
+    const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
+    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3 WHERE id = $4', [p.nombre, cuenta, p.activo, req.params.id]);
+    await guardarTipos(c, req.params.id, p.tipos);
+  });
+  res.json({ ok: true });
+}));
+
+Object.assign(r, { MEDIOS_SQL });
 module.exports = r;

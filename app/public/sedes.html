@@ -25,6 +25,9 @@
         </div>
         <div class="fila"><label>Dirección<input name="direccion"></label></div>
         <label class="check" id="almWrap" style="margin-top:12px"><input type="checkbox" name="crear_almacen" checked> Crear el almacén "Depósito" con una ubicación "General"</label>
+        <label class="check" style="margin-top:12px"><input type="checkbox" name="es_central"> Sede central: consolida las finanzas del grupo</label>
+        <p class="ayuda" style="margin-top:2px">Hay una sola. Recibe lo que rinden los puntos de venta de los locales y no tiene puntos de venta propios.
+          Marcar otra le saca la marca a la anterior.</p>
         <label class="check" id="activaWrap" hidden style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
         <p class="ayuda" id="ayudaActiva" hidden>Una sede con stock o con remitos sin cerrar no se puede desactivar.</p>
       </fieldset>
@@ -46,7 +49,7 @@ async function cargar() {
   ({ sedes } = await api('sedes'));
   $('#lista').replaceChildren(...sedes.map(s => {
     const b = el('button', { type: 'button', className: 'item' + (s.id === actual ? ' sel' : '') + (s.activa ? '' : ' inactivo') },
-      el('div', { className: 'n', textContent: s.nombre }),
+      el('div', { className: 'n' }, s.nombre, s.es_central ? el('span', { className: 'tag ok', textContent: 'central', style: 'margin-left:6px' }) : ''),
       el('div', { className: 'm', textContent: [TIPO[s.tipo], s.direccion].filter(Boolean).join(' · ') }));
     b.onclick = () => abrir(s.id);
     return b;
@@ -60,13 +63,13 @@ function nueva() {
 function abrir(id) {
   const s = sedes.find(x => x.id === id); if (!s) return nueva();
   actual = id; msg(''); $('#titulo').textContent = s.nombre;
-  f.nombre.value = s.nombre; f.tipo.value = s.tipo; f.direccion.value = s.direccion || ''; f.activa.checked = s.activa;
+  f.nombre.value = s.nombre; f.tipo.value = s.tipo; f.direccion.value = s.direccion || ''; f.activa.checked = s.activa; f.es_central.checked = s.es_central;
   $('#almWrap').hidden = true; $('#activaWrap').hidden = false; $('#ayudaActiva').hidden = false; $('#irAlmacenes').hidden = false;
   cargar();
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, tipo: f.tipo.value, direccion: f.direccion.value };
+  const body = { nombre: f.nombre.value, tipo: f.tipo.value, direccion: f.direccion.value, es_central: f.es_central.checked };
   if (actual) body.activa = f.activa.checked; else body.crear_almacen = f.crear_almacen.checked;
   $('#guardar').disabled = true;
   try {

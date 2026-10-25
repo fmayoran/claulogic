@@ -14,7 +14,9 @@ function leerSede(b) {
     tipo: texto(b.tipo, { campo: 'el tipo', requerido: true }),
     direccion: texto(b.direccion),
     activa: b.activa === undefined ? true : !!b.activa,
+    es_central: !!b.es_central,
   };
+  if (s.es_central && !s.activa) throw new ErrorUsuario('La sede central tiene que estar activa.');
   if (!['centro', 'local'].includes(s.tipo)) throw new ErrorUsuario('El tipo es centro o local.');
   return s;
 }
@@ -24,9 +26,11 @@ function leerSede(b) {
 r.post('/sedes', h(async (req, res) => {
   const s = leerSede(req.body);
   const id = await enTransaccion(async c => {
+    // La central es una sola: marcar otra le saca la marca a la anterior.
+    if (s.es_central) await c.query('UPDATE org.sede SET es_central = false WHERE es_central');
     const { rows: [n] } = await c.query(
-      'INSERT INTO org.sede (nombre, tipo, direccion, activa) VALUES ($1,$2,$3,$4) RETURNING id',
-      [s.nombre, s.tipo, s.direccion, s.activa]);
+      'INSERT INTO org.sede (nombre, tipo, direccion, activa, es_central) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central]);
     if (req.body.crear_almacen !== false) {
       const { rows: [a] } = await c.query(
         `INSERT INTO logic.almacen (nombre, sede_id, direccion) VALUES ('Depósito', $1, $2) RETURNING id`, [n.id, s.direccion]);
@@ -54,8 +58,17 @@ r.put('/sedes/:id', h(async (req, res) => {
         [req.params.id]);
       if (p) throw new ErrorUsuario('La sede tiene remitos sin cerrar.');
     }
-    await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4 WHERE id=$5',
-      [s.nombre, s.tipo, s.direccion, s.activa, req.params.id]);
+    // La central consolida las finanzas y no vende: no puede tener puntos de venta.
+    if (s.es_central) {
+      const { rows: [pv] } = await c.query('SELECT nombre FROM pos.integracion WHERE sede_id = $1 AND activa LIMIT 1', [req.params.id]);
+      if (pv) throw new ErrorUsuario(`La sede central no tiene puntos de venta, y esta tiene "${pv.nombre}".`);
+      await c.query('UPDATE org.sede SET es_central = false WHERE es_central AND id <> $1', [req.params.id]);
+    } else {
+      const { rows: [era] } = await c.query('SELECT es_central FROM org.sede WHERE id = $1', [req.params.id]);
+      if (era.es_central) throw new ErrorUsuario('Siempre tiene que haber una sede central: marcá otra como central y esta deja de serlo.');
+    }
+    await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4, es_central=$5 WHERE id=$6',
+      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, req.params.id]);
   });
   res.json({ ok: true, id: req.params.id });
 }));

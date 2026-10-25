@@ -316,6 +316,21 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   a una cuenta de tipo **cobranza**, que pasa al banco con una transferencia cuando se acredita.
 - Anular una importación revierte consumo y cobros y borra sus tickets para reimportar. Con cobros
   procesados, la anula finanzas. Finanzas ve las integraciones de todos los locales.
+- **Sede central, puntos de venta y medios de pago** (decisiones de Fer, 25/10/2026; migración 20261104):
+  - **Sede central** (`org.sede.es_central`, una sola, configurable en Sedes para usar la app en otro negocio;
+    hoy CF CENTRAL): consolida las finanzas del grupo y **no tiene puntos de venta**.
+  - **Punto de venta = un sistema** (`pos.integracion`, con `codigo`), de un local. Nace con su **cuenta de
+    efectivo** (`Efectivo · <nombre>`, `cuenta_efectivo_id`): su saldo es lo que tiene pendiente de rendir a la
+    central; rendir es una transferencia a la caja de la central.
+  - **Medios de pago globales** (`fin.procesador` + `fin.medio_pago`, pantalla `medios-pago.html`):
+    procesador (Mercado Pago, Getnet, Fudo Pagos) × tipo de operación (QR, transferencia, débito, crédito), más
+    el efectivo. Cada procesador acredita en **una** cuenta (si no se elige, se crea "<procesador> a
+    acreditar"); el tipo queda en cada cobro (`pos.ticket_pago` → `pos.medio.medio_pago_id`) para calcular
+    después el costo de cada operación.
+  - Cada texto del sistema ("TARJETA DEBITO") se asigna a un medio global en Puntos de venta (encargado o
+    finanzas; finanzas puede dar de alta un medio desde la última opción). La cuenta del medio **se deriva**
+    (trigger `pos.medio_cuenta`: la del procesador, o la de efectivo del punto de venta) y se recalcula si
+    cambia la cuenta del procesador. El procesamiento de cobros no cambió: usa `pos.medio.cuenta_id`.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
   (subitems), propinas.
 

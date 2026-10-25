@@ -10,17 +10,19 @@
 <body>
 <div class="grid">
   <aside>
-    <div class="filtros"><button class="prim" id="nueva">Nueva integración</button></div>
+    <div class="filtros"><button class="prim" id="nueva">Nuevo punto de venta</button></div>
     <div class="lista" id="lista"></div>
   </aside>
   <main>
-    <h1 id="titulo">Nueva integración</h1>
-    <p class="sub">El POS de un local: de dónde vienen sus ventas (Fudo por API; Maxirest y otros por archivo) y de qué almacén se descuenta lo que se vende.</p>
+    <h1 id="titulo">Nuevo punto de venta</h1>
+    <p class="sub">Cada sistema de venta de un local (salón, barra, delivery): de dónde vienen sus ventas (Fudo por API; Maxirest y otros por
+      archivo), de qué almacén se descuenta lo que se vende y cómo se identifican sus cobros. Rinde su efectivo a la sede central.</p>
     <form id="f" novalidate>
       <fieldset>
-        <legend>Integración</legend>
+        <legend>Punto de venta</legend>
         <div class="fila">
-          <label>Nombre *<input name="nombre" placeholder="Fudo Palermo"></label>
+          <label>Nombre *<input name="nombre" placeholder="Cortafuego salón"></label>
+          <label>Código<input name="codigo" maxlength="20" placeholder="CF-SALON"></label>
           <label>Local *<select name="sede_id"></select></label>
         </div>
         <div class="fila">
@@ -37,7 +39,8 @@
         </div>
         <p class="ayuda" id="ayudaCred">En Fudo (plan Pro): Aplicaciones externas &gt; API Pública General, y un usuario propio para la API en Administración &gt; Usuarios.
           Las credenciales se guardan cifradas y no se vuelven a mostrar; para cambiarlas, cargalas de nuevo.</p>
-        <label class="check" id="activaWrap" hidden><input type="checkbox" name="activa" checked> Activa</label>
+        <label class="check" id="activaWrap" hidden><input type="checkbox" name="activa" checked> Activo</label>
+        <p class="ayuda" id="efectivoInfo" hidden></p>
       </fieldset>
       <div class="acciones"><button type="submit" class="prim" id="guardar">Guardar</button><a id="irVentas" href="ventas.html" hidden>Ir a sus ventas</a><span class="msg" id="msg"></span></div>
     </form>
@@ -52,24 +55,28 @@
     </section>
     <section id="secMed" hidden>
       <h2 style="margin-top:22px">Medios de cobro</h2>
-      <p class="ayuda">A qué cuenta entra lo cobrado con cada medio: el efectivo a la caja del local; tarjetas y QR a una cuenta de cobranza, que pasa al banco cuando se acredita.</p>
-      <div class="tabla-wrap"><table class="datos">
-        <thead><tr><th>Medio en el POS</th><th>Cuenta</th><th></th></tr></thead>
+      <p class="ayuda">Cómo nombra este sistema cada pago, y qué medio de pago del grupo es (procesador y tipo de operación). La cuenta
+        sale del medio: lo de cada procesador, a su cuenta a acreditar; el efectivo, a la cuenta de efectivo de este punto de venta.
+        <a href="medios-pago.html">Medios de pago del grupo</a></p>
+      <div class="tabla-wrap"><table class="datos movil" id="tMed">
+        <thead><tr><th>Medio en el sistema</th><th>Medio de pago</th><th>Va a la cuenta</th><th></th></tr></thead>
         <tbody id="med"></tbody></table></div>
     </section>
   </main>
 </div>
 <script src="comun.js"></script>
 <script>
-let integraciones = [], almacenes = [], sedes = [], platos = [], cuentas = [], actual = null, sesionU = null;
+let integraciones = [], almacenes = [], sedes = [], platos = [], mediosPago = [], actual = null, sesionU = null;
+const TIPO_OP = { efectivo: 'Efectivo', transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
+const etiquetaMedio = m => m.procesador ? `${m.procesador} · ${TIPO_OP[m.tipo_operacion]}` : TIPO_OP[m.tipo_operacion];
 const f = $('#f');
 async function cargar() {
   ({ integraciones } = await api('pos/integraciones'));
-  if (!integraciones.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay integraciones.' }));
+  if (!integraciones.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay puntos de venta.' }));
   $('#lista').replaceChildren(...integraciones.map(i => {
     const b = el('button', { type: 'button', className: 'item' + (i.id === actual ? ' sel' : '') + (i.activa ? '' : ' inactivo') },
       el('div', { className: 'n' }, i.nombre, ' ', i.articulos_sin_receta ? el('span', { className: 'tag aviso', textContent: `${i.articulos_sin_receta} sin receta` }) : ''),
-      el('div', { className: 'm', textContent: `${i.sede} · ${{ fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro' }[i.sistema]} por ${i.modo}` }));
+      el('div', { className: 'm', textContent: `${i.sede}${i.codigo ? ' · ' + i.codigo : ''} · ${{ fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro' }[i.sistema]} por ${i.modo}` }));
     b.onclick = () => abrir(i.id);
     return b;
   }));
@@ -86,8 +93,9 @@ f.sistema.onchange = f.modo.onchange = () => {
   $('#filaCred').hidden = $('#ayudaCred').hidden = f.modo.value !== 'api';
 };
 function nueva() {
-  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva integración';
-  opciones(f.sede_id, sedes.filter(s => ['admin', 'encargado'].includes(s.rol)).map(s => [s.id, s.nombre]));
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo punto de venta'; $('#efectivoInfo').hidden = true;
+  // La sede central no tiene puntos de venta.
+  opciones(f.sede_id, sedes.filter(s => ['admin', 'encargado'].includes(s.rol) && !s.es_central).map(s => [s.id, s.nombre]));
   f.sede_id.disabled = false; llenarAlmacenes(); f.sistema.onchange();
   f.apiKey.placeholder = f.apiSecret.placeholder = '';
   $('#activaWrap').hidden = true; $('#secArt').hidden = $('#secMed').hidden = true; $('#irVentas').hidden = true;
@@ -97,7 +105,9 @@ async function abrir(id) {
   const i = integraciones.find(x => x.id === id); if (!i) return nueva();
   actual = id; msg(''); $('#titulo').textContent = i.nombre;
   opciones(f.sede_id, sedes.map(s => [s.id, s.nombre]), i.sede_id); f.sede_id.disabled = true;
-  f.nombre.value = i.nombre; f.sistema.value = i.sistema; f.modo.value = i.modo; f.activa.checked = i.activa;
+  f.nombre.value = i.nombre; f.codigo.value = i.codigo || ''; f.sistema.value = i.sistema; f.modo.value = i.modo; f.activa.checked = i.activa;
+  $('#efectivoInfo').hidden = !i.cuenta_efectivo;
+  $('#efectivoInfo').textContent = i.cuenta_efectivo ? `Su efectivo entra en "${i.cuenta_efectivo}"${sesionU.puede.finanzas ? ` (a rendir: ${pesos(i.efectivo_a_rendir || '0')})` : ''}. Rendirlo a la central es una transferencia desde Tesorería.` : '';
   llenarAlmacenes(i.almacen_id, i.ubicacion_id); f.sistema.onchange();
   f.apiKey.value = f.apiSecret.value = '';
   f.apiKey.placeholder = f.apiSecret.placeholder = i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
@@ -126,29 +136,70 @@ async function cargarArticulos() {
       el('td', {}, pl), el('td', {}, sc), el('td', {}, est));
   }, 'Todavía no se importó ninguna venta: los artículos aparecen con la primera importación.', 6);
 }
+// Medios de cobro: el encargado del local o finanzas asignan a cada texto del sistema su medio de pago global.
 async function cargarMedios() {
-  if (!sesionU.puede.finanzas) return;
-  const { medios } = await api(`pos/integraciones/${actual}/medios`);
+  const i = integraciones.find(x => x.id === actual);
+  if (!sesionU.puede.finanzas && !esEncargado(i)) return;
+  const [{ medios }, mp] = await Promise.all([api(`pos/integraciones/${actual}/medios`), api('pos/medios-pago')]);
+  mediosPago = mp.medios;
   $('#secMed').hidden = false;
   filas($('#med'), medios, m => {
-    const s = el('select'); opciones(s, cuentas.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), m.cuenta_id, 'Sin cuenta');
-    const est = el('span', { className: 'msg' });
-    s.onchange = async () => {
-      try { await api('pos/medios/' + m.id, { method: 'PUT', body: { cuenta_id: s.value || null } }); est.textContent = 'guardado'; est.className = 'msg ok'; }
+    const s = el('select'), cuenta = td(m.cuenta || '—'), est = el('span', { className: 'msg' });
+    const items = mediosPago.map(x => [x.id, etiquetaMedio(x)]);
+    // Finanzas puede dar de alta un medio que falta (un procesador o un tipo nuevo) desde la última opción.
+    if (sesionU.puede.finanzas) opcionesConAlta(s, items, m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+    else opciones(s, items, m.medio_pago_id, 'Sin asignar');
+    s.addEventListener('change', async () => {
+      if (!s.value) return;
+      try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: s.value } });
+            const { medios: ms } = await api(`pos/integraciones/${actual}/medios`);
+            cuenta.textContent = (ms.find(x => x.id === m.id) || {}).cuenta || '—'; est.textContent = 'guardado'; est.className = 'msg ok'; }
       catch (e) { est.textContent = e.message; est.className = 'msg mal'; }
+    });
+    return el('tr', {}, td(m.nombre), el('td', {}, s), cuenta, el('td', {}, est));
+  }, 'Los medios aparecen con la primera importación.', 4);
+  etiquetarTabla($('#tMed'));
+}
+// Alta rápida de un medio de pago: un procesador existente con un tipo nuevo, o un procesador nuevo
+// (su cuenta a acreditar se crea sola). Devuelve [id, etiqueta] del medio.
+function nuevoMedioPago() {
+  return new Promise(async resolve => {
+    const { procesadores } = await api('fin/procesadores');
+    const f2 = el('form', { novalidate: true }), proc = el('select'), nombre = el('input', { placeholder: 'Mercado Pago, Getnet, Fudo Pagos…' });
+    const tipo = el('select'); opciones(tipo, Object.entries(TIPO_OP).filter(([k]) => k !== 'efectivo'), 'qr');
+    opciones(proc, procesadores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, '— procesador nuevo —');
+    const m = el('span', { className: 'msg' }); let hecho = null;
+    const filaNombre = el('div', { className: 'fila' }, el('label', {}, 'Nombre del procesador nuevo *', nombre));
+    proc.onchange = () => { filaNombre.hidden = !!proc.value; };
+    const dlg = el('dialog', {}, el('h2', { textContent: 'Medio de pago nuevo' }), f2);
+    f2.append(el('div', { className: 'fila' }, el('label', {}, 'Procesador', proc), el('label', {}, 'Tipo de operación *', tipo)), filaNombre,
+      el('div', { className: 'acciones' }, el('button', { type: 'submit', className: 'prim', textContent: 'Agregar' }),
+        el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+      el('p', { className: 'ayuda', textContent: 'Un procesador nuevo acredita en su propia cuenta ("<nombre> a acreditar"), que se crea sola.' }));
+    f2.onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const p = procesadores.find(x => x.id === proc.value);
+        if (p) await api('fin/procesadores/' + p.id, { method: 'PUT', body: { nombre: p.nombre, cuenta_id: p.cuenta_id, activo: true, tipos: [...new Set([...p.tipos, tipo.value])] } });
+        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, tipos: [tipo.value] } });
+        ({ medios: mediosPago } = await api('pos/medios-pago'));
+        const n = mediosPago.find(x => x.tipo_operacion === tipo.value && (p ? x.procesador_id === p.id : (x.procesador || '').toLowerCase() === nombre.value.trim().toLowerCase()));
+        hecho = n ? [n.id, etiquetaMedio(n)] : null; dlg.close();
+      } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
     };
-    return el('tr', {}, td(m.nombre), el('td', {}, s), el('td', {}, est));
-  }, 'Los medios aparecen con la primera importación.', 3);
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(hecho); });
+    document.body.append(dlg); dlg.showModal();
+  });
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, sede_id: f.sede_id.value, sistema: f.sistema.value, modo: f.modo.value,
+  const body = { nombre: f.nombre.value, codigo: f.codigo.value, sede_id: f.sede_id.value, sistema: f.sistema.value, modo: f.modo.value,
                  almacen_id: f.almacen_id.value, ubicacion_id: f.ubicacion_id.value, activa: actual ? f.activa.checked : true,
                  apiKey: f.apiKey.value, apiSecret: f.apiSecret.value };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'pos/integraciones/' + actual : 'pos/integraciones', { method: actual ? 'PUT' : 'POST', body });
-    await cargar(); await abrir(d.id); msg('Guardada.', 'ok');
+    await cargar(); await abrir(d.id); msg('Guardado.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }
   finally { $('#guardar').disabled = false; }
 };
@@ -157,7 +208,6 @@ $('#nueva').onclick = nueva;
   try {
     sesionU = (await cargarSesion()).usuario;
     [almacenes, sedes, { platos }] = await Promise.all([catalogo.almacenes(), misSedes(), api('platos')]);
-    if (sesionU.puede.finanzas) cuentas = (await api('fin/cuentas')).cuentas.filter(c => c.activa && c.tipo !== 'cartera');
     $('#nueva').hidden = !sedes.some(s => ['admin', 'encargado'].includes(s.rol));
     await cargar();
     const id = location.hash.slice(1);
