@@ -489,8 +489,32 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     ].sort((a, b) => a.dias - b.dias);
     return { ...l, candidatos: cand };
   });
+  const { rows: extractos } = await pool.query(
+    `SELECT e.id, e.archivo, e.importado_en, e.importado_por, to_char(e.desde, 'YYYY-MM-DD') AS desde, to_char(e.hasta, 'YYYY-MM-DD') AS hasta,
+            (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id) AS lineas,
+            (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id
+                AND (l.compensa_a IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
+       FROM fin.extracto e WHERE e.cuenta_id = $1::uuid ORDER BY e.importado_en DESC LIMIT 20`, [cuenta]);
   res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
-    sugerencias: await sugerenciasProcesador(cuenta) });
+    sugerencias: await sugerenciasProcesador(cuenta), extractos });
+}));
+
+// Descartar un extracto importado por error (un archivo equivocado, o el resumen de Mercado Pago sin las
+// liquidaciones): se borran sus líneas, que son datos de recepción, no del libro mayor. Sólo si ninguna está
+// conciliada ni compensada: si no, primero se deshace eso. La apertura que haya creado queda (es un movimiento).
+r.post('/fin/extractos/:id/descartar', h(async (req, res) => {
+  await enTransaccion(async c => {
+    const { rows: [e] } = await c.query('SELECT id FROM fin.extracto WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
+    if (!e) throw new ErrorUsuario('No existe ese extracto.', 404);
+    const { rows: [{ n }] } = await c.query(
+      `SELECT COUNT(*)::int AS n FROM fin.extracto_linea l WHERE l.extracto_id = $1
+          AND (l.compensa_a IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
+               OR EXISTS (SELECT 1 FROM pos.ticket_pago p WHERE p.acreditado_linea_id = l.id))`, [e.id]);
+    if (n) throw new ErrorUsuario(`El extracto tiene ${n} línea(s) conciliadas: deshacelas primero (en "Lo conciliado").`);
+    await c.query('DELETE FROM fin.extracto_linea WHERE extracto_id = $1', [e.id]);
+    await c.query('DELETE FROM fin.extracto WHERE id = $1', [e.id]);
+  });
+  res.json({ ok: true });
 }));
 
 // Lo ya conciliado, para consultar: de a 100, lo último primero, con búsqueda por concepto o importe.

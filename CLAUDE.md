@@ -430,7 +430,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   "Liquidación de dinero" se busca por su número en las liquidaciones y se abre en cobro (bruto), comisión (IVA
   incluido) e impuesto a los débitos y créditos, que suman exacto el neto. "Pago de impuestos <destinatario>" es el
   impuesto a los débitos y créditos de una transferencia enviada (0,6%), no una retención. El de liquidaciones solo
-  no se importa (se duplicaría al llegar el resumen); el resumen solo sí, pero los cobros quedan por el neto.
+  no se importan por separado: hacen falta los dos (el resumen solo deja los cobros por el neto, que no se parean
+  con las ventas; pasó en la primera prueba de Fer). Un extracto importado por error se **descarta** desde
+  Conciliación ("Extractos importados", `POST /fin/extractos/:id/descartar`): borra sus líneas si ninguna está
+  conciliada; la apertura que haya creado queda. La conciliación automática sólo corre si el procesador tiene la
+  cuenta en "Deposita en".
   Verificado con los de Fer de octubre: QR y transferencia 1,57%, débito 2,23%, crédito 7,85%.
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.

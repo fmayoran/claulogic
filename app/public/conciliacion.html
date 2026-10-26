@@ -108,6 +108,12 @@
     <div id="hLista"></div>
     <div class="acciones" id="hMasWrap" hidden><button type="button" id="hMas">Mostrar más</button></div>
   </details>
+
+  <details class="card" id="extractos" style="margin-top:16px">
+    <summary><span>Extractos importados <small id="xResumen"></small></span></summary>
+    <p class="cap" style="margin-top:10px">Un extracto importado por error se descarta: se borran sus líneas (si ninguna está conciliada) y se puede volver a importar.</p>
+    <div id="xLista"></div>
+  </details>
 </main>
 <script src="comun.js"></script>
 <script>
@@ -198,18 +204,20 @@ $('#archivo').onchange = async () => {
   let aviso = '';
   if (liqA || resA) {
     const liq = liqA && liquidacionesMP(liqA.filas), res = resA && resumenMP(resA.filas, liq);
-    csv = { nombre: [resA, liqA].filter(Boolean).map(x => x.nombre).join(' + '), mp: res || { solo_liquidaciones: true } };
-    if (!res) aviso = 'Es el reporte de liquidaciones de Mercado Pago. Subilo junto con el resumen de cuenta (account_statement): elegí los dos archivos a la vez. '
-      + 'El resumen trae los saldos, los pagos y las transferencias; las liquidaciones, el detalle de cada cobro.';
+    // Hacen falta los dos: sin las liquidaciones, cada cobro queda por el neto y no se parea con las ventas; sin el
+    // resumen, faltan los saldos, los pagos y las transferencias (y se duplicaría al llegar el resumen).
+    const faltan = !res || !liq;
+    csv = { nombre: [resA, liqA].filter(Boolean).map(x => x.nombre).join(' + '), mp: faltan ? { incompleto: true } : res };
+    if (faltan) aviso = `${res ? 'Es el resumen de cuenta' : 'Es el reporte de liquidaciones'} de Mercado Pago. Para conciliar hacen falta los dos juntos: `
+      + 'elegí a la vez el resumen de cuenta (account_statement) y el reporte de liquidaciones (settlement). El resumen trae los saldos, los pagos y '
+      + 'las transferencias; las liquidaciones, el bruto, la comisión y el impuesto de cada cobro.';
     else aviso = `Formato reconocido: resumen de cuenta de Mercado Pago, ${res.movimientos} movimiento(s)`
-      + (res.saldos ? `, saldo inicial ${pesos(res.saldos.inicial)} y final ${pesos(res.saldos.final)}` : '') + '. '
-      + (liq ? `Con el reporte de liquidaciones, ${res.abiertas} cobro(s) se abren en bruto, comisión e impuesto.`
-             + (res.netas ? ` ${res.netas} liquidación(es) no están en ese reporte y quedan por el neto.` : '')
-           : 'Sin el reporte de liquidaciones, cada cobro queda por el neto y no se parea exacto con las ventas: conviene elegir los dos archivos juntos.');
+      + (res.saldos ? `, saldo inicial ${pesos(res.saldos.inicial)} y final ${pesos(res.saldos.final)}` : '') + `. ${res.abiertas} cobro(s) se abren en bruto, comisión e impuesto.`
+      + (res.netas ? ` ${res.netas} liquidación(es) no están en el reporte de liquidaciones y quedan por el neto.` : '');
   } else csv = leidos[0];
   $('#formato').hidden = !csv.mp; $('#formato').textContent = aviso;
   $('#opcCsv').hidden = $('#mapaWrap').hidden = $('#capCsv').hidden = !!csv.mp;
-  $('#importarOk').disabled = !!(csv.mp && csv.mp.solo_liquidaciones);
+  $('#importarOk').disabled = !!(csv.mp && csv.mp.incompleto);
   if (csv.mp) $('#iTitulo').textContent = `Importar ${csv.nombre}`; else pintarMapa();
   $('#importar').hidden = false; $('#importar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -290,6 +298,17 @@ async function cargar() {
   const k = d.conciliado;
   $('#hResumen').textContent = k.lineas ? `· ${k.lineas} línea(s): ingresos ${pesos(k.ingresos)}, egresos ${pesos(k.egresos)}` + (k.compensadas ? ` · ${k.compensadas} compensadas con su reverso` : '') : '· nada todavía';
   if ($('#hechas').open) cargarHechas();
+  pintarExtractos(d.extractos || []);
+}
+function pintarExtractos(xs) {
+  $('#xResumen').textContent = xs.length ? `· ${xs.length}` : '· ninguno';
+  $('#xLista').replaceChildren(...xs.map(x => el('div', { className: 'hecha' }, el('span', { className: 'f', textContent: fechaHora(x.importado_en) }),
+    el('span', { className: 'd' }, x.archivo || 'sin nombre', el('small', { textContent: `${x.lineas} línea(s)` + (x.desde ? ` · del ${fecha(x.desde)} al ${fecha(x.hasta)}` : '')
+      + (x.conciliadas ? ` · ${x.conciliadas} conciliada(s)` : '') + (x.importado_por ? ` · ${x.importado_por}` : '') })),
+    el('span', { className: 'i' }),
+    x.conciliadas ? el('span', { className: 'mut', textContent: 'con conciliadas', style: 'font-size:.8rem' }) : el('button', { type: 'button', textContent: 'Descartar', onclick: async () => {
+      if (!confirm(`¿Descartar el extracto ${x.archivo || ''}? Se borran sus ${x.lineas} línea(s); después lo podés volver a importar.`)) return;
+      try { await api(`fin/extractos/${x.id}/descartar`, { method: 'POST' }); msg('Extracto descartado.', 'ok', '#msgA'); await cargar(); } catch (e) { alert(e.message); } } }))));
 }
 function pintarResolver(d) {
   const egresos = d.lineas.filter(l => l.importe.startsWith('-')), ingresos = d.lineas.filter(l => !l.importe.startsWith('-'));
