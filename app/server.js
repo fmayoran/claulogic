@@ -80,6 +80,9 @@ app.use((e, req, res, next) => {
 
 const srv = app.listen(PUERTO, () => console.log(`claulogic escuchando en ${PUERTO}`));
 
+// Procesos automáticos: la sincronización diaria de los puntos de venta por API (programador.js).
+require('./programador').iniciar(require('./pos').correrAutomaticas);
+
 // Apagado ordenado: Docker manda SIGTERM y espera. Sin esto, un deploy corta pedidos a la mitad
 // y deja conexiones de la base colgadas hasta que vencen solas.
 for (const sig of ['SIGTERM', 'SIGINT']) {

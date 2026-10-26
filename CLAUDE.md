@@ -461,8 +461,31 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   IIBB sobre acreditaciones) se clasifica como retención; en el extracto de Brubank los importes vacíos son "-".
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
-- Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
-  (subitems), propinas; acreditación de Mercado Pago y Fudo Pagos (con sus extractos); rendición del efectivo.
+- **Cierre diario** (rediseño de la operación de ingresos, etapa 1; decisiones de Fer, 26/10/2026; migración 20261110).
+  Cada punto de venta vende y cobra por su cuenta; la central trae las ventas, controla el efectivo y que lo
+  electrónico se acredite. `cierre-diario.html` (grupo **Ingresos** del menú, sólo finanzas) muestra por punto de venta
+  lo vendido, el efectivo a rendir y lo electrónico sin acreditar, y arriba **"Para resolver"** con su acción: la
+  sincronización falló o no corrió, días sin importar (archivo), medios sin asignar, diferencias, ventas abiertas y
+  cobros listos (los días con el mismo problema en un renglón), efectivo a rendir, cobros sin acreditar a los 3 días y
+  lotes que no aparecieron en el banco (`GET /pos/cierre?dias=`).
+  - **Sincronización automática si es por API** (todos los días a las 5:00, hora de la cocina; trae desde el día
+    siguiente a la última corrida buena, al menos los 3 últimos días, hasta ayer) y **manual si es por archivo**. Se pausa
+    con la casilla de la ficha de la sede (`pos.integracion.sincroniza_auto`). `app/programador.js` se fija cada minuto
+    (si la app estaba caída a las 5, corre al volver; `PROGRAMADOR=no` lo apaga). Cada corrida queda en `pos.corrida`
+    con su resultado o su error; una automática por punto de venta y por día (índice único). "Traer ahora" corre lo
+    mismo a mano (`POST /pos/integraciones/:id/correr`) sin consumir la del día.
+  - Lo automático lo firma el **usuario de sistema** `sistema` (`org.usuario.de_sistema`, finanzas, sin clave): no
+    entra a la app, no aparece en Usuarios y no se edita.
+  - **Efectivo**: queda en la cuenta "Efectivo · <sede>" hasta que llega; **rendir** (`POST /pos/efectivo/:id/rendir`)
+    es una transferencia a mano a la caja central o un banco cuando la plata efectivamente ingresa, y lo que no va a
+    llegar es una **diferencia** con motivo (faltante o sobrante, `/diferencia`). No se rinde ni falta más de lo que hay
+    a rendir. Lo rendido cubre primero los días más viejos.
+  - Etapas siguientes del rediseño: 2 acreditaciones esperadas por procesador y proyección en el flujo de caja; 3
+    egresos desde el sistema (rubros, centro de costo, gastos sin factura, sueldos directos o globales a prorratear,
+    transferencias propias, cajas chicas con rendición, la conciliación como confirmación); 4 estado de resultados
+    filtrable por punto de venta (falta definir IIBB, SIRCREB y Ley 25.413). Mercadería y estructura, por ahora sólo
+    en la sede central.
+- Pendiente: modificadores de Fudo (subitems), propinas.
 
 ### Tablero (fase 5, 21/10/2026)
 - **No guarda nada**: `logic.kardex` abre cada movimiento en una fila por punta (sede, signo, costo) y
@@ -525,7 +548,7 @@ el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción en varias entregas de una misma compra (hoy lo que falta pasa a la lista de compras), anular una compra recibida o una
 producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
-extractos en Excel, cheques de terceros rechazados, sincronización automática de POS, y costeo histórico de los no perecederos (hoy van a costo vigente).
+extractos en Excel, cheques de terceros rechazados, y costeo histórico de los no perecederos (hoy van a costo vigente).
 
 ## Sobre Fer
 - Fernando Mayorano. Lic. en Sistemas, especialista en bases de datos, Desarrollo de Negocios.

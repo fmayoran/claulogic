@@ -25,7 +25,7 @@ r.get('/usuarios', h(async (req, res) => {
                 AND now() < s.vence_en AND now() - s.usada_en < s.inactividad) AS sesiones,
             (SELECT max(a.ocurrido_en) FROM org.acceso a
               WHERE a.usuario = u.usuario AND a.evento IN ('entrada','entrada_pin')) AS ultima_entrada
-       FROM org.usuario u ORDER BY u.activo DESC, u.nombre`);
+       FROM org.usuario u WHERE NOT u.de_sistema ORDER BY u.activo DESC, u.nombre`);
   res.json({ ok: true, usuarios: rows });
 }));
 
@@ -61,6 +61,15 @@ async function guardarRoles(c, id, roles) {
 }
 
 // El alta devuelve una clave temporal que se muestra UNA vez: el usuario la cambia al entrar.
+// El usuario de sistema (el que firma lo automático) no se edita, no tiene clave ni sesiones.
+async function noSistema(req, res, next) {
+  try {
+    const { rows: [u] } = await pool.query('SELECT de_sistema FROM org.usuario WHERE id = $1::uuid', [req.params.id]);
+    if (u && u.de_sistema) return res.status(404).json({ ok: false, error: 'No existe ese usuario.' });
+    next();
+  } catch (e) { next(e); }
+}
+
 r.post('/usuarios', h(async (req, res) => {
   const u = leerUsuario(req.body);
   const usuario = String(req.body.usuario || '').trim().toLowerCase();
@@ -80,7 +89,7 @@ r.post('/usuarios', h(async (req, res) => {
   res.status(201).json({ ok: true, id, clave_temporal: temporal });
 }));
 
-r.put('/usuarios/:id', h(async (req, res) => {
+r.put('/usuarios/:id', noSistema, h(async (req, res) => {
   const u = leerUsuario(req.body);
   const ok = await enTransaccion(async c => {
     const { rows: [ant] } = await c.query('SELECT usuario, activo FROM org.usuario WHERE id = $1 FOR UPDATE', [req.params.id]);
@@ -99,7 +108,7 @@ r.put('/usuarios/:id', h(async (req, res) => {
 }));
 
 // Blanqueo: clave temporal nueva, desbloqueo y cierre de todas sus sesiones.
-r.post('/usuarios/:id/clave', h(async (req, res) => {
+r.post('/usuarios/:id/clave', noSistema, h(async (req, res) => {
   const temporal = claveTemporal();
   const hash = await hashClave(temporal);
   const ok = await enTransaccion(async c => {
@@ -116,7 +125,7 @@ r.post('/usuarios/:id/clave', h(async (req, res) => {
   res.json({ ok: true, clave_temporal: temporal });
 }));
 
-r.post('/usuarios/:id/desbloquear', h(async (req, res) => {
+r.post('/usuarios/:id/desbloquear', noSistema, h(async (req, res) => {
   const { rows: [u] } = await pool.query(
     'UPDATE org.usuario SET fallos_clave = 0, bloqueado_hasta = NULL, fallos_pin = 0 WHERE id = $1 RETURNING usuario', [req.params.id]);
   if (!u) return res.status(404).json({ ok: false, error: 'No existe ese usuario.' });
@@ -124,7 +133,7 @@ r.post('/usuarios/:id/desbloquear', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
-r.post('/usuarios/:id/quitar-pin', h(async (req, res) => {
+r.post('/usuarios/:id/quitar-pin', noSistema, h(async (req, res) => {
   const { rows: [u] } = await pool.query(
     'UPDATE org.usuario SET pin_hash = NULL, fallos_pin = 0 WHERE id = $1 RETURNING usuario', [req.params.id]);
   if (!u) return res.status(404).json({ ok: false, error: 'No existe ese usuario.' });
@@ -132,7 +141,7 @@ r.post('/usuarios/:id/quitar-pin', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
-r.post('/usuarios/:id/cerrar-sesiones', h(async (req, res) => {
+r.post('/usuarios/:id/cerrar-sesiones', noSistema, h(async (req, res) => {
   const { rows: [u] } = await pool.query('SELECT usuario FROM org.usuario WHERE id = $1', [req.params.id]);
   if (!u) return res.status(404).json({ ok: false, error: 'No existe ese usuario.' });
   const { rowCount } = await pool.query(

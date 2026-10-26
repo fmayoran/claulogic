@@ -8,7 +8,10 @@
 //   · cobros: suma lo cobrado a la cuenta de cada medio. Lo hace finanzas.
 const express = require('express');
 const { pool } = require('./db');
-const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase } = require('./util');
+const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion, aBase } = require('./util');
+// Plata exacta en centavos (BigInt), para repartir importes en texto sin pasar por float.
+const centavos = v => { const s = String(v ?? '0'), neg = s.startsWith('-'), [e, d = ''] = s.replace('-', '').split('.'); const c = BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -c : c; };
+const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
 const { rolEn, exigirOperarEn, exigirEncargadoDe, filtroSedes, puede } = require('./auth');
 const crypto = require('./crypto');
 const fudo = require('./fudo');
@@ -95,7 +98,7 @@ r.get('/pos/integraciones', h(async (req, res) => {
             i.credenciales IS NOT NULL AS tiene_credenciales,
             (SELECT COUNT(*)::int FROM pos.articulo_pendiente p WHERE p.integracion_id = i.id) AS articulos_sin_receta,
             (SELECT COUNT(*)::int FROM pos.medio m WHERE m.integracion_id = i.id AND m.cuenta_id IS NULL) AS medios_sin_cuenta,
-            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir
+            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir, i.sincroniza_auto
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
        JOIN logic.almacen a ON a.id = i.almacen_id JOIN logic.ubicacion u ON u.id = i.ubicacion_id
@@ -115,6 +118,8 @@ function leerIntegracion(b) {
     ubicacion_id: texto(b.ubicacion_id),
     activa: b.activa === undefined ? true : !!b.activa,
     apiKey: texto(b.apiKey), apiSecret: texto(b.apiSecret),
+    // Por API se traen solas todos los días a las 5:00 (se puede pausar); por archivo, siempre a mano.
+    sincroniza_auto: b.sincroniza_auto === undefined ? true : !!b.sincroniza_auto,
   };
   if (!['fudo', 'maxirest', 'otro'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
   if (!['api', 'archivo'].includes(i.modo)) throw new ErrorUsuario('El modo es api o archivo.');
@@ -144,9 +149,9 @@ r.post('/pos/integraciones', h(async (req, res) => {
   const id = await enTransaccion(async c => {
     i = await datosDeSede(c, i);
     const { rows: [n] } = await c.query(
-      `INSERT INTO pos.integracion (nombre, codigo, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [i.nombre, i.codigo, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null]);
+      `INSERT INTO pos.integracion (nombre, codigo, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales, sincroniza_auto)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [i.nombre, i.codigo, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null, i.sincroniza_auto]);
     const { rows: [cu] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id) VALUES ($1, 'caja', $2) RETURNING id`,
       ['Efectivo · ' + i.nombre, i.sede_id]);
     await c.query('UPDATE pos.integracion SET cuenta_efectivo_id = $1 WHERE id = $2', [cu.id, n.id]);
@@ -164,8 +169,8 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
     // Sin credenciales nuevas se conservan las que había (no se muestran, así que no se reenvían).
     const cred = i.modo !== 'api' ? null : i.apiKey ? cifrar(i) : ant.credenciales;
     if (i.modo === 'api' && !cred) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
-    await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9
-                    WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo]);
+    await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9,
+                          sincroniza_auto=$10 WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo, i.sincroniza_auto]);
     // La cuenta de efectivo acompaña el nombre del punto de venta.
     if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre)
       await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + i.nombre, ant.cuenta_efectivo_id]);
@@ -233,6 +238,12 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   const hasta = fecha(req.body.hasta, { campo: 'Hasta' }) || desde;
   const integ = await integracion(pool, req, req.params.id);
   exigirOperarEn(req, integ.sede_id, integ.sede);
+  res.status(201).json({ ok: true, ...await sincronizarRango(req, integ, desde, hasta) });
+}));
+
+// Trae las ventas de un rango por la API, guarda la liquidación de cada pago, procesa los días sin observaciones y
+// liquida los lotes vencidos. La usan la pantalla (un rango elegido) y la corrida diaria (`correr`).
+async function sincronizarRango(req, integ, desde, hasta) {
   if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Esta integración es por archivo.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API.');
   const { rows: [rango] } = await pool.query(
@@ -287,8 +298,55 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   });
   const cobros = await procesarListos(req, integ, desde, hasta);
   // Los lotes cuya fecha de liquidación ya llegó se liquidan solos (Fudo Pagos).
-  res.status(201).json({ ok: true, ...out, cobros, lotes: await acreditarLotes(req), aviso_liquidacion: avisoLiquidacion });
+  return { ...out, cobros, lotes: await acreditarLotes(req), aviso_liquidacion: avisoLiquidacion };
+}
+
+// ── La corrida diaria ────────────────────────────────────────────────────────────────────────
+// Trae el día anterior y repasa los dos de antes (mesas que cerraron tarde, liquidaciones que Fudo completa
+// después); si la última corrida buena es más vieja, desde el día siguiente a lo que trajo (hasta un mes). Queda
+// registrada con su resultado o su error. La automática corre una vez por día y por punto de venta.
+async function correr(req, integ, automatica) {
+  if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
+  if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API en la ficha de la sede.');
+  const { rows: [r] } = await pool.query(
+    `SELECT to_char(GREATEST(LEAST(current_date - 3, COALESCE((SELECT MAX(hasta) + 1 FROM pos.corrida WHERE integracion_id = $1 AND ok), current_date - 3)),
+                             current_date - 31), 'YYYY-MM-DD') AS desde,
+            to_char(current_date - 1, 'YYYY-MM-DD') AS hasta`, [integ.id]);
+  const { rows: [co] } = await pool.query(
+    `INSERT INTO pos.corrida (integracion_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id`,
+    [integ.id, automatica, r.desde, r.hasta]);
+  if (!co) return null;   // la automática de hoy ya corrió (u otro proceso la está corriendo)
+  try {
+    const o = await sincronizarRango(req, integ, r.desde, r.hasta);
+    const resumen = { nuevos: o.nuevos, repetidos: o.repetidos, abiertas: o.abiertas,
+      cobros: o.cobros && { procesados: o.cobros.procesados.length, revisar: o.cobros.revisar.length },
+      lotes: o.lotes && o.lotes.lotes.length, aviso: o.aviso_liquidacion || null };
+    await pool.query('UPDATE pos.corrida SET terminada_en = now(), ok = true, resultado = $2 WHERE id = $1', [co.id, JSON.stringify(resumen)]);
+    return { ...o, desde: r.desde, hasta: r.hasta };
+  } catch (e) {
+    await pool.query('UPDATE pos.corrida SET terminada_en = now(), ok = false, error = $2 WHERE id = $1', [co.id, String(e.message || e).slice(0, 500)]);
+    if (!automatica) throw e;
+    console.error(`Corrida automática (${integ.nombre}):`, e.message);
+    return null;
+  }
+}
+
+// "Traer ahora": la misma corrida, pedida a mano (no consume la automática del día).
+r.post('/pos/integraciones/:id/correr', h(async (req, res) => {
+  const integ = await integracion(pool, req, req.params.id);
+  exigirOperarEn(req, integ.sede_id, integ.sede);
+  res.status(201).json({ ok: true, ...await correr(req, integ, false) });
 }));
+
+// Las corridas automáticas pendientes de hoy (las llama el programador, firmadas por el usuario de sistema).
+async function correrAutomaticas(req) {
+  const { rows } = await pool.query(
+    `SELECT i.*, s.nombre AS sede FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+      WHERE i.activa AND s.activa AND i.modo = 'api' AND i.sincroniza_auto AND i.credenciales IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM pos.corrida c WHERE c.integracion_id = i.id AND c.automatica AND c.fecha = current_date)`);
+  for (const integ of rows) await correr(req, integ, true);
+  return rows.length;
+}
 
 // Por archivo: renglones de venta (uno por artículo de cada ticket) y, opcionalmente, pagos. Las
 // columnas las elige el usuario en la pantalla y se recuerdan por integración.
@@ -887,4 +945,154 @@ r.put('/pos/medios/:id', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Cierre diario (decisiones de Fer, 26/10/2026) ────────────────────────────────────────────
+// El estado de cada punto de venta en los últimos días, desde la central: si las ventas llegaron (la corrida
+// automática o el archivo), si los cobros se procesaron, si el efectivo se rindió y si lo electrónico se acreditó.
+// Lo que hay que hacer va arriba ("para resolver"), con su acción; el resto es el detalle por día. Sólo finanzas.
+const ATRASO_DIAS = 3;   // lo electrónico sin acreditar a los 3 días (o un lote liquidado sin aparecer en el banco) es alerta
+r.get('/pos/cierre', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('El cierre diario es de finanzas.', 403);
+  const n = Math.min(60, Math.max(7, Number(req.query.dias) || 14));
+  const { rows: integs } = await pool.query(
+    `SELECT i.id, i.nombre, s.nombre AS sede, i.sistema, i.modo, i.sincroniza_auto, i.credenciales IS NOT NULL AS tiene_credenciales,
+            i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, COALESCE(sce.saldo, 0)::text AS efectivo_a_rendir,
+            (SELECT row_to_json(c) FROM (SELECT c.fecha, c.automatica, c.ok, c.error, c.resultado, c.iniciada_en, c.terminada_en,
+                                                to_char(c.desde, 'YYYY-MM-DD') AS desde, to_char(c.hasta, 'YYYY-MM-DD') AS hasta
+                                           FROM pos.corrida c WHERE c.integracion_id = i.id ORDER BY c.iniciada_en DESC LIMIT 1) c) AS ultima_corrida,
+            extract(hour FROM now())::int >= 5 AS paso_la_hora
+       FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+       LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
+      WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1)) ORDER BY s.nombre`, [sedesPos(req)]);
+  const out = [];
+  for (const i of integs) {
+    const [{ rows: dias }, { rows: atrasos }, { rows: lotesSinBanco }] = await Promise.all([
+      pool.query(
+        `WITH d AS (SELECT generate_series(current_date - $2::int, current_date - 1, '1 day')::date AS dia),
+         pg AS (
+           SELECT t.dia, SUM(p.importe) FILTER (WHERE m.cuenta_id = $3) AS efectivo,
+                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3) AS electronico,
+                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND (p.acreditado_linea_id IS NOT NULL OR (p.lote_id IS NOT NULL
+                       AND EXISTS (SELECT 1 FROM fin.lote l JOIN fin.conciliacion k ON k.movimiento_id = l.movimiento_id WHERE l.id = p.lote_id)))) AS acreditado,
+                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND p.lote_id IS NOT NULL AND NOT EXISTS (
+                       SELECT 1 FROM fin.lote l JOIN fin.conciliacion k ON k.movimiento_id = l.movimiento_id WHERE l.id = p.lote_id)) AS liquidado
+             FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+             JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+            WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND t.dia >= current_date - $2::int
+            GROUP BY t.dia)
+         SELECT to_char(d.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text, j.por_cobrar::text, j.pagos_pendientes,
+                j.pagos_sin_asignar, j.pagos_procesados, COALESCE(sd.abiertas, j.abiertas, 0) AS abiertas, sd.dia IS NOT NULL AS sincronizado,
+                COALESCE(pg.efectivo, 0)::text AS efectivo, COALESCE(pg.electronico, 0)::text AS electronico,
+                COALESCE(pg.acreditado, 0)::text AS acreditado, COALESCE(pg.liquidado, 0)::text AS liquidado
+           FROM d LEFT JOIN pos.jornada j ON j.integracion_id = $1 AND j.dia = d.dia
+           LEFT JOIN pos.sincronizacion_dia sd ON sd.integracion_id = $1 AND sd.dia = d.dia
+           LEFT JOIN pg ON pg.dia = d.dia
+          ORDER BY d.dia DESC`, [i.id, n, i.cuenta_efectivo_id]),
+      // Lo electrónico ya procesado que no llegó: por procesador, lo más viejo primero.
+      pool.query(
+        `SELECT pr.nombre AS procesador, pr.cuenta_acredita_id, COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe,
+                to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde, (current_date - MIN(COALESCE(p.liquida_el, t.dia)))::int AS dias
+           FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+           JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+          WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NOT NULL
+            AND p.acreditado_linea_id IS NULL AND p.lote_id IS NULL AND current_date - COALESCE(p.liquida_el, t.dia) > $2
+          GROUP BY pr.nombre, pr.cuenta_acredita_id ORDER BY MIN(t.dia)`, [i.id, ATRASO_DIAS]),
+      pool.query(
+        `SELECT DISTINCT pr.nombre AS procesador, pr.cuenta_acredita_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, (current_date - l.fecha)::int AS dias
+           FROM fin.lote l JOIN fin.procesador pr ON pr.id = l.procesador_id JOIN pos.ticket_pago p ON p.lote_id = l.id JOIN pos.ticket t ON t.id = p.ticket_id
+          WHERE t.integracion_id = $1 AND current_date - l.fecha > $2
+            AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = l.movimiento_id) ORDER BY 3`, [i.id, ATRASO_DIAS]),
+    ]);
+    // Efectivo a rendir por día: lo rendido cubre primero lo más viejo, así que lo que queda en la cuenta son los
+    // días más recientes, hasta sumar el saldo.
+    let falta = centavos(i.efectivo_a_rendir);
+    for (const d of dias) {
+      const e = centavos(d.efectivo);
+      d.efectivo_pendiente = deCentavos(falta <= 0n || e === 0n ? 0n : falta >= e ? e : falta);
+      falta -= e;
+    }
+    const pendEf = dias.filter(d => centavos(d.efectivo_pendiente) > 0n);
+    // Para resolver: lo que pide una acción, cada cosa con lo que hace falta para resolverla.
+    const tareas = [];
+    const ult = i.ultima_corrida;
+    if (i.modo === 'api' && i.sincroniza_auto) {
+      if (ult && ult.ok === false) tareas.push({ tipo: 'corrida', nivel: 'mal', texto: `La última sincronización falló: ${ult.error}` });
+      else if (i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso())) tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
+    }
+    const sinVentas = dias.filter(d => !d.ventas && !d.sincronizado);
+    if (sinVentas.length && i.modo === 'archivo')
+      tareas.push({ tipo: 'importar', nivel: 'aviso', dias: sinVentas.map(d => d.dia), texto: `Faltan importar las ventas de ${sinVentas.length} día(s).` });
+    // Los días con el mismo problema van juntos, en un renglón: se resuelven igual (desde Procesar ventas).
+    const porDia = (nivel, filtro, texto) => {
+      const ds = dias.filter(filtro);
+      if (ds.length) tareas.push({ tipo: 'dia', nivel, dias: ds.map(d => d.dia), texto: texto(ds) });
+    };
+    const cuadra = d => Math.abs(Number(d.cobrado) - Number(d.vendido)) < 0.01;
+    const enDias = ds => ds.length === 1 ? '' : ` en ${ds.length} días`;
+    porDia('mal', d => d.ventas && d.pagos_sin_asignar, ds => `Hay cobros con un medio sin asignar${enDias(ds)}.`);
+    porDia('mal', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && !cuadra(d), ds => `Lo cobrado no coincide con lo vendido${enDias(ds)}.`);
+    porDia('aviso', d => d.abiertas, ds => `${ds.reduce((a, d) => a + d.abiertas, 0)} venta(s) seguían abiertas: falta volver a traer ${ds.length === 1 ? 'el día' : 'esos días'}.`);
+    porDia('aviso', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && cuadra(d), ds => `Cobros listos para procesar${enDias(ds)}.`);
+    if (centavos(i.efectivo_a_rendir) > 0n) tareas.push({ tipo: 'efectivo', nivel: pendEf.length > 2 ? 'mal' : 'aviso', importe: i.efectivo_a_rendir,
+      desde: pendEf.length ? pendEf.at(-1).dia : null,
+      texto: pendEf.length ? `Efectivo a rendir de ${pendEf.length} día(s).` : 'Efectivo a rendir de antes del período.' });
+    for (const a of atrasos) tareas.push({ tipo: 'acreditacion', nivel: 'mal', cuenta_id: a.cuenta_acredita_id, importe: a.importe,
+      texto: `${a.procesador}: ${a.pagos} cobro(s) sin acreditar desde el ${a.desde}.` });
+    for (const l of lotesSinBanco) tareas.push({ tipo: 'acreditacion', nivel: 'mal', cuenta_id: l.cuenta_acredita_id, importe: l.neto,
+      texto: `${l.procesador}: el lote del ${l.fecha} no apareció en el banco (hace ${l.dias} días).` });
+    const { efectivo_a_rendir, ultima_corrida, paso_la_hora, ...resto } = i;
+    out.push({ ...resto, efectivo_a_rendir, ultima_corrida, tareas, dias });
+  }
+  res.json({ ok: true, puntos: out });
+}));
+const hoyIso = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+
+// No se rinde (ni falta) más de lo que el punto de venta tiene a rendir: la cuenta quedaría en negativo. Con la cuenta
+// bloqueada, para que dos rendiciones a la vez no pasen las dos.
+async function alcanzaEfectivo(c, integ, imp, que) {
+  await c.query('SELECT 1 FROM fin.cuenta WHERE id = $1 FOR UPDATE', [integ.cuenta_efectivo_id]);
+  const { rows: [s] } = await c.query('SELECT COALESCE((SELECT saldo FROM fin.saldo_cuenta WHERE cuenta_id = $1), 0)::text AS saldo', [integ.cuenta_efectivo_id]);
+  if (centavos(imp) > centavos(s.saldo))
+    throw new ErrorUsuario(`${integ.nombre} tiene ${$p(s.saldo)} a rendir: no se puede ${que === 'rendir' ? 'rendir' : 'declarar un faltante por'} ${$p(imp)}.`);
+}
+
+// Rendir efectivo: lo que llegó a la central (caja o banco) sale de la cuenta a rendir del punto de venta. Se hace
+// a mano, cuando la plata efectivamente ingresa (decisión de Fer). Montos en pesos enteros.
+r.post('/pos/efectivo/:integracion/rendir', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Rendir efectivo es de finanzas.', 403);
+  const integ = await integracion(pool, req, req.params.integracion);
+  if (!integ.cuenta_efectivo_id) throw new ErrorUsuario('El punto de venta no tiene cuenta de efectivo.');
+  const destino = texto(req.body.destino_id, { campo: 'la cuenta donde entra', requerido: true });
+  const imp = monto(req.body.importe, { campo: 'El importe', requerido: true, positivo: true });
+  const dia = fecha(req.body.fecha, { campo: 'La fecha' });
+  const { rows: [cu] } = await pool.query('SELECT tipo, activa FROM fin.cuenta WHERE id = $1::uuid', [destino]);
+  if (!cu || !cu.activa || !['caja', 'banco'].includes(cu.tipo) || destino === integ.cuenta_efectivo_id) throw new ErrorUsuario('Elegí la caja o el banco donde entra el efectivo.');
+  await enTransaccion(async c => {
+    await alcanzaEfectivo(c, integ, imp, 'rendir');
+    await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, COALESCE($4::date, current_date), $5)',
+      [integ.cuenta_efectivo_id, destino, imp, dia, `Rendición de efectivo · ${integ.nombre}` + (texto(req.body.concepto) ? ` · ${texto(req.body.concepto)}` : '')]);
+  });
+  res.status(201).json({ ok: true });
+}));
+
+// Diferencia de caja: lo que falta (o sobra) del efectivo del punto de venta, con su motivo. Deja la cuenta a rendir
+// en lo que de verdad hay que rendir.
+r.post('/pos/efectivo/:integracion/diferencia', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('La diferencia de caja es de finanzas.', 403);
+  const integ = await integracion(pool, req, req.params.integracion);
+  const motivo = texto(req.body.motivo, { campo: 'el motivo', requerido: true });
+  const faltante = req.body.tipo !== 'sobrante';
+  const imp = monto(req.body.importe, { campo: 'El importe', requerido: true, positivo: true });
+  if (!integ.cuenta_efectivo_id) throw new ErrorUsuario('El punto de venta no tiene cuenta de efectivo.');
+  await enTransaccion(async c => {
+    if (faltante) await alcanzaEfectivo(c, integ, imp, 'faltante');
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, gasto)
+       VALUES (COALESCE($1::date, current_date), $2, $3, $4, $5, $6, 'otro')`,
+      [fecha(req.body.fecha, { campo: 'La fecha' }), integ.cuenta_efectivo_id, faltante ? 'egreso' : 'ingreso', faltante ? 0 : imp, faltante ? imp : 0,
+       `${faltante ? 'Faltante' : 'Sobrante'} de caja · ${integ.nombre}: ${motivo}`]);
+  });
+  res.status(201).json({ ok: true });
+}));
+
+Object.assign(r, { correrAutomaticas });
 module.exports = r;

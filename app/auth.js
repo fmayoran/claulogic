@@ -268,7 +268,8 @@ const POLITICA = [
   // cuenta de cada medio, de finanzas.
   // La configuración del sistema de venta de una sede (y sus artículos y medios) es del administrador.
   [/^\/pos\/integraciones(\/[^/]+)?$/, 'admin'],
-  [/^\/pos\/integraciones\/[^/]+\/(sincronizar|importar)$/, 'operar'],
+  [/^\/pos\/integraciones\/[^/]+\/(sincronizar|importar|correr)$/, 'operar'],
+  [/^\/pos\/efectivo\//, 'finanzas'],
   [/^\/pos\/importaciones\/[^/]+\/consumo$/, 'operar'],
   // Anular: el encargado del local, o finanzas (que es quien la anula si tiene cobros procesados).
   [/^\/pos\/importaciones\/[^/]+\/anular$/, 'anular_pos'],

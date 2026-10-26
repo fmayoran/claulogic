@@ -38,13 +38,14 @@
         <legend>Sistema de venta</legend>
         <div class="fila">
           <label>Sistema *<select name="sistema"><option value="fudo">Fudo</option><option value="maxirest">Maxirest</option><option value="otro">Otro</option></select></label>
-          <label>Las ventas llegan *<select name="modo"><option value="api">Por API (automático a pedido)</option><option value="archivo">Por archivo exportado</option></select></label>
+          <label>Las ventas llegan *<select name="modo"><option value="api">Por API</option><option value="archivo">Por archivo exportado</option></select></label>
           <label>Código<input name="codigo" maxlength="20" placeholder="CF-SALON"></label>
         </div>
         <div class="fila" id="filaCred">
           <label>API Key de Fudo<input name="apiKey" autocomplete="off"></label>
           <label>API Secret de Fudo<input name="apiSecret" type="password" autocomplete="new-password"></label>
         </div>
+        <label class="check" id="autoWrap"><input type="checkbox" name="sincroniza_auto" checked> Traer las ventas automáticamente todos los días a las 5:00 (el día anterior)</label>
         <p class="ayuda" id="ayudaCred">En Fudo (plan Pro): Aplicaciones externas &gt; API Pública General, y un usuario propio para la API en Administración &gt; Usuarios.
           Las credenciales se guardan cifradas y no se vuelven a mostrar; para cambiarlas, cargalas de nuevo.</p>
         <p class="ayuda" id="efectivoInfo"></p>
@@ -101,7 +102,7 @@ function aplicarTipo() {
   if (pv) f.es_central.checked = false;
   f.tipo.disabled = !!actual;
   if (f.sistema.value !== 'fudo') f.modo.value = 'archivo';
-  $('#filaCred').hidden = $('#ayudaCred').hidden = f.modo.value !== 'api';
+  $('#filaCred').hidden = $('#ayudaCred').hidden = $('#autoWrap').hidden = f.modo.value !== 'api';
 }
 f.tipo.onchange = f.sistema.onchange = f.modo.onchange = aplicarTipo;
 function nueva() {
@@ -118,6 +119,7 @@ async function abrir(id) {
   $('#activaWrap').hidden = false; $('#ayudaActiva').hidden = false;
   const i = integDe(id);
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
+  f.sincroniza_auto.checked = i ? i.sincroniza_auto !== false : true;
   f.apiKey.value = f.apiSecret.value = ''; f.apiKey.placeholder = f.apiSecret.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
   $('#efectivoInfo').textContent = i && i.cuenta_efectivo ? `Su efectivo entra en "${i.cuenta_efectivo}" (a rendir a la central: ${pesos(i.efectivo_a_rendir || '0')}). Rendirlo es una transferencia desde Tesorería.` : '';
   $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'procesar-ventas.html#' + i.id;
@@ -137,6 +139,7 @@ f.onsubmit = async e => {
     if (body.tipo === 'local') {
       const ant = integDe(d.id);
       const venta = { sede_id: d.id, sistema: f.sistema.value, modo: f.modo.value, codigo: f.codigo.value, activa: actual ? f.activa.checked : true,
+                      sincroniza_auto: f.sincroniza_auto.checked,
                       apiKey: f.apiKey.value, apiSecret: f.apiSecret.value };
       await api(ant ? 'pos/integraciones/' + ant.id : 'pos/integraciones', { method: ant ? 'PUT' : 'POST', body: venta });
     }

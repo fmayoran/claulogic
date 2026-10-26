@@ -134,7 +134,7 @@ const GRUPOS = [
                ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
-  ['Ventas', [['ventas.html', 'Ventas'], ['procesar-ventas.html', 'Procesar ventas'], ['platos.html', 'Platos de carta']]],
+  ['Ingresos', [['cierre-diario.html', 'Cierre diario'], ['ventas.html', 'Ventas'], ['procesar-ventas.html', 'Procesar ventas'], ['platos.html', 'Platos de carta']]],
   ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['medios-pago.html', 'Medios de pago'], ['cheques.html', 'Cheques'], ['conciliacion.html', 'Conciliación']]],
   ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
@@ -143,7 +143,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'cierre-diario.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };

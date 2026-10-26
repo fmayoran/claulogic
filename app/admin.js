@@ -16,6 +16,8 @@ async function main() {
     console.error('uso: node admin.js admin <usuario> "<Nombre>"   |   node admin.js clave <usuario>');
     process.exit(1);
   }
+  // El usuario de sistema firma lo automático y no tiene clave: no se blanquea ni se pisa.
+  if (usuario.toLowerCase() === 'sistema') { console.error('"sistema" es el usuario de los procesos automáticos: no tiene clave.'); process.exit(1); }
   const temporal = claveTemporal();
   const hash = await hashClave(temporal);
   if (cmd === 'admin') {
