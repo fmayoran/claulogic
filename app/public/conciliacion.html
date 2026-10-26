@@ -92,8 +92,8 @@
   <div class="t-grid t-g2" id="resumen" hidden>
     <section class="card" id="cLotes" hidden style="grid-column:1 / -1">
       <h2 id="lTitulo">Lotes</h2>
-      <p class="cap">Cada lote se liquida solo al llegar su fecha (pasa a esta cuenta lo que informa el procesador); el extracto del banco lo confirma.
-        Un lote liquidado que no aparece en el banco queda en alerta.</p>
+      <p class="cap">Al llegar la fecha de liquidación que informa el procesador, el lote queda esperando el depósito: la plata sigue en
+        "a acreditar" y entra a esta cuenta recién cuando el depósito aparece en el extracto. Un lote que no aparece en el banco a los 3 días queda en alerta.</p>
       <div id="lLista"></div>
     </section>
     <section class="card">
@@ -266,7 +266,7 @@ async function conciliarAuto(previo = '') {
     const costos = Object.values(d.gastos).reduce((s, v) => s + centavos(v), 0n);
     const partes = [];
     if (d.acreditadas || costos) partes.push(`Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.');
-    if (d.lotes_liquidados) partes.push(`Se liquidaron ${d.lotes_liquidados} lote(s).`);
+    if (d.lotes_liquidados) partes.push(`${d.lotes_liquidados} lote(s) nuevos esperando el depósito.`);
     if (d.lotes_confirmados) partes.push(`${d.lotes_confirmados} lote(s) confirmados con el extracto.`);
     const txt = partes.length || d.compensadas ? partes.join(' ') : 'No había nada nuevo para conciliar.';
     msg([previo, txt].filter(Boolean).join(' '), 'ok', '#msgA');
@@ -409,7 +409,7 @@ function pintarLotes(p) {
   const fila = (izq, imp, der) => el('div', { className: 'fila-c' }, el('span', {}, izq), el('span', { className: 'p', textContent: imp }), el('span', { className: 'm' }, der));
   const esperando = lotes.filter(l => !l.confirmado), confirmados = lotes.filter(l => l.confirmado);
   const bloques = [];
-  if (esperando.length) bloques.push(el('h3', { textContent: 'Liquidados, esperando el banco' }),
+  if (esperando.length) bloques.push(el('h3', { textContent: 'Esperando el depósito' }),
     ...esperando.map(l => fila(`${fecha(l.fecha)} · ${l.pagos} cobro(s)`, pesos(l.neto),
       l.dias > 3 ? el('span', { className: 'tag mal', textContent: `no apareció en el banco (hace ${l.dias} días)` }) : el('span', { className: 'tag aviso', textContent: 'esperando el extracto' }))));
   if (prox.length) bloques.push(el('h3', { textContent: 'Por liquidar' }),

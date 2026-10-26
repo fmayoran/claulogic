@@ -441,11 +441,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta
   (`ticket_pago.id_externo`; los pagos anteriores se reconocen por medio e importe al volver a sincronizar). Se toman
   sólo los que traen `receivedBy` (liquidados por un procesador); los pagos de gastos no están en las ventas y no
-  entran. Al sincronizar quedan `liquida_el` y `neto`; cuando llega la fecha, **el lote se liquida solo**
-  (`acreditarLotes`, al sincronizar y al conciliar la cuenta donde deposita): por procesador, cuenta y fecha, el neto
-  pasa de "a acreditar" a la cuenta donde deposita (Brubank para Fudo Pagos) y el costo queda como cargo (egreso de
-  "a acreditar"); `fin.lote` guarda el lote con su entrada. **El extracto del banco lo confirma**: la conciliación
-  automática parea cada depósito con un lote abierto del mismo neto (del día del lote a 5 días después). La pantalla
+  entran. Al sincronizar quedan `liquida_el` y `neto`; cuando llega la fecha, **el lote se arma solo y queda esperado**
+  (`acreditarLotes`, al sincronizar y al conciliar la cuenta donde deposita; por procesador, cuenta y fecha), **sin mover
+  plata** (decisión de Fer, 26/10/2026; migración 20261111): lo cobrado sigue en "a acreditar" y el saldo de la cuenta
+  donde deposita (Brubank para Fudo Pagos) es sólo lo que el banco confirmó. **El extracto del banco lo confirma**: la
+  conciliación automática parea cada depósito con un lote esperado del mismo neto (del día del lote a 5 días después) y
+  recién ahí `asentarLote` pasa el neto a la cuenta donde deposita, con la fecha del depósito, y asienta el costo (egreso
+  de "a acreditar"); `fin.lote.movimiento_id` es esa entrada (NULL = esperado). Deshacer la conciliación anula los dos y
+  el lote vuelve a esperado. La pantalla
   muestra los lotes por liquidar, los liquidados esperando el banco (alerta a los 3 días) y los confirmados. Estos
   cobros no entran en el pareo uno a uno ni en las sugerencias. Una importación con cobros acreditados (conciliados
   o en lotes) no se anula. Verificado con la API de Fer: débito 3,38% al día hábil siguiente, crédito 4,83% a ~15 días.
@@ -456,8 +459,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   la sugerencia "lote + cobro" arma su lote con el neto que explica el depósito; y si no hay explicación, "lote con
   diferencia" se confirma con motivo (queda como ingreso o egreso de la cuenta). Para eso una línea del extracto se
   concilia con **varios movimientos** (`fin.conciliacion` con clave (línea, movimiento); la suma se controla al
-  final de la transacción, `fin.conciliacion_suma`). Deshacer anula lo que creó la confirmación (la diferencia, o el
-  lote armado con su cobro, que vuelve a pendiente) y deja los lotes liquidados por fecha. "SIRCREB" (retención de
+  final de la transacción, `fin.conciliacion_suma`). Deshacer anula lo que creó la confirmación (la acreditación y el
+  costo de cada lote, que vuelve a esperado; la diferencia; o el lote armado con su cobro, que vuelve a pendiente). "SIRCREB" (retención de
   IIBB sobre acreditaciones) se clasifica como retención; en el extracto de Brubank los importes vacíos son "-".
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.

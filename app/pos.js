@@ -851,7 +851,7 @@ r.post('/pos/importaciones/:id/anular', h(async (req, res) => {
       `SELECT COUNT(*) FILTER (WHERE p.acreditado_linea_id IS NOT NULL)::int AS conciliados, COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id WHERE t.importacion_id = $1`, [im.id]);
     if (ac.conciliados || ac.en_lote)
-      throw new ErrorUsuario(`La importación tiene cobros acreditados (${ac.conciliados} conciliados con el extracto, ${ac.en_lote} en lotes liquidados): `
+      throw new ErrorUsuario(`La importación tiene cobros acreditados (${ac.conciliados} conciliados con el extracto, ${ac.en_lote} en lotes de liquidación): `
         + 'no se puede anular. Los conciliados se deshacen desde Conciliación.');
     // Los cobros que incluyen pagos de esta importación (por día o de la importación): se revierten enteros, y
     // los pagos de otras importaciones de ese día vuelven a quedar pendientes.
