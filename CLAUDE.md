@@ -488,6 +488,25 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     transferencias propias, cajas chicas con rendición, la conciliación como confirmación); 4 estado de resultados
     filtrable por punto de venta (falta definir IIBB, SIRCREB y Ley 25.413). Mercadería y estructura, por ahora sólo
     en la sede central.
+- **Proceso de ingresos** (pedido de Fer, 27/10/2026: "ordenar los pasos", como el de abastecimiento). `ingresos.html`,
+  asistente de cinco pasos que **toma todo lo pendiente hasta ayer**, de todos los puntos de venta y procesadores (sirve
+  igual a diario o semanal); el estado de cada paso **se deduce** (`/pos/cierre?dias=60` y `/fin/procesadores/resumen`)
+  y abre en el primero que tiene algo. Absorbe el Cierre diario (`cierre-diario.html` redirige):
+  1. **Ventas**: traer hasta ayer (API) o importar (archivo), y cada problema se resuelve ahí: medio sin asignar (se elige
+     el medio de pago y los días se cobran solos), diferencia (motivo y cobrar), mesa abierta (volver a traer el día),
+     cobros listos. Las tareas del cierre traen su `clase` (`medios`, `diferencia`, `abiertas`, `listos`).
+  2. **Efectivo**: rendir o diferencia, por punto de venta.
+  3. **Extractos**: una tarjeta por procesador con la cuenta donde deposita **ya fijada** (no se elige: así no se repite
+     el extracto de Pago24 importado en Brubank), qué archivo va (Mercado Pago: los dos juntos) y hasta cuándo llega el
+     último; al importar se concilia solo.
+  4. **Conciliar**: cuenta por cuenta, sólo lo que falta resolver, primero lo que tiene sugerencia; cada grupo muestra 8
+     líneas y el resto con "Ver N más".
+  5. **Resultado**: lo que falta por paso, ventas de los últimos 30 días por punto de venta y, por procesador, lo que falta
+     acreditar, lo que espera el depósito, el saldo contra el extracto y el costo real por tipo.
+  La importación y el "Para resolver" son **`conciliar.js` + `conciliar.css`** (`Conc.importador`, `Conc.resolver`,
+  `Conc.automatica`, `Conc.frenteExtracto`), compartidos con `conciliacion.html`. **El servidor rechaza un extracto en
+  una cuenta que no es la de su procesador** (`exigirCuentaDelFormato`: Pago24 por sus conceptos, Mercado Pago por el
+  formato que reconoce la pantalla). En el Panel, para finanzas, "Proceso de ingresos" con lo que hay para resolver.
 - Pendiente: modificadores de Fudo (subitems), propinas.
 
 ### Tablero (fase 5, 21/10/2026)
@@ -530,7 +549,12 @@ platos de carta, integración con POS (Fudo por API, archivo para cualquiera), c
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
-**Interfaz.** `comun.js` arma la navegación de todas las pantallas: barra lateral agrupada desde
+**Interfaz.** `comun.js` arma la navegación de todas las pantallas. **El menú va por proceso** (decisión de Fer,
+27/10/2026): Inicio, Ingresos (Proceso de ingresos, Ventas), Compras (Proceso de abastecimiento, Proveedores, Cuenta
+corriente), Tesorería (Cajas y bancos, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
+de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
+y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Almacenes, Unidades productivas, Usuarios) al final.
+Barra lateral agrupada desde
 900 px; en el celular, barra inferior (Panel, Stock, Escanear, Productos, Más). **Escanear** es
 global: producto abre su ficha, lote su trazabilidad, código desconocido va al alta
 (`productos.html#nuevo/<gtin>`). Productos usa rutas en el `#` (`#p/<id>`, `#nuevo`) para que en

@@ -1,0 +1,25 @@
+/* Conciliación: lo que comparten la pantalla de Conciliación y el proceso de ingresos (conciliar.js). */
+/* Para resolver */
+.grupo-p{margin:0 0 16px;}
+.grupo-p h3{margin:0 0 2px;font-size:1rem;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
+.grupo-p h3 small{color:var(--mut);font-weight:400;font-size:.88rem;}
+.grupo-p .cap{margin:0 0 8px;}
+.pend{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:12px 4px;border-top:1px solid var(--g-grilla);}
+.pend .q{display:flex;flex-direction:column;min-width:0;}
+.pend .q b{font-weight:600;} .pend .q small{color:var(--mut);font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pend .imp{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
+.neg{color:var(--baja);}
+.pend .acc{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.pend .acc button{font-size:.85rem;padding:5px 12px;}
+.pend .acc input{flex:1 1 220px;max-width:340px;padding:6px 10px;}
+/* Pareo sugerido: se confirma con un toque */
+.sug{grid-column:1 / -1;background:var(--sel);border-radius:10px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:.9rem;}
+.sug .t{flex:1 1 260px;} .sug .t b{font-weight:650;} .sug input{flex:1 1 180px;max-width:260px;padding:6px 10px;}
+.sug button{font-size:.85rem;padding:5px 12px;}
+.parte{grid-column:1 / -1;color:var(--mut);font-size:.84rem;}
+.vacio-ok{text-align:center;padding:28px 10px;color:var(--mut);}
+.vacio-ok b{display:block;color:var(--sube);font-size:1.1rem;margin-bottom:4px;}
+/* Importar */
+.mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+.importador{margin:0 0 20px;}
+.ver-mas{margin-top:10px;font-size:.86rem;padding:6px 14px;}

@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Proceso de ingresos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<link rel="stylesheet" href="conciliar.css">
+<style>
+  /* Barra de pasos (la misma del proceso de abastecimiento): hecho, actual o por hacer, con su estado abajo. */
+  .pasos{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:4px 0 20px;padding:0;list-style:none;counter-reset:paso;}
+  .pasos li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 8px;align-items:center;padding:9px 10px;border-radius:12px;border:1.5px solid var(--line);
+    background:var(--panel);color:var(--mut);font-weight:600;font-size:.88rem;min-width:0;cursor:pointer;}
+  .pasos li:hover{background:var(--sel);}
+  .pasos li::before{counter-increment:paso;content:counter(paso);grid-row:span 2;width:26px;height:26px;border-radius:50%;
+    display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;font-size:.85rem;}
+  .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--acento);border-color:var(--acento);color:var(--acento-fg);}
+  .pasos li.actual{border-color:var(--acento);color:var(--fg);box-shadow:0 0 0 3px var(--sel);}
+  .pasos li.actual::before{border-color:var(--acento);color:var(--acento);}
+  .pasos li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pasos li small{font-weight:500;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut);}
+  .pasos li.falta small{color:var(--aviso-fg, var(--fg));}
+  @media (max-width:900px){ .pasos{display:flex;} .pasos li{flex:none;display:flex;justify-content:center;padding:8px;}
+    .pasos li span,.pasos li small{display:none;} .pasos li.actual{flex:1;justify-content:flex-start;} .pasos li.actual span{display:inline;} }
+  .paso{max-width:980px;}
+  .intro{color:var(--mut);margin:0 0 16px;max-width:760px;}
+  /* Una tarjeta por punto de venta o por cuenta */
+  .bloque{margin:0 0 16px;}
+  .bloque-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin:0 0 6px;}
+  .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
+  .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;}
+  .al-dia{display:flex;gap:8px;align-items:center;color:var(--sube);font-weight:600;font-size:.94rem;margin:8px 0 0;}
+  .al-dia::before{content:'✓';display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ok-bg);font-size:.8rem;}
+  /* Algo para resolver, con su acción al lado o abajo */
+  .tarea{border-top:1px solid var(--g-grilla);padding:12px 2px;display:grid;gap:8px;}
+  .tarea .t{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;align-items:center;font-size:.95rem;}
+  .tarea .t::before{content:'';width:10px;height:10px;border-radius:50%;background:var(--aviso);grid-row:span 2;}
+  .tarea.mal .t::before{background:var(--mal);}
+  .tarea .t small{color:var(--mut);font-size:.82rem;}
+  .tarea .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-left:20px;}
+  .tarea .acc button{font-size:.86rem;padding:6px 12px;}
+  .tarea .acc input{flex:1 1 220px;max-width:340px;padding:6px 10px;}
+  .renglon{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:6px 0 6px 20px;font-size:.9rem;}
+  .renglon b{font-weight:600;} .renglon .mut{color:var(--mut);}
+  .renglon select{flex:1 1 220px;max-width:340px;padding:6px 8px;}
+  .renglon input{flex:1 1 200px;max-width:300px;padding:6px 10px;}
+  .renglon button{font-size:.84rem;padding:5px 12px;}
+  .cifras-b{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:8px 0 4px;}
+  .cifras-b div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .cifras-b span{display:block;color:var(--mut);font-size:.8rem;} .cifras-b strong{font-size:1.12rem;font-variant-numeric:tabular-nums;}
+  .cifras-b small{display:block;color:var(--mut);font-size:.78rem;margin-top:2px;}
+  .chips-d{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0;} .chips-d span{font-size:.8rem;padding:3px 9px;border-radius:999px;background:var(--sel);font-variant-numeric:tabular-nums;}
+  .msg-b{display:block;margin-top:6px;}
+  .botonera{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:20px;}
+  .botonera .prim{font-size:1.02rem;padding:12px 18px;}
+  @media (max-width:700px){ .botonera button{flex:1 1 100%;} }
+  .estado-c{display:flex;flex-wrap:wrap;gap:10px 24px;align-items:center;justify-content:space-between;margin:0 0 16px;}
+  .estado-c .titulo{font-size:1.25rem;font-weight:700;margin:0 0 4px;} .estado-c .titulo.ok{color:var(--sube);}
+  .estado-c .detalle{color:var(--mut);font-size:.9rem;margin:0;max-width:640px;} .estado-c .detalle b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600;}
+  .fila-c{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 14px;padding:8px 2px;border-top:1px solid var(--g-grilla);align-items:baseline;font-size:.92rem;}
+  .fila-c .p{font-weight:700;font-variant-numeric:tabular-nums;} .fila-c .m{color:var(--mut);font-size:.82rem;text-align:right;}
+  .pendientes-r{display:grid;gap:6px;margin:10px 0 0;padding:0;list-style:none;}
+  .pendientes-r li{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 12px;border-radius:10px;background:var(--sel);font-size:.92rem;}
+  #dlgRendir,#dlgDif{width:min(460px,94vw);} #dlgRendir h2,#dlgDif h2{margin-top:0;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="t-cab">
+    <h1>Proceso de ingresos</h1>
+    <p class="sub">De las ventas a la plata en las cuentas, en cinco pasos: traer las ventas y cobrarlas, rendir el efectivo, importar los extractos de
+      los procesadores, conciliar y ver el resultado. Cada pasada toma todo lo pendiente hasta ayer, de todos los puntos de venta y procesadores:
+      sirve igual hacerlo todos los días o una vez por semana.</p>
+  </div>
+
+  <ol class="pasos" id="pasos">
+    <li data-paso="ventas"><span>Ventas</span><small></small></li>
+    <li data-paso="efectivo"><span>Efectivo</span><small></small></li>
+    <li data-paso="extractos"><span>Extractos</span><small></small></li>
+    <li data-paso="conciliar"><span>Conciliar</span><small></small></li>
+    <li data-paso="resultado"><span>Resultado</span><small></small></li>
+  </ol>
+  <span class="msg" id="msg"></span>
+
+  <section class="paso" id="p-ventas" hidden>
+    <p class="intro">Traé las ventas de cada punto de venta hasta ayer. Los días sin observaciones se cobran solos; lo que queda abajo es lo que hay que
+      resolver: un medio de pago que el sistema no conoce, lo cobrado que no coincide con lo vendido, o una mesa que seguía abierta.</p>
+    <div id="ventas"></div>
+  </section>
+
+  <section class="paso" id="p-efectivo" hidden>
+    <p class="intro">Lo cobrado en efectivo queda en la cuenta del local hasta que llega a la central. Cuando la plata entra, rendila: pasa a la caja
+      o al banco. Lo que no va a llegar (un faltante) se registra como diferencia, con su motivo.</p>
+    <div id="efectivo"></div>
+  </section>
+
+  <section class="paso" id="p-extractos" hidden>
+    <p class="intro">Importá el extracto de cada cuenta donde depositan los procesadores, hasta ayer. Cada tarjeta ya sabe en qué cuenta va el
+      archivo; al importarlo se concilia solo.</p>
+    <div id="extractos"></div>
+  </section>
+
+  <section class="paso" id="p-conciliar" hidden>
+    <p class="intro">Lo que la conciliación automática no pudo resolver, cuenta por cuenta. Primero lo que tiene sugerencia (se confirma con un toque).</p>
+    <div class="segm" id="cuentasC" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
+    <section class="card estado-c" id="cEstado" hidden>
+      <div><p class="titulo" id="cTitulo"></p><p class="detalle" id="cDetalle"></p></div>
+      <button type="button" id="cAuto">Conciliar de nuevo</button>
+      <span class="msg msg-b" id="msgC" style="flex-basis:100%"></span>
+    </section>
+    <div id="resolver"></div>
+  </section>
+
+  <section class="paso" id="p-resultado" hidden>
+    <section class="card estado-c"><div><p class="titulo" id="rTituloR"></p><p class="detalle" id="rDetalleR"></p></div></section>
+    <ul class="pendientes-r" id="rPendientes"></ul>
+    <div id="resultado"></div>
+  </section>
+
+  <div class="botonera paso" id="botonera">
+    <button type="button" class="prim" id="seguir">Seguir</button>
+    <button type="button" id="volver">Volver</button>
+  </div>
+</main>
+
+<dialog id="dlgRendir">
+  <form id="fRendir" novalidate>
+    <h2 id="rTitulo">Rendir efectivo</h2>
+    <p class="ayuda" id="rAyuda"></p>
+    <div class="fila"><label>Importe que llegó *<input name="importe" inputmode="numeric"></label><label>Fecha *<input name="fecha" type="date"></label></div>
+    <div class="fila"><label>Entra en *<select name="destino_id"></select></label></div>
+    <div class="fila"><label>Detalle<input name="concepto" placeholder="quién lo trajo, número de depósito…"></label></div>
+    <div class="acciones"><button type="submit" class="prim">Rendir</button><button type="button" id="rCancelar">Cancelar</button><span class="msg" id="msgR"></span></div>
+  </form>
+</dialog>
+<dialog id="dlgDif">
+  <form id="fDif" novalidate>
+    <h2 id="dTitulo">Diferencia de caja</h2>
+    <p class="ayuda">Lo que falta (o sobra) del efectivo del punto de venta respecto de lo vendido. Deja la cuenta en lo que de verdad hay que rendir.</p>
+    <div class="fila"><label>Tipo<select name="tipo"><option value="faltante">Faltante</option><option value="sobrante">Sobrante</option></select></label>
+      <label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha *<input name="fecha" type="date"></label></div>
+    <div class="fila"><label>Motivo *<input name="motivo" placeholder="qué pasó"></label></div>
+    <div class="acciones"><button type="submit" class="prim">Registrar</button><button type="button" id="dCancelar">Cancelar</button><span class="msg" id="msgD"></span></div>
+  </form>
+</dialog>
+
+<script src="comun.js"></script>
+<script src="conciliar.js"></script>
+<script>
+const PASOS = ['ventas', 'efectivo', 'extractos', 'conciliar', 'resultado'];
+const NOMBRE = { ventas: 'Ventas', efectivo: 'Efectivo', extractos: 'Extractos', conciliar: 'Conciliar', resultado: 'Resultado' };
+let puntos = [], procs = [], cuentas = [], paso = null, cuentaC = null, actual = null;
+const ayer = (() => { const d = new Date(Date.now() - 3 * 3600e3 - 864e5); return d.toISOString().slice(0, 10); })();
+const corta = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+const hora = v => v ? new Date(v).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const ir = (href, texto, prim) => el('button', { type: 'button', className: prim ? 'prim' : '', textContent: texto, onclick: () => { location.href = href; } });
+const boton = (texto, fn, prim) => {
+  const b = el('button', { type: 'button', className: prim ? 'prim' : '', textContent: texto });
+  b.onclick = async () => { b.disabled = true; try { await fn(b); } finally { b.disabled = false; } };
+  return b;
+};
+const aviso = (t, tipo) => msg(t, tipo);
+// "22/10, 21/10 y 18/10"; más de seis, los seis más recientes "y N más".
+function listaDias(ds) {
+  const v = ds.slice(0, 6).map(corta), resto = ds.length - v.length;
+  if (resto) return `${v.join(', ')} y ${resto} más`;
+  return v.length > 1 ? `${v.slice(0, -1).join(', ')} y ${v.at(-1)}` : v[0];
+}
+
+// ── Estado de cada paso: se deduce de lo que hay, como la bandeja de abastecimiento ──
+const tareasVentas = p => p.tareas.filter(t => ['corrida', 'importar', 'dia'].includes(t.tipo));
+function estadoPasos() {
+  const nVentas = puntos.reduce((s, p) => s + tareasVentas(p).length, 0);
+  const efectivo = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
+  const conCuenta = procs.filter(x => x.resumen);
+  const sinExtracto = procs.filter(x => !x.resumen || !x.resumen.extracto.hasta || x.resumen.extracto.hasta < ayer).length;
+  const lineas = conCuenta.reduce((s, x) => s + (x.resumen.extracto.lineas_pendientes || 0), 0);
+  return {
+    ventas: nVentas ? [false, `${nVentas} para resolver`] : [true, 'al día'],
+    efectivo: efectivo > 0n ? [false, `${pesos(deCentavos(efectivo))} a rendir`] : [true, 'rendido'],
+    extractos: sinExtracto ? [false, `${sinExtracto} por importar`] : [true, 'al día'],
+    conciliar: lineas ? [false, `${lineas} línea(s)`] : [!!conCuenta.some(x => x.resumen.extracto.hasta), conCuenta.some(x => x.resumen.extracto.hasta) ? 'al día' : 'sin extractos'],
+    resultado: [null, ''],
+  };
+}
+function pintarPasos() {
+  const e = estadoPasos();
+  $$('#pasos li').forEach(li => {
+    const k = li.dataset.paso, [ok, txt] = e[k];
+    li.classList.toggle('hecho', ok === true && k !== paso); li.classList.toggle('actual', k === paso); li.classList.toggle('falta', ok === false);
+    li.querySelector('small').textContent = txt;
+    li.onclick = () => irA(k);
+  });
+  const i = PASOS.indexOf(paso);
+  $('#volver').hidden = i === 0; $('#seguir').hidden = i === PASOS.length - 1;
+  $('#seguir').textContent = i < PASOS.length - 1 ? `Seguir: ${NOMBRE[PASOS[i + 1]]}` : '';
+}
+$('#seguir').onclick = () => irA(PASOS[PASOS.indexOf(paso) + 1]);
+$('#volver').onclick = () => irA(PASOS[PASOS.indexOf(paso) - 1]);
+
+async function cargarDatos() {
+  const [c, p] = await Promise.all([api('pos/cierre?dias=60'), api('fin/procesadores/resumen')]);
+  puntos = c.puntos; procs = p.procesadores;
+}
+async function irA(k, { recargar = false } = {}) {
+  if (recargar) await cargarDatos();
+  paso = k; history.replaceState(null, '', '#' + k);
+  PASOS.forEach(x => { $('#p-' + x).hidden = x !== k; });
+  pintarPasos();
+  await PINTAR[k]();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+// Después de una acción: se recargan los datos y se repinta el mismo paso (y los estados de la barra).
+async function refrescar() { await cargarDatos(); pintarPasos(); await PINTAR[paso](); }
+
+// ── 1. Ventas ──
+function textoSincronizacion(p) {
+  if (p.modo !== 'api') return 'Ventas por archivo: se importan a mano.';
+  const u = p.ultima_corrida, auto = p.sincroniza_auto ? 'Se traen solas a las 5:00' : 'Sincronización automática en pausa';
+  if (!u) return `${auto} · todavía no se trajo nada.`;
+  const cuando = (u.fecha === new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10) ? 'hoy ' : fecha(u.fecha) + ' ') + hora(u.iniciada_en);
+  return `${auto} · última vez: ${cuando}` + (u.ok ? ` (hasta el ${fecha(u.hasta)})` : u.ok === false ? ' (falló)' : ' (en curso)') + '.';
+}
+async function traer(p) {
+  msg(`Trayendo las ventas de ${p.nombre}…`);
+  try {
+    const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST' });
+    msg(`${p.nombre}: del ${fecha(d.desde)} al ${fecha(d.hasta)}, ${d.nuevos} venta(s) nueva(s)` + (d.cobros ? `, ${d.cobros.procesados.length} día(s) cobrados solos` : '') + '.', 'ok');
+    await refrescar();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+async function pintarVentas() {
+  if (!puntos.length) return $('#ventas').replaceChildren(el('section', { className: 'card vacio-ok' }, el('b', { textContent: 'No hay puntos de venta' }), 'Cargalos en Configuración > Sedes.'));
+  const bloques = [];
+  for (const p of puntos) {
+    const ts = tareasVentas(p), ultimo = p.dias.find(d => d.ventas);
+    const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
+      el('div', { className: 'acc' }, p.modo === 'api' ? boton('Traer ventas hasta ayer', () => traer(p), !ts.length || ts.some(t => t.tipo === 'corrida'))
+        : ir('procesar-ventas.html#' + p.id, 'Importar archivo', ts.some(t => t.tipo === 'importar'))),
+      el('span', { className: 'sinc', textContent: textoSincronizacion(p) }));
+    const cuerpo = [];
+    for (const t of ts) cuerpo.push(await tareaVenta(p, t));
+    if (!ts.length) cuerpo.push(el('p', { className: 'al-dia', textContent: ultimo ? `Ventas al día: el último día con ventas es el ${fecha(ultimo.dia)} y está cobrado.` : 'Sin ventas pendientes.' }));
+    bloques.push(el('section', { className: 'card bloque' }, cab, ...cuerpo));
+  }
+  $('#ventas').replaceChildren(...bloques);
+}
+// Cada problema con lo que hace falta para resolverlo, ahí mismo.
+async function tareaVenta(p, t) {
+  const caja = el('div', { className: 'tarea ' + (t.nivel || '') });
+  const titulo = el('div', { className: 't' }, el('span', { textContent: t.texto }), t.dias ? el('small', { textContent: listaDias(t.dias) }) : '');
+  caja.append(titulo);
+  const acc = el('div', { className: 'acc' });
+  if (t.tipo === 'corrida') acc.append(boton(t.nivel === 'mal' ? 'Volver a intentar' : 'Traer ahora', () => traer(p), true));
+  else if (t.tipo === 'importar') acc.append(ir('procesar-ventas.html#' + p.id, 'Importar archivo', true));
+  else if (t.clase === 'listos') acc.append(boton('Cobrar esos días', async () => {
+    try { const d = await api(`pos/jornadas/${p.id}/procesar`, { method: 'POST' }); msg(`${d.procesados.length} día(s) cobrados.`, 'ok'); await refrescar(); } catch (e) { msg(e.message, 'mal'); }
+  }, true));
+  else if (t.clase === 'abiertas') for (const dia of t.dias) caja.append(el('div', { className: 'renglon' }, el('b', { textContent: fecha(dia) }),
+    el('span', { className: 'mut', textContent: 'alguna mesa seguía abierta cuando se trajo' }),
+    p.modo === 'api' ? boton('Volver a traer el día', async () => {
+      try { const d = await api(`pos/integraciones/${p.id}/sincronizar`, { method: 'POST', body: { desde: dia, hasta: dia } });
+        msg(`${fecha(dia)}: ${d.nuevos} venta(s) nueva(s), ${d.repetidos} ya estaban.` + (d.abiertas ? ` Siguen ${d.abiertas} abierta(s) en el sistema de venta.` : ''), d.abiertas ? 'mal' : 'ok'); await refrescar();
+      } catch (e) { msg(e.message, 'mal'); } }) : ''));
+  else if (t.clase === 'diferencia') for (const dia of t.dias) {
+    const d = p.dias.find(x => x.dia === dia) || {};
+    const motivo = el('input', { placeholder: 'Por qué no coincide', 'aria-label': 'Motivo' });
+    caja.append(el('div', { className: 'renglon' }, el('b', { textContent: fecha(dia) }),
+      el('span', { className: 'mut', textContent: `vendido ${pesos(d.vendido)} · cobrado ${pesos(d.cobrado)}` }), motivo,
+      boton('Cobrar con la diferencia', async () => {
+        if (!motivo.value.trim()) { motivo.focus(); return msg('Indicá el motivo de la diferencia.', 'mal'); }
+        try { await api(`pos/jornadas/${p.id}/${dia}/cobros`, { method: 'POST', body: { motivo: motivo.value.trim() } }); msg(`${fecha(dia)} cobrado con la diferencia.`, 'ok'); await refrescar(); }
+        catch (e) { msg(e.message, 'mal'); }
+      }, true), ir('procesar-ventas.html#' + p.id, 'Ver el día')));
+  } else if (t.clase === 'medios') {
+    // Los medios del sistema que no tienen su medio de pago: se asignan acá y los días se cobran solos al terminar.
+    const [{ medios }, { medios: mediosPago }] = await Promise.all([api(`pos/integraciones/${p.id}/medios`), api('pos/medios-pago')]);
+    for (const m of medios.filter(m => !m.medio_pago_id && !m.cuenta_id)) {
+      const s = el('select', { 'aria-label': 'Medio de pago' });
+      opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x)]), '', 'Elegí el medio de pago', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      s.addEventListener('change', async () => {
+        if (!s.value) return;
+        try {
+          await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: s.value } });
+          const d = await api(`pos/jornadas/${p.id}/procesar`, { method: 'POST' });
+          msg(`"${m.nombre}" asignado.` + (d.procesados.length ? ` ${d.procesados.length} día(s) cobrados.` : ''), 'ok'); await refrescar();
+        } catch (e) { msg(e.message, 'mal'); }
+      });
+      caja.append(el('div', { className: 'renglon' }, el('span', { className: 'mut', textContent: 'En el sistema:' }), el('b', { textContent: m.nombre }), el('span', { textContent: 'es' }), s));
+    }
+  }
+  if (acc.childNodes.length) caja.append(acc);
+  return caja;
+}
+
+// ── 2. Efectivo ──
+function pintarEfectivo() {
+  $('#efectivo').replaceChildren(...puntos.map(p => {
+    const saldo = centavos(p.efectivo_a_rendir), pend = p.dias.filter(d => centavos(d.efectivo_pendiente) > 0n);
+    const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
+      el('div', { className: 'acc' }, saldo > 0n ? boton('Rendir', () => abrirRendir(p), true) : '', saldo > 0n ? boton('Diferencia', () => abrirDif(p)) : ''));
+    if (saldo <= 0n) return el('section', { className: 'card bloque' }, cab, el('p', { className: 'al-dia', textContent: 'Todo el efectivo está rendido.' }));
+    return el('section', { className: 'card bloque' }, cab,
+      el('div', { className: 'cifras-b' }, el('div', {}, el('span', { textContent: 'A rendir' }), el('strong', { textContent: pesos(p.efectivo_a_rendir) }),
+        el('small', { textContent: pend.length ? `de ${pend.length} día(s), desde el ${fecha(pend.at(-1).dia)}` : 'de antes de los últimos 60 días' }))),
+      pend.length ? el('div', { className: 'chips-d' }, ...pend.slice(0, 14).map(d => el('span', { textContent: `${corta(d.dia)} · ${pesos(d.efectivo_pendiente)}` }))) : '');
+  }));
+}
+const fR = $('#fRendir'), fD = $('#fDif');
+async function abrirRendir(p) {
+  actual = p; msg('', '', '#msgR');
+  if (!cuentas.length) ({ cuentas } = await api('fin/cuentas'));
+  const efectivos = new Set(puntos.map(x => x.cuenta_efectivo_id));
+  const destinos = cuentas.filter(c => c.activa && ['caja', 'banco'].includes(c.tipo) && !efectivos.has(c.id));
+  opciones(fR.destino_id, destinos.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), (destinos.find(c => c.tipo === 'caja') || destinos[0] || {}).id);
+  $('#rTitulo').textContent = `Rendir efectivo · ${p.nombre}`;
+  $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Cargá lo que efectivamente llegó; si falta algo que no va a llegar, registralo como diferencia.`;
+  fR.importe.value = miles(p.efectivo_a_rendir); fR.fecha.value = hoy(); fR.concepto.value = '';
+  $('#dlgRendir').showModal(); fR.importe.focus();
+}
+fR.onsubmit = async e => {
+  e.preventDefault();
+  try {
+    await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value, concepto: fR.concepto.value } });
+    $('#dlgRendir').close(); msg(`Efectivo de ${actual.nombre} rendido.`, 'ok'); await refrescar();
+  } catch (err) { msg(err.message, 'mal', '#msgR'); }
+};
+$('#rCancelar').onclick = () => $('#dlgRendir').close();
+function abrirDif(p) {
+  actual = p; msg('', '', '#msgD'); $('#dTitulo').textContent = `Diferencia de caja · ${p.nombre}`;
+  fD.reset(); fD.fecha.value = hoy(); $('#dlgDif').showModal(); fD.importe.focus();
+}
+fD.onsubmit = async e => {
+  e.preventDefault();
+  if (!fD.motivo.value.trim()) return msg('Indicá el motivo.', 'mal', '#msgD');
+  try {
+    await api(`pos/efectivo/${actual.id}/diferencia`, { method: 'POST', body: { tipo: fD.tipo.value, importe: fD.importe.value, fecha: fD.fecha.value, motivo: fD.motivo.value } });
+    $('#dlgDif').close(); msg('Diferencia registrada.', 'ok'); await refrescar();
+  } catch (err) { msg(err.message, 'mal', '#msgD'); }
+};
+$('#dCancelar').onclick = () => $('#dlgDif').close();
+
+// ── 3. Extractos ──
+// Qué archivo va en cada cuenta, según el procesador.
+function queArchivo(x) {
+  if (/mercado\s*pago/i.test(x.nombre)) return 'Elegí los dos archivos juntos: el resumen de cuenta (account_statement) y el reporte de liquidaciones (settlement).';
+  if (/pago\s*24/i.test(x.nombre)) return 'El CSV de movimientos de la cuenta, con la columna de saldo.';
+  return `El extracto en CSV de ${x.cuenta || 'la cuenta'}, con la columna de saldo.`;
+}
+function pintarExtractos() {
+  $('#extractos').replaceChildren(...procs.map(x => {
+    const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: x.nombre }));
+    if (!x.resumen) return el('section', { className: 'card bloque' }, cab,
+      el('div', { className: 'tarea mal' }, el('div', { className: 't' }, el('span', { textContent: `Falta indicar en qué cuenta deposita ${x.nombre}.` }),
+        el('small', { textContent: 'Sin eso no hay dónde importar su extracto ni contra qué conciliar.' })),
+        el('div', { className: 'acc' }, ir('medios-pago.html', 'Ir a Medios de pago', true))));
+    const e = x.resumen.extracto, nota = el('span', { className: 'msg msg-b' });
+    const imp = Conc.importador({ cuenta: () => x.cuenta_id, procesador: () => true,
+      listo: async (t, tipo) => { if (tipo === 'ok') { await refrescar(); msg(`${x.cuenta}: ${t}`, 'ok'); } else { nota.textContent = t; nota.className = 'msg msg-b'; } } });
+    const alDia = e.hasta && e.hasta >= ayer;
+    cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro' : 'Importar extracto', imp.abrir, !alDia)));
+    cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }));
+    const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
+      : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_pendientes ? ` Quedan ${e.lineas_pendientes} línea(s) para conciliar.` : '') })
+      : el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: `El último extracto llega hasta el ${fecha(e.hasta)}: falta del ${fecha(sumarDias(e.hasta, 1))} a ayer.` })));
+    return el('section', { className: 'card bloque' }, cab, estado, nota, imp.el);
+  }));
+}
+const sumarDias = (d, n) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+
+// ── 4. Conciliar ──
+async function pintarConciliar() {
+  const conExt = procs.filter(x => x.resumen && x.resumen.extracto.hasta);
+  if (!conExt.length) {
+    $('#cuentasC').replaceChildren(); $('#cEstado').hidden = true;
+    return $('#resolver').replaceChildren(el('section', { className: 'card vacio-ok' }, el('b', { textContent: 'Todavía no hay extractos' }), 'Importalos en el paso anterior.'));
+  }
+  if (!conExt.some(x => x.cuenta_id === cuentaC)) cuentaC = (conExt.find(x => x.resumen.extracto.lineas_pendientes) || conExt[0]).cuenta_id;
+  $('#cuentasC').replaceChildren(...conExt.map(x => {
+    const n = x.resumen.extracto.lineas_pendientes || 0;
+    const b = el('button', { type: 'button', className: x.cuenta_id === cuentaC ? 'act' : '', textContent: `${x.nombre}${n ? ` · ${n}` : ''}` });
+    b.onclick = () => { cuentaC = x.cuenta_id; msg('', '', '#msgC'); pintarConciliar(); };
+    return b;
+  }));
+  const x = conExt.find(y => y.cuenta_id === cuentaC);
+  const d = await api('fin/conciliacion?cuenta=' + cuentaC);
+  const n = d.lineas.length + d.movimientos.length;
+  $('#cEstado').hidden = false;
+  $('#cTitulo').textContent = n ? `${x.cuenta}: faltan resolver ${n} ${n === 1 ? 'línea' : 'líneas'}` : `${x.cuenta}: todo conciliado`;
+  $('#cTitulo').className = 'titulo' + (n ? '' : ' ok');
+  const { cuentas: cs } = await api('fin/cuentas'), c = cs.find(y => y.id === cuentaC);
+  $('#cDetalle').replaceChildren(...Conc.frenteExtracto(c ? c.saldo : '0', d.procesador));
+  $('#resolver').replaceChildren(...Conc.resolver(d, { recargar: refrescar, aviso: (t, tipo) => msg(t, tipo, '#msgC') }));
+}
+$('#cAuto').onclick = async () => {
+  $('#cAuto').disabled = true; msg('Conciliando…', '', '#msgC');
+  try { const t = await Conc.automatica(cuentaC); await refrescar(); msg(t, 'ok', '#msgC'); } catch (e) { msg(e.message, 'mal', '#msgC'); }
+  finally { $('#cAuto').disabled = false; }
+};
+
+// ── 5. Resultado ──
+function pintarResultado() {
+  const e = estadoPasos(), faltan = PASOS.slice(0, 4).filter(k => !e[k][0]);
+  $('#rTituloR').textContent = faltan.length ? `Quedan ${faltan.length} paso(s) con algo pendiente` : `Ingresos cerrados hasta el ${fecha(ayer)}`;
+  $('#rTituloR').className = 'titulo' + (faltan.length ? '' : ' ok');
+  $('#rDetalleR').textContent = faltan.length ? 'Lo de abajo es lo que falta; el resto de los números ya es definitivo.' : 'Las ventas están cobradas, el efectivo rendido y los extractos conciliados.';
+  $('#rPendientes').replaceChildren(...faltan.map(k => el('li', {}, el('span', {}, el('b', { textContent: NOMBRE[k] + ': ' }), e[k][1]), boton('Ir', () => irA(k)))));
+  // Por punto de venta: lo de los últimos 30 días.
+  const hace30 = sumarDias(ayer, -29), enRango = p => p.dias.filter(d => d.dia >= hace30);
+  const suma = (arr, k) => arr.reduce((s, d) => s + centavos(d[k] || '0'), 0n);
+  const ventas = el('section', { className: 'card bloque' }, el('div', { className: 'bloque-cab' }, el('h2', { textContent: 'Ventas de los últimos 30 días' })),
+    ...puntos.map(p => {
+      const ds = enRango(p), vend = suma(ds, 'vendido'), ef = suma(ds, 'efectivo'), elec = suma(ds, 'electronico'), acr = suma(ds, 'acreditado');
+      return el('div', {}, el('h3', { textContent: p.nombre, style: 'margin:10px 0 4px;font-size:1rem' }),
+        el('div', { className: 'cifras-b' },
+          el('div', {}, el('span', { textContent: 'Vendido' }), el('strong', { textContent: pesos(deCentavos(vend)) })),
+          el('div', {}, el('span', { textContent: 'En efectivo' }), el('strong', { textContent: pesos(deCentavos(ef)) }), el('small', { textContent: `${pesos(p.efectivo_a_rendir)} a rendir` })),
+          el('div', {}, el('span', { textContent: 'Electrónico' }), el('strong', { textContent: pesos(deCentavos(elec)) }),
+            el('small', { textContent: `${pesos(deCentavos(acr))} acreditado` }))));
+    }));
+  // Por procesador: lo que falta acreditar, lo que espera el depósito y el costo real de cobrar.
+  const porProc = el('section', { className: 'card bloque' }, el('div', { className: 'bloque-cab' }, el('h2', { textContent: 'Procesadores' })),
+    ...procs.filter(x => x.resumen).map(x => {
+      const r = x.resumen, esperando = (r.lotes || []).filter(l => !l.confirmado), espera = esperando.reduce((s, l) => s + centavos(l.neto), 0n);
+      return el('div', {}, el('h3', { textContent: x.nombre, style: 'margin:10px 0 4px;font-size:1rem' }),
+        el('div', { className: 'cifras-b' },
+          el('div', {}, el('span', { textContent: 'Falta acreditar' }), el('strong', { textContent: pesos(r.saldo_pendiente) }), el('small', { textContent: `en ${r.cuenta_pendiente_nombre}` })),
+          esperando.length ? el('div', {}, el('span', { textContent: 'Esperando el depósito' }), el('strong', { textContent: pesos(deCentavos(espera)) }), el('small', { textContent: `${esperando.length} lote(s)` })) : '',
+          el('div', {}, el('span', { textContent: `En ${x.cuenta}` }), el('strong', { textContent: pesos(r.saldo_sistema) }),
+            el('small', { textContent: !r.extracto.hasta ? 'sin extracto' : r.extracto.saldo_final == null ? `extracto hasta el ${fecha(r.extracto.hasta)}, sin saldo`
+              : centavos(r.extracto.saldo_final) === centavos(r.saldo_sistema) ? 'coincide con el extracto' : `el extracto dice ${pesos(r.extracto.saldo_final)}` }))),
+        ...(r.costos || []).map(c => el('div', { className: 'fila-c' }, el('span', {}, `Costo · ${Conc.TIPO_OP[c.tipo_operacion] || c.tipo_operacion}`),
+          el('span', { className: 'p', textContent: c.costo_pct ? num(c.costo_pct) + '%' : '—' }), el('span', { className: 'm', textContent: `${pesos(c.costo)} sobre ${pesos(c.bruto)}` }))));
+    }));
+  $('#resultado').replaceChildren(ventas, porProc);
+}
+
+// El paso va en el # de la dirección: los enlaces (y el botón atrás) cambian de paso sin recargar.
+window.addEventListener('hashchange', () => { const k = location.hash.slice(1); if (PASOS.includes(k) && k !== paso) irA(k).catch(e => msg(e.message, 'mal')); });
+const PINTAR = { ventas: pintarVentas, efectivo: pintarEfectivo, extractos: pintarExtractos, conciliar: pintarConciliar, resultado: pintarResultado };
+(async () => {
+  try {
+    await cargarDatos();
+    const e = estadoPasos(), pedido = location.hash.slice(1);
+    await irA(PASOS.includes(pedido) ? pedido : PASOS.find(k => e[k][0] === false) || 'resultado');
+  } catch (err) { msg(err.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

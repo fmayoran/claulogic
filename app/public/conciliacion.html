@@ -6,6 +6,7 @@
 <title>Conciliación · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
+<link rel="stylesheet" href="conciliar.css">
 <style>
   .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
   /* Estado: lo primero que se lee */
@@ -16,26 +17,6 @@
   .estado .detalle b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600;}
   .estado .botones{display:flex;gap:8px;flex-wrap:wrap;}
   #msgA{display:block;flex-basis:100%;}
-  /* Para resolver */
-  .grupo-p{margin:0 0 16px;}
-  .grupo-p h3{margin:0 0 2px;font-size:1rem;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
-  .grupo-p h3 small{color:var(--mut);font-weight:400;font-size:.88rem;}
-  .grupo-p .cap{margin:0 0 8px;}
-  .pend{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:12px 4px;border-top:1px solid var(--g-grilla);}
-  .pend .q{display:flex;flex-direction:column;min-width:0;}
-  .pend .q b{font-weight:600;} .pend .q small{color:var(--mut);font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .pend .imp{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
-  .neg{color:var(--baja);}
-  .pend .acc{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-  .pend .acc button{font-size:.85rem;padding:5px 12px;}
-  .pend .acc input{flex:1 1 220px;max-width:340px;padding:6px 10px;}
-  /* Pareo sugerido: se confirma con un toque */
-  .sug{grid-column:1 / -1;background:var(--sel);border-radius:10px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:.9rem;}
-  .sug .t{flex:1 1 260px;} .sug .t b{font-weight:650;} .sug input{flex:1 1 180px;max-width:260px;padding:6px 10px;}
-  .sug button{font-size:.85rem;padding:5px 12px;}
-  .parte{grid-column:1 / -1;color:var(--mut);font-size:.84rem;}
-  .vacio-ok{text-align:center;padding:28px 10px;color:var(--mut);}
-  .vacio-ok b{display:block;color:var(--sube);font-size:1.1rem;margin-bottom:4px;}
   /* Resumen del procesador */
   .fila-c{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 14px;padding:9px 2px;border-top:1px solid var(--g-grilla);align-items:baseline;font-size:.92rem;}
   .fila-c:first-of-type{border-top:0;} .fila-c .p{font-weight:700;font-variant-numeric:tabular-nums;} .fila-c .m{color:var(--mut);font-size:.82rem;text-align:right;}
@@ -48,8 +29,6 @@
   .hecha{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:2px 14px;align-items:center;padding:8px 2px;border-top:1px solid var(--g-grilla);font-size:.88rem;}
   .hecha .f{color:var(--mut);font-variant-numeric:tabular-nums;} .hecha .d{min-width:0;} .hecha .d small{display:block;color:var(--mut);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .hecha .i{font-variant-numeric:tabular-nums;text-align:right;} .hecha button{font-size:.8rem;padding:3px 10px;}
-  /* Importar */
-  .mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
   @media (max-width:600px){ .hecha{grid-template-columns:minmax(0,1fr) auto;} .hecha .f{grid-column:1 / -1;} }
 </style>
 </head>
@@ -71,20 +50,7 @@
     </div>
     <span class="msg" id="msgA"></span>
   </section>
-  <input type="file" id="archivo" accept=".csv,.txt,text/csv" multiple hidden>
-
-  <section class="card" id="importar" hidden style="margin:0 0 20px">
-    <div class="card-cab"><h2 id="iTitulo">Importar extracto</h2></div>
-    <p class="cap" id="capCsv">Revisá qué es cada columna: hace falta la fecha y un importe con signo, o débito y crédito por separado. Con la columna de saldo se
-      controla contra el saldo del extracto (y, si la cuenta no tiene movimientos, el saldo inicial queda como apertura).</p>
-    <p class="ayuda" id="formato" hidden></p>
-    <div class="barra" id="opcCsv">
-      <label>Decimales<select id="decimal"><option value=",">coma (1.234,56)</option><option value=".">punto (1,234.56)</option></select></label>
-      <label class="check"><input type="checkbox" id="encabezado" checked> La primera fila es el encabezado</label>
-    </div>
-    <div class="tabla-wrap" id="mapaWrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
-    <div class="acciones"><button type="button" class="prim" id="importarOk">Importar</button><button type="button" id="importarNo">Cancelar</button><span class="msg" id="msgI"></span></div>
-  </section>
+  <div id="importador"></div>
 
   <h2>Para resolver</h2>
   <div id="resolver"></div>
@@ -122,162 +88,24 @@
   </details>
 </main>
 <script src="comun.js"></script>
+<script src="conciliar.js"></script>
 <script>
-let bancos = [], csv = null, datos = null;
+let bancos = [], datos = null;
 const cuenta = () => $('#cuenta').value;
-const conSigno = v => el('span', { className: String(v).startsWith('-') ? 'neg' : '', textContent: pesos(v) });
-const TIPO_OP_C = { transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
-const suma = arr => deCentavos(arr.reduce((s, x) => s + centavos(x.importe), 0n));
-// "Recaudacion - 1580185668 (Bruto) " -> nombre "Recaudacion" y número de operación aparte.
-function partes(concepto) {
-  const m = String(concepto || '').trim().match(/^(.*?)\s*-\s*(\d{6,})(?:\s*-\s*(.*?))?\s*(\([^)]*\))?\s*$/);
-  return m ? { nombre: (m[3] ? `${m[1]} · ${m[3]}` : m[1]).trim(), numero: m[2] } : { nombre: String(concepto || '').trim(), numero: '' };
-}
+const TIPO_OP_C = Conc.TIPO_OP, conSigno = Conc.conSigno, partes = Conc.partes;
 
 // ── Importar: el botón abre el archivo; el mapeo aparece recién con el archivo elegido ──
-const ROLES = [['', 'ignorar'], ['fecha', 'Fecha'], ['concepto', 'Concepto'], ['referencia', 'Referencia'], ['importe', 'Importe (con signo)'], ['debito', 'Débito'], ['credito', 'Crédito'], ['saldo', 'Saldo']];
-function adivinar(n) {
-  n = (n || '').toLowerCase();
-  if (/fecha|date/.test(n)) return 'fecha';
-  if (/d[eé]bito|debe|egreso/.test(n)) return 'debito';
-  if (/cr[eé]dito|haber|ingreso/.test(n)) return 'credito';
-  if (/importe|monto|amount/.test(n)) return 'importe';
-  if (/saldo/.test(n)) return 'saldo';
-  if (/concepto|descrip|detalle/.test(n)) return 'concepto';
-  if (/refer|comprob|n[uú]mero|obs|objs/.test(n)) return 'referencia';
-  return '';
-}
-// Mercado Pago. El resumen de cuenta (account_statement) es el extracto: trae los saldos, los pagos y las
-// transferencias, pero cada liquidación de una venta viene por el neto. El reporte de liquidaciones (settlement) tiene,
-// por operación, el bruto, la comisión y los impuestos. Subidos juntos, cada liquidación del resumen se abre en cobro
-// (bruto), comisión (IVA incluido) e impuesto a los débitos y créditos, atados por el número de operación, y las tres
-// partes suman exacto el neto. El de liquidaciones solo no se importa: el resumen trae esas mismas operaciones y se
-// duplicarían. Los importes se pasan a punto decimal ("49.216,00" -> "49216.00"; los de liquidaciones ya lo traen).
-const MP_MEDIO = { available_money: 'dinero en cuenta', account_money: 'dinero en cuenta', bank_transfer: 'transferencia', debit_card: 'débito',
-  credit_card: 'crédito', prepaid_card: 'prepaga', digital_currency: 'Mercado Crédito' };
-const aPunto = v => { let s = String(v ?? '').trim(); if (/,\d{1,2}$/.test(s) || /\.\d{3}(,|$)/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); return s; };
-const esCero = v => !v || Number(v) === 0;
-function liquidacionesMP(filas) {
-  const enc = (filas[0] || []).map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n);
-  if (!['SOURCE_ID', 'TRANSACTION_AMOUNT', 'FEE_AMOUNT', 'TAXES_AMOUNT'].every(n => col(n) >= 0)) return null;
-  const v = (f, n) => col(n) >= 0 ? String(f[col(n)] ?? '').trim() : '', m = new Map();
-  for (const f of filas.slice(1)) {
-    const id = v(f, 'SOURCE_ID'); if (!id) continue;
-    m.set(id, { bruto: aPunto(v(f, 'TRANSACTION_AMOUNT')), fee: aPunto(v(f, 'FEE_AMOUNT')), imp: aPunto(v(f, 'TAXES_AMOUNT')), real: aPunto(v(f, 'REAL_AMOUNT')),
-      medio: MP_MEDIO[v(f, 'PAYMENT_METHOD_TYPE')] || v(f, 'PAYMENT_METHOD_TYPE'), canal: v(f, 'SUB_UNIT') });
-  }
-  return m;
-}
-function resumenMP(filas, liq) {
-  const fila0 = f => String((f || [])[0] ?? '').trim().toUpperCase();
-  const iSaldos = filas.findIndex(f => fila0(f) === 'INITIAL_BALANCE'), iMov = filas.findIndex(f => fila0(f) === 'RELEASE_DATE');
-  if (iMov < 0) return null;
-  const enc = filas[iMov].map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n), c = (f, n) => String(f[col(n)] ?? '').trim();
-  const iso = v => { const m = String(v).trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(v).trim(); };
-  const movs = filas.slice(iMov + 1).filter(f => c(f, 'RELEASE_DATE'));
-  const out = []; let abiertas = 0, netas = 0;
-  for (const f of movs) {
-    const fecha = iso(c(f, 'RELEASE_DATE')), tipo = c(f, 'TRANSACTION_TYPE').replace(/\s+/g, ' '), id = c(f, 'REFERENCE_ID'), neto = aPunto(c(f, 'TRANSACTION_NET_AMOUNT'));
-    if (esCero(neto)) continue;
-    const l = liq && liq.get(id), k = x => centavos(x || '0');
-    if (l && !esCero(l.bruto) && k(l.real) === k(neto) && k(l.bruto) + k(l.fee) + k(l.imp) === k(neto)) {
-      out.push({ fecha, importe: l.bruto, referencia: l.canal,
-        concepto: Number(l.bruto) > 0 ? `Cobro Mercado Pago ${[l.canal, l.medio].filter(Boolean).join(' · ')} - ${id}` : `${tipo} - ${id}` });
-      if (!esCero(l.fee)) out.push({ fecha, importe: l.fee, referencia: '#' + id, concepto: `Comisión Mercado Pago - ${id}` });
-      if (!esCero(l.imp)) out.push({ fecha, importe: l.imp, referencia: '#' + id, concepto: `Impuesto débitos y créditos Mercado Pago - ${id}` });
-      abiertas++;
-    } else {
-      // "Pago de impuestos <destinatario>" es el impuesto a los débitos y créditos de la transferencia de al lado.
-      const imp = /^pago de impuestos/i.test(tipo);
-      out.push({ fecha, importe: neto, referencia: imp ? '#' + id : '', concepto: imp ? `Impuesto débitos y créditos · ${tipo} - ${id}` : `${tipo} - ${id}` });
-      if (/^liquidaci/i.test(tipo)) netas++;
-    }
-  }
-  let saldos = null;
-  if (iSaldos >= 0 && filas[iSaldos + 1] && movs.length) {
-    const e = filas[iSaldos].map(x => String(x).trim().toUpperCase()), v = filas[iSaldos + 1];
-    saldos = { inicial: aPunto(v[e.indexOf('INITIAL_BALANCE')]), final: aPunto(v[e.indexOf('FINAL_BALANCE')]) };
-    out.unshift({ fecha: iso(c(movs[0], 'RELEASE_DATE')), concepto: 'Saldo inicial', saldo: saldos.inicial, importe: '' });
-    out.push({ fecha: iso(c(movs.at(-1), 'RELEASE_DATE')), concepto: 'Saldo final', saldo: saldos.final, importe: '' });
-  }
-  return { filas: out, movimientos: movs.length, abiertas, netas, saldos };
-}
-$('#importarBtn').onclick = () => $('#archivo').click();
-$('#archivo').onchange = async () => {
-  const archivos = [...$('#archivo').files]; if (!archivos.length) return;
-  const leidos = await Promise.all(archivos.map(async a => ({ nombre: a.name, filas: parsearCSV(await leerTexto(a)) })));
-  const liqA = leidos.find(x => liquidacionesMP(x.filas)), resA = leidos.find(x => x !== liqA && resumenMP(x.filas, null));
-  let aviso = '';
-  if (liqA || resA) {
-    const liq = liqA && liquidacionesMP(liqA.filas), res = resA && resumenMP(resA.filas, liq);
-    // Hacen falta los dos: sin las liquidaciones, cada cobro queda por el neto y no se parea con las ventas; sin el
-    // resumen, faltan los saldos, los pagos y las transferencias (y se duplicaría al llegar el resumen).
-    const faltan = !res || !liq;
-    csv = { nombre: [resA, liqA].filter(Boolean).map(x => x.nombre).join(' + '), mp: faltan ? { incompleto: true } : res };
-    if (faltan) aviso = `${res ? 'Es el resumen de cuenta' : 'Es el reporte de liquidaciones'} de Mercado Pago. Para conciliar hacen falta los dos juntos: `
-      + 'elegí a la vez el resumen de cuenta (account_statement) y el reporte de liquidaciones (settlement). El resumen trae los saldos, los pagos y '
-      + 'las transferencias; las liquidaciones, el bruto, la comisión y el impuesto de cada cobro.';
-    else aviso = `Formato reconocido: resumen de cuenta de Mercado Pago, ${res.movimientos} movimiento(s)`
-      + (res.saldos ? `, saldo inicial ${pesos(res.saldos.inicial)} y final ${pesos(res.saldos.final)}` : '') + `. ${res.abiertas} cobro(s) se abren en bruto, comisión e impuesto.`
-      + (res.netas ? ` ${res.netas} liquidación(es) no están en el reporte de liquidaciones y quedan por el neto.` : '');
-  } else csv = leidos[0];
-  $('#formato').hidden = !csv.mp; $('#formato').textContent = aviso;
-  $('#opcCsv').hidden = $('#mapaWrap').hidden = $('#capCsv').hidden = !!csv.mp;
-  $('#importarOk').disabled = !!(csv.mp && csv.mp.incompleto);
-  if (csv.mp) $('#iTitulo').textContent = `Importar ${csv.nombre}`; else pintarMapa();
-  $('#importar').hidden = false; $('#importar').scrollIntoView({ behavior: 'smooth', block: 'start' });
-};
-$('#encabezado').onchange = () => csv && pintarMapa();
-$('#importarNo').onclick = () => { csv = null; $('#archivo').value = ''; $('#importar').hidden = true; $('#importarOk').disabled = false; msg('', '', '#msgI'); };
-function pintarMapa() {
-  const enc = $('#encabezado').checked, filas = csv.filas, cols = Math.max(...filas.map(f => f.length));
-  $('#iTitulo').textContent = `Importar ${csv.nombre} · ${filas.length - (enc ? 1 : 0)} filas`;
-  $('#mHead').replaceChildren(el('tr', {}, ...Array.from({ length: cols }, (_, i) => {
-    const s = el('select'); opciones(s, ROLES, enc ? adivinar(filas[0][i]) : ''); s.dataset.col = i;
-    return el('th', {}, el('div', { className: 'mut', textContent: enc ? filas[0][i] || '' : `Columna ${i + 1}` }), s);
-  })));
-  $('#mBody').replaceChildren(...filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 4).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
-}
-$('#importarOk').onclick = async () => {
-  let filas, decimal = $('#decimal').value;
-  if (csv.mp) { filas = csv.mp.filas; decimal = '.'; }
-  else {
-    const mapa = {}; $$('#mHead select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
-    if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
-      return msg('Falta indicar la fecha y el importe (o débito y crédito).', 'mal', '#msgI');
-    filas = csv.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(Object.entries(mapa).map(([k, i]) => [k, f[i] ?? ''])));
-  }
-  $('#importarOk').disabled = true; msg('Importando…', '', '#msgI');
-  try {
-    const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: cuenta(), archivo: csv.nombre, decimal, filas } });
-    $('#importarNo').click();
-    const txt = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '') + '.';
-    // En la cuenta de un procesador se concilia en el mismo paso.
-    if (!$('#auto').hidden) await conciliarAuto(txt); else { msg(txt, 'ok', '#msgA'); await cargar(); }
-  } catch (e) { msg(e.message, 'mal', '#msgI'); }
-  finally { $('#importarOk').disabled = false; }
-};
+const imp = Conc.importador({ cuenta, procesador: () => !!(datos && datos.procesador),
+  listo: async (t, tipo) => { msg(t, tipo, '#msgA'); if (tipo === 'ok') await cargar(); } });
+$('#importador').replaceChildren(imp.el);
+$('#importarBtn').onclick = imp.abrir;
 
 // ── Conciliar ──
-async function conciliarAuto(previo = '') {
-  $('#auto').disabled = true; msg((previo ? previo + ' ' : '') + 'Conciliando…', '', '#msgA');
-  try {
-    const d = await api('fin/conciliacion/automatica', { method: 'POST', body: { cuenta_id: cuenta() } });
-    const costos = Object.values(d.gastos).reduce((s, v) => s + centavos(v), 0n);
-    const partes = [];
-    if (d.acreditadas || costos) partes.push(`Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.');
-    if (d.lotes_liquidados) partes.push(`${d.lotes_liquidados} lote(s) nuevos esperando el depósito.`);
-    if (d.lotes_confirmados) partes.push(`${d.lotes_confirmados} lote(s) confirmados con el extracto.`);
-    const txt = partes.length || d.compensadas ? partes.join(' ') : 'No había nada nuevo para conciliar.';
-    msg([previo, txt].filter(Boolean).join(' '), 'ok', '#msgA');
-    await cargar();
-  } catch (e) { msg(e.message, 'mal', '#msgA'); }
+$('#auto').onclick = async () => {
+  $('#auto').disabled = true; msg('Conciliando…', '', '#msgA');
+  try { msg(await Conc.automatica(cuenta()), 'ok', '#msgA'); await cargar(); } catch (e) { msg(e.message, 'mal', '#msgA'); }
   finally { $('#auto').disabled = false; }
-}
-$('#auto').onclick = () => conciliarAuto();
-async function conciliar(body) {
-  try { await api('fin/conciliacion', { method: 'POST', body }); msg('Conciliado.', 'ok', '#msgA'); await cargar(); } catch (e) { alert(e.message); }
-}
+};
 
 // ── Estado y lo que hay que resolver ──
 async function cargar() {
@@ -285,23 +113,14 @@ async function cargar() {
   history.replaceState(null, '', 'conciliacion.html#' + cuenta());
   const [d, { cuentas }] = await Promise.all([api('fin/conciliacion?cuenta=' + cuenta()), api('fin/cuentas')]);
   datos = d;
-  const c = cuentas.find(x => x.id === cuenta()), p = d.procesador, e = (p && p.extracto) || {};
+  const c = cuentas.find(x => x.id === cuenta()), p = d.procesador;
   $('#auto').hidden = !p;
   const nPend = d.lineas.length + d.movimientos.length;
   $('#eTitulo').textContent = !d.conciliado.lineas && !d.lineas.length ? 'Todavía no se importó ningún extracto'
     : nPend ? `Faltan resolver ${nPend} ${nPend === 1 ? 'línea' : 'líneas'}` : 'Todo conciliado';
   $('#eTitulo').className = 'titulo' + (!nPend && d.conciliado.lineas ? ' ok' : '');
-  // Saldo del sistema contra el del extracto: la diferencia la tienen que explicar las líneas pendientes.
-  const det = [el('span', {}, 'Saldo en el sistema ', el('b', { textContent: pesos(c ? c.saldo : '0') }))];
-  if (p && e.saldo_final != null) {
-    const dif = centavos(e.saldo_final) - centavos(p.saldo_sistema), expl = centavos(e.importe_pendiente || '0');
-    det.push(' · según el extracto al ' + fecha(e.hasta) + ' ', el('b', { textContent: pesos(e.saldo_final) }));
-    if (dif === 0n) det.push('. Coinciden.');
-    else if (dif === expl) det.push('. La diferencia, ', el('b', { textContent: pesos(deCentavos(dif)) }), ', es lo que falta resolver.');
-    else det.push('. Diferencia ', el('b', { textContent: pesos(deCentavos(dif)) }), `, de la que ${pesos(deCentavos(dif - expl))} no está en las líneas pendientes: revisá movimientos posteriores al extracto.`);
-  }
-  $('#eDetalle').replaceChildren(...det);
-  pintarResolver(d);
+  $('#eDetalle').replaceChildren(...Conc.frenteExtracto(c ? c.saldo : '0', p));
+  $('#resolver').replaceChildren(...Conc.resolver(d, { recargar: cargar, aviso: (t, tipo) => msg(t, tipo, '#msgA') }));
   pintarResumen(p);
   const k = d.conciliado;
   $('#hResumen').textContent = k.lineas ? `· ${k.lineas} línea(s): ingresos ${pesos(k.ingresos)}, egresos ${pesos(k.egresos)}` + (k.compensadas ? ` · ${k.compensadas} compensadas con su reverso` : '') : '· nada todavía';
@@ -317,90 +136,6 @@ function pintarExtractos(xs) {
     x.conciliadas ? el('span', { className: 'mut', textContent: 'con conciliadas', style: 'font-size:.8rem' }) : el('button', { type: 'button', textContent: 'Descartar', onclick: async () => {
       if (!confirm(`¿Descartar el extracto ${x.archivo || ''}? Se borran sus ${x.lineas} línea(s); después lo podés volver a importar.`)) return;
       try { await api(`fin/extractos/${x.id}/descartar`, { method: 'POST' }); msg('Extracto descartado.', 'ok', '#msgA'); await cargar(); } catch (e) { alert(e.message); } } }))));
-}
-function pintarResolver(d) {
-  const egresos = d.lineas.filter(l => l.importe.startsWith('-')), ingresos = d.lineas.filter(l => !l.importe.startsWith('-'));
-  const grupos = [];
-  const grupo = (titulo, lista, cap, fila) => el('section', { className: 'card grupo-p' },
-    el('h3', {}, titulo, el('small', { textContent: `${lista.length} · ${pesos(suma(lista))}` })), el('p', { className: 'cap', textContent: cap }), ...lista.map(fila));
-  if (egresos.length) grupos.push(grupo('Egresos sin identificar', egresos,
-    'Plata que salió de la cuenta y no tiene movimiento: un pago a un proveedor (se concilia con su orden de pago hecha desde esta cuenta) o un gasto que hay que registrar.', filaLinea));
-  if (ingresos.length) grupos.push(grupo('Ingresos sin identificar', ingresos,
-    d.procesador ? 'No coinciden con ningún cobro de las ventas: puede ser una venta de un día que todavía no se importó (traela y volvé a conciliar) o un ingreso que no viene de ventas (registralo).'
-      : 'Plata que entró a la cuenta y no tiene movimiento: registrala o conciliala con el movimiento que corresponde.', filaLinea));
-  if (d.movimientos.length) grupos.push(grupo('En el sistema, pero no en el extracto', d.movimientos,
-    'Movimientos que todavía no aparecieron en el extracto: puede que no se hayan acreditado o debitado todavía, o que el banco los haya registrado con otro importe.', filaMov));
-  $('#resolver').replaceChildren(...(grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },
-    el('b', { textContent: d.conciliado.lineas ? 'Nada para resolver' : 'Nada para resolver todavía' }),
-    d.conciliado.lineas ? 'Todo lo importado está conciliado. El detalle queda abajo, en "Lo conciliado".' : 'Importá el extracto de la cuenta para empezar.')]));
-}
-// Pareo sugerido para una línea (de una venta pagada en partes o con una diferencia chica): se confirma acá.
-const sugDe = id => (datos.sugerencias || []).find(x => x.lineas.includes(id));
-function cajaSugerencia(l, x) {
-  const p = x.pago || {}, venta = `la venta #${p.id_externo} del ${fecha(p.dia)} (${TIPO_OP_C[p.tipo_operacion] || p.tipo_operacion}, ${pesos(p.importe)})`;
-  const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
-  const confirmar = async body => {
-    ok.disabled = true;
-    try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: p.id, linea_ids: x.lineas, ...body } }); msg(`Acreditada la venta #${p.id_externo}.`, 'ok', '#msgA'); await cargar(); }
-    catch (e) { alert(e.message); ok.disabled = false; }
-  };
-  if (x.tipo === 'lote_cobro' || x.tipo === 'lote_diferencia') {
-    const lote = x.lotes[0], deLote = `el lote del ${fecha(lote.fecha)} (${lote.pagos} cobro(s), ${pesos(lote.neto)})`;
-    const confirmarLote = async body => {
-      ok.disabled = true;
-      try { await api('fin/conciliacion/lote', { method: 'POST', body: { linea_id: l.id, lote_ids: x.lotes.map(y => y.id), ...body } }); msg('Depósito confirmado.', 'ok', '#msgA'); await cargar(); }
-      catch (e) { alert(e.message); ok.disabled = false; }
-    };
-    if (x.tipo === 'lote_cobro') {
-      const c = x.pago, pct = num((100 - Number(x.neto_pago) / Number(c.importe) * 100).toFixed(2));
-      ok.onclick = () => confirmarLote({ ticket_pago_id: c.id });
-      return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-        `es ${deLote} más el cobro de la venta #${c.id_externo} del ${fecha(c.dia)} (${c.medio}, ${pesos(c.importe)}), que el procesador no informó: neto ${pesos(x.neto_pago)}, costo ${pct}%.`), ok);
-    }
-    const mas = !x.diferencia.startsWith('-'), motivoL = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
-    ok.onclick = () => motivoL.value.trim() ? confirmarLote({ motivo: motivoL.value.trim() }) : (motivoL.focus(), msg('Indicá el motivo de la diferencia.', 'mal', '#msgA'));
-    return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-      `es ${deLote}; el depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'} (por ejemplo, cobros de ventas que no se importaron).`), motivoL, ok);
-  }
-  if (x.tipo === 'division') {
-    const otras = x.lineas.filter(id => id !== l.id).map(id => datos.lineas.find(y => y.id === id)).filter(Boolean);
-    ok.onclick = () => confirmar({});
-    return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-      `es ${venta}, pagada en ${x.lineas.length} partes: esta y ` + otras.map(o => `${pesos(o.importe)} del ${fecha(o.fecha)}`).join(' y ') + '.'), ok);
-  }
-  const mas = !x.diferencia.startsWith('-'), dif = pesos(x.diferencia.replace('-', ''));
-  const motivo = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
-  ok.onclick = () => motivo.value.trim() ? confirmar({ motivo: motivo.value.trim() }) : (motivo.focus(), msg('Indicá el motivo de la diferencia.', 'mal', '#msgA'));
-  return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-    `es ${venta}; entró ${dif} ${mas ? 'más' : 'menos'}.`), motivo, ok);
-}
-function filaLinea(l) {
-  const pp = partes(l.concepto), acc = el('div', { className: 'acc' });
-  const x = sugDe(l.id);
-  // De una venta en partes, la sugerencia va en la primera línea; las demás lo dicen.
-  const sug = !x ? '' : x.tipo === 'division' && x.lineas[0] !== l.id
-    ? el('div', { className: 'parte', textContent: `Es parte de la venta #${x.pago.id_externo} (la sugerencia está en la primera parte).` }) : cajaSugerencia(l, x);
-  const k = l.candidatos[0];
-  if (k) acc.append(el('button', { type: 'button', className: 'prim', textContent: k.tipo === 'cheque' ? 'Es el débito del ' + k.descripcion : `Conciliar con: ${k.descripcion} (${fecha(k.fecha)})`,
-    onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) }));
-  const registrar = el('button', { type: 'button', textContent: k ? 'Otro: registrar movimiento' : 'Registrar movimiento' });
-  registrar.onclick = () => {
-    const inp = el('input', { placeholder: l.importe.startsWith('-') ? 'Qué es: gasto bancario, impuesto…' : 'Qué es: aporte, reintegro…', value: pp.nombre });
-    const ok = el('button', { type: 'button', className: 'prim', textContent: 'Registrar' });
-    ok.onclick = () => inp.value.trim() ? conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim() } }) : inp.focus();
-    acc.replaceChildren(inp, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => pintarResolver(datos) }));
-    inp.focus(); inp.select();
-  };
-  acc.append(registrar);
-  return el('div', { className: 'pend' },
-    el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
-      el('small', { textContent: [pp.numero && 'Nº ' + pp.numero, l.referencia].filter(Boolean).join(' · ') })),
-    el('div', { className: 'imp' }, conSigno(l.importe)), sug, acc);
-}
-function filaMov(m) {
-  return el('div', { className: 'pend' },
-    el('div', { className: 'q' }, el('b', { textContent: `${fecha(m.fecha)} · ${m.concepto || m.tipo}` }), el('small', { textContent: m.tipo })),
-    el('div', { className: 'imp' }, conSigno(m.importe)));
 }
 function pintarLotes(p) {
   const lotes = p.lotes || [], prox = p.por_liquidar || [];

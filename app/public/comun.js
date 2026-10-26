@@ -125,25 +125,26 @@ function filas(tbody, items, fila, vacio, columnas) {
 }
 const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 
-// Secciones agrupadas por para qué se usan. En el celular, las de `abajo` van en la barra
-// inferior; el resto, en "Más".
+// Secciones agrupadas por proceso (decisión de Fer, 27/10/2026): arriba lo que se opera, cada proceso con su asistente
+// primero; las pantallas de detalle de cada registro van juntas en "Registros", y lo que se arma una vez, en
+// Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
 const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
-  // Compras: pedir, recibir, facturar y pagar (la factura y el pago, con permiso de finanzas).
-  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
-               ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
+  ['Ingresos', [['ingresos.html', 'Proceso de ingresos'], ['ventas.html', 'Ventas']]],
+  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente']]],
+  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
-  ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción']]],
-  ['Ingresos', [['cierre-diario.html', 'Cierre diario'], ['ventas.html', 'Ventas'], ['procesar-ventas.html', 'Procesar ventas'], ['platos.html', 'Platos de carta']]],
-  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['medios-pago.html', 'Medios de pago'], ['cheques.html', 'Cheques'], ['conciliacion.html', 'Conciliación']]],
-  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
+  ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
-  ['Configuración', [['sedes.html', 'Sedes'], ['almacenes.html', 'Almacenes'],
+  ['Registros', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
+                 ['procesar-ventas.html', 'Procesar ventas'], ['conciliacion.html', 'Conciliación']]],
+  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
+  ['Configuración', [['sedes.html', 'Sedes y puntos de venta'], ['medios-pago.html', 'Medios de pago'], ['almacenes.html', 'Almacenes'],
                      ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'cierre-diario.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };

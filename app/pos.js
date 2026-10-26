@@ -1018,20 +1018,25 @@ r.get('/pos/cierre', h(async (req, res) => {
       if (ult && ult.ok === false) tareas.push({ tipo: 'corrida', nivel: 'mal', texto: `La última sincronización falló: ${ult.error}` });
       else if (i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso())) tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
     }
-    const sinVentas = dias.filter(d => !d.ventas && !d.sincronizado);
+    // Por archivo: los días sin ventas desde la primera importada del período (antes, el punto de venta no existía o
+    // no se usaba el sistema).
+    const primero = dias.filter(d => d.ventas).map(d => d.dia).sort()[0];
+    const sinVentas = dias.filter(d => !d.ventas && !d.sincronizado && primero && d.dia > primero);
     if (sinVentas.length && i.modo === 'archivo')
       tareas.push({ tipo: 'importar', nivel: 'aviso', dias: sinVentas.map(d => d.dia), texto: `Faltan importar las ventas de ${sinVentas.length} día(s).` });
+    else if (!primero && i.modo === 'archivo')
+      tareas.push({ tipo: 'importar', nivel: 'aviso', texto: `Todavía no hay ventas importadas de los últimos ${n} días.` });
     // Los días con el mismo problema van juntos, en un renglón: se resuelven igual (desde Procesar ventas).
-    const porDia = (nivel, filtro, texto) => {
+    const porDia = (nivel, clase, filtro, texto) => {
       const ds = dias.filter(filtro);
-      if (ds.length) tareas.push({ tipo: 'dia', nivel, dias: ds.map(d => d.dia), texto: texto(ds) });
+      if (ds.length) tareas.push({ tipo: 'dia', clase, nivel, dias: ds.map(d => d.dia), texto: texto(ds) });
     };
     const cuadra = d => Math.abs(Number(d.cobrado) - Number(d.vendido)) < 0.01;
     const enDias = ds => ds.length === 1 ? '' : ` en ${ds.length} días`;
-    porDia('mal', d => d.ventas && d.pagos_sin_asignar, ds => `Hay cobros con un medio sin asignar${enDias(ds)}.`);
-    porDia('mal', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && !cuadra(d), ds => `Lo cobrado no coincide con lo vendido${enDias(ds)}.`);
-    porDia('aviso', d => d.abiertas, ds => `${ds.reduce((a, d) => a + d.abiertas, 0)} venta(s) seguían abiertas: falta volver a traer ${ds.length === 1 ? 'el día' : 'esos días'}.`);
-    porDia('aviso', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && cuadra(d), ds => `Cobros listos para procesar${enDias(ds)}.`);
+    porDia('mal', 'medios', d => d.ventas && d.pagos_sin_asignar, ds => `Hay cobros con un medio sin asignar${enDias(ds)}.`);
+    porDia('mal', 'diferencia', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && !cuadra(d), ds => `Lo cobrado no coincide con lo vendido${enDias(ds)}.`);
+    porDia('aviso', 'abiertas', d => d.abiertas, ds => `${ds.reduce((a, d) => a + d.abiertas, 0)} venta(s) seguían abiertas: falta volver a traer ${ds.length === 1 ? 'el día' : 'esos días'}.`);
+    porDia('aviso', 'listos', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && cuadra(d) && !d.abiertas, ds => `Cobros listos para procesar${enDias(ds)}.`);
     if (centavos(i.efectivo_a_rendir) > 0n) tareas.push({ tipo: 'efectivo', nivel: pendEf.length > 2 ? 'mal' : 'aviso', importe: i.efectivo_a_rendir,
       desde: pendEf.length ? pendEf.at(-1).dia : null,
       texto: pendEf.length ? `Efectivo a rendir de ${pendEf.length} día(s).` : 'Efectivo a rendir de antes del período.' });

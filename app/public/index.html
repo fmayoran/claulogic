@@ -34,6 +34,13 @@
     </div>
     <div class="pend" id="pendientes"></div>
   </section>
+  <section class="abast" id="ingresos" hidden>
+    <div class="cab">
+      <h2>Proceso de ingresos <span class="tag" id="nIng"></span></h2>
+      <div class="botones"><button type="button" class="prim" onclick="location.href='ingresos.html'">Cerrar ingresos</button></div>
+    </div>
+    <p class="vacio" id="ingDet" style="margin:0"></p>
+  </section>
   <div class="tarjetas">
     <a class="tarjeta" id="tMin" href="stock.html?bajo_minimo=1"><div class="v">–</div><div class="t">productos bajo el mínimo</div></a>
     <a class="tarjeta" id="tVence" href="stock.html?vence_dias=7"><div class="v">–</div><div class="t">lotes que vencen en 7 días</div></a>
@@ -84,6 +91,18 @@ async function bandeja() {
       el('span', { className: 'i', textContent: p.importe ? pesos(p.importe) : '' }));
   }));
 }
+// Proceso de ingresos (finanzas): cuánto hay para resolver en las ventas y cuánto efectivo falta rendir.
+(async () => {
+  const { usuario: u } = await cargarSesion();
+  if (!u.puede.finanzas) return;
+  const { puntos } = await api('pos/cierre?dias=14');
+  if (!puntos.length) return;
+  const n = puntos.reduce((s, p) => s + p.tareas.filter(t => ['corrida', 'importar', 'dia'].includes(t.tipo)).length, 0);
+  const ef = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
+  $('#ingresos').hidden = false;
+  $('#nIng').textContent = n ? `${n} para resolver` : ''; $('#nIng').className = 'tag' + (n ? ' aviso' : '');
+  $('#ingDet').textContent = (n ? 'Hay ventas con algo para resolver.' : 'Las ventas están al día.') + (ef > 0n ? ` Efectivo a rendir: ${pesos(deCentavos(ef))}.` : ' El efectivo está rendido.');
+})().catch(() => {});
 bandeja().catch(e => { $('#abastecimiento').hidden = false; $('#pendientes').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); });
 (async () => {
   try {

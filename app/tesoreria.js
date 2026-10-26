@@ -393,6 +393,28 @@ function operacionDe(l) {
   return m ? m[1] : numeroEnConcepto(l);
 }
 
+// Un extracto con el formato de un procesador (el de Pago24 por sus conceptos; el de Mercado Pago lo reconoce la
+// pantalla) va en la cuenta donde deposita ese procesador: en otra cuenta se conciliaría contra lo que no es (pasó con
+// el de Pago24 importado en Brubank).
+const FORMATOS = [
+  { nombre: 'Pago24', procesador: /pago\s*24/i,
+    es: f => /^(recaudaci[oó]n|gasto transacci[oó]n|liquidaci[oó]n impuesto|pago cliente|transferencia bancaria (egreso|ingreso))\s*-\s*\d{6,}/i.test(String(f.concepto || '').trim())
+      || /AR_(IVA|DCB|IIBB|GAN)\b/.test(String(f.referencia || '')) },
+  { nombre: 'Mercado Pago', procesador: /mercado\s*pago/i, es: f => /^(cobro|comisi[oó]n) mercado pago/i.test(String(f.concepto || '').trim()) },
+];
+async function exigirCuentaDelFormato(cuenta, filas, formato) {
+  const conDatos = filas.filter(f => String(f.fecha ?? '').trim());
+  const fmt = formato === 'mercadopago' ? FORMATOS[1]
+    : FORMATOS.find(x => conDatos.length && conDatos.filter(x.es).length * 5 >= conDatos.length);   // la quinta parte alcanza
+  if (!fmt) return;
+  const { rows } = await pool.query(
+    `SELECT p.nombre, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id WHERE p.activo`);
+  const pr = rows.find(x => fmt.procesador.test(x.nombre));
+  if (!pr || pr.cuenta_acredita_id === cuenta) return;
+  if (!pr.cuenta_acredita_id) throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: primero indicá en Medios de pago en qué cuenta deposita ${pr.nombre}.`);
+  throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: va en la cuenta ${pr.cuenta}, no en esta.`);
+}
+
 r.post('/fin/extractos', h(async (req, res) => {
   const b = req.body;
   const cuenta = texto(b.cuenta_id, { campo: 'la cuenta', requerido: true });
@@ -400,6 +422,7 @@ r.post('/fin/extractos', h(async (req, res) => {
   const filas = Array.isArray(b.filas) ? b.filas : [];
   if (!filas.length) throw new ErrorUsuario('El extracto no tiene filas.');
   if (filas.length > 5000) throw new ErrorUsuario('Demasiadas filas: importá el extracto por mes.');
+  await exigirCuentaDelFormato(cuenta, filas, b.formato);
   const lineas = [], vistas = new Map();
   let saldoInicial = null, saldoFinal = null;
   filas.forEach((f, i) => {
@@ -1025,6 +1048,18 @@ async function resumenProcesador(cuenta) {
   const todosCostos = [...costos, ...costosLote.map(x => ({ ...x, comision: x.costo, iva: '0', imp_debitos_creditos: '0', retencion: '0' }))];
   return { ...pr, extracto: ext, pendientes, costos: todosCostos, gastos_sin_venta: sinLinea, lotes, por_liquidar: porLiquidar };
 }
+
+// Las cuentas de los procesadores, para el proceso de ingresos: dónde deposita cada uno, hasta cuándo llega su último
+// extracto, qué falta resolver y qué falta acreditar. Un procesador sin "Deposita en" viene igual, para avisarlo.
+r.get('/fin/procesadores/resumen', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT p.id, p.nombre, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id
+      WHERE p.activo ORDER BY p.nombre`);
+  const out = [];
+  for (const p of rows) out.push({ id: p.id, nombre: p.nombre, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
+    resumen: p.cuenta_acredita_id ? await resumenProcesador(p.cuenta_acredita_id) : null });
+  res.json({ ok: true, procesadores: out });
+}));
 
 // ── Medios de pago globales ──────────────────────────────────────────────────────────────────
 // Procesador (Mercado Pago, Getnet, Fudo Pagos…) + tipo de operación, más el efectivo. Cada procesador
