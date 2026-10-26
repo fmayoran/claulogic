@@ -90,12 +90,18 @@
   <div id="resolver"></div>
 
   <div class="t-grid t-g2" id="resumen" hidden>
+    <section class="card" id="cLotes" hidden style="grid-column:1 / -1">
+      <h2 id="lTitulo">Lotes</h2>
+      <p class="cap">Cada lote se liquida solo al llegar su fecha (pasa a esta cuenta lo que informa el procesador); el extracto del banco lo confirma.
+        Un lote liquidado que no aparece en el banco queda en alerta.</p>
+      <div id="lLista"></div>
+    </section>
     <section class="card">
       <h2>Costo por tipo de operación</h2>
       <p class="cap">Cargos con su IVA, más el impuesto a los débitos y créditos, sobre lo acreditado.</p>
       <div id="rCostos"></div>
     </section>
-    <section class="card">
+    <section class="card" id="cPend">
       <h2>Vendido sin acreditar</h2>
       <p class="cap" id="rPendCap"></p>
       <div id="rPend"></div>
@@ -258,9 +264,11 @@ async function conciliarAuto(previo = '') {
   try {
     const d = await api('fin/conciliacion/automatica', { method: 'POST', body: { cuenta_id: cuenta() } });
     const costos = Object.values(d.gastos).reduce((s, v) => s + centavos(v), 0n);
-    const txt = d.acreditadas || costos || d.compensadas
-      ? `Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.'
-      : 'No había nada nuevo para conciliar.';
+    const partes = [];
+    if (d.acreditadas || costos) partes.push(`Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.');
+    if (d.lotes_liquidados) partes.push(`Se liquidaron ${d.lotes_liquidados} lote(s).`);
+    if (d.lotes_confirmados) partes.push(`${d.lotes_confirmados} lote(s) confirmados con el extracto.`);
+    const txt = partes.length || d.compensadas ? partes.join(' ') : 'No había nada nuevo para conciliar.';
     msg([previo, txt].filter(Boolean).join(' '), 'ok', '#msgA');
     await cargar();
   } catch (e) { msg(e.message, 'mal', '#msgA'); }
@@ -329,13 +337,31 @@ function pintarResolver(d) {
 // Pareo sugerido para una línea (de una venta pagada en partes o con una diferencia chica): se confirma acá.
 const sugDe = id => (datos.sugerencias || []).find(x => x.lineas.includes(id));
 function cajaSugerencia(l, x) {
-  const p = x.pago, venta = `la venta #${p.id_externo} del ${fecha(p.dia)} (${TIPO_OP_C[p.tipo_operacion] || p.tipo_operacion}, ${pesos(p.importe)})`;
+  const p = x.pago || {}, venta = `la venta #${p.id_externo} del ${fecha(p.dia)} (${TIPO_OP_C[p.tipo_operacion] || p.tipo_operacion}, ${pesos(p.importe)})`;
   const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
   const confirmar = async body => {
     ok.disabled = true;
     try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: p.id, linea_ids: x.lineas, ...body } }); msg(`Acreditada la venta #${p.id_externo}.`, 'ok', '#msgA'); await cargar(); }
     catch (e) { alert(e.message); ok.disabled = false; }
   };
+  if (x.tipo === 'lote_cobro' || x.tipo === 'lote_diferencia') {
+    const lote = x.lotes[0], deLote = `el lote del ${fecha(lote.fecha)} (${lote.pagos} cobro(s), ${pesos(lote.neto)})`;
+    const confirmarLote = async body => {
+      ok.disabled = true;
+      try { await api('fin/conciliacion/lote', { method: 'POST', body: { linea_id: l.id, lote_ids: x.lotes.map(y => y.id), ...body } }); msg('Depósito confirmado.', 'ok', '#msgA'); await cargar(); }
+      catch (e) { alert(e.message); ok.disabled = false; }
+    };
+    if (x.tipo === 'lote_cobro') {
+      const c = x.pago, pct = num((100 - Number(x.neto_pago) / Number(c.importe) * 100).toFixed(2));
+      ok.onclick = () => confirmarLote({ ticket_pago_id: c.id });
+      return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+        `es ${deLote} más el cobro de la venta #${c.id_externo} del ${fecha(c.dia)} (${c.medio}, ${pesos(c.importe)}), que el procesador no informó: neto ${pesos(x.neto_pago)}, costo ${pct}%.`), ok);
+    }
+    const mas = !x.diferencia.startsWith('-'), motivoL = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
+    ok.onclick = () => motivoL.value.trim() ? confirmarLote({ motivo: motivoL.value.trim() }) : (motivoL.focus(), msg('Indicá el motivo de la diferencia.', 'mal', '#msgA'));
+    return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+      `es ${deLote}; el depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'} (por ejemplo, cobros de ventas que no se importaron).`), motivoL, ok);
+  }
   if (x.tipo === 'division') {
     const otras = x.lineas.filter(id => id !== l.id).map(id => datos.lineas.find(y => y.id === id)).filter(Boolean);
     ok.onclick = () => confirmar({});
@@ -376,8 +402,30 @@ function filaMov(m) {
     el('div', { className: 'q' }, el('b', { textContent: `${fecha(m.fecha)} · ${m.concepto || m.tipo}` }), el('small', { textContent: m.tipo })),
     el('div', { className: 'imp' }, conSigno(m.importe)));
 }
+function pintarLotes(p) {
+  const lotes = p.lotes || [], prox = p.por_liquidar || [];
+  $('#cLotes').hidden = !lotes.length && !prox.length; if ($('#cLotes').hidden) return;
+  $('#lTitulo').textContent = `Lotes de ${p.nombre}`;
+  const fila = (izq, imp, der) => el('div', { className: 'fila-c' }, el('span', {}, izq), el('span', { className: 'p', textContent: imp }), el('span', { className: 'm' }, der));
+  const esperando = lotes.filter(l => !l.confirmado), confirmados = lotes.filter(l => l.confirmado);
+  const bloques = [];
+  if (esperando.length) bloques.push(el('h3', { textContent: 'Liquidados, esperando el banco' }),
+    ...esperando.map(l => fila(`${fecha(l.fecha)} · ${l.pagos} cobro(s)`, pesos(l.neto),
+      l.dias > 3 ? el('span', { className: 'tag mal', textContent: `no apareció en el banco (hace ${l.dias} días)` }) : el('span', { className: 'tag aviso', textContent: 'esperando el extracto' }))));
+  if (prox.length) bloques.push(el('h3', { textContent: 'Por liquidar' }),
+    ...prox.map(l => fila(`${fecha(l.fecha)} · ${l.pagos} cobro(s)`, pesos(l.neto),
+      l.procesados ? `bruto ${pesos(l.bruto)}` : el('span', { className: 'tag aviso', textContent: 'con cobros sin procesar' }))));
+  if (confirmados.length) {
+    const total = confirmados.reduce((s, l) => s + centavos(l.neto), 0n);
+    bloques.push(el('h3', { textContent: `Confirmados por el banco: ${confirmados.length} · ${pesos(deCentavos(total))}` }),
+      ...confirmados.slice(0, 5).map(l => fila(`${fecha(l.fecha)} · ${l.pagos} cobro(s)`, pesos(l.neto), el('span', { className: 'tag ok', textContent: 'confirmado' }))));
+  }
+  $('#lLista').replaceChildren(...bloques);
+}
 function pintarResumen(p) {
   $('#resumen').hidden = !p; if (!p) return;
+  pintarLotes(p);
+  $('#cPend').hidden = !p.pendientes.length && !$('#cLotes').hidden;
   $('#rCostos').replaceChildren(...(p.costos.length ? p.costos.map(x => el('div', { className: 'fila-c' },
     el('span', {}, TIPO_OP_C[x.tipo_operacion] || x.tipo_operacion),
     el('span', { className: 'p', textContent: x.costo_pct ? num(x.costo_pct) + '%' : '—' }),

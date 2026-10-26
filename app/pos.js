@@ -12,7 +12,7 @@ const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase } = require(
 const { rolEn, exigirOperarEn, exigirEncargadoDe, filtroSedes, puede } = require('./auth');
 const crypto = require('./crypto');
 const fudo = require('./fudo');
-const { MEDIOS_SQL } = require('./tesoreria');
+const { MEDIOS_SQL, acreditarLotes } = require('./tesoreria');
 
 const r = express.Router();
 const esCero = v => /^-?0+(\.0+)?$/.test(String(v));
@@ -215,8 +215,8 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
       await c.query('INSERT INTO pos.ticket_item (ticket_id, articulo_id, cantidad, precio, importe, anulado) VALUES ($1,$2,$3,$4,$5,$6)',
         [nt.id, await idArticulo(it.codigo, it.nombre), it.cantidad, it.precio, it.importe ?? null, !!it.anulado]);
     for (const p of t.pagos)
-      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado) VALUES ($1,$2,$3,$4)',
-        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado]);
+      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo) VALUES ($1,$2,$3,$4,$5)',
+        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null]);
   }
   // Si no había nada nuevo (el mismo día importado dos veces), no queda una importación vacía.
   if (!nuevos) {
@@ -243,8 +243,14 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   // El día en curso no se importa: todavía hay mesas abiertas y cobros por hacer (decisión de Fer).
   if (rango.hasta_hoy) throw new ErrorUsuario('El día de hoy todavía está en curso: se trae a partir de mañana. Elegí hasta ayer.');
   if (rango.dias > 31) throw new ErrorUsuario('Sincronizá de a un mes como máximo.');
-  let datos;
-  try { datos = await fudo.ventas(integ.id, JSON.parse(crypto.decrypt(integ.credenciales)), rango.d, rango.h); }
+  let datos, liq = new Map(), avisoLiquidacion = null;
+  try {
+    const cred = JSON.parse(crypto.decrypt(integ.credenciales));
+    datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
+    // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual.
+    try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, rango.h); }
+    catch (e) { if (!(e instanceof fudo.ErrorFudo)) throw e; avisoLiquidacion = e.message; console.error(`Fudo, liquidaciones (${integ.nombre}):`, e.message); }
+  }
   // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página y el detalle se pierde.
   catch (e) {
     if (!(e instanceof fudo.ErrorFudo)) throw e;
@@ -254,6 +260,22 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
   const out = await enTransaccion(async c => {
     const o = await recibir(c, integ, 'api', { desde, hasta, tickets: datos.tickets });
     await c.query('UPDATE pos.integracion SET ultima_sincronizacion = now() WHERE id = $1', [integ.id]);
+    // Cada pago queda con su número del POS y, si el procesador la informó, su liquidación (fecha y neto). También
+    // los de ventas que ya estaban: los anteriores a esto no tenían el número, y se reconocen por medio e importe.
+    // Un pago ya liquidado en un lote no cambia.
+    for (const t of datos.tickets) for (const p of t.pagos) {
+      if (!p.id) continue;
+      const l = liq.get(p.id) || {};
+      await c.query(
+        `UPDATE pos.ticket_pago tp SET id_externo = $3,
+                liquida_el = CASE WHEN tp.lote_id IS NULL THEN COALESCE($4::date, tp.liquida_el) ELSE tp.liquida_el END,
+                neto = CASE WHEN tp.lote_id IS NULL THEN COALESCE($5::numeric, tp.neto) ELSE tp.neto END
+          WHERE tp.id = (SELECT x.id FROM pos.ticket_pago x JOIN pos.ticket tk ON tk.id = x.ticket_id JOIN pos.medio m ON m.id = x.medio_id
+                          WHERE tk.integracion_id = $1 AND tk.id_externo = $2
+                            AND (x.id_externo = $3 OR (x.id_externo IS NULL AND m.codigo_externo = $6 AND x.importe = $7::numeric))
+                          ORDER BY x.id_externo IS NULL, x.id LIMIT 1)`,
+        [integ.id, t.id, p.id, l.liquida_el || null, l.neto || null, p.codigo, p.importe]);
+    }
     // Por cada día del rango, cuántas ventas seguían abiertas: ese día todavía no está completo.
     await c.query(
       `INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas)
@@ -263,7 +285,9 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
       [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {})]);
     return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0) };
   });
-  res.status(201).json({ ok: true, ...out, cobros: await procesarListos(req, integ, desde, hasta) });
+  const cobros = await procesarListos(req, integ, desde, hasta);
+  // Los lotes cuya fecha de liquidación ya llegó se liquidan solos (Fudo Pagos).
+  res.status(201).json({ ok: true, ...out, cobros, lotes: await acreditarLotes(req), aviso_liquidacion: avisoLiquidacion });
 }));
 
 // Por archivo: renglones de venta (uno por artículo de cada ticket) y, opcionalmente, pagos. Las
@@ -764,6 +788,13 @@ r.post('/pos/importaciones/:id/anular', h(async (req, res) => {
     const im = await importacion(c, req, req.params.id, true);
     if (!puede(req.usuario, 'finanzas')) exigirEncargadoDe(req, im.sede_id, im.sede);
     if (im.estado === 'anulada') throw new ErrorUsuario('La importación ya está anulada.');
+    // Un cobro ya acreditado (conciliado con el extracto del procesador o liquidado en un lote) se deshace primero.
+    const { rows: [ac] } = await c.query(
+      `SELECT COUNT(*) FILTER (WHERE p.acreditado_linea_id IS NOT NULL)::int AS conciliados, COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id WHERE t.importacion_id = $1`, [im.id]);
+    if (ac.conciliados || ac.en_lote)
+      throw new ErrorUsuario(`La importación tiene cobros acreditados (${ac.conciliados} conciliados con el extracto, ${ac.en_lote} en lotes liquidados): `
+        + 'no se puede anular. Los conciliados se deshacen desde Conciliación.');
     // Los cobros que incluyen pagos de esta importación (por día o de la importación): se revierten enteros, y
     // los pagos de otras importaciones de ese día vuelven a quedar pendientes.
     const { rows: cobros } = await c.query(

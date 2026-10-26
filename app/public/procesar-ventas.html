@@ -182,6 +182,12 @@ const resultado = d => {
   msg(d.nuevos ? `Importados ${d.nuevos} ticket(s)` + (d.repetidos ? `; ${d.repetidos} ya estaban.` : '.')
     : `No había nada nuevo: los ${d.repetidos} ticket(s) ya estaban importados.`, d.nuevos ? 'ok' : '', '#msgI');
   pintarProcesados(d.cobros);
+  const l = d.lotes;
+  if (l && l.lotes.length) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'ok' },
+    `Lotes liquidados: ${l.lotes.map(x => `${x.procesador} ${fecha(x.fecha).slice(0, 5)} (${pesos(x.neto)})`).join(', ')}. El extracto del banco los confirma.`)));
+  if (l && l.sin_cuenta.length) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' },
+    `Hay lotes de ${l.sin_cuenta.join(', ')} listos para liquidar, pero falta la cuenta donde deposita (Medios de pago, "Deposita en").`)));
+  if (d.aviso_liquidacion) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' }, 'No se pudo traer la liquidación de los pagos: ' + d.aviso_liquidacion)));
 };
 // Lo que se procesó solo y lo que quedó para revisar a mano, con el porqué.
 function pintarProcesados(c) {

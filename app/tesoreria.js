@@ -361,7 +361,8 @@ r.get('/fin/retenciones', h(async (req, res) => {
 // se puede adivinar (¿mil doscientos treinta y cuatro, o uno con 234?). Paréntesis = negativo.
 function importeExtracto(v, decimal, n) {
   let s = String(v ?? '').trim().replace(/[$\s]/g, '');
-  if (!s) return null;
+  // Vacío o un guion solo (Brubank pone "-" en la columna que no corresponde): no hay importe.
+  if (!s || s === '-') return null;
   let neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   if (s.endsWith('-')) { neg = true; s = s.slice(0, -1); }
@@ -475,7 +476,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     pool.query(`SELECT COUNT(*)::int AS lineas, COALESCE(SUM(l.importe) FILTER (WHERE l.importe > 0), 0)::text AS ingresos,
                        COALESCE(-SUM(l.importe) FILTER (WHERE l.importe < 0), 0)::text AS egresos,
                        (SELECT COUNT(*)::int FROM fin.extracto_linea c WHERE c.cuenta_id = $1::uuid AND c.compensa_a IS NOT NULL) AS compensadas
-                  FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id WHERE l.cuenta_id = $1::uuid`, [cuenta]),
+                  FROM fin.extracto_linea l WHERE l.cuenta_id = $1::uuid AND EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta]),
   ]);
   // Importes exactos (texto NUMERIC normalizado), distancia de fechas en días: no hay float en juego.
   const norm = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
@@ -522,10 +523,12 @@ r.get('/fin/conciliacion/hechas', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
   const q = texto(req.query.q), desde = Math.max(0, Number(req.query.desde) || 0);
   const { rows } = await pool.query(
-    `SELECT l.id AS linea_id, l.fecha, l.concepto, l.referencia, l.importe::text, m.concepto AS movimiento, m.gasto, k.conciliado_por, k.conciliado_en
+    `SELECT l.id AS linea_id, l.fecha, l.concepto, l.referencia, l.importe::text, string_agg(m.concepto, ' + ' ORDER BY m.id) AS movimiento,
+            max(k.conciliado_por) AS conciliado_por, max(k.conciliado_en) AS conciliado_en
        FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id JOIN fin.movimiento_tes m ON m.id = k.movimiento_id
       WHERE l.cuenta_id = $1::uuid
-        AND ($2::text IS NULL OR l.concepto ILIKE '%' || $2 || '%' OR m.concepto ILIKE '%' || $2 || '%' OR l.importe::text LIKE '%' || replace($2, '.', '') || '%')
+      GROUP BY l.id
+     HAVING $2::text IS NULL OR l.concepto ILIKE '%' || $2 || '%' OR string_agg(m.concepto, ' ') ILIKE '%' || $2 || '%' OR l.importe::text LIKE '%' || replace($2, '.', '') || '%'
       ORDER BY l.fecha DESC, l.id DESC LIMIT 101 OFFSET $3`, [cuenta, q, desde]);
   res.json({ ok: true, conciliadas: rows.slice(0, 100), hay_mas: rows.length > 100 });
 }));
@@ -560,22 +563,37 @@ r.post('/fin/conciliacion', h(async (req, res) => {
 r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
   const linea = numero(req.params.linea, { campo: 'la línea', requerido: true });
   await enTransaccion(async c => {
-    const { rows: [m] } = await c.query(
+    const { rows: movs } = await c.query(
       `SELECT m.* FROM fin.conciliacion k JOIN fin.movimiento_tes m ON m.id = k.movimiento_id WHERE k.linea_id = $1 FOR UPDATE OF k`, [linea]);
     // Una acreditación en partes concilia varias líneas con patas de la misma transferencia: se deshace entera.
-    const { rows: grupo } = m && m.transferencia_id && m.ticket_pago_id ? await c.query(
-      `SELECT k.linea_id FROM fin.conciliacion k JOIN fin.movimiento_tes x ON x.id = k.movimiento_id WHERE x.transferencia_id = $1`, [m.transferencia_id]) : { rows: [] };
+    const trs = [...new Set(movs.filter(m => m.transferencia_id && m.ticket_pago_id).map(m => m.transferencia_id))];
+    const { rows: grupo } = trs.length ? await c.query(
+      `SELECT DISTINCT k.linea_id FROM fin.conciliacion k JOIN fin.movimiento_tes x ON x.id = k.movimiento_id WHERE x.transferencia_id = ANY($1::uuid[])`, [trs]) : { rows: [] };
     const lineas = [...new Set([linea, ...grupo.map(g => Number(g.linea_id))])];
     await c.query('DELETE FROM fin.conciliacion WHERE linea_id = ANY($1::bigint[])', [lineas]);
-    if (!m || !(m.ticket_pago_id || m.gasto)) return;
-    const { rows: patas } = await c.query(
-      m.transferencia_id ? `SELECT * FROM fin.movimiento_tes WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> 'anulacion'` : 'SELECT * FROM fin.movimiento_tes WHERE id = $1',
-      [m.transferencia_id || m.id]);
-    for (const p of patas)
-      await c.query(
-        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a)
-         VALUES ($1, $2, 'anulacion', $3, $4, $5, $6, $7)`,
-        [p.fecha, p.cuenta_id, p.salida, p.entrada, 'Anula (se deshizo la conciliación): ' + (p.concepto || p.tipo), p.transferencia_id, p.id]);
+    const anular = async m => {
+      const { rows: patas } = await c.query(
+        m.transferencia_id ? `SELECT * FROM fin.movimiento_tes x WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> 'anulacion'
+                                AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`
+          : `SELECT * FROM fin.movimiento_tes x WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`,
+        [m.transferencia_id || m.id]);
+      for (const p of patas)
+        await c.query(
+          `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a)
+           VALUES ($1, $2, 'anulacion', $3, $4, $5, $6, $7)`,
+          [p.fecha, p.cuenta_id, p.salida, p.entrada, 'Anula (se deshizo la conciliación): ' + (p.concepto || p.tipo), p.transferencia_id, p.id]);
+    };
+    // Lo que creó la conciliación se anula: acreditaciones y cargos (y la diferencia confirmada de un lote). Un lote
+    // liquidado por su fecha queda: sólo se separa del depósito. Un lote armado al confirmar el depósito (un cobro sin
+    // neto informado) se deshace entero y el cobro vuelve a pendiente.
+    for (const m of movs) if (m.ticket_pago_id || m.gasto) await anular(m);
+    const { rows: armados } = await c.query('SELECT * FROM fin.lote WHERE desde_linea_id = $1', [linea]);
+    for (const l of armados) {
+      await anular({ id: l.movimiento_id, transferencia_id: (movs.find(m => Number(m.id) === Number(l.movimiento_id)) || {}).transferencia_id });
+      if (l.costo_movimiento_id) await anular({ id: l.costo_movimiento_id });
+      await c.query('UPDATE pos.ticket_pago SET lote_id = NULL, neto = NULL, liquida_el = NULL WHERE lote_id = $1', [l.id]);
+      await c.query('DELETE FROM fin.lote WHERE id = $1', [l.id]);
+    }
     await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = NULL WHERE acreditado_linea_id = ANY($1::bigint[])', [lineas]);
   });
   res.json({ ok: true });
@@ -594,9 +612,29 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
 const GASTOS = [
   ['iva_credito', /AR_IVA|cobro\s+iva|iva\s+\d+%?\s*(por|s\/)/i],
   ['imp_debitos_creditos', /AR_DCB|deb\/cred|d[eé]b(itos)?\s*y\s*cr[eé]d|ley\s*25\.?413/i],
-  ['retencion', /AR_IIBB|AR_GAN|retenci[oó]n\s+(de\s+)?(iibb|ingresos\s+brutos|ganancias|iva)|retenci[oó]n\s+de\s+impuestos|percepci[oó]n/i],
+  ['retencion', /SIRCREB|AR_IIBB|AR_GAN|retenci[oó]n\s+(de\s+)?(iibb|ingresos\s+brutos|ganancias|iva)|retenci[oó]n\s+de\s+impuestos|percepci[oó]n/i],
   ['comision', /cargo\s+de|gasto\s+transacci|comisi[oó]n|arancel/i],
 ];
+// Lotes abiertos que explican un depósito: uno, o 2 o 3 que suman exacto su importe, todos del día del depósito a 5
+// días antes (o el día siguiente); entre los que cumplen, el más cercano en fecha.
+function grupoDeLotes(lotes, l) {
+  const dias = x => (Date.parse(l.fecha) - Date.parse(x.fecha)) / 864e5, L = centavos(l.importe);
+  const cand = lotes.filter(x => dias(x) >= -1 && dias(x) <= 5 && centavos(x.neto) <= L);
+  let mejor = null;
+  const probar = g => {
+    if (g.reduce((s, x) => s + centavos(x.neto), 0n) !== L) return;
+    const lejos = Math.max(...g.map(x => Math.abs(dias(x))));
+    if (!mejor || lejos < mejor.lejos || (lejos === mejor.lejos && g.length < mejor.g.length)) mejor = { lejos, g };
+  };
+  for (let i = 0; i < cand.length; i++) {
+    probar([cand[i]]);
+    for (let j = i + 1; j < cand.length; j++) {
+      probar([cand[i], cand[j]]);
+      if (cand.length <= 30) for (let k = j + 1; k < cand.length; k++) probar([cand[i], cand[j], cand[k]]);
+    }
+  }
+  return mejor && mejor.g;
+}
 const clasificar = l => (GASTOS.find(([, re]) => re.test(`${l.concepto} ${l.referencia}`)) || [])[0] || null;
 const esReverso = l => /reverso/i.test(`${l.concepto} ${l.referencia}`);
 const normImp = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
@@ -604,9 +642,13 @@ const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
 
 r.post('/fin/conciliacion/automatica', h(async (req, res) => {
   const cuenta = texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true });
+  // Si el procesador liquida por lotes, primero se liquidan los que ya llegaron a su fecha.
+  const { rows: [prl] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+  const liquidados = prl ? await acreditarLotes(req, prl.id) : null;
   const out = await enTransaccion(async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
-    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+    const { rows: [pr] } = await c.query(
+      `SELECT p.id, p.nombre, cu.nombre AS cuenta FROM fin.procesador p JOIN fin.cuenta cu ON cu.id = p.cuenta_acredita_id WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
     if (!pr) throw new ErrorUsuario('Esta cuenta no es la de un procesador: en Medios de pago, indicá en qué cuenta deposita.');
     const { rows: todas } = await c.query(
       `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a,
@@ -631,6 +673,7 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
          JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
         WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+          AND p.liquida_el IS NULL AND p.lote_id IS NULL
         ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [pr.id]);
     const libres = new Set(pagos.map(p => p.id));
     // Operación del procesador -> pago de la venta, con lo acreditado antes (para atar costos que llegan después).
@@ -659,6 +702,20 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
       usadas.add(l.id); acreditadas++; acreditado += centavos(l.importe);
     }
 
+    // 2b. Depósitos de lotes (procesadores que liquidan por lotes): mismo neto, del día del lote a 5 días después.
+    const { rows: lotesAbiertos } = await c.query(
+      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, l.movimiento_id FROM fin.lote l
+        WHERE l.procesador_id = $1 AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = l.movimiento_id) ORDER BY l.fecha`, [pr.id]);
+    // Un depósito puede juntar varios lotes del mismo día (un crédito de una venta anterior con los débitos del día):
+    // un lote, o la suma exacta de 2 o 3, el grupo más cercano en fecha.
+    let lotesConfirmados = 0;
+    for (const l of pend.filter(l => !usadas.has(l.id) && !l.importe.startsWith('-'))) {
+      const grupo = grupoDeLotes(lotesAbiertos.filter(x => !x.usado), l);
+      if (!grupo) continue;
+      usadas.add(l.id); lotesConfirmados += grupo.length;
+      for (const x of grupo) { x.usado = true; await conciliar(l.id, x.movimiento_id); }
+    }
+
     // 3. Cargos, IVA, impuestos y retenciones. El IVA de un cargo viene en su propia línea (que nombra al cargo) o
     // incluido en el cargo (Pago24 en las transferencias: "Cargo de Pago24" es 3% + IVA).
     const opDeNumero = new Map(todas.map(l => [numeroEnConcepto(l), l.operacion]).filter(([k]) => k));
@@ -671,15 +728,16 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
       const { rows: [mov] } = await c.query(
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto, iva, ticket_pago_id)
          VALUES ($1, $2, 'egreso', $3::numeric, $4, $5, CASE WHEN $6 THEN round($3::numeric * 21 / 121, 2) END, $7) RETURNING id`,
-        [l.fecha, cuenta, l.importe.slice(1), `${pr.nombre} · ${l.concepto}`.slice(0, 300), g, ivaIncluido, pagoDe.get(op) || null]);
+        // Con el nombre de la cuenta: en un banco donde deposita el procesador (Brubank) el cargo puede ser del banco.
+        [l.fecha, cuenta, l.importe.slice(1), `${pr.cuenta} · ${l.concepto}`.slice(0, 300), g, ivaIncluido, pagoDe.get(op) || null]);
       await conciliar(l.id, mov.id);
       usadas.add(l.id); gastos[g] = (gastos[g] || 0n) + centavos(l.importe.slice(1));
     }
     const quedan = pend.filter(l => !usadas.has(l.id)).length;
-    return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan,
+    return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan, lotes_confirmados: lotesConfirmados,
              gastos: Object.fromEntries(Object.entries(gastos).map(([k, v]) => [k, deCentavos(v)])) };
   });
-  res.status(201).json({ ok: true, ...out });
+  res.status(201).json({ ok: true, ...out, lotes_liquidados: liquidados ? liquidados.lotes.length : 0 });
 }));
 
 // Pareos sugeridos (decisión de Fer, 25/10/2026): lo que la conciliación automática no parea porque no coincide
@@ -699,10 +757,17 @@ async function sugerenciasProcesador(cuenta) {
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
                  WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                   AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  ORDER BY t.dia`, [pr.id]),
   ]);
   const dias = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5, enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= 4;
   const abs = v => v < 0n ? -v : v, sug = [];
+  // Un procesador que liquida por lotes no se parea cobro por cobro: sus sugerencias son las de lote (más abajo).
+  const { rows: [{ por_lotes: porLotes }] } = await pool.query(
+    `SELECT EXISTS (SELECT 1 FROM fin.lote WHERE procesador_id = $1) OR EXISTS (
+              SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+               WHERE mp.procesador_id = $1 AND p.liquida_el IS NOT NULL) AS por_lotes`, [pr.id]);
+  if (porLotes) pagos.length = 0;
   for (const p of pagos) {
     const P = centavos(p.importe), ls = lineas.filter(l => enVentana(l, p) && centavos(l.importe) < P);
     let mejor = null;
@@ -716,6 +781,42 @@ async function sugerenciasProcesador(cuenta) {
       if (ls.length <= 40) for (let k = j + 1; k < ls.length; k++) probar([ls[i], ls[j], ls[k]]);
     }
     if (mejor) sug.push({ tipo: 'division', pago: p, lineas: mejor.lineas.map(l => l.id) });
+  }
+  // Depósitos de procesadores que liquidan por lotes y que no coinciden exacto con sus lotes (lo exacto lo hace la
+  // automática): el lote del día más un cobro pendiente sin neto informado (Fudo no informa el neto de algunos) que
+  // explica la diferencia con un costo de hasta el 15%; si no, el lote con la diferencia, a confirmar con su motivo.
+  const { rows: lotesAb } = await pool.query(
+    `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, l.pagos FROM fin.lote l
+      WHERE l.procesador_id = $1 AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = l.movimiento_id) ORDER BY l.fecha`, [pr.id]);
+  if (lotesAb.length) {
+    const { rows: sinNeto } = await pool.query(
+      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.nombre AS medio
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+          AND p.lote_id IS NULL AND p.neto IS NULL ORDER BY t.dia`, [pr.id]);
+    // Cada depósito con cada lote de su ventana: lo que explica un cobro sin neto, o una diferencia razonable (hasta el
+    // 15% del lote o $5.000). Después, cada lote y cada cobro se proponen una sola vez, primero los pares que mejor
+    // se explican (un cobro antes que una diferencia; la diferencia más chica).
+    const cand = [];
+    for (const l of lineas) {
+      const dias = x => (Date.parse(l.fecha) - Date.parse(x.fecha)) / 864e5, L = centavos(l.importe);
+      for (const lote of lotesAb.filter(x => dias(x) >= -1 && dias(x) <= 5)) {
+        const N = centavos(lote.neto), D = L - N, absD = D < 0n ? -D : D;
+        if (D === 0n) continue;
+        const cobros = D > 0n ? sinNeto.filter(p => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5 >= 0 && centavos(p.importe) >= D && D * 100n >= centavos(p.importe) * 85n) : [];
+        for (const p of cobros) cand.push({ orden: 0, peso: Number(centavos(p.importe) - D), dias: Math.abs(dias(lote)), l, lote, p, D });
+        if (absD * 100n <= N * 15n || absD <= 500000n) cand.push({ orden: 1, peso: Number(absD), dias: Math.abs(dias(lote)), l, lote, D });
+      }
+    }
+    cand.sort((a, b) => a.orden - b.orden || a.peso - b.peso || a.dias - b.dias);
+    const usL = new Set(), usLote = new Set(), usP = new Set();
+    for (const x of cand) {
+      if (usL.has(x.l.id) || usLote.has(x.lote.id) || (x.p && usP.has(x.p.id))) continue;
+      usL.add(x.l.id); usLote.add(x.lote.id); if (x.p) usP.add(x.p.id);
+      sug.push(x.p ? { tipo: 'lote_cobro', lineas: [x.l.id], lotes: [x.lote], pago: x.p, neto_pago: deCentavos(x.D) }
+                   : { tipo: 'lote_diferencia', lineas: [x.l.id], lotes: [x.lote], diferencia: deCentavos(x.D) });
+    }
   }
   const enDivision = new Set(sug.flatMap(x => x.lineas));
   for (const l of lineas) {
@@ -779,6 +880,65 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
+// Confirmar un depósito contra sus lotes: la suma de los lotes, más un cobro sin neto informado (se arma su lote con
+// el neto que explica el depósito) o más la diferencia con su motivo (queda como ingreso o egreso de la cuenta).
+r.post('/fin/conciliacion/lote', h(async (req, res) => {
+  const b = req.body, linea = numero(b.linea_id, { campo: 'la línea', requerido: true });
+  const loteIds = (Array.isArray(b.lote_ids) ? b.lote_ids : []).map(String);
+  if (!loteIds.length) throw new ErrorUsuario('Elegí el lote.');
+  const pagoId = texto(b.ticket_pago_id), motivo = texto(b.motivo);
+  await enTransaccion(async c => {
+    const { rows: [l] } = await c.query(
+      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a,
+              EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada FROM fin.extracto_linea l WHERE l.id = $1 FOR UPDATE`, [linea]);
+    if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
+    if (l.conciliada || l.compensa_a) throw new ErrorUsuario('La línea ya está conciliada.');
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + l.cuenta_id]);
+    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [l.cuenta_id]);
+    if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
+    const { rows: lotes } = await c.query(
+      `SELECT l.id, l.neto::text, l.movimiento_id FROM fin.lote l WHERE l.id = ANY($1::uuid[]) AND l.procesador_id = $2
+          AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = l.movimiento_id) FOR UPDATE`, [loteIds, pr.id]);
+    if (lotes.length !== loteIds.length) throw new ErrorUsuario('Algún lote ya está confirmado o no es de este procesador.');
+    const movs = lotes.map(x => x.movimiento_id);
+    const D = centavos(l.importe) - lotes.reduce((s, x) => s + centavos(x.neto), 0n);
+    if (pagoId) {
+      const { rows: [p] } = await c.query(
+        `SELECT p.id, p.importe::text, t.id_externo, m.cuenta_id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id
+           JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.lote_id IS NULL
+          FOR UPDATE OF p`, [pagoId, pr.id]);
+      if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador.');
+      if (D <= 0n || D > centavos(p.importe)) throw new ErrorUsuario('El cobro no explica la diferencia del depósito.');
+      const concepto = `Lote ${pr.nombre} del ${l.fecha} · cobro de la venta ${p.id_externo} (neto según el depósito)`;
+      const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+      await c.query(`INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id) VALUES ($1,$2,'transferencia',$3,$4,$5)`,
+        [l.fecha, p.cuenta_id, deCentavos(D), concepto, tr]);
+      const { rows: [ent] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id) VALUES ($1,$2,'transferencia',$3,$4,$5) RETURNING id`,
+        [l.fecha, l.cuenta_id, deCentavos(D), concepto, tr]);
+      const costo = centavos(p.importe) - D;
+      const { rows: [cm] } = costo > 0n ? await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto) VALUES ($1,$2,'egreso',$3,$4,'comision') RETURNING id`,
+        [l.fecha, p.cuenta_id, deCentavos(costo), `Cargos ${pr.nombre} · cobro de la venta ${p.id_externo}`]) : { rows: [{}] };
+      const { rows: [nl] } = await c.query(
+        `INSERT INTO fin.lote (procesador_id, fecha, pagos, bruto, neto, movimiento_id, costo_movimiento_id, desde_linea_id) VALUES ($1,$2,1,$3,$4,$5,$6,$7) RETURNING id`,
+        [pr.id, l.fecha, p.importe, deCentavos(D), ent.id, cm.id || null, l.id]);
+      await c.query('UPDATE pos.ticket_pago SET lote_id = $1, neto = $2, liquida_el = $3 WHERE id = $4', [nl.id, deCentavos(D), l.fecha, p.id]);
+      movs.push(ent.id);
+    } else if (D !== 0n) {
+      if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
+      const neg = D < 0n, abs = neg ? -D : D;
+      const { rows: [dm] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, gasto) VALUES ($1,$2,$3,$4,$5,$6,'otro') RETURNING id`,
+        [l.fecha, l.cuenta_id, neg ? 'egreso' : 'ingreso', neg ? 0 : deCentavos(abs), neg ? deCentavos(abs) : 0, `Diferencia con el lote de ${pr.nombre}: ${motivo}`]);
+      movs.push(dm.id);
+    }
+    for (const m of movs) await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [l.id, m]);
+  });
+  res.status(201).json({ ok: true });
+}));
+
 // Resumen de la cuenta de un procesador: saldo contra el extracto, lo vendido que falta acreditar (por día) y el
 // costo real de cada tipo de operación (lo acreditado contra sus cargos e impuestos).
 async function resumenProcesador(cuenta) {
@@ -802,6 +962,7 @@ async function resumenProcesador(cuenta) {
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
                  WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                   AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  GROUP BY t.dia, mp.tipo_operacion ORDER BY t.dia, mp.tipo_operacion`, [pr.id]),
     // Costo de cada cobro acreditado: los gastos conciliados de la misma operación del procesador (la de sus líneas
     // de acreditación), por el número de operación del extracto y no por el movimiento: así cuentan también los
@@ -836,7 +997,25 @@ async function resumenProcesador(cuenta) {
     pool.query(`SELECT COUNT(*)::int AS movimientos, COALESCE(SUM(salida), 0)::text AS importe FROM fin.movimiento_tes
                  WHERE cuenta_id = $1 AND gasto IS NOT NULL AND ticket_pago_id IS NULL`, [cuenta]),
   ]);
-  return { ...pr, extracto: ext, pendientes, costos, gastos_sin_venta: sinLinea };
+  // Lotes: los liquidados (confirmados o esperando el banco) y los que todavía no llegaron a su fecha; el costo de los
+  // cobros liquidados por lote es exacto por cobro (bruto menos el neto que informó el procesador).
+  const [{ rows: lotes }, { rows: porLiquidar }, { rows: costosLote }] = await Promise.all([
+    pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.pagos, l.bruto::text, l.neto::text, (current_date - l.fecha)::int AS dias,
+                       EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = l.movimiento_id) AS confirmado
+                  FROM fin.lote l WHERE l.procesador_id = $1 ORDER BY l.fecha DESC LIMIT 60`, [pr.id]),
+    pool.query(`SELECT to_char(p.liquida_el, 'YYYY-MM-DD') AS fecha, COUNT(*)::int AS pagos, SUM(p.importe)::text AS bruto, SUM(p.neto)::text AS neto,
+                       bool_and(p.cobro_id IS NOT NULL) AS procesados
+                  FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+                  JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.lote_id IS NULL AND p.liquida_el IS NOT NULL
+                 GROUP BY p.liquida_el ORDER BY p.liquida_el`, [pr.id]),
+    pool.query(`SELECT mp.tipo_operacion, COUNT(*)::int AS pagos, SUM(p.importe)::text AS bruto, SUM(p.importe - p.neto)::text AS costo,
+                       round(SUM(p.importe - p.neto) / NULLIF(SUM(p.importe), 0) * 100, 2)::text AS costo_pct
+                  FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                 WHERE mp.procesador_id = $1 AND p.lote_id IS NOT NULL GROUP BY mp.tipo_operacion ORDER BY SUM(p.importe) DESC`, [pr.id]),
+  ]);
+  const todosCostos = [...costos, ...costosLote.map(x => ({ ...x, comision: x.costo, iva: '0', imp_debitos_creditos: '0', retencion: '0' }))];
+  return { ...pr, extracto: ext, pendientes, costos: todosCostos, gastos_sin_venta: sinLinea, lotes, por_liquidar: porLiquidar };
 }
 
 // ── Medios de pago globales ──────────────────────────────────────────────────────────────────
@@ -918,5 +1097,50 @@ r.put('/fin/procesadores/:id', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
-Object.assign(r, { MEDIOS_SQL });
+// ── Lotes de los procesadores que liquidan por lotes (Fudo Pagos) ─────────────────────────────
+// Los cobros ya procesados cuya fecha de liquidación llegó se liquidan solos, un lote por procesador, cuenta y fecha:
+// el neto pasa de "a acreditar" a la cuenta donde deposita el procesador (transferencia) y la diferencia con el bruto
+// queda como cargo del procesador (egreso de "a acreditar"). La entrada en la cuenta donde deposita es la que después
+// confirma el extracto del banco. Cada lote en su transacción. Sólo con permiso de finanzas (la base lo exige).
+async function acreditarLotes(req, procesadorId = null) {
+  if (!req.usuario || !(req.usuario.es_admin || req.usuario.finanzas)) return null;
+  const { rows: grupos } = await pool.query(
+    `SELECT mp.procesador_id, pr.nombre, pr.cuenta_acredita_id, m.cuenta_id, to_char(p.liquida_el, 'YYYY-MM-DD') AS fecha,
+            array_agg(p.id) AS ids, COUNT(*)::int AS pagos, SUM(p.importe)::text AS bruto, SUM(p.neto)::text AS neto
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+       JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+      WHERE p.lote_id IS NULL AND p.acreditado_linea_id IS NULL AND p.liquida_el IS NOT NULL AND p.liquida_el <= current_date
+        AND p.neto IS NOT NULL AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL
+        AND ($1::uuid IS NULL OR mp.procesador_id = $1::uuid)
+      GROUP BY mp.procesador_id, pr.nombre, pr.cuenta_acredita_id, m.cuenta_id, p.liquida_el ORDER BY p.liquida_el`, [procesadorId]);
+  const lotes = [], sinCuenta = new Set();
+  for (const g of grupos) {
+    if (!g.cuenta_acredita_id) { sinCuenta.add(g.nombre); continue; }
+    if (centavos(g.neto) <= 0n) continue;
+    const hecho = await enTransaccion(async c => {
+      const { rows: libres } = await c.query('SELECT id FROM pos.ticket_pago WHERE id = ANY($1::uuid[]) AND lote_id IS NULL FOR UPDATE', [g.ids]);
+      if (libres.length !== g.ids.length) return null;   // otro proceso lo liquidó mientras tanto
+      const concepto = `Lote ${g.nombre} del ${g.fecha} · ${g.pagos} cobro(s)`;
+      const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+      await c.query(`INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id) VALUES ($1,$2,'transferencia',$3,$4,$5)`,
+        [g.fecha, g.cuenta_id, g.neto, concepto, tr]);
+      const { rows: [ent] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id) VALUES ($1,$2,'transferencia',$3,$4,$5) RETURNING id`,
+        [g.fecha, g.cuenta_acredita_id, g.neto, concepto, tr]);
+      const costo = centavos(g.bruto) - centavos(g.neto);
+      const { rows: [cm] } = costo > 0n ? await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto) VALUES ($1,$2,'egreso',$3,$4,'comision') RETURNING id`,
+        [g.fecha, g.cuenta_id, deCentavos(costo), `Cargos ${g.nombre} · lote del ${g.fecha}`]) : { rows: [{}] };
+      const { rows: [l] } = await c.query(
+        'INSERT INTO fin.lote (procesador_id, fecha, pagos, bruto, neto, movimiento_id, costo_movimiento_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+        [g.procesador_id, g.fecha, g.pagos, g.bruto, g.neto, ent.id, cm.id || null]);
+      await c.query('UPDATE pos.ticket_pago SET lote_id = $1 WHERE id = ANY($2::uuid[])', [l.id, g.ids]);
+      return { procesador: g.nombre, fecha: g.fecha, pagos: g.pagos, neto: g.neto };
+    });
+    if (hecho) lotes.push(hecho);
+  }
+  return { lotes, sin_cuenta: [...sinCuenta] };
+}
+
+Object.assign(r, { MEDIOS_SQL, acreditarLotes });
 module.exports = r;

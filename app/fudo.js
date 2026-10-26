@@ -108,7 +108,7 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
         const pa = p.attributes || {}, mid = ids((p.relationships || {}).paymentMethod)[0];
         const m = mid && de('PaymentMethod', mid);
         return { codigo: mid ? String(mid) : 'sin-medio', nombre: m ? (m.attributes || {}).name || `Medio ${mid}` : 'Sin medio',
-                 importe: String(pa.amount ?? 0), anulado: !!pa.canceled };
+                 importe: String(pa.amount ?? 0), anulado: !!pa.canceled, id: String(p.id) };
       });
       if (!items.length && !pagos.length) continue;
       const mesa = ids(rel.table)[0], mozo = ids(rel.waiter)[0];
@@ -125,4 +125,31 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   throw new ErrorFudo(`El rango tiene más de ${MAX_PAGINAS * TAMANO} ventas: importalo en partes.`);
 }
 
-module.exports = { ventas, olvidarToken, ErrorFudo };
+// Liquidación de los pagos de un rango (por creación), del recurso de pagos: la fecha en que el procesador liquida
+// (`expectedBy`) y el neto que deposita (`receivedAmount`). Sólo se devuelven los que Fudo da por liquidados por un
+// procesador (`receivedBy`): Fudo Pagos los informa así; un pago en efectivo o de otro procesador no. Pedir estos
+// campos le saca al pago la relación con la venta: por eso se cruzan por el número de pago, que viene en la venta.
+// Verificado con la cuenta de Fer el 26/10/2026: débito liquida al día hábil siguiente (3,38%), crédito a ~15 días
+// (4,83%). Devuelve un Map número de pago -> { liquida_el: 'AAAA-MM-DD' (día de la cocina), neto: texto }.
+async function liquidaciones(integracionId, cred, desdeUtc, hastaUtc) {
+  const tk = await token(integracionId, cred);
+  const diaLocal = iso => new Date(new Date(iso).getTime() - 3 * 3600000).toISOString().slice(0, 10);
+  const out = new Map();
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const q = new URLSearchParams({
+      'filter[createdAt]': `and(gte.${desdeUtc},lte.${hastaUtc})`, 'page[size]': String(TAMANO), 'page[number]': String(pagina),
+      'fields[payment]': 'amount,canceled,expectedBy,receivedAmount,receivedBy',
+    });
+    const r = await pedir(`${API_URL}/payments?${q}`, { headers: { Authorization: `Bearer ${tk}` } });
+    const datos = Array.isArray(r.data) ? r.data : [];
+    for (const p of datos) {
+      const a = p.attributes || {};
+      if (!a.receivedBy || !a.expectedBy || a.receivedAmount == null || a.canceled) continue;
+      out.set(String(p.id), { liquida_el: diaLocal(a.expectedBy), neto: String(a.receivedAmount) });
+    }
+    if (datos.length < TAMANO) return out;
+  }
+  throw new ErrorFudo(`El rango tiene más de ${MAX_PAGINAS * TAMANO} pagos: sincronizá en partes.`);
+}
+
+module.exports = { ventas, liquidaciones, olvidarToken, ErrorFudo };
