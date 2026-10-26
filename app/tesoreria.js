@@ -489,7 +489,8 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     ].sort((a, b) => a.dias - b.dias);
     return { ...l, candidatos: cand };
   });
-  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta) });
+  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
+    sugerencias: await sugerenciasProcesador(cuenta) });
 }));
 
 // Lo ya conciliado, para consultar: de a 100, lo último primero, con búsqueda por concepto o importe.
@@ -537,7 +538,11 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
   await enTransaccion(async c => {
     const { rows: [m] } = await c.query(
       `SELECT m.* FROM fin.conciliacion k JOIN fin.movimiento_tes m ON m.id = k.movimiento_id WHERE k.linea_id = $1 FOR UPDATE OF k`, [linea]);
-    await c.query('DELETE FROM fin.conciliacion WHERE linea_id = $1', [linea]);
+    // Una acreditación en partes concilia varias líneas con patas de la misma transferencia: se deshace entera.
+    const { rows: grupo } = m && m.transferencia_id && m.ticket_pago_id ? await c.query(
+      `SELECT k.linea_id FROM fin.conciliacion k JOIN fin.movimiento_tes x ON x.id = k.movimiento_id WHERE x.transferencia_id = $1`, [m.transferencia_id]) : { rows: [] };
+    const lineas = [...new Set([linea, ...grupo.map(g => Number(g.linea_id))])];
+    await c.query('DELETE FROM fin.conciliacion WHERE linea_id = ANY($1::bigint[])', [lineas]);
     if (!m || !(m.ticket_pago_id || m.gasto)) return;
     const { rows: patas } = await c.query(
       m.transferencia_id ? `SELECT * FROM fin.movimiento_tes WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> 'anulacion'` : 'SELECT * FROM fin.movimiento_tes WHERE id = $1',
@@ -547,7 +552,7 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a)
          VALUES ($1, $2, 'anulacion', $3, $4, $5, $6, $7)`,
         [p.fecha, p.cuenta_id, p.salida, p.entrada, 'Anula (se deshizo la conciliación): ' + (p.concepto || p.tipo), p.transferencia_id, p.id]);
-    await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = NULL WHERE acreditado_linea_id = $1', [linea]);
+    await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = NULL WHERE acreditado_linea_id = ANY($1::bigint[])', [lineas]);
   });
   res.json({ ok: true });
 }));
@@ -653,6 +658,103 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
   res.status(201).json({ ok: true, ...out });
 }));
 
+// Pareos sugeridos (decisión de Fer, 25/10/2026): lo que la conciliación automática no parea porque no coincide
+// exacto, se propone para confirmar con un toque. Nunca se aplica solo.
+//   · división: una venta pagada en partes (2 o 3 ingresos que suman exacto un cobro sin acreditar);
+//   · diferencia: un ingreso que difiere del cobro hasta el 10% o $5.000 (lo que sea mayor); al confirmar se dice
+//     el motivo. Ventana de fechas, la de la automática: del día de la venta hasta 4 días después.
+const TOLERANCIA = P => { const d = P / 10n; return d > 500000n ? d : 500000n; };   // centavos
+async function sugerenciasProcesador(cuenta) {
+  const { rows: [pr] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+  if (!pr) return [];
+  const [{ rows: lineas }, { rows: pagos }] = await Promise.all([
+    pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text FROM fin.extracto_linea l
+                 WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) ORDER BY l.fecha, l.id`, [cuenta]),
+    pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
+                  FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+                  JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                 ORDER BY t.dia`, [pr.id]),
+  ]);
+  const dias = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5, enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= 4;
+  const abs = v => v < 0n ? -v : v, sug = [];
+  for (const p of pagos) {
+    const P = centavos(p.importe), ls = lineas.filter(l => enVentana(l, p) && centavos(l.importe) < P);
+    let mejor = null;
+    const probar = grupo => {
+      if (grupo.reduce((s, l) => s + centavos(l.importe), 0n) !== P) return;
+      const lejos = Math.max(...grupo.map(l => dias(l, p)));
+      if (!mejor || lejos < mejor.lejos || (lejos === mejor.lejos && grupo.length < mejor.lineas.length)) mejor = { lejos, lineas: grupo };
+    };
+    for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
+      probar([ls[i], ls[j]]);
+      if (ls.length <= 40) for (let k = j + 1; k < ls.length; k++) probar([ls[i], ls[j], ls[k]]);
+    }
+    if (mejor) sug.push({ tipo: 'division', pago: p, lineas: mejor.lineas.map(l => l.id) });
+  }
+  const enDivision = new Set(sug.flatMap(x => x.lineas));
+  for (const l of lineas) {
+    if (enDivision.has(l.id)) continue;
+    const L = centavos(l.importe);
+    const p = pagos.filter(p => enVentana(l, p) && L !== centavos(p.importe) && abs(L - centavos(p.importe)) <= TOLERANCIA(centavos(p.importe)))
+      .sort((a, b) => Number(abs(L - centavos(a.importe)) - abs(L - centavos(b.importe))) || dias(l, a) - dias(l, b))[0];
+    if (p) sug.push({ tipo: 'diferencia', pago: p, lineas: [l.id], diferencia: deCentavos(L - centavos(p.importe)) });
+  }
+  return sug;
+}
+
+// Confirmar un pareo sugerido (o armado a mano): el cobro sale entero de "a acreditar" y entra a la cuenta real lo
+// que llegó, una pata por línea, cada una conciliada con la suya. Con diferencia, las patas no son iguales: la
+// diferencia (con su motivo) queda en el concepto.
+r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
+  const b = req.body, pagoId = texto(b.ticket_pago_id, { campo: 'el cobro', requerido: true });
+  const ids = (Array.isArray(b.linea_ids) ? b.linea_ids : []).map(x => numero(x, { campo: 'la línea', requerido: true }));
+  if (!ids.length || ids.length > 5) throw new ErrorUsuario('Elegí entre una y cinco líneas del extracto.');
+  const motivo = texto(b.motivo);
+  await enTransaccion(async c => {
+    const { rows: ls } = await c.query(
+      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a,
+              EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
+         FROM fin.extracto_linea l WHERE l.id = ANY($1::bigint[]) ORDER BY l.fecha, l.id FOR UPDATE`, [ids]);
+    if (ls.length !== new Set(ids).size) throw new ErrorUsuario('Alguna de las líneas no existe.');
+    const cuenta = ls[0].cuenta_id;
+    if (ls.some(l => l.cuenta_id !== cuenta)) throw new ErrorUsuario('Las líneas son de cuentas distintas.');
+    if (ls.some(l => l.conciliada || l.compensa_a)) throw new ErrorUsuario('Alguna de las líneas ya está conciliada.');
+    if (ls.some(l => l.importe.startsWith('-'))) throw new ErrorUsuario('Sólo se acreditan ingresos.');
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
+    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [cuenta]);
+    if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
+    const { rows: [p] } = await c.query(
+      `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+        WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+        FOR UPDATE OF p`, [pagoId, pr.id]);
+    if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador (o sus cobros no se procesaron).');
+    const P = centavos(p.importe), L = ls.reduce((s, l) => s + centavos(l.importe), 0n), D = L - P;
+    if (ls.length > 1 && D !== 0n) throw new ErrorUsuario(`Las líneas suman ${deCentavos(L)} y el cobro es de ${p.importe}: en partes, tienen que sumar exacto.`);
+    if (D !== 0n) {
+      if ((D < 0n ? -D : D) > TOLERANCIA(P)) throw new ErrorUsuario('La diferencia es demasiado grande para parearlos: registrá la línea como movimiento.');
+      if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
+    }
+    const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
+      + (D !== 0n ? ` · diferencia ${deCentavos(D)}: ${motivo}` : '');
+    const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6)`,
+      [ls[0].fecha, p.cuenta_id, p.importe, concepto, tr, p.id]);
+    for (const l of ls) {
+      const { rows: [ent] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6) RETURNING id`,
+        [l.fecha, cuenta, l.importe, concepto, tr, p.id]);
+      await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [l.id, ent.id]);
+    }
+    await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = $1 WHERE id = $2', [ls[0].id, p.id]);
+  });
+  res.status(201).json({ ok: true });
+}));
+
 // Resumen de la cuenta de un procesador: saldo contra el extracto, lo vendido que falta acreditar (por día) y el
 // costo real de cada tipo de operación (lo acreditado contra sus cargos e impuestos).
 async function resumenProcesador(cuenta) {
@@ -677,14 +779,26 @@ async function resumenProcesador(cuenta) {
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
                  WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
                  GROUP BY t.dia, mp.tipo_operacion ORDER BY t.dia, mp.tipo_operacion`, [pr.id]),
-    pool.query(`WITH ac AS (
+    // Costo de cada cobro acreditado: los gastos conciliados de la misma operación del procesador (la de sus líneas
+    // de acreditación), por el número de operación del extracto y no por el movimiento: así cuentan también los
+    // cargos asentados antes de confirmar un pareo sugerido. El IVA de un cargo nombra al cargo, no a la operación.
+    pool.query(`WITH acl AS (
+                  SELECT DISTINCT e.ticket_pago_id AS pago, l.operacion FROM fin.movimiento_tes e
+                    JOIN fin.conciliacion k ON k.movimiento_id = e.id JOIN fin.extracto_linea l ON l.id = k.linea_id
+                   WHERE e.cuenta_id = $1 AND e.gasto IS NULL AND e.ticket_pago_id IS NOT NULL),
+                ap AS (
                   SELECT p.id, p.importe, mp.tipo_operacion FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
-                    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.extracto_linea l ON l.id = p.acreditado_linea_id
-                   WHERE l.cuenta_id = $1),
+                    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id WHERE p.id IN (SELECT pago FROM acl)),
+                gl AS (
+                  SELECT l.id, l.operacion, substring(l.concepto from '([0-9]{6,})') AS numero, m.gasto, m.salida, COALESCE(m.iva, 0) AS iva
+                    FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id JOIN fin.movimiento_tes m ON m.id = k.movimiento_id
+                   WHERE l.cuenta_id = $1 AND m.gasto IS NOT NULL),
+                gop AS (
+                  SELECT gl.*, COALESCE((SELECT c.operacion FROM gl c WHERE gl.gasto = 'iva_credito' AND c.numero = gl.operacion AND c.gasto <> 'iva_credito' LIMIT 1), gl.operacion) AS op
+                    FROM gl),
                 g AS (
-                  SELECT ac.tipo_operacion, mt.gasto, mt.salida, COALESCE(mt.iva, 0) AS iva
-                    FROM fin.movimiento_tes mt JOIN ac ON ac.id = mt.ticket_pago_id
-                   WHERE mt.cuenta_id = $1 AND mt.gasto IS NOT NULL)
+                  SELECT DISTINCT ON (gop.id) gop.id, ap.tipo_operacion, gop.gasto, gop.salida, gop.iva
+                    FROM gop JOIN acl ON acl.operacion = gop.op JOIN ap ON ap.id = acl.pago)
                 SELECT t.tipo_operacion, t.pagos, t.bruto::text,
                        COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'comision'), 0)::text AS comision,
                        (COALESCE(SUM(g.iva) FILTER (WHERE g.gasto = 'comision'), 0) + COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'iva_credito'), 0))::text AS iva,
@@ -692,7 +806,7 @@ async function resumenProcesador(cuenta) {
                        COALESCE(SUM(g.salida) FILTER (WHERE g.gasto = 'retencion'), 0)::text AS retencion,
                        COALESCE(SUM(g.salida), 0)::text AS costo,
                        round(COALESCE(SUM(g.salida), 0) / NULLIF(t.bruto, 0) * 100, 2)::text AS costo_pct
-                  FROM (SELECT tipo_operacion, COUNT(*)::int AS pagos, SUM(importe) AS bruto FROM ac GROUP BY tipo_operacion) t
+                  FROM (SELECT tipo_operacion, COUNT(*)::int AS pagos, SUM(importe) AS bruto FROM ap GROUP BY tipo_operacion) t
                   LEFT JOIN g ON g.tipo_operacion = t.tipo_operacion
                  GROUP BY t.tipo_operacion, t.pagos, t.bruto ORDER BY t.bruto DESC`, [cuenta]),
     pool.query(`SELECT COUNT(*)::int AS movimientos, COALESCE(SUM(salida), 0)::text AS importe FROM fin.movimiento_tes

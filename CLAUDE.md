@@ -417,6 +417,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cerrado, como respaldo (`GET /fin/conciliacion/hechas`, de a 100 y con búsqueda). Importar un extracto en la
   cuenta de un procesador concilia en el mismo paso. Los movimientos sin conciliar sólo cuentan desde el inicio de
   los extractos y sin los anulados.
+  **Pareos sugeridos** (decisión de Fer, 26/10/2026; nunca automáticos, se confirman con un toque): una venta
+  pagada en partes (2 o 3 ingresos pendientes que suman exacto un cobro) y un ingreso que difiere del cobro hasta
+  el 10% o $5.000 (el mayor), con motivo obligatorio. `POST /fin/conciliacion/acreditar`: el cobro sale entero de
+  "a acreditar" y entra lo que llegó, una pata por línea (con diferencia, las patas no son iguales y el motivo
+  queda en el concepto). Deshacer una parte deshace el grupo. El costo por tipo ata los gastos al cobro por el
+  número de operación del extracto (no por el movimiento), así cuentan también los cargos asentados antes de
+  confirmar. Las propinas de Fudo (`tips`) siguen sin leerse (Fer: por ahora no).
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo

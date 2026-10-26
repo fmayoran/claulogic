@@ -29,6 +29,11 @@
   .pend .acc{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .pend .acc button{font-size:.85rem;padding:5px 12px;}
   .pend .acc input{flex:1 1 220px;max-width:340px;padding:6px 10px;}
+  /* Pareo sugerido: se confirma con un toque */
+  .sug{grid-column:1 / -1;background:var(--sel);border-radius:10px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:.9rem;}
+  .sug .t{flex:1 1 260px;} .sug .t b{font-weight:650;} .sug input{flex:1 1 180px;max-width:260px;padding:6px 10px;}
+  .sug button{font-size:.85rem;padding:5px 12px;}
+  .parte{grid-column:1 / -1;color:var(--mut);font-size:.84rem;}
   .vacio-ok{text-align:center;padding:28px 10px;color:var(--mut);}
   .vacio-ok b{display:block;color:var(--sube);font-size:1.1rem;margin-bottom:4px;}
   /* Resumen del procesador */
@@ -225,8 +230,34 @@ function pintarResolver(d) {
     el('b', { textContent: d.conciliado.lineas ? 'Nada para resolver' : 'Nada para resolver todavía' }),
     d.conciliado.lineas ? 'Todo lo importado está conciliado. El detalle queda abajo, en "Lo conciliado".' : 'Importá el extracto de la cuenta para empezar.')]));
 }
+// Pareo sugerido para una línea (de una venta pagada en partes o con una diferencia chica): se confirma acá.
+const sugDe = id => (datos.sugerencias || []).find(x => x.lineas.includes(id));
+function cajaSugerencia(l, x) {
+  const p = x.pago, venta = `la venta #${p.id_externo} del ${fecha(p.dia)} (${TIPO_OP_C[p.tipo_operacion] || p.tipo_operacion}, ${pesos(p.importe)})`;
+  const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
+  const confirmar = async body => {
+    ok.disabled = true;
+    try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: p.id, linea_ids: x.lineas, ...body } }); msg(`Acreditada la venta #${p.id_externo}.`, 'ok', '#msgA'); await cargar(); }
+    catch (e) { alert(e.message); ok.disabled = false; }
+  };
+  if (x.tipo === 'division') {
+    const otras = x.lineas.filter(id => id !== l.id).map(id => datos.lineas.find(y => y.id === id)).filter(Boolean);
+    ok.onclick = () => confirmar({});
+    return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+      `es ${venta}, pagada en ${x.lineas.length} partes: esta y ` + otras.map(o => `${pesos(o.importe)} del ${fecha(o.fecha)}`).join(' y ') + '.'), ok);
+  }
+  const mas = !x.diferencia.startsWith('-'), dif = pesos(x.diferencia.replace('-', ''));
+  const motivo = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
+  ok.onclick = () => motivo.value.trim() ? confirmar({ motivo: motivo.value.trim() }) : (motivo.focus(), msg('Indicá el motivo de la diferencia.', 'mal', '#msgA'));
+  return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+    `es ${venta}; entró ${dif} ${mas ? 'más' : 'menos'}.`), motivo, ok);
+}
 function filaLinea(l) {
   const pp = partes(l.concepto), acc = el('div', { className: 'acc' });
+  const x = sugDe(l.id);
+  // De una venta en partes, la sugerencia va en la primera línea; las demás lo dicen.
+  const sug = !x ? '' : x.tipo === 'division' && x.lineas[0] !== l.id
+    ? el('div', { className: 'parte', textContent: `Es parte de la venta #${x.pago.id_externo} (la sugerencia está en la primera parte).` }) : cajaSugerencia(l, x);
   const k = l.candidatos[0];
   if (k) acc.append(el('button', { type: 'button', className: 'prim', textContent: k.tipo === 'cheque' ? 'Es el débito del ' + k.descripcion : `Conciliar con: ${k.descripcion} (${fecha(k.fecha)})`,
     onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) }));
@@ -242,7 +273,7 @@ function filaLinea(l) {
   return el('div', { className: 'pend' },
     el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
       el('small', { textContent: [pp.numero && 'Nº ' + pp.numero, l.referencia].filter(Boolean).join(' · ') })),
-    el('div', { className: 'imp' }, conSigno(l.importe)), acc);
+    el('div', { className: 'imp' }, conSigno(l.importe)), sug, acc);
 }
 function filaMov(m) {
   return el('div', { className: 'pend' },
