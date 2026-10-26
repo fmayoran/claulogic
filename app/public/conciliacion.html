@@ -71,17 +71,18 @@
     </div>
     <span class="msg" id="msgA"></span>
   </section>
-  <input type="file" id="archivo" accept=".csv,.txt,text/csv" hidden>
+  <input type="file" id="archivo" accept=".csv,.txt,text/csv" multiple hidden>
 
   <section class="card" id="importar" hidden style="margin:0 0 20px">
     <div class="card-cab"><h2 id="iTitulo">Importar extracto</h2></div>
-    <p class="cap">Revisá qué es cada columna: hace falta la fecha y un importe con signo, o débito y crédito por separado. Con la columna de saldo se
+    <p class="cap" id="capCsv">Revisá qué es cada columna: hace falta la fecha y un importe con signo, o débito y crédito por separado. Con la columna de saldo se
       controla contra el saldo del extracto (y, si la cuenta no tiene movimientos, el saldo inicial queda como apertura).</p>
-    <div class="barra">
+    <p class="ayuda" id="formato" hidden></p>
+    <div class="barra" id="opcCsv">
       <label>Decimales<select id="decimal"><option value=",">coma (1.234,56)</option><option value=".">punto (1,234.56)</option></select></label>
       <label class="check"><input type="checkbox" id="encabezado" checked> La primera fila es el encabezado</label>
     </div>
-    <div class="tabla-wrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
+    <div class="tabla-wrap" id="mapaWrap"><table class="datos mapa"><thead id="mHead"></thead><tbody id="mBody"></tbody></table></div>
     <div class="acciones"><button type="button" class="prim" id="importarOk">Importar</button><button type="button" id="importarNo">Cancelar</button><span class="msg" id="msgI"></span></div>
   </section>
 
@@ -134,14 +135,86 @@ function adivinar(n) {
   if (/refer|comprob|n[uú]mero|obs|objs/.test(n)) return 'referencia';
   return '';
 }
+// Mercado Pago. El resumen de cuenta (account_statement) es el extracto: trae los saldos, los pagos y las
+// transferencias, pero cada liquidación de una venta viene por el neto. El reporte de liquidaciones (settlement) tiene,
+// por operación, el bruto, la comisión y los impuestos. Subidos juntos, cada liquidación del resumen se abre en cobro
+// (bruto), comisión (IVA incluido) e impuesto a los débitos y créditos, atados por el número de operación, y las tres
+// partes suman exacto el neto. El de liquidaciones solo no se importa: el resumen trae esas mismas operaciones y se
+// duplicarían. Los importes se pasan a punto decimal ("49.216,00" -> "49216.00"; los de liquidaciones ya lo traen).
+const MP_MEDIO = { available_money: 'dinero en cuenta', account_money: 'dinero en cuenta', bank_transfer: 'transferencia', debit_card: 'débito',
+  credit_card: 'crédito', prepaid_card: 'prepaga', digital_currency: 'Mercado Crédito' };
+const aPunto = v => { let s = String(v ?? '').trim(); if (/,\d{1,2}$/.test(s) || /\.\d{3}(,|$)/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); return s; };
+const esCero = v => !v || Number(v) === 0;
+function liquidacionesMP(filas) {
+  const enc = (filas[0] || []).map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n);
+  if (!['SOURCE_ID', 'TRANSACTION_AMOUNT', 'FEE_AMOUNT', 'TAXES_AMOUNT'].every(n => col(n) >= 0)) return null;
+  const v = (f, n) => col(n) >= 0 ? String(f[col(n)] ?? '').trim() : '', m = new Map();
+  for (const f of filas.slice(1)) {
+    const id = v(f, 'SOURCE_ID'); if (!id) continue;
+    m.set(id, { bruto: aPunto(v(f, 'TRANSACTION_AMOUNT')), fee: aPunto(v(f, 'FEE_AMOUNT')), imp: aPunto(v(f, 'TAXES_AMOUNT')), real: aPunto(v(f, 'REAL_AMOUNT')),
+      medio: MP_MEDIO[v(f, 'PAYMENT_METHOD_TYPE')] || v(f, 'PAYMENT_METHOD_TYPE'), canal: v(f, 'SUB_UNIT') });
+  }
+  return m;
+}
+function resumenMP(filas, liq) {
+  const fila0 = f => String((f || [])[0] ?? '').trim().toUpperCase();
+  const iSaldos = filas.findIndex(f => fila0(f) === 'INITIAL_BALANCE'), iMov = filas.findIndex(f => fila0(f) === 'RELEASE_DATE');
+  if (iMov < 0) return null;
+  const enc = filas[iMov].map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n), c = (f, n) => String(f[col(n)] ?? '').trim();
+  const iso = v => { const m = String(v).trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(v).trim(); };
+  const movs = filas.slice(iMov + 1).filter(f => c(f, 'RELEASE_DATE'));
+  const out = []; let abiertas = 0, netas = 0;
+  for (const f of movs) {
+    const fecha = iso(c(f, 'RELEASE_DATE')), tipo = c(f, 'TRANSACTION_TYPE').replace(/\s+/g, ' '), id = c(f, 'REFERENCE_ID'), neto = aPunto(c(f, 'TRANSACTION_NET_AMOUNT'));
+    if (esCero(neto)) continue;
+    const l = liq && liq.get(id), k = x => centavos(x || '0');
+    if (l && !esCero(l.bruto) && k(l.real) === k(neto) && k(l.bruto) + k(l.fee) + k(l.imp) === k(neto)) {
+      out.push({ fecha, importe: l.bruto, referencia: l.canal,
+        concepto: Number(l.bruto) > 0 ? `Cobro Mercado Pago ${[l.canal, l.medio].filter(Boolean).join(' · ')} - ${id}` : `${tipo} - ${id}` });
+      if (!esCero(l.fee)) out.push({ fecha, importe: l.fee, referencia: '#' + id, concepto: `Comisión Mercado Pago - ${id}` });
+      if (!esCero(l.imp)) out.push({ fecha, importe: l.imp, referencia: '#' + id, concepto: `Impuesto débitos y créditos Mercado Pago - ${id}` });
+      abiertas++;
+    } else {
+      // "Pago de impuestos <destinatario>" es el impuesto a los débitos y créditos de la transferencia de al lado.
+      const imp = /^pago de impuestos/i.test(tipo);
+      out.push({ fecha, importe: neto, referencia: imp ? '#' + id : '', concepto: imp ? `Impuesto débitos y créditos · ${tipo} - ${id}` : `${tipo} - ${id}` });
+      if (/^liquidaci/i.test(tipo)) netas++;
+    }
+  }
+  let saldos = null;
+  if (iSaldos >= 0 && filas[iSaldos + 1] && movs.length) {
+    const e = filas[iSaldos].map(x => String(x).trim().toUpperCase()), v = filas[iSaldos + 1];
+    saldos = { inicial: aPunto(v[e.indexOf('INITIAL_BALANCE')]), final: aPunto(v[e.indexOf('FINAL_BALANCE')]) };
+    out.unshift({ fecha: iso(c(movs[0], 'RELEASE_DATE')), concepto: 'Saldo inicial', saldo: saldos.inicial, importe: '' });
+    out.push({ fecha: iso(c(movs.at(-1), 'RELEASE_DATE')), concepto: 'Saldo final', saldo: saldos.final, importe: '' });
+  }
+  return { filas: out, movimientos: movs.length, abiertas, netas, saldos };
+}
 $('#importarBtn').onclick = () => $('#archivo').click();
 $('#archivo').onchange = async () => {
-  const a = $('#archivo').files[0]; if (!a) return;
-  csv = { nombre: a.name, filas: parsearCSV(await leerTexto(a)) };
-  pintarMapa(); $('#importar').hidden = false; $('#importar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const archivos = [...$('#archivo').files]; if (!archivos.length) return;
+  const leidos = await Promise.all(archivos.map(async a => ({ nombre: a.name, filas: parsearCSV(await leerTexto(a)) })));
+  const liqA = leidos.find(x => liquidacionesMP(x.filas)), resA = leidos.find(x => x !== liqA && resumenMP(x.filas, null));
+  let aviso = '';
+  if (liqA || resA) {
+    const liq = liqA && liquidacionesMP(liqA.filas), res = resA && resumenMP(resA.filas, liq);
+    csv = { nombre: [resA, liqA].filter(Boolean).map(x => x.nombre).join(' + '), mp: res || { solo_liquidaciones: true } };
+    if (!res) aviso = 'Es el reporte de liquidaciones de Mercado Pago. Subilo junto con el resumen de cuenta (account_statement): elegí los dos archivos a la vez. '
+      + 'El resumen trae los saldos, los pagos y las transferencias; las liquidaciones, el detalle de cada cobro.';
+    else aviso = `Formato reconocido: resumen de cuenta de Mercado Pago, ${res.movimientos} movimiento(s)`
+      + (res.saldos ? `, saldo inicial ${pesos(res.saldos.inicial)} y final ${pesos(res.saldos.final)}` : '') + '. '
+      + (liq ? `Con el reporte de liquidaciones, ${res.abiertas} cobro(s) se abren en bruto, comisión e impuesto.`
+             + (res.netas ? ` ${res.netas} liquidación(es) no están en ese reporte y quedan por el neto.` : '')
+           : 'Sin el reporte de liquidaciones, cada cobro queda por el neto y no se parea exacto con las ventas: conviene elegir los dos archivos juntos.');
+  } else csv = leidos[0];
+  $('#formato').hidden = !csv.mp; $('#formato').textContent = aviso;
+  $('#opcCsv').hidden = $('#mapaWrap').hidden = $('#capCsv').hidden = !!csv.mp;
+  $('#importarOk').disabled = !!(csv.mp && csv.mp.solo_liquidaciones);
+  if (csv.mp) $('#iTitulo').textContent = `Importar ${csv.nombre}`; else pintarMapa();
+  $('#importar').hidden = false; $('#importar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 $('#encabezado').onchange = () => csv && pintarMapa();
-$('#importarNo').onclick = () => { csv = null; $('#archivo').value = ''; $('#importar').hidden = true; msg('', '', '#msgI'); };
+$('#importarNo').onclick = () => { csv = null; $('#archivo').value = ''; $('#importar').hidden = true; $('#importarOk').disabled = false; msg('', '', '#msgI'); };
 function pintarMapa() {
   const enc = $('#encabezado').checked, filas = csv.filas, cols = Math.max(...filas.map(f => f.length));
   $('#iTitulo').textContent = `Importar ${csv.nombre} · ${filas.length - (enc ? 1 : 0)} filas`;
@@ -152,13 +225,17 @@ function pintarMapa() {
   $('#mBody').replaceChildren(...filas.slice(enc ? 1 : 0, (enc ? 1 : 0) + 4).map(f => el('tr', {}, ...Array.from({ length: cols }, (_, i) => td(f[i] || '')))));
 }
 $('#importarOk').onclick = async () => {
-  const mapa = {}; $$('#mHead select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
-  if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
-    return msg('Falta indicar la fecha y el importe (o débito y crédito).', 'mal', '#msgI');
-  const filas = csv.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(Object.entries(mapa).map(([k, i]) => [k, f[i] ?? ''])));
+  let filas, decimal = $('#decimal').value;
+  if (csv.mp) { filas = csv.mp.filas; decimal = '.'; }
+  else {
+    const mapa = {}; $$('#mHead select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
+    if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
+      return msg('Falta indicar la fecha y el importe (o débito y crédito).', 'mal', '#msgI');
+    filas = csv.filas.slice($('#encabezado').checked ? 1 : 0).map(f => Object.fromEntries(Object.entries(mapa).map(([k, i]) => [k, f[i] ?? ''])));
+  }
   $('#importarOk').disabled = true; msg('Importando…', '', '#msgI');
   try {
-    const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: cuenta(), archivo: csv.nombre, decimal: $('#decimal').value, filas } });
+    const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: cuenta(), archivo: csv.nombre, decimal, filas } });
     $('#importarNo').click();
     const txt = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '') + '.';
     // En la cuenta de un procesador se concilia en el mismo paso.

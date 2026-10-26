@@ -570,7 +570,7 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
 const GASTOS = [
   ['iva_credito', /AR_IVA|cobro\s+iva|iva\s+\d+%?\s*(por|s\/)/i],
   ['imp_debitos_creditos', /AR_DCB|deb\/cred|d[eé]b(itos)?\s*y\s*cr[eé]d|ley\s*25\.?413/i],
-  ['retencion', /AR_IIBB|AR_GAN|retenci[oó]n\s+(de\s+)?(iibb|ingresos\s+brutos|ganancias|iva)|percepci[oó]n/i],
+  ['retencion', /AR_IIBB|AR_GAN|retenci[oó]n\s+(de\s+)?(iibb|ingresos\s+brutos|ganancias|iva)|retenci[oó]n\s+de\s+impuestos|percepci[oó]n/i],
   ['comision', /cargo\s+de|gasto\s+transacci|comisi[oó]n|arancel/i],
 ];
 const clasificar = l => (GASTOS.find(([, re]) => re.test(`${l.concepto} ${l.referencia}`)) || [])[0] || null;

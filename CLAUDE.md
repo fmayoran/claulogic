@@ -424,6 +424,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   queda en el concepto). Deshacer una parte deshace el grupo. El costo por tipo ata los gastos al cobro por el
   número de operación del extracto (no por el movimiento), así cuentan también los cargos asentados antes de
   confirmar. Las propinas de Fudo (`tips`) siguen sin leerse (Fer: por ahora no).
+  **Mercado Pago**: se importan juntos (selección múltiple) el **resumen de cuenta** (account_statement: saldo
+  inicial y final, y cada movimiento por su neto, con destinatario en transferencias y pagos) y el reporte de
+  **liquidaciones** (settlement: por operación, bruto, comisión e impuestos). El resumen es el extracto; cada
+  "Liquidación de dinero" se busca por su número en las liquidaciones y se abre en cobro (bruto), comisión (IVA
+  incluido) e impuesto a los débitos y créditos, que suman exacto el neto. "Pago de impuestos <destinatario>" es el
+  impuesto a los débitos y créditos de una transferencia enviada (0,6%), no una retención. El de liquidaciones solo
+  no se importa (se duplicaría al llegar el resumen); el resumen solo sí, pero los cobros quedan por el neto.
+  Verificado con los de Fer de octubre: QR y transferencia 1,57%, débito 2,23%, crédito 7,85%.
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
 - Pendiente: sincronización automática programada (hoy es a pedido), modificadores de Fudo
