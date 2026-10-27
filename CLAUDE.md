@@ -240,6 +240,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `fin.anular_orden_pago` revierte todo; no se puede si un cheque propio ya se debitó. Una factura con
   pagos registrados no se anula. Los números de OP pueden tener huecos (un borrador borrado consume
   el suyo).
+- **Cajas y bancos es un tablero** (pedido de Fer, 27/10/2026; `tesoreria.html`): arriba Disponible (bancos, incluidas las
+  cuentas donde depositan los procesadores, y cajas de las sedes), Por acreditar y Efectivo a rendir; después cada grupo con
+  sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
+  cobros procesados sin acreditar ni en lote confirmado), y el efectivo de cada punto de venta. `/fin/cuentas` dice para qué
+  es cada cuenta (`procesador_pendiente`, `procesador_deposita`, `punto_venta`). Tocar una cuenta abre sus movimientos.
+- **Sin cheques de terceros por ahora** (decisión de Fer, 27/10/2026; migración 20261112): la cartera no se borra (la usan las
+  funciones de cheques) sino que queda **inactiva**, y `fin.cartera()` rechaza recibir, depositar o endosar mientras lo esté.
+  Cheques muestra sólo los propios y la orden de pago no ofrece "cheque de tercero". Para volver a usarla se activa desde la
+  base (`UPDATE fin.cuenta SET activa = true WHERE tipo = 'cartera'`).
 - **Cheques** (`fin.cheque`): propio emitido → debitado (recién ahí sale del banco; el saldo proyectado
   lo descuenta antes); tercero en cartera → endosado o depositado. CUIT del librador validado.
 - **Conciliación**: extracto en **CSV** (sin Excel: la librería usual de npm tiene vulnerabilidades),
@@ -386,7 +395,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cubierto es lo vendido en las ventas con personas sobre esas personas (para llevar y delivery no traen
   cubiertos). Sólo lectura: `GET /pos/ventas/resumen` (con `anterior`), `/pos/ventas` (filtros `medio`, `tipo`,
   `hora`, `mozo`; máximo 1.000) y `/pos/ventas/:id`, con el alcance por sede de las importaciones. Horas en la de
-  Buenos Aires. `procesar-ventas.html` tiene importar, días y cobros, importaciones y consumo.
+  Buenos Aires. `procesar-ventas.html` tiene importar, días y cobros, importaciones y consumo; **primero los totales y el
+  detalle a pedido** (pedido de Fer, 27/10/2026): al traer, "Lo que se trajo" en cifras y qué pasó con cada día plegado; en
+  Días, las cifras, sólo los días para revisar y los cobrados plegados; el detalle de una importación, plegado.
 - **Gráficos de los tableros**: `graficos.js` (`Graf.area`, `columnas`, `dona`, `mini`, `ranking`, `variacion`) y
   `graficos.css` (tarjetas, cifras, botones de período, chips, panel lateral `dialog.panel-lado`; ojo: la clase
   `lateral` es la barra del menú). Paleta categórica de 6 en orden fijo validada para claro y oscuro contra los
@@ -550,7 +561,7 @@ Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, co
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
 **Interfaz.** `comun.js` arma la navegación de todas las pantallas. **El menú va por proceso** (decisión de Fer,
-27/10/2026): Inicio, Ingresos (Proceso de ingresos, Ventas), Compras (Proceso de abastecimiento, Proveedores, Cuenta
+27/10/2026): Inicio, Ingresos (Tablero de ventas, Proceso de ingresos), Compras (Proceso de abastecimiento, Proveedores, Cuenta
 corriente), Tesorería (Cajas y bancos, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
 y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Almacenes, Unidades productivas, Usuarios) al final.

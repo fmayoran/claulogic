@@ -130,7 +130,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
 const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
-  ['Ingresos', [['ingresos.html', 'Proceso de ingresos'], ['ventas.html', 'Ventas']]],
+  ['Ingresos', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos']]],
   ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente']]],
   ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],

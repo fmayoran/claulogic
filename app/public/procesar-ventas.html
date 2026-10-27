@@ -15,6 +15,9 @@
   .alertas li.bloquea, .alertas li.diferencia{border-color:var(--mal);background:var(--mal-bg);}
   .alertas li.aviso{border-color:var(--aviso);background:var(--aviso-bg);}
   .alertas li.ok{border-color:var(--acento);background:var(--ok-bg);}
+  /* Primero los totales; el detalle, a pedido. */
+  details.ver > summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.92rem;margin:10px 0 8px;}
+  .res-import{margin:0 0 16px;}
 </style>
 </head>
 <body>
@@ -46,15 +49,22 @@
     <span class="msg" id="msgI"></span>
   </fieldset>
 
+  <div id="resImport" class="res-import"></div>
+
   <h2>Días</h2>
   <p class="ayuda">Lo financiero se controla por día. Los días sin observaciones (medios asignados, lo cobrado igual a lo vendido y sin
-    ventas abiertas) se procesan solos al traer las ventas, si quien las trae es de finanzas. Los que tienen alguna quedan acá para revisar:
+    ventas abiertas) se procesan solos al traer las ventas, si quien las trae es de finanzas. Abajo quedan sólo los que tienen algo para revisar:
     se corrigen en el detalle del día y, si lo cobrado no coincide con lo vendido, se procesan con un motivo.</p>
+  <div class="cifras" id="diasCifras"></div>
   <div class="acciones" id="accListos" hidden><button type="button" class="prim" id="procListos"></button></div>
   <div id="resListos"></div>
-  <div class="tabla-wrap"><table class="datos movil" id="tDias">
+  <div class="tabla-wrap" id="wDias"><table class="datos movil" id="tDias">
     <thead><tr><th>Día</th><th>Ventas</th><th>Vendido</th><th>Cobrado</th><th>Estado</th></tr></thead>
     <tbody id="dias"></tbody></table></div>
+  <details class="ver" id="verCobrados" hidden><summary id="verCobradosT"></summary>
+    <div class="tabla-wrap"><table class="datos movil" id="tDiasOk">
+      <thead><tr><th>Día</th><th>Ventas</th><th>Vendido</th><th>Cobrado</th><th>Estado</th></tr></thead>
+      <tbody id="diasOk"></tbody></table></div></details>
 
   <section id="jornada" hidden style="margin-top:18px">
     <h2 id="jTitulo"></h2>
@@ -86,11 +96,12 @@
       <button type="button" class="peligro" id="anular" hidden>Anular importación</button>
       <span class="msg" id="msgD"></span>
     </div>
+    <details class="ver"><summary>Ver artículos, cobros por medio y lo procesado</summary>
     <div class="secciones" style="display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
       <div><h3>Artículos vendidos</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Artículo</th><th class="num">Cantidad</th><th>Receta</th></tr></thead><tbody id="dArt"></tbody></table></div></div>
       <div><h3>Cobros por medio</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Medio</th><th class="num">Importe</th><th>Cuenta</th></tr></thead><tbody id="dMed"></tbody></table></div>
         <h3>Procesado</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Cuándo</th><th>Qué</th><th>Por</th></tr></thead><tbody id="dProc"></tbody></table></div></div>
-    </div>
+    </div></details>
     <div id="tickets" hidden><h3>Tickets</h3><div class="tabla-wrap"><table class="datos"><thead><tr><th>Ticket</th><th>Cerrado</th><th>Artículos</th><th>Pagos</th><th class="num">Total</th></tr></thead><tbody id="dTk"></tbody></table></div></div>
   </section>
 </main>
@@ -165,7 +176,7 @@ $('#importar').onclick = async () => {
       archivo: archivos.ventas.nombre, decimal: $('#decimal').value, ventas: v.filas, pagos: p.filas, mapeo: { ventas: v.mapeo, pagos: p.mapeo } } });
     resultado(d);
     archivos = { ventas: null, pagos: null }; $('#archVentas').value = $('#archPagos').value = ''; pintarMapa('ventas'); pintarMapa('pagos');
-    await cargarIntegraciones(); await Promise.all([cargar(d.id), cargarDias()]);
+    await cargarIntegraciones(); await Promise.all([cargar(), cargarDias()]);
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
   finally { $('#importar').disabled = false; }
 };
@@ -173,7 +184,7 @@ $('#sincronizar').onclick = async () => {
   $('#sincronizar').disabled = true; msg('Consultando Fudo…', '', '#msgI');
   try {
     const d = await api(`pos/integraciones/${integ.id}/sincronizar`, { method: 'POST', body: { desde: $('#desde').value, hasta: $('#hasta').value } });
-    resultado(d); await Promise.all([cargar(d.id), cargarDias()]);
+    resultado(d); await Promise.all([cargar(), cargarDias()]);
     if (d.abiertas) msg(`${$('#msgI').textContent} Había ${d.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.`, 'aviso', '#msgI');
   } catch (e) { msg(e.message, 'mal', '#msgI'); }
   finally { $('#sincronizar').disabled = false; }
@@ -181,10 +192,18 @@ $('#sincronizar').onclick = async () => {
 const resultado = d => {
   msg(d.nuevos ? `Importados ${d.nuevos} ticket(s)` + (d.repetidos ? `; ${d.repetidos} ya estaban.` : '.')
     : `No había nada nuevo: los ${d.repetidos} ticket(s) ya estaban importados.`, d.nuevos ? 'ok' : '', '#msgI');
-  pintarProcesados(d.cobros);
+  // Los totales de lo que se trajo; qué pasó con cada día, a pedido.
+  const c = d.cobros, cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n, style: 'display:block;color:var(--mut);font-size:.78rem' }) : '');
+  const cobrado = c ? c.procesados.reduce((t, p) => t + centavos(p.importe || '0'), 0n) : 0n;
+  $('#resImport').replaceChildren(el('h2', { textContent: 'Lo que se trajo' + (d.desde ? ` (del ${fecha(d.desde)} al ${fecha(d.hasta)})` : '') }),
+    el('div', { className: 'cifras' }, cifra('Tickets nuevos', String(d.nuevos || 0), d.repetidos ? `${d.repetidos} ya estaban` : null),
+      c ? cifra('Días cobrados solos', String(c.procesados.length), pesos(deCentavos(cobrado))) : cifra('Cobros', 'sin procesar', 'los procesa finanzas'),
+      c ? cifra('Días para revisar', String(c.revisar.length), c.revisar.length ? 'abajo, en Días' : 'ninguno') : '',
+      d.abiertas ? cifra('Ventas abiertas', String(d.abiertas), 'volvé a traer el día') : ''));
+  pintarProcesados(c);
   const l = d.lotes;
   if (l && l.lotes.length) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'ok' },
-    `Lotes liquidados: ${l.lotes.map(x => `${x.procesador} ${fecha(x.fecha).slice(0, 5)} (${pesos(x.neto)})`).join(', ')}. El extracto del banco los confirma.`)));
+    `Lotes esperando el depósito: ${l.lotes.map(x => `${x.procesador} ${fecha(x.fecha).slice(0, 5)} (${pesos(x.neto)})`).join(', ')}. Se acreditan al conciliar el extracto del banco.`)));
   if (l && l.sin_cuenta.length) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' },
     `Hay lotes de ${l.sin_cuenta.join(', ')} listos para liquidar, pero falta la cuenta donde deposita (Medios de pago, "Deposita en").`)));
   if (d.aviso_liquidacion) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' }, 'No se pudo traer la liquidación de los pagos: ' + d.aviso_liquidacion)));
@@ -193,12 +212,13 @@ const resultado = d => {
 function pintarProcesados(c) {
   if (!c) return $('#resListos').replaceChildren();
   const total = c.procesados.reduce((s, p) => s + Number(p.importe), 0);
-  $('#resListos').replaceChildren(el('ul', { className: 'alertas' },
+  const n = c.procesados.length + c.revisar.length;
+  $('#resListos').replaceChildren(el('details', { className: 'ver' }, el('summary', { textContent: n ? `Ver qué pasó con cada día (${n})` : 'Ver el detalle' }), el('ul', { className: 'alertas' },
     c.procesados.length ? el('li', { className: 'ok' }, `Cobros procesados: ${c.procesados.length} día(s) por ${pesos(String(total))} (`
       + c.procesados.map(p => fecha(p.dia).slice(0, 5)).join(', ') + ').') : '',
     ...c.revisar.map(r => el('li', { className: r.estado === 'pendientes' || r.estado === 'diferencia' ? 'bloquea' : 'aviso' },
       el('strong', { textContent: `${fecha(r.dia)}: ` }), r.motivo || 'para revisar.')),
-    !c.procesados.length && !c.revisar.length ? el('li', {}, 'No había cobros por procesar.') : ''));
+    !c.procesados.length && !c.revisar.length ? el('li', {}, 'No había cobros por procesar.') : '')));
 }
 $('#procListos').onclick = async () => {
   $('#procListos').disabled = true;
@@ -281,15 +301,24 @@ const ESTADO_DIA = { pendientes: ['con pendientes', 'mal'], diferencia: ['difere
 let diaActual = null;
 async function cargarDias() {
   const { jornadas } = await api('pos/jornadas?integracion=' + integ.id);
-  filas($('#dias'), jornadas, j => {
+  const revisar = jornadas.filter(j => j.estado !== 'cobrado' || j.abiertas), cobrados = jornadas.filter(j => !revisar.includes(j));
+  const cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n, style: 'display:block;color:var(--mut);font-size:.78rem' }) : '');
+  const sum = (xs, k) => pesos(deCentavos(xs.reduce((t, j) => t + centavos(j[k] || '0'), 0n)));
+  $('#diasCifras').replaceChildren(...(jornadas.length ? [cifra('Días importados', String(jornadas.length), `del ${fecha(jornadas.at(-1).dia)} al ${fecha(jornadas[0].dia)}`),
+    cifra('Vendido', sum(jornadas, 'vendido')), cifra('Cobrados', String(cobrados.length), sum(cobrados, 'cobrado')),
+    cifra('Para revisar', String(revisar.length), revisar.length ? sum(revisar, 'vendido') + ' vendido' : 'ninguno')] : []));
+  const fila = j => {
     const [et, ec] = ESTADO_DIA[j.estado] || [j.estado, ''];
     const tr = el('tr', { className: 'clic' + (j.dia === diaActual ? ' sel' : '') }, td(fecha(j.dia)),
       td(String(j.ventas) + (j.anuladas ? ` (${j.anuladas} anul.)` : '')), td(pesos(j.vendido)), td(pesos(j.cobrado)),
       el('td', {}, el('span', { className: 'tag ' + ec, textContent: et }), j.abiertas ? el('span', { className: 'tag aviso', textContent: ` ${j.abiertas} abiertas` }) : ''));
     tr.onclick = () => abrirDia(j.dia);
     return tr;
-  }, 'Todavía no hay ventas importadas de este punto de venta.', 5);
-  etiquetarTabla($('#tDias'));
+  };
+  filas($('#dias'), revisar, fila, jornadas.length ? 'Nada para revisar: todos los días están cobrados.' : 'Todavía no hay ventas importadas de este punto de venta.', 5);
+  filas($('#diasOk'), cobrados, fila, '', 5);
+  $('#verCobrados').hidden = !cobrados.length; $('#verCobradosT').textContent = `Ver los ${cobrados.length} día(s) cobrados`;
+  etiquetarTabla($('#tDias')); etiquetarTabla($('#tDiasOk'));
   const listos = jornadas.filter(j => j.estado === 'listo' && !j.abiertas).length;
   const u = (await cargarSesion()).usuario;
   $('#accListos').hidden = !(listos && u && u.puede.finanzas);

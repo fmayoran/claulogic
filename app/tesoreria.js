@@ -22,12 +22,31 @@ r.get('/fin/cuentas', h(async (req, res) => {
             COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0)::text AS cheques_pendientes,
             (sc.saldo - COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0))::text AS proyectado,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = c.id
-                AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS lineas_sin_conciliar
+                AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS lineas_sin_conciliar,
+            -- Para qué es la cuenta: la "a acreditar" de un procesador, donde deposita uno, o el efectivo de un punto de venta.
+            (SELECT pr.nombre FROM fin.procesador pr WHERE pr.cuenta_id = c.id LIMIT 1) AS procesador_pendiente,
+            (SELECT string_agg(pr.nombre, ', ' ORDER BY pr.nombre) FROM fin.procesador pr WHERE pr.cuenta_acredita_id = c.id) AS procesador_deposita,
+            (SELECT i.nombre FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id LIMIT 1) AS punto_venta
        FROM fin.cuenta c
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id
        LEFT JOIN org.sede s ON s.id = c.sede_id
       ORDER BY c.activa DESC, CASE c.tipo WHEN 'banco' THEN 1 WHEN 'caja' THEN 2 ELSE 3 END, s.nombre NULLS FIRST, c.nombre`);
   res.json({ ok: true, cuentas: rows });
+}));
+
+// Lo cobrado con cada procesador que todavía no llegó a la cuenta donde deposita, por punto de venta: los cobros ya
+// procesados, sin acreditar con el extracto ni en un lote confirmado. Para el tablero de Cajas y bancos.
+r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta,
+            COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe, to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde,
+            COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+       JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+      WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL
+        AND (p.lote_id IS NULL OR EXISTS (SELECT 1 FROM fin.lote l WHERE l.id = p.lote_id AND l.movimiento_id IS NULL))
+      GROUP BY pr.id, pr.nombre, pr.cuenta_id, i.id, i.nombre ORDER BY pr.nombre, i.nombre`);
+  res.json({ ok: true, por_acreditar: rows });
 }));
 
 function leerCuenta(b) {

@@ -255,7 +255,7 @@ async function flujo() {
   const saldo = t => (fl.saldos.find(s => s.tipo === t) || {}).saldo || '0';
   const disp = deCentavos(centavos(saldo('banco')) + centavos(saldo('caja')));
   $('#kpisCaja').replaceChildren(kpi('Disponible hoy', pesos(disp), null, `bancos ${pesos(saldo('banco'))} · cajas ${pesos(saldo('caja'))}`),
-    kpi('A acreditar', pesos(saldo('cobranza')), null, 'tarjetas, QR y transferencias'), kpi('Cheques en cartera', pesos(saldo('cartera')), null, 'de terceros'),
+    kpi('A acreditar', pesos(saldo('cobranza')), null, 'tarjetas, QR y transferencias'), centavos(saldo('cartera')) ? kpi('Cheques en cartera', pesos(saldo('cartera')), null, 'de terceros') : '',
     kpi('Facturas vencidas', pesos(fl.vencido), null, 'sin pagar'));
   Graf.columnasSeries($('#gHist'), { etiquetas: fl.historico.map(h => h.semana), ejeX: s => fecha(s).slice(0, 5), titulo: s => 'Semana del ' + fecha(s),
     series: [{ nombre: 'Entradas', valores: fl.historico.map(h => h.entradas) }, { nombre: 'Salidas', valores: fl.historico.map(h => h.salidas) }] });

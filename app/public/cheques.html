@@ -105,7 +105,17 @@ fx.onsubmit = async e => {
   } catch (e) { msg(e.message, 'mal', '#msgX'); }
 };
 (async () => {
-  try { bancos = (await api('fin/cuentas')).cuentas.filter(c => c.tipo === 'banco' && c.activa); mostrar('tercero'); }
+  try {
+    const { cuentas } = await api('fin/cuentas');
+    bancos = cuentas.filter(c => c.tipo === 'banco' && c.activa);
+    // Sin cartera de terceros activa (decisión de Fer, 27/10/2026), sólo los cheques propios.
+    const conTerceros = cuentas.some(c => c.tipo === 'cartera' && c.activa);
+    if (!conTerceros) {
+      $('.pestanas').hidden = true;
+      $('h1 + p.sub, .sub').textContent = 'Los cheques propios emitidos: cancelan la deuda al entregarse y salen del banco al debitarse. La cartera de cheques de terceros está desactivada.';
+    }
+    mostrar(conTerceros ? 'tercero' : 'propio');
+  }
   catch (e) { alert(e.message); }
 })();
 </script>

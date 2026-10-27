@@ -99,7 +99,7 @@
 <script>
 const MEDIO = { transferencia: 'Transferencia', efectivo: 'Efectivo', cheque_propio: 'Cheque propio', cheque_tercero: 'Cheque de tercero' };
 const IMP = { ganancias: 'Ganancias', iva: 'IVA', iibb: 'Ingresos Brutos', suss: 'SUSS', otra: 'Otra' };
-let ordenes = [], proveedores = [], cuentas = [], cartera = [], actual = null, orden = null;
+let ordenes = [], proveedores = [], cuentas = [], cartera = [], actual = null, orden = null, conTerceros = false;
 const f = $('#f');
 const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
 const pesosC = c => pesos(deCentavos(c));
@@ -157,7 +157,8 @@ function filaRet(x = {}) {
   $('#rets tbody').append(tr);
 }
 function filaVal(x = {}) {
-  const medio = el('select'); opciones(medio, Object.entries(MEDIO), x.medio || 'transferencia');
+  // Sin cartera de terceros activa no se ofrece endosar (salvo en una orden vieja que ya lo tenga).
+  const medio = el('select'); opciones(medio, Object.entries(MEDIO).filter(([k]) => k !== 'cheque_tercero' || conTerceros || x.medio === k), x.medio || 'transferencia');
   const cuenta = el('select'), cheque = el('select');
   const monto = el('input', { inputMode: 'numeric', value: miles(x.importe), style: 'width:120px' });
   const ref = el('input', { value: x.referencia || '', placeholder: 'Nº de transferencia', style: 'width:150px' });
@@ -294,6 +295,7 @@ $('#fest').onchange = cargarLista;
     [{ proveedores }, c, { cheques: cartera }] = await Promise.all([api('proveedores?inactivos=1'), api('fin/cuentas'),
       api('fin/cheques?tipo=tercero&estado=en_cartera')]);
     cuentas = c.cuentas.filter(x => x.activa && x.tipo !== 'cartera');
+    conTerceros = c.cuentas.some(x => x.tipo === 'cartera' && x.activa);
     $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
     const id = location.hash.slice(1), q = new URLSearchParams(location.search);

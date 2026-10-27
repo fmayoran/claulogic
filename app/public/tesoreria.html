@@ -5,23 +5,38 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tesorería · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
-<style>tr.anulado td{color:var(--mut);} tr.anulado td.num{text-decoration:line-through;} .neg{color:var(--mal);}</style>
+<link rel="stylesheet" href="graficos.css">
+<style>tr.anulado td{color:var(--mut);} tr.anulado td.num{text-decoration:line-through;} .neg{color:var(--mal);}
+  /* Tablero: primero los saldos, después cada grupo con sus cuentas y, en lo por acreditar, de qué punto de venta viene. */
+  .grupo-t{margin:0 0 16px;} .grupo-t .cab-t{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 4px;}
+  .grupo-t h2{margin:0;font-size:1.08rem;} .grupo-t .cab-t .tot{font-weight:700;font-variant-numeric:tabular-nums;font-size:1.05rem;}
+  .grupo-t .cap{color:var(--mut);font-size:.86rem;margin:0 0 8px;}
+  .cta{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 14px;align-items:center;padding:11px 6px;border-top:1px solid var(--g-grilla);cursor:pointer;border-radius:8px;}
+  .cta:hover{background:var(--sel);}
+  .cta .n{font-weight:600;} .cta .d{grid-column:1;color:var(--mut);font-size:.82rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .cta .s{grid-row:1 / span 2;grid-column:2;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
+  .cta .s small{display:block;font-weight:400;color:var(--mut);font-size:.78rem;}
+  .pv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 14px;padding:6px 6px 6px 22px;font-size:.88rem;color:var(--mut);}
+  .pv b{color:var(--fg);font-weight:600;} .pv .i{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg);}
+  .acc-t{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  details.inact summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.9rem;}
+</style>
 </head>
 <body>
 <main class="ancho">
   <section id="vLista">
-    <h1>Tesorería</h1>
-    <p class="sub">Bancos, cajas de cada sede y la cartera de cheques. Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
+    <h1>Cajas y bancos</h1>
+    <p class="sub">Arriba, lo que hay: lo disponible en bancos y cajas de la central, separado de lo que todavía no llegó (lo cobrado con
+      los procesadores que falta acreditar y el efectivo que los puntos de venta tienen que rendir). Tocá una cuenta para ver sus movimientos.
+      Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
     <div class="barra">
       <button class="prim" id="nuevaCuenta">Nueva cuenta</button>
       <button id="transferir">Transferir entre cuentas</button>
       <button id="manual">Ingreso o egreso</button>
       <button id="arquear">Arqueo de caja</button>
     </div>
-    <div class="tabla-wrap"><table class="datos">
-      <thead><tr><th>Cuenta</th><th>Tipo</th><th class="num">Saldo</th><th class="num">Cheques propios a debitar</th><th class="num">Saldo proyectado</th><th></th></tr></thead>
-      <tbody id="t"></tbody></table></div>
-    <p class="ayuda">Un cheque propio cancela la deuda al entregarlo, pero sale del banco cuando se debita: el saldo proyectado ya lo descuenta.</p>
+    <div class="kpis" id="kpis"></div>
+    <div id="grupos"></div>
   </section>
 
   <section id="vCuenta" hidden>
@@ -91,18 +106,67 @@ const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
 $$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
 const opcCuentas = (sel, filtro, vacio = 'Elegir…') => opciones(sel, cuentas.filter(c => c.activa && filtro(c)).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), null, vacio);
 
+// ── Tablero ──
+const suma = (xs, k = 'saldo') => xs.reduce((t, x) => t + centavos(x[k] || '0'), 0n);
+const pesosC = c => pesos(deCentavos(c));
+const kpi = (et, valor, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+  el('span', { className: 'va', textContent: valor }), el('span', { className: 'pie' }, nota ? el('span', { textContent: nota }) : ''));
+// Una cuenta en un renglón: nombre, para qué es y su saldo; se toca para ver los movimientos.
+function filaCuenta(c, detalle = [], extra = null) {
+  const d = el('span', { className: 'd' }, ...detalle.filter(Boolean).map(x => typeof x === 'string' ? el('span', { textContent: x }) : x));
+  const f = el('div', { className: 'cta' }, el('span', { className: 'n', textContent: c.nombre }), d,
+    el('span', { className: 's' + (c.saldo.startsWith('-') ? ' neg' : '') }, pesos(c.saldo), extra ? el('small', { textContent: extra }) : ''));
+  f.onclick = () => { location.hash = c.id; };
+  return f;
+}
+const tagSinConc = c => c.lineas_sin_conciliar ? el('span', { className: 'tag aviso', textContent: `${c.lineas_sin_conciliar} sin conciliar` }) : null;
+const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card grupo-t' },
+  el('div', { className: 'cab-t' }, el('h2', { textContent: titulo }), total != null ? el('span', { className: 'tot', textContent: total }) : ''),
+  cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
+
 async function cargar() {
-  ({ cuentas } = await api('fin/cuentas'));
-  filas($('#t'), cuentas, c => {
-    const tr = el('tr', { className: 'clic' + (c.activa ? '' : ' anulado') },
-      td(c.nombre + (c.sede ? ` · ${c.sede}` : '')), td(TIPO[c.tipo]),
-      td(pesos(c.saldo), 'num' + (c.saldo.startsWith('-') ? ' neg' : '')),
-      td(cero(c.cheques_pendientes) ? '' : pesos(c.cheques_pendientes), 'num'),
-      td(c.tipo === 'banco' ? pesos(c.proyectado) : '', 'num'),
-      el('td', {}, c.lineas_sin_conciliar ? el('span', { className: 'tag aviso', textContent: `${c.lineas_sin_conciliar} sin conciliar` }) : ''));
-    tr.onclick = () => { location.hash = c.id; };
-    return tr;
-  }, 'Todavía no hay cuentas.', 6);
+  const [{ cuentas: cs }, { por_acreditar: pa }] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar')]);
+  cuentas = cs;
+  const activas = cuentas.filter(c => c.activa);
+  const efectivoPV = activas.filter(c => c.punto_venta);
+  const aAcreditar = activas.filter(c => c.tipo === 'cobranza');
+  const disponibles = activas.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
+  const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
+  const cheques = suma(activas, 'cheques_pendientes');
+  $('#kpis').replaceChildren(
+    kpi('Disponible', pesosC(suma(disponibles)), `bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}`),
+    kpi('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'),
+    kpi('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`),
+    cheques ? kpi('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`) : '');
+
+  const g = [];
+  g.push(grupo('Disponible', pesosC(suma(disponibles)), 'Bancos (también las cuentas donde depositan los procesadores) y cajas de las sedes.',
+    ...disponibles.map(c => filaCuenta(c, [c.tipo === 'banco' ? 'Banco' : 'Caja', c.sede, c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c),
+      !cero(c.cheques_pendientes) && el('span', { className: 'tag', textContent: `cheques a debitar ${pesos(c.cheques_pendientes)}` })],
+      !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null))));
+
+  // Por acreditar: cada procesador con su cuenta "a acreditar" y, debajo, de qué punto de venta viene lo que falta.
+  const porProc = aAcreditar.map(c => {
+    const pvs = pa.filter(x => x.cuenta_id === c.id);
+    const deposita = activas.find(x => x.procesador_deposita && c.procesador_pendiente && x.procesador_deposita.split(', ').includes(c.procesador_pendiente));
+    return el('div', {}, filaCuenta(c, [c.procesador_pendiente ? `Procesador ${c.procesador_pendiente}` : 'Cobranza', deposita ? `deposita en ${deposita.nombre}` : 'falta indicar dónde deposita']),
+      ...pvs.map(x => el('div', { className: 'pv' }, el('span', {}, el('b', { textContent: x.punto_venta }),
+        ` · ${x.pagos} cobro(s) desde el ${fecha(x.desde)}` + (x.en_lote ? ` · ${x.en_lote} en lotes esperando el depósito` : '')),
+        el('span', { className: 'i', textContent: pesos(x.importe) }))));
+  });
+  if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
+    'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
+    ...porProc, el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
+
+  if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
+    'Lo cobrado en efectivo que todavía no llegó a la central. Se rinde cuando la plata entra a una caja o al banco.',
+    ...efectivoPV.map(c => filaCuenta(c, [`Punto de venta ${c.punto_venta}`])),
+    el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Rendir efectivo', onclick: () => { location.href = 'ingresos.html#efectivo'; } }))));
+
+  const inactivas = cuentas.filter(c => !c.activa);
+  if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
+    ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo], c.tipo === 'cartera' ? 'desactivada: sin cheques de terceros por ahora' : null]))));
+  $('#grupos').replaceChildren(...g);
 }
 
 async function verCuenta(id) {
