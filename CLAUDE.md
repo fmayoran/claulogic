@@ -518,6 +518,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `Conc.automatica`, `Conc.frenteExtracto`), compartidos con `conciliacion.html`. **El servidor rechaza un extracto en
   una cuenta que no es la de su procesador** (`exigirCuentaDelFormato`: Pago24 por sus conceptos, Mercado Pago por el
   formato que reconoce la pantalla). En el Panel, para finanzas, "Proceso de ingresos" con lo que hay para resolver.
+  **Con la columna de saldo, el servidor controla los signos** (`controlarSaldos`, 27/10/2026): cada fila tiene que cerrar con
+  la anterior (saldo anterior + importe = saldo, en orden ascendente o descendente); si casi todas cierran restando, débitos y
+  créditos quedaron cruzados al mapear y la importación se rechaza (pasó con el de Pago24 de Fer: los cobros entraron como
+  egresos y los cargos como ingresos, 396 ingresos sin conciliar). **Cobro cargado con otro procesador** (sugerencia
+  `otro_procesador`): si la venta tiene anulado un pago del procesador del extracto por el mismo importe y el válido es de
+  otro (la #1276 de CORTAFUEGO entró por Mercado Pago y en Fudo quedó como Pago24), se propone acreditarlo ahí, saliendo del
+  "a acreditar" del otro (`/fin/conciliacion/acreditar` con `otro_procesador`, sólo por el mismo importe).
 - Pendiente: modificadores de Fudo (subitems), propinas.
 
 ### Tablero (fase 5, 21/10/2026)

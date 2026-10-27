@@ -434,6 +434,24 @@ async function exigirCuentaDelFormato(cuenta, filas, formato) {
   throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: va en la cuenta ${pr.cuenta}, no en esta.`);
 }
 
+// Con la columna de saldo, cada fila tiene que cerrar con la anterior: saldo anterior + importe = saldo (en un archivo de
+// la fecha más nueva a la más vieja, al revés). Si casi todas cierran restando, los débitos y los créditos quedaron
+// cruzados al elegir las columnas (pasó con un extracto de Pago24: los cobros entraron como egresos y los cargos como
+// ingresos, y no se pareó nada). Un archivo sin orden no se puede controlar y pasa.
+function controlarSaldos(filas) {
+  const pares = [];
+  for (let i = 1; i < filas.length; i++) if (filas[i].imp !== null) pares.push([filas[i - 1], filas[i]]);
+  if (pares.length < 5) return;
+  const c = centavos, contar = f => pares.filter(f).length;
+  const bien = Math.max(contar(([a, b]) => c(a.saldo) + c(b.imp) === c(b.saldo)),
+                        contar(([a, b]) => a.imp !== null && c(b.saldo) + c(a.imp) === c(a.saldo)));
+  const cruzado = Math.max(contar(([a, b]) => c(a.saldo) - c(b.imp) === c(b.saldo)),
+                           contar(([a, b]) => a.imp !== null && c(b.saldo) - c(a.imp) === c(a.saldo)));
+  if (cruzado >= pares.length * 0.8 && bien < pares.length * 0.2)
+    throw new ErrorUsuario('Los débitos y los créditos están cruzados: según la columna de saldo, lo que figura como débito suma y lo que figura '
+      + 'como crédito resta. Revisá las columnas (Débito y Crédito al revés, o el importe con el signo cambiado) y volvé a importar.');
+}
+
 r.post('/fin/extractos', h(async (req, res) => {
   const b = req.body;
   const cuenta = texto(b.cuenta_id, { campo: 'la cuenta', requerido: true });
@@ -442,13 +460,16 @@ r.post('/fin/extractos', h(async (req, res) => {
   if (!filas.length) throw new ErrorUsuario('El extracto no tiene filas.');
   if (filas.length > 5000) throw new ErrorUsuario('Demasiadas filas: importá el extracto por mes.');
   await exigirCuentaDelFormato(cuenta, filas, b.formato);
-  const lineas = [], vistas = new Map();
+  const lineas = [], vistas = new Map(), conSaldo = [];
   let saldoInicial = null, saldoFinal = null;
   filas.forEach((f, i) => {
     // Filas sin fecha: totales al pie y renglones en blanco.
     if (!String(f.fecha ?? '').trim()) return;
     // Los saldos que trae el extracto (si se indicó la columna): el inicial y el final, para controlar.
-    if (f.saldo !== undefined && /saldo\s+inicial/i.test(f.concepto || '')) { saldoInicial = { fecha: fechaExtracto(f.fecha, i + 1), saldo: importeExtracto(f.saldo, decimal, i + 1) }; return; }
+    if (f.saldo !== undefined && /saldo\s+inicial/i.test(f.concepto || '')) {
+      saldoInicial = { fecha: fechaExtracto(f.fecha, i + 1), saldo: importeExtracto(f.saldo, decimal, i + 1) };
+      conSaldo.push({ imp: null, saldo: saldoInicial.saldo }); return;
+    }
     if (f.saldo !== undefined && /saldo\s+final/i.test(f.concepto || '')) { saldoFinal = importeExtracto(f.saldo, decimal, i + 1); return; }
     // Débito y crédito en columnas separadas o un solo importe con signo: las dos formas existen.
     let imp = f.importe !== undefined && f.importe !== '' ? importeExtracto(f.importe, decimal, i + 1) : null;
@@ -458,6 +479,8 @@ r.post('/fin/extractos', h(async (req, res) => {
       else if (cred && !/^-?0+(\.0+)?$/.test(cred)) imp = cred.replace('-', '');
     }
     if (imp === null || /^-?0+(\.0+)?$/.test(imp)) return;   // saldos iniciales, filas vacías
+    const sal = f.saldo !== undefined && String(f.saldo).trim() !== '' && String(f.saldo).trim() !== '-' ? importeExtracto(f.saldo, decimal, i + 1) : null;
+    if (sal !== null) conSaldo.push({ imp, saldo: sal });
     const l = { fecha: fechaExtracto(f.fecha, i + 1), concepto: String(f.concepto || '').trim().slice(0, 300),
                 referencia: String(f.referencia || '').trim().slice(0, 100), importe: imp };
     l.operacion = operacionDe(l);
@@ -465,6 +488,7 @@ r.post('/fin/extractos', h(async (req, res) => {
     l.ocurrencia = (vistas.get(clave) || 0) + 1; vistas.set(clave, l.ocurrencia);
     lineas.push(l);
   });
+  controlarSaldos(conSaldo);
   const out = await enTransaccion(async c => {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');
@@ -796,6 +820,18 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
 //   · diferencia: un ingreso que difiere del cobro hasta el 10% o $5.000 (lo que sea mayor); al confirmar se dice
 //     el motivo. Ventana de fechas, la de la automática: del día de la venta hasta 4 días después.
 const TOLERANCIA = P => { const d = P / 10n; return d > 500000n ? d : 500000n; };   // centavos
+// Un cobro cargado en el sistema de venta con otro procesador: en la venta quedó anulado un pago de este procesador
+// por el mismo importe y el válido es de otro (pasó en CORTAFUEGO: la venta #1276 entró por Mercado Pago y en Fudo quedó
+// como Pago24). La plata llegó acá, así que se acredita acá, saliendo del "a acreditar" del otro procesador.
+const OTRO_PROCESADOR_SQL = `
+  SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, opr.nombre AS procesador_cargado
+    FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador opr ON opr.id = mp.procesador_id
+   WHERE mp.procesador_id <> $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+     AND p.liquida_el IS NULL AND p.lote_id IS NULL
+     AND EXISTS (SELECT 1 FROM pos.ticket_pago a JOIN pos.medio am ON am.id = a.medio_id JOIN fin.medio_pago amp ON amp.id = am.medio_pago_id
+                  WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
+
 async function sugerenciasProcesador(cuenta) {
   const { rows: [pr] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
   if (!pr) return [];
@@ -876,6 +912,14 @@ async function sugerenciasProcesador(cuenta) {
       .sort((a, b) => Number(abs(L - centavos(a.importe)) - abs(L - centavos(b.importe))) || dias(l, a) - dias(l, b))[0];
     if (p) sug.push({ tipo: 'diferencia', pago: p, lineas: [l.id], diferencia: deCentavos(L - centavos(p.importe)) });
   }
+  // Lo que sigue sin sugerencia: un cobro de la venta cargado con otro procesador, por el mismo importe.
+  const conSug = new Set(sug.flatMap(x => x.lineas));
+  const { rows: otros } = await pool.query(OTRO_PROCESADOR_SQL, [pr.id]);
+  const usados = new Set();
+  for (const l of lineas.filter(l => !conSug.has(l.id))) {
+    const p = otros.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && enVentana(l, p)).sort((a, b) => dias(l, a) - dias(l, b))[0];
+    if (p) { usados.add(p.id); sug.push({ tipo: 'otro_procesador', pago: p, lineas: [l.id] }); }
+  }
   return sug;
 }
 
@@ -900,20 +944,27 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
     const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [cuenta]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
-    const { rows: [p] } = await c.query(
-      `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
-         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
-         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-        WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
-        FOR UPDATE OF p`, [pagoId, pr.id]);
+    // Un cobro cargado con otro procesador sólo si la venta tiene anulado un pago de éste por el mismo importe.
+    const otro = b.otro_procesador === true;
+    const { rows: [p] } = otro
+      ? await c.query(`SELECT * FROM (${OTRO_PROCESADOR_SQL}) x WHERE x.id = $2::uuid`, [pr.id, pagoId])
+      : await c.query(
+        `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
+           FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+           JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+          FOR UPDATE OF p`, [pagoId, pr.id]);
     if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador (o sus cobros no se procesaron).');
+    if (otro) await c.query('SELECT 1 FROM pos.ticket_pago WHERE id = $1 FOR UPDATE', [p.id]);
+    if (otro && (ls.length > 1 || centavos(ls[0].importe) !== centavos(p.importe))) throw new ErrorUsuario('Un cobro cargado con otro procesador se acredita sólo por el mismo importe.');
     const P = centavos(p.importe), L = ls.reduce((s, l) => s + centavos(l.importe), 0n), D = L - P;
     if (ls.length > 1 && D !== 0n) throw new ErrorUsuario(`Las líneas suman ${deCentavos(L)} y el cobro es de ${p.importe}: en partes, tienen que sumar exacto.`);
     if (D !== 0n) {
       if ((D < 0n ? -D : D) > TOLERANCIA(P)) throw new ErrorUsuario('La diferencia es demasiado grande para parearlos: registrá la línea como movimiento.');
       if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
     }
-    const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
+    const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
+      + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
       + (D !== 0n ? ` · diferencia ${deCentavos(D)}: ${motivo}` : '');
     const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
     await c.query(

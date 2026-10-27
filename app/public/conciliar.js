@@ -208,6 +208,12 @@ const Conc = (() => {
         return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
           `es ${deLote}; el depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'} (por ejemplo, cobros de ventas que no se importaron).`), motivoL, ok);
       }
+      if (x.tipo === 'otro_procesador') {
+        ok.onclick = () => confirmar({ otro_procesador: true });
+        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+          `es la venta #${p.id_externo} del ${fecha(p.dia)}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} (${pesos(p.importe)}); `
+          + 'ahí mismo se anuló un pago con este procesador por el mismo importe. La plata entró acá: se acredita acá y sale de lo que esperaba el otro.'), ok);
+      }
       if (x.tipo === 'division') {
         const otras = x.lineas.filter(id => id !== l.id).map(id => d.lineas.find(y => y.id === id)).filter(Boolean);
         ok.onclick = () => confirmar({});
