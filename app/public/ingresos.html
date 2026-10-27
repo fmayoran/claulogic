@@ -78,7 +78,7 @@
     <li data-paso="ventas"><span>Ventas</span><small></small></li>
     <li data-paso="efectivo"><span>Efectivo</span><small></small></li>
     <li data-paso="extractos"><span>Extractos</span><small></small></li>
-    <li data-paso="conciliar"><span>Conciliar</span><small></small></li>
+    <li data-paso="conciliar"><span>Conciliación manual</span><small></small></li>
     <li data-paso="resultado"><span>Resultado</span><small></small></li>
   </ol>
   <span class="msg" id="msg"></span>
@@ -97,16 +97,18 @@
 
   <section class="paso" id="p-extractos" hidden>
     <p class="intro">Importá el extracto de cada cuenta donde depositan los procesadores, hasta ayer. Cada tarjeta ya sabe en qué cuenta va el
-      archivo; al importarlo se concilia solo.</p>
+      archivo. Al importarlo se concilia solo (conciliación automática): los cobros que coinciden con las ventas, los lotes y los cargos e
+      impuestos. Lo que no se pudo parear queda para el paso siguiente.</p>
     <div id="extractos"></div>
   </section>
 
   <section class="paso" id="p-conciliar" hidden>
-    <p class="intro">Lo que la conciliación automática no pudo resolver, cuenta por cuenta. Primero lo que tiene sugerencia (se confirma con un toque).</p>
+    <p class="intro">Lo que la conciliación automática no pudo resolver, cuenta por cuenta, para revisar a mano. Primero lo que tiene sugerencia
+      (se confirma con un toque).</p>
     <div class="segm" id="cuentasC" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
     <section class="card estado-c" id="cEstado" hidden>
       <div><p class="titulo" id="cTitulo"></p><p class="detalle" id="cDetalle"></p></div>
-      <button type="button" id="cAuto">Conciliar de nuevo</button>
+      <button type="button" id="cAuto">Volver a conciliar automáticamente</button>
       <span class="msg msg-b" id="msgC" style="flex-basis:100%"></span>
     </section>
     <div id="resolver"></div>
@@ -149,7 +151,7 @@
 <script src="conciliar.js"></script>
 <script>
 const PASOS = ['ventas', 'efectivo', 'extractos', 'conciliar', 'resultado'];
-const NOMBRE = { ventas: 'Ventas', efectivo: 'Efectivo', extractos: 'Extractos', conciliar: 'Conciliar', resultado: 'Resultado' };
+const NOMBRE = { ventas: 'Ventas', efectivo: 'Efectivo', extractos: 'Extractos', conciliar: 'Conciliación manual', resultado: 'Resultado' };
 let puntos = [], procs = [], cuentas = [], paso = null, cuentaC = null, actual = null;
 const ayer = (() => { const d = new Date(Date.now() - 3 * 3600e3 - 864e5); return d.toISOString().slice(0, 10); })();
 const corta = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -359,7 +361,7 @@ function pintarExtractos() {
     const imp = Conc.importador({ cuenta: () => x.cuenta_id, procesador: () => true,
       listo: async (t, tipo) => { if (tipo === 'ok') { await refrescar(); msg(`${x.cuenta}: ${t}`, 'ok'); } else { nota.textContent = t; nota.className = 'msg msg-b'; } } });
     const alDia = e.hasta && e.hasta >= ayer;
-    cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro' : 'Importar extracto', imp.abrir, !alDia)));
+    cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)));
     cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }));
     const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
       : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_pendientes ? ` Quedan ${e.lineas_pendientes} línea(s) para conciliar.` : '') })
@@ -433,7 +435,26 @@ function pintarResultado() {
         ...(r.costos || []).map(c => el('div', { className: 'fila-c' }, el('span', {}, `Costo · ${Conc.TIPO_OP[c.tipo_operacion] || c.tipo_operacion}`),
           el('span', { className: 'p', textContent: c.costo_pct ? num(c.costo_pct) + '%' : '—' }), el('span', { className: 'm', textContent: `${pesos(c.costo)} sobre ${pesos(c.bruto)}` }))));
     }));
-  $('#resultado').replaceChildren(ventas, porProc);
+  const cuando = el('section', { className: 'card bloque' }, el('div', { className: 'bloque-cab' }, el('h2', { textContent: 'Cuándo entra lo que falta acreditar' })));
+  $('#resultado').replaceChildren(ventas, cuando, porProc);
+  api('fin/tesoreria/por-cobrar').then(pc => pintarCuando(cuando, pc)).catch(e => cuando.append(el('p', { className: 'ayuda', textContent: e.message })));
+}
+// Por fecha, el neto que se espera de los procesadores (informado o estimado; el detalle, en Cajas y bancos).
+function pintarCuando(caja, pc) {
+  if (!pc.pagos) return caja.append(el('p', { className: 'ayuda', textContent: 'No falta acreditar nada.' }));
+  const porDia = new Map();
+  for (const d of pc.dias) porDia.set(d.fecha, [...(porDia.get(d.fecha) || []), d]);
+  const total = xs => pesos(deCentavos(xs.reduce((s, x) => s + centavos(x.neto), 0n)));
+  const fila = (t, xs, mal) => el('div', { className: 'fila-c' }, el('span', { textContent: t, style: mal ? 'color:var(--mal)' : '' }),
+    el('span', { className: 'p', textContent: total(xs) }),
+    el('span', { className: 'm', textContent: [...new Set(xs.map(x => x.procesador))].map(n => {
+      const f = xs.filter(x => x.procesador === n);
+      return n + (f.every(x => x.fuente === 'informado') ? '' : f.some(x => x.fuente === 'informado') ? ' (en parte estimado)' : ' (estimado)');
+    }).join(' · ') }));
+  caja.append(el('p', { className: 'ayuda', textContent: `${pesos(pc.neto)} netos de costos. La fecha y el neto los informa el procesador (Fudo Pagos); para los demás se estiman con lo que ya se acreditó.` }),
+    pc.atrasado.length ? fila(`Atrasado, desde el ${corta(pc.atrasado[0].desde)}`, pc.atrasado, true) : '',
+    ...[...porDia].map(([f, xs]) => fila(f === pc.hoy ? `Hoy, ${corta(f)}` : corta(f), xs)),
+    el('div', { style: 'margin-top:10px' }, ir('tesoreria.html', 'Ver en Cajas y bancos')));
 }
 
 // El paso va en el # de la dirección: los enlaces (y el botón atrás) cambian de paso sin recargar.

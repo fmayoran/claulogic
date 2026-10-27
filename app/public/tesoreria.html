@@ -20,6 +20,13 @@
   .pv b{color:var(--fg);font-weight:600;} .pv .i{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg);}
   .acc-t{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   details.inact summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.9rem;}
+  /* Cuándo entra lo por acreditar: un renglón por día con el neto, y debajo cada procesador. */
+  .cuando{margin-top:14px;border-top:1px solid var(--g-grilla);padding-top:10px;}
+  .cuando h3{margin:0 0 2px;font-size:.98rem;} .cuando .cap{margin:0 0 6px;}
+  .dia-c{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 14px;padding:8px 6px;border-top:1px solid var(--g-grilla);}
+  .dia-c .f{font-weight:600;} .dia-c .i{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
+  .dia-c .d{grid-column:1 / span 2;color:var(--mut);font-size:.84rem;display:flex;gap:4px 12px;flex-wrap:wrap;}
+  .dia-c.atr .f{color:var(--mal);}
 </style>
 </head>
 <body>
@@ -125,7 +132,7 @@ const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card
   cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
 
 async function cargar() {
-  const [{ cuentas: cs }, { por_acreditar: pa }] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar')]);
+  const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar')]);
   cuentas = cs;
   const activas = cuentas.filter(c => c.activa);
   const efectivoPV = activas.filter(c => c.punto_venta);
@@ -156,7 +163,7 @@ async function cargar() {
   });
   if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
     'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
-    ...porProc, el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
+    ...porProc, cuandoEntra(pc), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
 
   if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
     'Lo cobrado en efectivo que todavía no llegó a la central. Se rinde cuando la plata entra a una caja o al banco.',
@@ -167,6 +174,32 @@ async function cargar() {
   if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
     ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo], c.tipo === 'cartera' ? 'desactivada: sin cheques de terceros por ahora' : null]))));
   $('#grupos').replaceChildren(...g);
+}
+
+// Cuándo entra: por fecha, el neto que se espera de cada procesador. Lo que informa el procesador (Fudo Pagos: fecha de
+// liquidación y neto por cobro) va como informado; lo demás, estimado con la demora y el costo de lo ya acreditado.
+const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const diaCorto = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d).slice(0, 5)}`;
+const FUENTE = { informado: 'informado', estimado: 'estimado', sin_historia: 'sin historia' };
+const OP = { transferencia: 'transferencia', qr: 'QR', debito: 'débito', credito: 'crédito', otro: 'otro' };
+function cuandoEntra(pc) {
+  if (!pc.pagos) return '';
+  const renglon = (titulo, xs, atr) => el('div', { className: 'dia-c' + (atr ? ' atr' : '') }, el('span', { className: 'f', textContent: titulo }),
+    el('span', { className: 'i', textContent: pesosC(suma(xs, 'neto')) }),
+    el('span', { className: 'd' }, ...xs.map(x => el('span', {}, `${x.procesador} ${pesos(x.neto)} `,
+      el('span', { className: 'tag' + (x.fuente === 'informado' ? ' ok' : ''), textContent: FUENTE[x.fuente] }),
+      x.en_lote ? ` (lote esperando el depósito)` : ''))));
+  const porDia = new Map();
+  for (const d of pc.dias) porDia.set(d.fecha, [...(porDia.get(d.fecha) || []), d]);
+  const est = pc.estimaciones.map(e => e.dias == null ? `${e.procesador} ${OP[e.tipo_operacion] || e.tipo_operacion}: sin acreditaciones todavía (al día siguiente, por el bruto)`
+    : `${e.procesador} ${OP[e.tipo_operacion] || e.tipo_operacion}: ${e.dias === 0 ? 'el mismo día' : e.dias === 1 ? 'al día siguiente' : `a ${e.dias} días`}`
+      + (e.costo_pct != null ? `, costo ${num(e.costo_pct)}%` : '') + ` (de ${e.muestras} acreditados)`);
+  return el('div', { className: 'cuando' }, el('h3', { textContent: `Cuándo entra: ${pesos(pc.neto)} netos de costos` }),
+    el('p', { className: 'cap', textContent: 'Por fecha, lo que se espera que deposite cada procesador. Informado: la fecha de liquidación y el neto que da el procesador. '
+      + 'Estimado: con la demora y el costo de lo que ya se acreditó.' }),
+    pc.atrasado.length ? renglon(`Atrasado (debía entrar desde el ${fecha(pc.atrasado[0].desde)})`, pc.atrasado, true) : '',
+    ...[...porDia].map(([f, xs]) => renglon(f === pc.hoy ? `Hoy, ${diaCorto(f)}` : diaCorto(f), xs)),
+    est.length ? el('details', { className: 'inact' }, el('summary', { textContent: 'Cómo se estima' }), ...est.map(t => el('p', { className: 'cap', textContent: t }))) : '');
 }
 
 async function verCuenta(id) {

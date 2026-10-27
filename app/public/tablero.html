@@ -101,7 +101,7 @@
         <div id="gProy"></div>
         <details class="tabla"><summary>Ver como tabla</summary>
           <div class="tabla-wrap"><table class="datos">
-            <thead><tr><th>Semana del</th><th class="num">Facturas</th><th class="num">Cheques propios</th><th class="num">Cheques a cobrar</th><th class="num">Saldo</th></tr></thead>
+            <thead><tr><th>Semana del</th><th class="num">Acreditaciones</th><th class="num">Facturas</th><th class="num">Cheques propios</th><th class="num">Cheques a cobrar</th><th class="num">Saldo</th></tr></thead>
             <tbody id="tProy"></tbody></table></div></details>
       </section>
     </div>
@@ -255,22 +255,23 @@ async function flujo() {
   const saldo = t => (fl.saldos.find(s => s.tipo === t) || {}).saldo || '0';
   const disp = deCentavos(centavos(saldo('banco')) + centavos(saldo('caja')));
   $('#kpisCaja').replaceChildren(kpi('Disponible hoy', pesos(disp), null, `bancos ${pesos(saldo('banco'))} · cajas ${pesos(saldo('caja'))}`),
-    kpi('A acreditar', pesos(saldo('cobranza')), null, 'tarjetas, QR y transferencias'), centavos(saldo('cartera')) ? kpi('Cheques en cartera', pesos(saldo('cartera')), null, 'de terceros') : '',
+    kpi('A acreditar', pesos(saldo('cobranza')), null, `entran ${pesos(fl.por_cobrar.neto)} netos de costos` + (fl.por_cobrar.atrasado ? ' · hay atrasados' : '')), centavos(saldo('cartera')) ? kpi('Cheques en cartera', pesos(saldo('cartera')), null, 'de terceros') : '',
     kpi('Facturas vencidas', pesos(fl.vencido), null, 'sin pagar'));
   Graf.columnasSeries($('#gHist'), { etiquetas: fl.historico.map(h => h.semana), ejeX: s => fecha(s).slice(0, 5), titulo: s => 'Semana del ' + fecha(s),
     series: [{ nombre: 'Entradas', valores: fl.historico.map(h => h.entradas) }, { nombre: 'Salidas', valores: fl.historico.map(h => h.salidas) }] });
   const pr = fl.proyeccion, negativa = pr.find(p => p.saldo.startsWith('-'));
   Graf.area($('#gProy'), { etiquetas: pr.map(p => p.semana), ejeX: s => fecha(s).slice(0, 5), titulo: s => 'Semana del ' + fecha(s),
-    serie: { nombre: 'Saldo', valores: pr.map(p => p.saldo), texto: i => [pesos(pr[i].saldo), !cero(pr[i].facturas) && `facturas ${pesos(pr[i].facturas)}`,
+    serie: { nombre: 'Saldo', valores: pr.map(p => p.saldo), texto: i => [pesos(pr[i].saldo), !cero(pr[i].acreditaciones) && `acreditaciones ${pesos(pr[i].acreditaciones)}`, !cero(pr[i].facturas) && `facturas ${pesos(pr[i].facturas)}`,
       !cero(pr[i].cheques_propios) && `cheques propios ${pesos(pr[i].cheques_propios)}`, !cero(pr[i].cheques_terceros) && `a cobrar ${pesos(pr[i].cheques_terceros)}`].filter(Boolean).join(' · ') },
     alto: matchMedia('(max-width:899px)').matches ? 220 : 260 });
   const ad = fl.mas_adelante;
   $('#capProy').textContent = (negativa ? `El saldo queda en negativo la semana del ${fecha(negativa.semana)}. ` : 'Próximas 8 semanas, con lo comprometido. ')
-    + 'Parte de lo disponible hoy menos lo vencido; no incluye ventas futuras ni lo que falta acreditar.'
-    + (!cero(ad.facturas) || !cero(ad.cheques_propios) ? ` Más adelante: facturas ${pesos(ad.facturas)}, cheques propios ${pesos(ad.cheques_propios)}.` : '');
-  filas($('#tProy'), pr, p => el('tr', {}, td(fecha(p.semana)), td(cero(p.facturas) ? '' : pesos(p.facturas), 'num'),
+    + 'Parte de lo disponible hoy menos lo vencido y suma lo que falta acreditar de los procesadores, por el neto, en la semana en que se espera'
+    + (fl.por_cobrar.estimado ? ' (la fecha y el neto que informa el procesador o, si no los informa, estimados con lo que ya se acreditó)' : '') + '. No incluye ventas futuras.'
+    + (!cero(ad.facturas) || !cero(ad.cheques_propios) || !cero(ad.acreditaciones) ? ` Más adelante: acreditaciones ${pesos(ad.acreditaciones)}, facturas ${pesos(ad.facturas)}, cheques propios ${pesos(ad.cheques_propios)}.` : '');
+  filas($('#tProy'), pr, p => el('tr', {}, td(fecha(p.semana)), td(cero(p.acreditaciones) ? '' : pesos(p.acreditaciones), 'num'), td(cero(p.facturas) ? '' : pesos(p.facturas), 'num'),
     td(cero(p.cheques_propios) ? '' : pesos(p.cheques_propios), 'num'), td(cero(p.cheques_terceros) ? '' : pesos(p.cheques_terceros), 'num'),
-    td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' alto' : ''))), '', 5);
+    td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' alto' : ''))), '', 6);
 }
 
 async function todo() {

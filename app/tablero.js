@@ -10,6 +10,7 @@ const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h } = require('./util');
 const { puede } = require('./auth');
+const { porCobrar } = require('./tesoreria');
 
 const r = express.Router();
 
@@ -197,14 +198,27 @@ r.get('/tablero/flujo', h(async (req, res) => {
   const { rows: salidas } = await pool.query(
     'SELECT (f + c)::numeric(16,2)::text AS s FROM unnest($1::numeric[], $2::numeric[]) WITH ORDINALITY AS t(f, c, n) ORDER BY n',
     [semanas.map(s => s.facturas), semanas.map(s => s.cheques_propios)]);
+  // Lo cobrado con los procesadores que falta acreditar entra por el neto en la semana en que se espera (informado por
+  // el procesador o estimado, ver `porCobrar`); lo atrasado, en la semana en curso.
+  const pc = await porCobrar();
+  const acred = [...pc.dias.map(d => [d.fecha, d.neto]), ...pc.atrasado.map(d => [pc.hoy, d.neto])];
+  const { rows: acrSem } = await pool.query(
+    `SELECT date_trunc('week', f)::date::text AS semana, SUM(n)::numeric(16,2)::text AS neto
+       FROM unnest($1::date[], $2::numeric[]) AS t(f, n) GROUP BY 1`, [acred.map(x => x[0]), acred.map(x => x[1])]);
+  const acrDe = new Map(acrSem.map(x => [x.semana, x.neto]));
+  const ultima = semanas.length ? semanas[semanas.length - 1].semana : '';
+  const { rows: [{ despues }] } = await pool.query('SELECT COALESCE(SUM(x), 0)::numeric(16,2)::text AS despues FROM unnest($1::numeric[]) x',
+    [acrSem.filter(x => x.semana > ultima).map(x => x.neto)]);
   const { rows: acum } = await pool.query(
     `SELECT (COALESCE((SELECT SUM(x) FROM unnest($1::numeric[]) x), 0) - $2::numeric
-            + SUM(ent - sal) OVER (ORDER BY n))::numeric(16,2)::text AS saldo
-       FROM unnest($3::numeric[], $4::numeric[]) WITH ORDINALITY AS t(ent, sal, n) ORDER BY n`,
-    [disponible.map(s => s.saldo), vencido.facturas, semanas.map(s => s.cheques_terceros), salidas.map(x => x.s)]);
+            + SUM(ent + acr - sal) OVER (ORDER BY n))::numeric(16,2)::text AS saldo
+       FROM unnest($3::numeric[], $4::numeric[], $5::numeric[]) WITH ORDINALITY AS t(ent, sal, acr, n) ORDER BY n`,
+    [disponible.map(s => s.saldo), vencido.facturas, semanas.map(s => s.cheques_terceros), salidas.map(x => x.s),
+     semanas.map(s => acrDe.get(s.semana) || '0')]);
   res.json({ ok: true, historico: hist, saldos,
-    proyeccion: semanas.map((s, i) => ({ ...s, salidas: salidas[i].s, saldo: acum[i].saldo })),
-    vencido: vencido.facturas, mas_adelante: adelante });
+    proyeccion: semanas.map((s, i) => ({ ...s, acreditaciones: acrDe.get(s.semana) || '0', salidas: salidas[i].s, saldo: acum[i].saldo })),
+    vencido: vencido.facturas, mas_adelante: { ...adelante, acreditaciones: despues },
+    por_cobrar: { neto: pc.neto, atrasado: pc.atrasado.length, estimado: pc.dias.some(d => d.fuente !== 'informado') || pc.atrasado.some(d => d.fuente !== 'informado') } });
 }));
 
 module.exports = r;

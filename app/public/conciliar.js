@@ -145,6 +145,7 @@ const Conc = (() => {
           + (res.netas ? ` ${res.netas} liquidación(es) no están en el reporte de liquidaciones y quedan por el neto.` : '');
       } else csv = leidos[0];
       formato.hidden = !csv.mp; formato.textContent = txt;
+      ok.textContent = opc.procesador() ? 'Importar y conciliar' : 'Importar';
       opcCsv.hidden = mapaWrap.hidden = capCsv.hidden = !!csv.mp;
       ok.disabled = !!(csv.mp && csv.mp.incompleto);
       if (csv.mp) titulo.textContent = `Importar ${csv.nombre}`; else pintarMapa();

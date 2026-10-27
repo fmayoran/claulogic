@@ -49,6 +49,82 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
   res.json({ ok: true, por_acreditar: rows });
 }));
 
+// Cuándo entra lo que falta acreditar (los mismos cobros que /por-acreditar), por fecha y por el neto. Fudo Pagos informa
+// por cobro la fecha de liquidación y el neto: eso es INFORMADO, y un lote esperado entra el día de su liquidación. Para
+// los demás se ESTIMA con lo que ya se acreditó: la demora es la mediana de días entre la venta y el depósito (extracto o
+// lote confirmado) del mismo procesador y tipo de operación, o del procesador si ese tipo no tiene historia; el neto,
+// con el costo real por tipo (`resumenProcesador`). Sin historia, la fecha es el día siguiente a la venta y el neto, el
+// bruto. Lo que debía entrar antes de hoy y no llegó va aparte, atrasado. No guarda nada: se deriva cada vez.
+const sumarDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+async function porCobrar() {
+  const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }] = await Promise.all([
+    pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
+    pool.query(
+      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, i.nombre AS punto_venta, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
+              p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+         JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+         LEFT JOIN fin.lote l ON l.id = p.lote_id
+        WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL AND (p.lote_id IS NULL OR l.movimiento_id IS NULL)`),
+    pool.query(
+      `WITH h AS (
+         SELECT mp.procesador_id, mp.tipo_operacion, (x.fecha - t.dia) AS d
+           FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+           JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.extracto_linea x ON x.id = p.acreditado_linea_id
+          WHERE NOT p.anulado
+         UNION ALL
+         SELECT mp.procesador_id, mp.tipo_operacion, (mv.fecha - t.dia)
+           FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+           JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.lote lo ON lo.id = p.lote_id JOIN fin.movimiento_tes mv ON mv.id = lo.movimiento_id
+          WHERE NOT p.anulado)
+       SELECT procesador_id, tipo_operacion, percentile_disc(0.5) WITHIN GROUP (ORDER BY d) AS dias, COUNT(*)::int AS muestras
+         FROM h WHERE d >= 0 GROUP BY GROUPING SETS ((procesador_id, tipo_operacion), (procesador_id))`),
+    pool.query('SELECT id, nombre, cuenta_acredita_id FROM fin.procesador WHERE cuenta_acredita_id IS NOT NULL'),
+  ]);
+  // Costo real por tipo de operación (en centésimos de punto), del resumen de cada procesador; sin tipo, el del procesador.
+  const costo = new Map();
+  for (const pr of procs) {
+    const rs = await resumenProcesador(pr.cuenta_acredita_id);
+    const acc = new Map();
+    for (const c of rs ? rs.costos : []) for (const k of [c.tipo_operacion, '']) {
+      const a = acc.get(k) || { b: 0n, c: 0n }; a.b += centavos(c.bruto); a.c += centavos(c.costo); acc.set(k, a);
+    }
+    for (const [k, a] of acc) if (a.b > 0n) costo.set(pr.id + '|' + k, a.c * 10000n / a.b);
+  }
+  const demora = new Map(demoras.map(d => [d.procesador_id + '|' + (d.tipo_operacion || ''), { dias: Number(d.dias), muestras: d.muestras }]));
+  const usadas = new Map();
+  const dias = new Map(), atrasado = new Map();
+  let tot = { pagos: 0, bruto: 0n, neto: 0n };
+  for (const p of pagos) {
+    let fecha, neto, fuente;
+    const bruto = centavos(p.importe);
+    if (p.liquida_el && p.neto != null) { fecha = p.liquida_el; neto = centavos(p.neto); fuente = 'informado'; }
+    else {
+      const dm = demora.get(p.procesador_id + '|' + p.tipo_operacion) || demora.get(p.procesador_id + '|');
+      const cp = costo.get(p.procesador_id + '|' + p.tipo_operacion) ?? costo.get(p.procesador_id + '|') ?? null;
+      fecha = p.liquida_el || sumarDias(p.dia, dm ? dm.dias : 1);
+      neto = cp == null ? bruto : bruto - bruto * cp / 10000n;
+      fuente = dm ? 'estimado' : 'sin_historia';
+      const k = p.procesador + '|' + p.tipo_operacion;
+      if (!usadas.has(k)) usadas.set(k, { procesador: p.procesador, tipo_operacion: p.tipo_operacion, dias: dm ? dm.dias : null,
+        muestras: dm ? dm.muestras : 0, costo_pct: cp == null ? null : (Number(cp) / 100).toFixed(2) });
+    }
+    tot.pagos++; tot.bruto += bruto; tot.neto += neto;
+    const destino = fecha < hoy ? atrasado : dias, clave = (fecha < hoy ? '' : fecha) + '|' + p.procesador + '|' + fuente;
+    const g = destino.get(clave) || { fecha: fecha < hoy ? null : fecha, desde: fecha, procesador: p.procesador, fuente, pagos: 0, bruto: 0n, neto: 0n, en_lote: 0 };
+    g.pagos++; g.bruto += bruto; g.neto += neto; if (p.en_lote) g.en_lote++; if (fecha < g.desde) g.desde = fecha;
+    destino.set(clave, g);
+  }
+  const salida = g => ({ ...g, bruto: deCentavos(g.bruto), neto: deCentavos(g.neto) });
+  return {
+    hoy, pagos: tot.pagos, bruto: deCentavos(tot.bruto), neto: deCentavos(tot.neto),
+    dias: [...dias.values()].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.procesador.localeCompare(b.procesador)).map(salida),
+    atrasado: [...atrasado.values()].sort((a, b) => a.desde.localeCompare(b.desde)).map(salida),
+    estimaciones: [...usadas.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.tipo_operacion.localeCompare(b.tipo_operacion)),
+  };
+}
+r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => { res.json({ ok: true, ...(await porCobrar()) }); }));
+
 function leerCuenta(b) {
   const c = {
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
@@ -1267,5 +1343,5 @@ async function asentarLote(c, loteId, fecha) {
   return ent.id;
 }
 
-Object.assign(r, { MEDIOS_SQL, acreditarLotes });
+Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar });
 module.exports = r;

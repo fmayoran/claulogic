@@ -245,6 +245,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
   cobros procesados sin acreditar ni en lote confirmado), y el efectivo de cada punto de venta. `/fin/cuentas` dice para qué
   es cada cuenta (`procesador_pendiente`, `procesador_deposita`, `punto_venta`). Tocar una cuenta abre sus movimientos.
+- **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
+  `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:
+  lo que da el procesador (Fudo Pagos: `liquida_el` y `neto` por cobro; un lote esperado entra en su fecha). **Estimado**: la
+  demora es la mediana de días entre la venta y el depósito de lo ya acreditado (línea del extracto o lote confirmado) del mismo
+  procesador y tipo de operación (o del procesador), y el neto sale del costo real por tipo de `resumenProcesador`; sin historia,
+  al día siguiente y por el bruto. Lo que debía entrar antes de hoy va como **atrasado**. Se ve en Cajas y bancos ("Cuándo
+  entra", por día, con "Cómo se estima"), en el paso 5 del proceso de ingresos y en el **flujo de caja** del tablero, que
+  suma el neto en su semana (lo atrasado, en la semana en curso). Con los datos de Fer (27/10): Fudo crédito a 15 días
+  (14 a 17), débito al día siguiente; Mercado Pago y Pago24 transferencia en el día.
 - **Sin cheques de terceros por ahora** (decisión de Fer, 27/10/2026; migración 20261112): la cartera no se borra (la usan las
   funciones de cheques) sino que queda **inactiva**, y `fin.cartera()` rechaza recibir, depositar o endosar mientras lo esté.
   Cheques muestra sólo los propios y la orden de pago no ofrece "cheque de tercero". Para volver a usarla se activa desde la
@@ -510,7 +519,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   3. **Extractos**: una tarjeta por procesador con la cuenta donde deposita **ya fijada** (no se elige: así no se repite
      el extracto de Pago24 importado en Brubank), qué archivo va (Mercado Pago: los dos juntos) y hasta cuándo llega el
      último; al importar se concilia solo.
-  4. **Conciliar**: cuenta por cuenta, sólo lo que falta resolver, primero lo que tiene sugerencia; cada grupo muestra 8
+  4. **Conciliación manual** (el 3 ya concilia solo al importar: "Importar y conciliar"): cuenta por cuenta, sólo lo que falta resolver, primero lo que tiene sugerencia; cada grupo muestra 8
      líneas y el resto con "Ver N más".
   5. **Resultado**: lo que falta por paso, ventas de los últimos 30 días por punto de venta y, por procesador, lo que falta
      acreditar, lo que espera el depósito, el saldo contra el extracto y el costo real por tipo.
@@ -540,7 +549,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Flujo de caja** (sólo finanzas): entradas y salidas por semana desde `fin.movimiento_tes` (sin
   transferencias ni depósitos de cheques, que no son flujo) y saldo proyectado a 8 semanas: disponible
   (bancos + cajas) menos lo vencido, menos facturas por vencimiento y cheques propios por fecha de pago,
-  más cheques de terceros en cartera. No proyecta ventas futuras.
+  más cheques de terceros en cartera, más lo que falta acreditar de los procesadores por el neto en la semana en que se espera
+  (`porCobrar`). No proyecta ventas futuras.
 - Lo ve el encargado (sus sedes), finanzas y el administrador (todas). `app/tablero.js`, `tablero.html`.
 - **Mismo estilo que Ventas** (pedido de Fer, 25/10/2026), con `graficos.js`: período en botones (este mes, mes
   anterior, 7 días, fechas), sede e IVA arriba, y dos pestañas (**Food cost** y **Flujo de caja**, ésta sólo
