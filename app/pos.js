@@ -289,11 +289,11 @@ async function sincronizarRango(req, integ, desde, hasta) {
     }
     // Por cada día del rango, cuántas ventas seguían abiertas: ese día todavía no está completo.
     await c.query(
-      `INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas)
-       SELECT $1, d::date, COALESCE(($4::jsonb ->> to_char(d, 'YYYY-MM-DD'))::int, 0)
+      `INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas, abiertas_detalle)
+       SELECT $1, d::date, COALESCE(($4::jsonb ->> to_char(d, 'YYYY-MM-DD'))::int, 0), $5::jsonb -> to_char(d, 'YYYY-MM-DD')
          FROM generate_series($2::date, $3::date, interval '1 day') d
-       ON CONFLICT (integracion_id, dia) DO UPDATE SET abiertas = EXCLUDED.abiertas, sincronizado_en = now()`,
-      [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {})]);
+       ON CONFLICT (integracion_id, dia) DO UPDATE SET abiertas = EXCLUDED.abiertas, abiertas_detalle = EXCLUDED.abiertas_detalle, sincronizado_en = now()`,
+      [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {}), JSON.stringify(datos.abiertasDetalle || {})]);
     return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0) };
   });
   const cobros = await procesarListos(req, integ, desde, hasta);
@@ -309,15 +309,18 @@ async function sincronizarRango(req, integ, desde, hasta) {
 // que seguían abiertas); sin ninguna corrida buena, desde el 1 del mes de ayer. Nunca más de 31 días atrás.
 const DESDE_CORRIDA = `GREATEST(LEAST(current_date - 3, COALESCE((SELECT MAX(hasta) + 1 FROM pos.corrida WHERE integracion_id = $1 AND ok),
                                                          date_trunc('month', current_date - 1)::date)), current_date - 31)`;
-async function correr(req, integ, automatica, desdePedido = null) {
+async function correr(req, integ, automatica, desdePedido = null, hastaPedido = null) {
   if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API en la ficha de la sede.');
-  // A mano se puede pedir desde cuándo (por ejemplo, para volver a traer un mes entero), hasta 62 días atrás.
+  // A mano se puede pedir desde y hasta cuándo (por ejemplo, volver a traer un mes entero, o cortar antes de ayer),
+  // hasta 62 días atrás y nunca el día en curso.
   const { rows: [r] } = await pool.query(
-    `SELECT to_char(COALESCE($2::date, ${DESDE_CORRIDA}), 'YYYY-MM-DD') AS desde, to_char(current_date - 1, 'YYYY-MM-DD') AS hasta,
-            $2::date < current_date - 62 AS muy_atras, $2::date > current_date - 1 AS adelante`, [integ.id, desdePedido]);
+    `SELECT to_char(x.desde, 'YYYY-MM-DD') AS desde, to_char(x.hasta, 'YYYY-MM-DD') AS hasta,
+            x.desde < current_date - 62 AS muy_atras, x.hasta > current_date - 1 AS adelante, x.desde > x.hasta AS al_reves
+       FROM (SELECT COALESCE($2::date, ${DESDE_CORRIDA}) AS desde, COALESCE($3::date, current_date - 1) AS hasta) x`, [integ.id, desdePedido, hastaPedido]);
   if (r.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
   if (r.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
+  if (r.al_reves) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
   const { rows: [co] } = await pool.query(
     `INSERT INTO pos.corrida (integracion_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id`,
     [integ.id, automatica, r.desde, r.hasta]);
@@ -341,7 +344,7 @@ async function correr(req, integ, automatica, desdePedido = null) {
 r.post('/pos/integraciones/:id/correr', h(async (req, res) => {
   const integ = await integracion(pool, req, req.params.id);
   exigirOperarEn(req, integ.sede_id, integ.sede);
-  res.status(201).json({ ok: true, ...await correr(req, integ, false, fecha(req.body.desde, { campo: 'Desde' })) });
+  res.status(201).json({ ok: true, ...await correr(req, integ, false, fecha(req.body.desde, { campo: 'Desde' }), fecha(req.body.hasta, { campo: 'Hasta' })) });
 }));
 
 // Las corridas automáticas pendientes de hoy (las llama el programador, firmadas por el usuario de sistema).
@@ -987,7 +990,7 @@ r.get('/pos/cierre', h(async (req, res) => {
             WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND t.dia >= current_date - $2::int
             GROUP BY t.dia)
          SELECT to_char(d.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text, j.por_cobrar::text, j.pagos_pendientes,
-                j.pagos_sin_asignar, j.pagos_procesados, COALESCE(sd.abiertas, j.abiertas, 0) AS abiertas, sd.dia IS NOT NULL AS sincronizado,
+                j.pagos_sin_asignar, j.pagos_procesados, COALESCE(sd.abiertas, j.abiertas, 0) AS abiertas, sd.abiertas_detalle, sd.dia IS NOT NULL AS sincronizado,
                 COALESCE(pg.efectivo, 0)::text AS efectivo, COALESCE(pg.electronico, 0)::text AS electronico,
                 COALESCE(pg.acreditado, 0)::text AS acreditado, COALESCE(pg.liquidado, 0)::text AS liquidado
            FROM d LEFT JOIN pos.jornada j ON j.integracion_id = $1 AND j.dia = d.dia
@@ -1028,9 +1031,14 @@ r.get('/pos/cierre', h(async (req, res) => {
       if (ult && ult.ok === false) tareas.push({ tipo: 'corrida', nivel: 'mal', texto: `La última sincronización falló: ${ult.error}` });
       else if (i.sincroniza_auto && i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso()))
         tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
-      else if (!ayerTraido)
-        tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: `Faltan traer las ventas desde el ${i.traer_desde.slice(8, 10)}/${i.traer_desde.slice(5, 7)}`
+      else if (!ayerTraido) {
+        // Lo que falta empieza el día siguiente al último traído (el campo "desde" propone unos días antes, para que
+        // lleguen las mesas que cerraron tarde).
+        const ultimo = dias.find(d => d.ventas || d.sincronizado);
+        const falta = ultimo ? new Date(Date.parse(ultimo.dia + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10) : i.traer_desde;
+        tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: `Faltan traer las ventas desde el ${falta.slice(8, 10)}/${falta.slice(5, 7)}`
           + (i.sincroniza_auto ? '.' : ' (la sincronización automática está pausada en la ficha de la sede).') });
+      }
     }
     // Por archivo: los días sin ventas desde la primera importada del período (antes, el punto de venta no existía o
     // no se usaba el sistema).

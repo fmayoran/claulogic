@@ -72,7 +72,7 @@ function ids(rel) {
 // Las ventas vacías (sin productos ni pagos: se abrieron y cerraron sin cargar nada) se ignoran.
 async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   const tk = await token(integracionId, cred);
-  const tickets = [], abiertas = {};
+  const tickets = [], abiertas = {}, abiertasDetalle = {};
   // Día de la cocina (Buenos Aires, UTC-3, sin horario de verano) de un instante UTC.
   const diaLocal = iso => new Date(new Date(iso).getTime() - 3 * 3600000).toISOString().slice(0, 10);
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
@@ -92,7 +92,16 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
       // deliveries vacíos del 22/10 figuraban como abiertos).
       const anulada = a.saleState === 'CANCELED';
       if (!anulada && (a.saleState !== 'CLOSED' || !a.closedAt)) {
-        if (a.createdAt) abiertas[diaLocal(a.createdAt)] = (abiertas[diaLocal(a.createdAt)] || 0) + 1;
+        if (a.createdAt) {
+          const dia = diaLocal(a.createdAt), mesa = ids(rel.table)[0], mozo = ids(rel.waiter)[0];
+          abiertas[dia] = (abiertas[dia] || 0) + 1;
+          // Lo mínimo para encontrarla en el sistema de venta (un delivery enviado y sin cerrar no está entre las mesas).
+          (abiertasDetalle[dia] = abiertasDetalle[dia] || []).push({
+            id: String(v.id), estado: a.saleState || null, tipo: TIPO_VENTA[a.saleType] || a.saleType || null, abierta_en: a.createdAt,
+            total: a.total != null ? String(a.total) : null, cliente: a.customerName || null,
+            mesa: mesa ? ((de('Table', mesa) || {}).attributes || {}).number ?? mesa : null,
+            mozo: mozo ? ((de('User', mozo) || {}).attributes || {}).name ?? null : null });
+        }
         continue;
       }
       // En Fudo, `price` es el total del RENGLÓN (2 × $20.000 viene como price 40000), no el unitario:
@@ -120,7 +129,7 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
         personas: a.people ?? null, items, pagos,
       });
     }
-    if (datos.length < TAMANO) return { tickets, abiertas };
+    if (datos.length < TAMANO) return { tickets, abiertas, abiertasDetalle };
   }
   throw new ErrorFudo(`El rango tiene más de ${MAX_PAGINAS * TAMANO} ventas: importalo en partes.`);
 }

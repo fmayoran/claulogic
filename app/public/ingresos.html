@@ -31,6 +31,8 @@
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
+  details.abiertas{flex-basis:100%;font-size:.88rem;} details.abiertas summary{cursor:pointer;color:var(--acento);font-weight:600;}
+  details.abiertas .abierta{padding:4px 0 0 12px;color:var(--mut);} details.abiertas .abierta b{color:var(--fg);margin-right:6px;}
   .al-dia{display:flex;gap:8px;align-items:center;color:var(--sube);font-weight:600;font-size:.94rem;margin:8px 0 0;}
   .al-dia::before{content:'✓';display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ok-bg);font-size:.8rem;}
   /* Algo para resolver, con su acción al lado o abajo */
@@ -234,7 +236,8 @@ function textoSincronizacion(p) {
 async function traer(p) {
   msg(`Trayendo las ventas de ${p.nombre}…`);
   try {
-    const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST', body: { desde: (p.campoDesde && p.campoDesde.value) || null } });
+    const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST',
+      body: { desde: (p.campoDesde && p.campoDesde.value) || null, hasta: (p.campoHasta && p.campoHasta.value) || null } });
     msg(`${p.nombre}: del ${fecha(d.desde)} al ${fecha(d.hasta)}, ${d.nuevos} venta(s) nueva(s)` + (d.cobros ? `, ${d.cobros.procesados.length} día(s) cobrados solos` : '') + '.', 'ok');
     await refrescar();
   } catch (e) { msg(e.message, 'mal'); }
@@ -247,7 +250,8 @@ async function pintarVentas() {
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
       el('div', { className: 'acc' }, ...(p.modo === 'api' ? [
           el('label', { className: 'desde' }, 'desde', p.campoDesde = el('input', { type: 'date', value: p.traer_desde || '', max: ayer, 'aria-label': 'Traer desde' })),
-          boton('Traer ventas hasta ayer', () => traer(p), !ts.length || ts.some(t => t.tipo === 'corrida'))]
+          el('label', { className: 'desde' }, 'hasta', p.campoHasta = el('input', { type: 'date', value: ayer, max: ayer, 'aria-label': 'Traer hasta' })),
+          boton('Traer ventas', () => traer(p), !ts.length || ts.some(t => t.tipo === 'corrida'))]
         : [ir('procesar-ventas.html#' + p.id, 'Importar archivo', ts.some(t => t.tipo === 'importar'))])),
       el('span', { className: 'sinc', textContent: textoSincronizacion(p) }));
     const cuerpo = [];
@@ -256,6 +260,17 @@ async function pintarVentas() {
     bloques.push(el('section', { className: 'card bloque' }, cab, ...cuerpo));
   }
   $('#ventas').replaceChildren(...bloques);
+}
+// Cuáles ventas seguían abiertas ese día, a pedido (un botón que despliega): número, tipo, estado, hora, cliente o mesa,
+// mozo y total, para encontrarla en el sistema de venta y cerrarla. Un delivery enviado no está entre las mesas.
+const ESTADO_VENTA = { 'IN-COURSE': 'en curso', 'DELIVERY-SENT': 'enviado', PENDING: 'pendiente', 'READY-TO-DELIVER': 'listo para entregar' };
+function verAbiertas(p, dia) {
+  const ds = ((p.dias.find(d => d.dia === dia) || {}).abiertas_detalle) || [];
+  if (!ds.length) return '';
+  return el('details', { className: 'abiertas' }, el('summary', { textContent: ds.length === 1 ? 'Ver cuál' : `Ver cuáles (${ds.length})` }),
+    ...ds.map(v => el('div', { className: 'abierta' }, el('b', { textContent: `#${v.id}` }),
+      [v.tipo, ESTADO_VENTA[v.estado] || (v.estado || '').toLowerCase(), hora(v.abierta_en), v.cliente, v.mesa != null && `mesa ${v.mesa}`, v.mozo,
+       v.total != null && pesos(v.total)].filter(Boolean).join(' · '))));
 }
 // Cada problema con lo que hace falta para resolverlo, ahí mismo.
 async function tareaVenta(p, t) {
@@ -269,7 +284,7 @@ async function tareaVenta(p, t) {
     try { const d = await api(`pos/jornadas/${p.id}/procesar`, { method: 'POST' }); msg(`${d.procesados.length} día(s) cobrados.`, 'ok'); await refrescar(); } catch (e) { msg(e.message, 'mal'); }
   }, true));
   else if (t.clase === 'abiertas') for (const dia of t.dias) caja.append(el('div', { className: 'renglon' }, el('b', { textContent: fecha(dia) }),
-    el('span', { className: 'mut', textContent: 'alguna mesa seguía abierta cuando se trajo' }),
+    el('span', { className: 'mut', textContent: 'alguna venta seguía abierta cuando se trajo' }), verAbiertas(p, dia),
     p.modo === 'api' ? boton('Volver a traer el día', async () => {
       try { const d = await api(`pos/integraciones/${p.id}/sincronizar`, { method: 'POST', body: { desde: dia, hasta: dia } });
         msg(`${fecha(dia)}: ${d.nuevos} venta(s) nueva(s), ${d.repetidos} ya estaban.` + (d.abiertas ? ` Siguen ${d.abiertas} abierta(s) en el sistema de venta.` : ''), d.abiertas ? 'mal' : 'ok'); await refrescar();

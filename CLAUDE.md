@@ -496,10 +496,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     con la casilla de la ficha de la sede (`pos.integracion.sincroniza_auto`). `app/programador.js` se fija cada minuto
     (si la app estaba caída a las 5, corre al volver; `PROGRAMADOR=no` lo apaga). Cada corrida queda en `pos.corrida`
     con su resultado o su error; una automática por punto de venta y por día (índice único). "Traer ahora" corre lo
-    mismo a mano (`POST /pos/integraciones/:id/correr`) sin consumir la del día, **desde la fecha que se elija** (campo "desde" del
-    paso 1 de ingresos, hasta 62 días atrás); sin ninguna corrida buena, se trae desde el 1 del mes. El paso 1 avisa "Faltan traer
+    mismo a mano (`POST /pos/integraciones/:id/correr`) sin consumir la del día, **en el rango que se elija** (campos "desde" y
+    "hasta" del paso 1 de ingresos, hasta 62 días atrás y nunca el día en curso); sin ninguna corrida buena, se trae desde el 1 del mes. El paso 1 avisa "Faltan traer
     las ventas desde el …" siempre que ayer no esté traído, también con la automática pausada (28/10/2026: con todo borrado y la
-    automática en pausa decía "al día").
+    automática en pausa decía "al día"). **Cuáles ventas seguían abiertas** (migración 20261114,
+    `pos.sincronizacion_dia.abiertas_detalle`: número, estado, tipo, hora, total, cliente, mesa y mozo): en el paso 1, "Ver
+    cuál/cuáles" las despliega a pedido (el 27/10 la "mesa abierta" de Fer era un delivery enviado y sin cerrar).
   - Lo automático lo firma el **usuario de sistema** `sistema` (`org.usuario.de_sistema`, finanzas, sin clave): no
     entra a la app, no aparece en Usuarios y no se edita.
   - **Efectivo**: queda en la cuenta "Efectivo · <sede>" hasta que llega; **rendir** (`POST /pos/efectivo/:id/rendir`)
