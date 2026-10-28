@@ -523,7 +523,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   2. **Efectivo**: rendir o diferencia, por punto de venta.
   3. **Extractos**: una tarjeta por procesador con la cuenta donde deposita **ya fijada** (no se elige: así no se repite
      el extracto de Pago24 importado en Brubank), qué archivo va (Mercado Pago: los dos juntos) y hasta cuándo llega el
-     último; al importar se concilia solo.
+     último; al importar se concilia solo. "Cómo bajarlo" (a pedido, `comoBajar`) dice dónde se saca: Pago24 en Reportes >
+     Financiero > Cta. Cte. Disponible, con el rango de fechas y la cuenta (210973 de CORTAFUEGO).
   4. **Conciliación manual** (el 3 ya concilia solo al importar: "Importar y conciliar"): cuenta por cuenta, sólo lo que falta resolver, primero lo que tiene sugerencia; cada grupo muestra 8
      líneas y el resto con "Ver N más".
   5. **Resultado**: lo que falta por paso, ventas de los últimos 30 días por punto de venta y, por procesador, lo que falta

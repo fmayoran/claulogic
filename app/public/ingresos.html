@@ -31,6 +31,8 @@
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
+  details.como{flex-basis:100%;font-size:.88rem;} details.como summary{cursor:pointer;color:var(--acento);font-weight:600;}
+  details.como ol{margin:6px 0 0;padding-left:22px;color:var(--mut);} details.como li{margin:2px 0;}
   details.abiertas{flex-basis:100%;font-size:.88rem;} details.abiertas summary{cursor:pointer;color:var(--acento);font-weight:600;}
   details.abiertas .abierta{padding:4px 0 0 12px;color:var(--mut);} details.abiertas .abierta b{color:var(--fg);margin-right:6px;}
   .al-dia{display:flex;gap:8px;align-items:center;color:var(--sube);font-weight:600;font-size:.94rem;margin:8px 0 0;}
@@ -377,6 +379,18 @@ function queArchivo(x) {
   if (/pago\s*24/i.test(x.nombre)) return 'El CSV de movimientos de la cuenta, con la columna de saldo.';
   return `El extracto en CSV de ${x.cuenta || 'la cuenta'}, con la columna de saldo.`;
 }
+// Dónde se baja el archivo en cada procesador, a pedido (es difícil de encontrar: pedido de Fer, 28/10/2026).
+function comoBajar(x) {
+  let pasos = null;
+  if (/pago\s*24/i.test(x.nombre)) {
+    const nro = ((x.cuenta || '').match(/\d{4,}/) || [])[0];
+    pasos = ['Entrá a Pago24 y andá a Reportes > Financiero > Cta. Cte. Disponible.',
+      `Elegí el rango de fechas y la cuenta ${nro ? nro + ' ' : ''}del punto de venta.`,
+      'Descargalo en CSV e importalo acá.'];
+  }
+  if (!pasos) return '';
+  return el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {}, ...pasos.map(t => el('li', { textContent: t }))));
+}
 function pintarExtractos() {
   $('#extractos').replaceChildren(...procs.map(x => {
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: x.nombre }));
@@ -389,7 +403,7 @@ function pintarExtractos() {
       listo: async (t, tipo) => { if (tipo === 'ok') { await refrescar(); msg(`${x.cuenta}: ${t}`, 'ok'); } else { nota.textContent = t; nota.className = 'msg msg-b'; } } });
     const alDia = e.hasta && e.hasta >= ayer;
     cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)));
-    cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }));
+    cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }), comoBajar(x));
     const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
       : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_pendientes ? ` Quedan ${e.lineas_pendientes} línea(s) para conciliar.` : '') })
       : el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: `El último extracto llega hasta el ${fecha(e.hasta)}: falta del ${fecha(sumarDias(e.hasta, 1))} a ayer.` })));
