@@ -305,13 +305,19 @@ async function sincronizarRango(req, integ, desde, hasta) {
 // Trae el día anterior y repasa los dos de antes (mesas que cerraron tarde, liquidaciones que Fudo completa
 // después); si la última corrida buena es más vieja, desde el día siguiente a lo que trajo (hasta un mes). Queda
 // registrada con su resultado o su error. La automática corre una vez por día y por punto de venta.
-async function correr(req, integ, automatica) {
+// Desde dónde trae una corrida: el día siguiente a la última buena (al menos los 3 últimos días, para que lleguen las mesas
+// que seguían abiertas); sin ninguna corrida buena, desde el 1 del mes de ayer. Nunca más de 31 días atrás.
+const DESDE_CORRIDA = `GREATEST(LEAST(current_date - 3, COALESCE((SELECT MAX(hasta) + 1 FROM pos.corrida WHERE integracion_id = $1 AND ok),
+                                                         date_trunc('month', current_date - 1)::date)), current_date - 31)`;
+async function correr(req, integ, automatica, desdePedido = null) {
   if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API en la ficha de la sede.');
+  // A mano se puede pedir desde cuándo (por ejemplo, para volver a traer un mes entero), hasta 62 días atrás.
   const { rows: [r] } = await pool.query(
-    `SELECT to_char(GREATEST(LEAST(current_date - 3, COALESCE((SELECT MAX(hasta) + 1 FROM pos.corrida WHERE integracion_id = $1 AND ok), current_date - 3)),
-                             current_date - 31), 'YYYY-MM-DD') AS desde,
-            to_char(current_date - 1, 'YYYY-MM-DD') AS hasta`, [integ.id]);
+    `SELECT to_char(COALESCE($2::date, ${DESDE_CORRIDA}), 'YYYY-MM-DD') AS desde, to_char(current_date - 1, 'YYYY-MM-DD') AS hasta,
+            $2::date < current_date - 62 AS muy_atras, $2::date > current_date - 1 AS adelante`, [integ.id, desdePedido]);
+  if (r.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
+  if (r.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
   const { rows: [co] } = await pool.query(
     `INSERT INTO pos.corrida (integracion_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id`,
     [integ.id, automatica, r.desde, r.hasta]);
@@ -335,7 +341,7 @@ async function correr(req, integ, automatica) {
 r.post('/pos/integraciones/:id/correr', h(async (req, res) => {
   const integ = await integracion(pool, req, req.params.id);
   exigirOperarEn(req, integ.sede_id, integ.sede);
-  res.status(201).json({ ok: true, ...await correr(req, integ, false) });
+  res.status(201).json({ ok: true, ...await correr(req, integ, false, fecha(req.body.desde, { campo: 'Desde' })) });
 }));
 
 // Las corridas automáticas pendientes de hoy (las llama el programador, firmadas por el usuario de sistema).
@@ -959,7 +965,8 @@ r.get('/pos/cierre', h(async (req, res) => {
             (SELECT row_to_json(c) FROM (SELECT c.fecha, c.automatica, c.ok, c.error, c.resultado, c.iniciada_en, c.terminada_en,
                                                 to_char(c.desde, 'YYYY-MM-DD') AS desde, to_char(c.hasta, 'YYYY-MM-DD') AS hasta
                                            FROM pos.corrida c WHERE c.integracion_id = i.id ORDER BY c.iniciada_en DESC LIMIT 1) c) AS ultima_corrida,
-            extract(hour FROM now())::int >= 5 AS paso_la_hora
+            extract(hour FROM now())::int >= 5 AS paso_la_hora,
+            to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
       WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1)) ORDER BY s.nombre`, [sedesPos(req)]);
@@ -1014,9 +1021,16 @@ r.get('/pos/cierre', h(async (req, res) => {
     // Para resolver: lo que pide una acción, cada cosa con lo que hace falta para resolverla.
     const tareas = [];
     const ult = i.ultima_corrida;
-    if (i.modo === 'api' && i.sincroniza_auto) {
+    // Por API: si la última falló, si la automática de hoy no corrió o, de cualquier forma, si ayer todavía no se trajo
+    // (con la automática pausada o sin corridas, nada más lo avisaba).
+    const ayerTraido = dias[0] && (dias[0].ventas || dias[0].sincronizado);
+    if (i.modo === 'api') {
       if (ult && ult.ok === false) tareas.push({ tipo: 'corrida', nivel: 'mal', texto: `La última sincronización falló: ${ult.error}` });
-      else if (i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso())) tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
+      else if (i.sincroniza_auto && i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso()))
+        tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
+      else if (!ayerTraido)
+        tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: `Faltan traer las ventas desde el ${i.traer_desde.slice(8, 10)}/${i.traer_desde.slice(5, 7)}`
+          + (i.sincroniza_auto ? '.' : ' (la sincronización automática está pausada en la ficha de la sede).') });
     }
     // Por archivo: los días sin ventas desde la primera importada del período (antes, el punto de venta no existía o
     // no se usaba el sistema).

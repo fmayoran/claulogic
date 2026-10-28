@@ -29,7 +29,8 @@
   .bloque{margin:0 0 16px;}
   .bloque-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin:0 0 6px;}
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
-  .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;}
+  .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
   .al-dia{display:flex;gap:8px;align-items:center;color:var(--sube);font-weight:600;font-size:.94rem;margin:8px 0 0;}
   .al-dia::before{content:'✓';display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ok-bg);font-size:.8rem;}
   /* Algo para resolver, con su acción al lado o abajo */
@@ -224,10 +225,12 @@ function textoSincronizacion(p) {
   const cuando = (u.fecha === new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10) ? 'hoy ' : fecha(u.fecha) + ' ') + hora(u.iniciada_en);
   return `${auto} · última vez: ${cuando}` + (u.ok ? ` (hasta el ${fecha(u.hasta)})` : u.ok === false ? ' (falló)' : ' (en curso)') + '.';
 }
+// Trae desde la fecha del campo "desde" del punto de venta (propuesta por el servidor: el día siguiente a lo último traído,
+// o el 1 del mes si nunca se trajo) hasta ayer.
 async function traer(p) {
   msg(`Trayendo las ventas de ${p.nombre}…`);
   try {
-    const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST' });
+    const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST', body: { desde: (p.campoDesde && p.campoDesde.value) || null } });
     msg(`${p.nombre}: del ${fecha(d.desde)} al ${fecha(d.hasta)}, ${d.nuevos} venta(s) nueva(s)` + (d.cobros ? `, ${d.cobros.procesados.length} día(s) cobrados solos` : '') + '.', 'ok');
     await refrescar();
   } catch (e) { msg(e.message, 'mal'); }
@@ -238,8 +241,10 @@ async function pintarVentas() {
   for (const p of puntos) {
     const ts = tareasVentas(p), ultimo = p.dias.find(d => d.ventas);
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
-      el('div', { className: 'acc' }, p.modo === 'api' ? boton('Traer ventas hasta ayer', () => traer(p), !ts.length || ts.some(t => t.tipo === 'corrida'))
-        : ir('procesar-ventas.html#' + p.id, 'Importar archivo', ts.some(t => t.tipo === 'importar'))),
+      el('div', { className: 'acc' }, ...(p.modo === 'api' ? [
+          el('label', { className: 'desde' }, 'desde', p.campoDesde = el('input', { type: 'date', value: p.traer_desde || '', max: ayer, 'aria-label': 'Traer desde' })),
+          boton('Traer ventas hasta ayer', () => traer(p), !ts.length || ts.some(t => t.tipo === 'corrida'))]
+        : [ir('procesar-ventas.html#' + p.id, 'Importar archivo', ts.some(t => t.tipo === 'importar'))])),
       el('span', { className: 'sinc', textContent: textoSincronizacion(p) }));
     const cuerpo = [];
     for (const t of ts) cuerpo.push(await tareaVenta(p, t));
