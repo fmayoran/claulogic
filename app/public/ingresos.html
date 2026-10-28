@@ -176,12 +176,16 @@ const tareasVentas = p => p.tareas.filter(t => ['corrida', 'importar', 'dia'].in
 function estadoPasos() {
   const nVentas = puntos.reduce((s, p) => s + tareasVentas(p).length, 0);
   const efectivo = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
+  const cobradoEf = puntos.reduce((s, p) => s + p.dias.reduce((a, d) => a + centavos(d.efectivo || '0'), 0n), 0n);
   const conCuenta = procs.filter(x => x.resumen);
   const sinExtracto = procs.filter(x => !x.resumen || !x.resumen.extracto.hasta || x.resumen.extracto.hasta < ayer).length;
   const lineas = conCuenta.reduce((s, x) => s + (x.resumen.extracto.lineas_pendientes || 0), 0);
   return {
     ventas: nVentas ? [false, `${nVentas} para resolver`] : [true, 'al día'],
-    efectivo: efectivo > 0n ? [false, `${pesos(deCentavos(efectivo))} a rendir`] : [true, 'rendido'],
+    // "Rendido" sólo si hubo efectivo, las ventas no tienen nada pendiente (cobros sin procesar no llegan a la cuenta de
+    // efectivo) y no queda saldo: sin ventas traídas, el saldo en cero no dice nada.
+    efectivo: efectivo > 0n ? [false, `${pesos(deCentavos(efectivo))} a rendir`]
+      : nVentas ? [null, 'después de las ventas'] : cobradoEf > 0n ? [true, 'rendido'] : [null, 'sin efectivo cobrado'],
     extractos: sinExtracto ? [false, `${sinExtracto} por importar`] : [true, 'al día'],
     conciliar: lineas ? [false, `${lineas} línea(s)`] : [!!conCuenta.some(x => x.resumen.extracto.hasta), conCuenta.some(x => x.resumen.extracto.hasta) ? 'al día' : 'sin extractos'],
     resultado: [null, ''],
@@ -307,7 +311,10 @@ function pintarEfectivo() {
     const saldo = centavos(p.efectivo_a_rendir), pend = p.dias.filter(d => centavos(d.efectivo_pendiente) > 0n);
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
       el('div', { className: 'acc' }, saldo > 0n ? boton('Rendir', () => abrirRendir(p), true) : '', saldo > 0n ? boton('Diferencia', () => abrirDif(p)) : ''));
-    if (saldo <= 0n) return el('section', { className: 'card bloque' }, cab, el('p', { className: 'al-dia', textContent: 'Todo el efectivo está rendido.' }));
+    const cobrado = p.dias.reduce((a, d) => a + centavos(d.efectivo || '0'), 0n), ventasPend = tareasVentas(p).length;
+    if (saldo <= 0n) return el('section', { className: 'card bloque' }, cab, el('p', { className: 'al-dia',
+      textContent: ventasPend ? 'Las ventas tienen algo pendiente (paso 1): el efectivo a rendir aparece cuando sus cobros están procesados.'
+        : cobrado > 0n ? 'Todo el efectivo está rendido.' : 'No hay efectivo cobrado en los últimos 60 días.' }));
     return el('section', { className: 'card bloque' }, cab,
       el('div', { className: 'cifras-b' }, el('div', {}, el('span', { textContent: 'A rendir' }), el('strong', { textContent: pesos(p.efectivo_a_rendir) }),
         el('small', { textContent: pend.length ? `de ${pend.length} día(s), desde el ${fecha(pend.at(-1).dia)}` : 'de antes de los últimos 60 días' }))),
@@ -408,7 +415,7 @@ $('#cAuto').onclick = async () => {
 
 // ── 5. Resultado ──
 function pintarResultado() {
-  const e = estadoPasos(), faltan = PASOS.slice(0, 4).filter(k => !e[k][0]);
+  const e = estadoPasos(), faltan = PASOS.slice(0, 4).filter(k => e[k][0] === false);
   $('#rTituloR').textContent = faltan.length ? `Quedan ${faltan.length} paso(s) con algo pendiente` : `Ingresos cerrados hasta el ${fecha(ayer)}`;
   $('#rTituloR').className = 'titulo' + (faltan.length ? '' : ' ok');
   $('#rDetalleR').textContent = faltan.length ? 'Lo de abajo es lo que falta; el resto de los números ya es definitivo.' : 'Las ventas están cobradas, el efectivo rendido y los extractos conciliados.';
