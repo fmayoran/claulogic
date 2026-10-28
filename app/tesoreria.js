@@ -4,6 +4,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion } = require('./util');
+const { aplicarReglas, crearRegla, rubroValido } = require('./resultados');
 // Plata exacta en centavos (BigInt) para sumar importes en texto sin pasar por float.
 const centavos = v => { const s = String(v), neg = s.startsWith('-'), [e, d = ''] = s.replace('-', '').split('.'); const c = BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -c : c; };
 const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
@@ -137,7 +138,6 @@ function leerCuenta(b) {
   // con una transferencia cuando se acredita.
   if (!['banco', 'caja', 'cobranza'].includes(c.tipo)) throw new ErrorUsuario('El tipo es banco, caja o cobranza (la cartera de cheques ya existe).');
   if (c.tipo === 'caja' && !c.sede_id) throw new ErrorUsuario('Una caja es de una sede: elegila.');
-  if (c.tipo !== 'caja') c.sede_id = null;
   if (c.cbu && c.cbu.length !== 22) throw new ErrorUsuario('El CBU tiene 22 dígitos.');
   return c;
 }
@@ -678,7 +678,7 @@ r.get('/fin/conciliacion/hechas', h(async (req, res) => {
 r.post('/fin/conciliacion', h(async (req, res) => {
   const b = req.body;
   const linea = numero(b.linea_id, { campo: 'la línea', requerido: true });
-  await enTransaccion(async c => {
+  const out = await enTransaccion(async c => {
     const { rows: [l] } = await c.query('SELECT * FROM fin.extracto_linea WHERE id = $1 FOR UPDATE', [linea]);
     if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
     let mov = texto(b.movimiento_id);
@@ -686,17 +686,23 @@ r.post('/fin/conciliacion', h(async (req, res) => {
       // El débito del cheque aparece en el extracto: recién ahí sale del banco.
       ({ rows: [{ id: mov }] } = await c.query('SELECT fin.debitar_cheque($1::uuid, $2::date) AS id', [b.cheque_id, l.fecha]));
     } else if (b.crear) {
-      // Línea sin movimiento: comisión, impuesto, interés, acreditación. Se registra desde acá.
+      // Línea sin movimiento: comisión, impuesto, interés, acreditación. Se registra desde acá con su rubro (estado de
+      // resultados) y, si se pide, una regla para que las próximas iguales se clasifiquen y concilien solas.
       const concepto = texto(b.crear.concepto, { campo: 'el concepto', requerido: true });
+      const rubro = await rubroValido(c, b.crear.rubro_id);
       const sale = String(l.importe).startsWith('-');
       ({ rows: [{ id: mov }] } = await c.query(
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
         [l.fecha, l.cuenta_id, sale ? 'egreso' : 'ingreso', sale ? 0 : l.importe, sale ? String(l.importe).slice(1) : 0, concepto]));
+      await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1,$2,$3)', [mov, rubro, texto(b.crear.sede_id)]);
     }
     if (!mov) throw new ErrorUsuario('Falta el movimiento a conciliar.');
     await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, mov]);
+    if (b.crear && b.crear.regla)
+      return crearRegla(c, { cuenta_id: l.cuenta_id, sentido: String(l.importe).startsWith('-') ? 'egreso' : 'ingreso', patron: b.crear.regla,
+                             rubro_id: b.crear.rubro_id, sede_id: b.crear.sede_id });
   });
-  res.status(201).json({ ok: true });
+  res.status(201).json({ ok: true, regla: out || null });
 }));
 
 // Deshacer un pareo. Si el movimiento lo creó la conciliación de un procesador (una acreditación o un cargo), no
@@ -728,7 +734,11 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
     // Lo que creó la conciliación se anula: acreditaciones y cargos (y la diferencia confirmada de un lote). Un lote
     // confirmado con el depósito vuelve a esperado: se anulan su acreditación y su costo. Un lote armado al confirmar
     // el depósito (un cobro sin neto informado) se deshace entero y el cobro vuelve a pendiente.
-    for (const m of movs) if (m.ticket_pago_id || m.gasto) await anular(m);
+    // También lo que asentó una regla: si no, quedaría un movimiento suelto sin su línea.
+    const { rows: deRegla } = await c.query('SELECT movimiento_id FROM fin.clasificacion WHERE movimiento_id = ANY($1::bigint[]) AND regla_id IS NOT NULL',
+      [movs.map(m => m.id)]);
+    const porRegla = new Set(deRegla.map(x => Number(x.movimiento_id)));
+    for (const m of movs) if (m.ticket_pago_id || m.gasto || porRegla.has(Number(m.id))) await anular(m);
     const { rows: confirmados } = await c.query('SELECT * FROM fin.lote WHERE movimiento_id = ANY($1::bigint[]) AND desde_linea_id IS NULL',
       [movs.map(m => m.id)]);
     for (const l of confirmados) {
@@ -791,14 +801,18 @@ const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
 
 r.post('/fin/conciliacion/automatica', h(async (req, res) => {
   const cuenta = texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true });
-  // Si el procesador liquida por lotes, primero se liquidan los que ya llegaron a su fecha.
+  // Si el procesador liquida por lotes, primero se liquidan los que ya llegaron a su fecha. Una cuenta que no es de un
+  // procesador sólo pasa por las reglas de clasificación.
   const { rows: [prl] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
   const liquidados = prl ? await acreditarLotes(req, prl.id) : null;
   const out = await enTransaccion(async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
     const { rows: [pr] } = await c.query(
       `SELECT p.id, p.nombre, cu.nombre AS cuenta FROM fin.procesador p JOIN fin.cuenta cu ON cu.id = p.cuenta_acredita_id WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
-    if (!pr) throw new ErrorUsuario('Esta cuenta no es la de un procesador: en Medios de pago, indicá en qué cuenta deposita.');
+    // Una cuenta que no es de un procesador (un banco): sólo las reglas de clasificación.
+    if (!pr) return { procesador: null, compensadas: 0, acreditadas: 0, acreditado: '0.00', lotes_confirmados: 0, gastos: {}, reglas: await aplicarReglas(c, cuenta),
+      quedan: Number((await c.query(`SELECT COUNT(*) AS n FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+                                       AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta])).rows[0].n) };
     const { rows: todas } = await c.query(
       `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
@@ -883,8 +897,10 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
       await conciliar(l.id, mov.id);
       usadas.add(l.id); gastos[g] = (gastos[g] || 0n) + centavos(l.importe.slice(1));
     }
-    const quedan = pend.filter(l => !usadas.has(l.id)).length;
-    return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan, lotes_confirmados: lotesConfirmados,
+    // 4. Lo que quedó y reconoce una regla (VEP, mantenimiento de cuenta, transferencias propias…): se clasifica y concilia.
+    const reglas = await aplicarReglas(c, cuenta);
+    const quedan = pend.filter(l => !usadas.has(l.id)).length - reglas;
+    return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan, lotes_confirmados: lotesConfirmados, reglas,
              gastos: Object.fromEntries(Object.entries(gastos).map(([k, v]) => [k, deCentavos(v)])) };
   });
   res.status(201).json({ ok: true, ...out, lotes_liquidados: liquidados ? liquidados.lotes.length : 0 });

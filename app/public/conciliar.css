@@ -23,3 +23,8 @@
 .mapa select{padding:4px 6px;font-size:.85rem;} .mapa td{font-size:.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
 .importador{margin:0 0 20px;}
 .ver-mas{margin-top:10px;font-size:.86rem;padding:6px 14px;}
+/* Registrar una línea: concepto, rubro y, a pedido, la regla para las próximas. */
+.pend .acc select{max-width:100%;}
+.pend .acc .regla{flex-basis:100%;display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;font-size:.9rem;color:var(--mut);margin:0;}
+.pend .acc .regla input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;}
+.pend .acc .regla input[type=text],.pend .acc .regla input:not([type]){flex:1 1 180px;min-width:0;}

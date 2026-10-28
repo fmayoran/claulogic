@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Estado de resultados · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<link rel="stylesheet" href="conciliar.css">
+<style>
+  #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
+  /* El estado: una fila por línea (se abre en sus rubros) y los totales resaltados. */
+  .er{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:0 18px;align-items:baseline;}
+  .er > div{display:contents;}
+  .er .c, .er .i, .er .p, .er .a{padding:9px 4px;border-top:1px solid var(--g-grilla);}
+  .er .i, .er .p, .er .a{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .er .p, .er .a{color:var(--mut);font-size:.86rem;}
+  .er .cab > span{border-top:0;color:var(--mut);font-size:.8rem;padding-top:0;}
+  .er .linea .c{font-weight:600;cursor:pointer;} .er .linea .c::before{content:'+';display:inline-block;width:1.1em;color:var(--mut);font-weight:400;}
+  .er .linea.abierta .c::before{content:'−';} .er .linea.vacia .c{cursor:default;} .er .linea.vacia .c::before{content:'';}
+  .er .rubro .c{padding-left:26px;font-size:.92rem;color:var(--fg);cursor:pointer;text-decoration:underline dotted var(--line);text-underline-offset:3px;}
+  .er .rubro .i{font-size:.92rem;}
+  .er .total .c, .er .total .i{font-weight:700;border-top:2px solid var(--fg);} .er .total .p, .er .total .a{border-top:2px solid var(--fg);}
+  .er .total.final .c, .er .total.final .i{font-size:1.08rem;}
+  .neg{color:var(--mal);}
+  @media (max-width:600px){ .er{grid-template-columns:minmax(0,1fr) auto auto;} .er .a{display:none;} }
+  .avisos-r{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
+  .avisos-r .av{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--sel);font-size:.9rem;}
+  /* Panel del detalle de un rubro: cada hecho, y los movimientos se pueden reclasificar. */
+  .det{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:9px 0;border-top:1px solid var(--g-grilla);}
+  .det .q{display:flex;flex-direction:column;min-width:0;} .det .q small{color:var(--mut);font-size:.8rem;}
+  .det .m{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+  .det .cl{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .det .cl select{flex:1 1 220px;min-width:0;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="t-cab">
+    <h1>Estado de resultados</h1>
+    <p class="sub">El resultado de cada filial: lo vendido (por el total, con IVA), menos el costo de la mercadería vendida (de los platos), los costos
+      de cobro de los procesadores, impuestos, gastos bancarios y demás gastos. Devengado: la venta y sus costos de cobro caen en el día de la
+      venta; lo demás, en el día del movimiento. Nada se carga a mano: sale de las ventas, del costeo y de lo conciliado. Tocá una línea para
+      ver sus rubros y un rubro para ver qué tiene (y reclasificarlo si hace falta).</p>
+    <div class="t-filtros"><select id="sede" aria-label="Filial"></select></div>
+  </div>
+  <div class="t-cab" style="margin-top:-8px">
+    <div class="segm" id="periodo" role="group" aria-label="Período">
+      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+    </div>
+    <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
+  </div>
+  <p class="t-rango" id="rango"></p>
+  <span class="msg" id="msg"></span>
+  <div class="kpis" id="kpis"></div>
+  <section class="card">
+    <div class="er" id="er"></div>
+    <div class="avisos-r" id="avisos"></div>
+  </section>
+</main>
+
+<dialog id="dlgDet" class="panel-lado">
+  <button type="button" class="cerrar-x" id="dCerrar" aria-label="Cerrar">×</button>
+  <h2 id="dTitulo"></h2>
+  <p class="cap" id="dSub"></p>
+  <span class="msg" id="dMsg"></span>
+  <div id="dFilas"></div>
+</dialog>
+
+<script src="comun.js"></script>
+<script src="graficos.js"></script>
+<script src="conciliar.js"></script>
+<script>
+// Las líneas del estado, en orden; los totales suman las de arriba. "fuera" (aportes, retiros) no es resultado.
+const ESTRUCTURA = [
+  { linea: 'ventas', nombre: 'Ventas', siempre: true },
+  { linea: 'cmv', nombre: 'Costo de mercadería vendida', siempre: true },
+  { total: 'Margen bruto', de: ['ventas', 'cmv'] },
+  { linea: 'cobro', nombre: 'Costos de cobro' },
+  { linea: 'impuestos', nombre: 'Impuestos' },
+  { linea: 'bancarios', nombre: 'Gastos bancarios' },
+  { linea: 'operativos', nombre: 'Gastos operativos' },
+  { linea: 'diferencias', nombre: 'Diferencias' },
+  { linea: 'otros', nombre: 'Otros ingresos y gastos' },
+  { total: 'Resultado de la filial', de: ['ventas', 'cmv', 'cobro', 'impuestos', 'bancarios', 'operativos', 'diferencias', 'otros'], final: true },
+];
+const iso = d => d.toISOString().slice(0, 10);
+const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
+const sumaC = (xs, k = 'importe') => xs.reduce((s, x) => s + centavos(x[k] || '0'), 0n);
+const pC = c => pesos(deCentavos(c));
+// Porcentaje sobre ventas, a una décima, exacto con BigInt.
+const pct = (a, b) => { if (b <= 0n) return ''; const d = (a * 2000n / b + (a < 0n ? -1n : 1n)) / 2n, ab = d < 0n ? -d : d; return (d < 0n ? '-' : '') + (ab / 10n) + ',' + (ab % 10n) + '%'; };
+
+// ── Período ──
+function rango(p) {
+  const h = hoy();
+  if (p === 'mes') return [h.slice(0, 8) + '01', h];
+  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00Z'); x.setUTCDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
+  return null;
+}
+function elegirPeriodo(p) {
+  $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
+  $('#fechas').hidden = p !== 'otro';
+  const r = rango(p); if (r) [$('#desde').value, $('#hasta').value] = r;
+}
+// Para comparar: si el período arranca el 1, los mismos días del mes anterior (el mes en curso contra el anterior hasta
+// el mismo día); si no, el período anterior de la misma duración.
+function anterior() {
+  const d = $('#desde').value, h = $('#hasta').value;
+  if (d.endsWith('-01')) {
+    const ini = new Date(d + 'T12:00:00Z'); ini.setUTCMonth(ini.getUTCMonth() - 1);
+    const fin = new Date(ini); fin.setUTCDate(Number(h.slice(8, 10)));
+    const tope = new Date(d + 'T12:00:00Z'); tope.setUTCDate(0);
+    return [iso(ini), iso(fin > tope ? tope : fin)];
+  }
+  const largo = Math.round((new Date(h) - new Date(d)) / 864e5) + 1, x = new Date(d + 'T12:00:00Z');
+  x.setUTCDate(x.getUTCDate() - largo); const y = new Date(d + 'T12:00:00Z'); y.setUTCDate(y.getUTCDate() - 1);
+  return [iso(x), iso(y)];
+}
+const params = ([desde, hasta] = [$('#desde').value, $('#hasta').value], extra = {}) => {
+  const p = new URLSearchParams({ desde, hasta, ...extra }); if ($('#sede').value) p.set('sede', $('#sede').value); return p;
+};
+
+// ── El estado ──
+let act = null, ant = null, abiertas = new Set();
+const deLinea = (d, l) => d.rubros.filter(r => r.linea === l);
+const totalLinea = (d, l) => sumaC(deLinea(d, l));
+const totalDe = (d, ls) => ls.reduce((s, l) => s + totalLinea(d, l), 0n);
+const celda = (c, cls) => el('span', { className: cls + (c < 0n ? ' neg' : ''), textContent: pC(c) });
+function pintar() {
+  const ventas = totalLinea(act, 'ventas'), ventasAnt = totalLinea(ant, 'ventas');
+  const filas = [el('div', { className: 'cab' }, el('span', { className: 'c' }), el('span', { className: 'i', textContent: 'Importe' }),
+    el('span', { className: 'p', textContent: '% ventas' }), el('span', { className: 'a', textContent: 'Anterior' }))];
+  for (const e of ESTRUCTURA) {
+    if (e.total) {
+      const v = totalDe(act, e.de), va = totalDe(ant, e.de);
+      filas.push(el('div', { className: 'total' + (e.final ? ' final' : '') }, el('span', { className: 'c', textContent: e.total }), celda(v, 'i'),
+        el('span', { className: 'p', textContent: pct(v, ventas) }), celda(va, 'a')));
+      continue;
+    }
+    const rs = deLinea(act, e.linea), v = totalLinea(act, e.linea), va = totalLinea(ant, e.linea);
+    if (!e.siempre && !rs.length && va === 0n) continue;
+    const abierta = abiertas.has(e.linea), vacia = !rs.length;
+    const f = el('div', { className: 'linea' + (abierta ? ' abierta' : '') + (vacia ? ' vacia' : '') },
+      el('span', { className: 'c', textContent: e.nombre }), celda(v, 'i'), el('span', { className: 'p', textContent: e.linea === 'ventas' ? '' : pct(v, ventas) }), celda(va, 'a'));
+    if (!vacia) f.querySelector('.c').onclick = () => { abierta ? abiertas.delete(e.linea) : abiertas.add(e.linea); pintar(); };
+    filas.push(f);
+    if (abierta) for (const r of rs) {
+      const ra = ant.rubros.find(x => x.rubro_id === r.rubro_id);
+      const fr = el('div', { className: 'rubro' }, el('span', { className: 'c', textContent: r.rubro }), celda(centavos(r.importe), 'i'),
+        el('span', { className: 'p', textContent: pct(centavos(r.importe), ventas) }), celda(ra ? centavos(ra.importe) : 0n, 'a'));
+      fr.querySelector('.c').onclick = () => detalle(r.rubro_id, r.rubro);
+      filas.push(fr);
+    }
+  }
+  $('#er').replaceChildren(...filas);
+
+  const margen = totalDe(act, ['ventas', 'cmv']), res = totalDe(act, ESTRUCTURA.at(-1).de), resAnt = totalDe(ant, ESTRUCTURA.at(-1).de);
+  const vari = (a, b) => Graf.variacion ? Graf.variacion(deCentavos(a), deCentavos(b)) : '';
+  $('#kpis').replaceChildren(
+    kpi('Ventas', pC(ventas), vari(ventas, ventasAnt)),
+    kpi('Margen bruto', pC(margen), null, pct(margen, ventas) + ' de las ventas'),
+    kpi('Resultado', pC(res), vari(res, resAnt), pct(res, ventas) + ' de las ventas'));
+
+  // Lo que no entra en el estado y conviene resolver.
+  const av = [];
+  const sin = act.rubros.find(r => r.rubro_id == null);
+  if (sin) av.push(aviso(`${sin.n} movimiento(s) sin clasificar por ${pesos(sin.importe)}: no suman en el estado hasta que tengan rubro.`,
+    el('button', { type: 'button', className: 'prim', textContent: 'Clasificar', onclick: () => detalle('sin', 'Sin clasificar') })));
+  if (act.sin_filial.n) av.push(aviso(`${act.sin_filial.n} movimiento(s) por ${pesos(act.sin_filial.importe)} son de cuentas sin filial` + ($('#sede').value ? ' y no aparecen acá' : '')
+    + '. Asigná la filial de la cuenta en Cajas y bancos (Editar cuenta) o clasificalos con su filial.',
+    el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle('todos', 'Sin filial', true) })));
+  const fuera = act.rubros.filter(r => r.linea === 'fuera');
+  if (fuera.length) av.push(aviso(`No es resultado (aportes, retiros, préstamos): ${pC(sumaC(fuera))}.`,
+    el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle(fuera[0].rubro_id, fuera[0].rubro) })));
+  if (ventas > 0n && totalLinea(act, 'cmv') === 0n)
+    av.push(aviso('El costo de mercadería vendida está en 0: sale de los platos de carta, cuando los artículos del sistema de venta estén vinculados y se procese el consumo.'));
+  $('#avisos').replaceChildren(...av);
+}
+const aviso = (t, ...acc) => el('div', { className: 'av' }, el('span', { textContent: t }), ...acc);
+const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+  el('span', { className: 'va', textContent: valor }), el('span', { className: 'pie' }, variacion || '', nota ? el('span', { textContent: nota }) : ''));
+
+// ── Detalle de un rubro: cada hecho; los movimientos se reclasifican ahí mismo ──
+let detActual = null;
+async function detalle(rubro, nombre, sinFilial = false) {
+  detActual = [rubro, nombre, sinFilial];
+  const extra = { rubro }; if (sinFilial) extra.sin_filial = '1';
+  const p = params(undefined, extra); if (sinFilial) p.delete('sede');
+  $('#dTitulo').textContent = nombre; $('#dSub').textContent = ''; msg('', '', '#dMsg');
+  if (!$('#dlgDet').open) $('#dlgDet').showModal();
+  try {
+    const { filas: fs, hay_mas } = await api('fin/resultados/detalle?' + p);
+    $('#dSub').textContent = `${fs.length}${hay_mas ? '+' : ''} renglón(es) · ${pC(sumaC(fs))}`;
+    const filas = [];
+    for (const f of fs) {
+      const det = el('div', { className: 'det' },
+        el('div', { className: 'q' }, el('b', { textContent: f.concepto || '—' }),
+          el('small', { textContent: [fecha(f.dia), f.cuenta, f.sede, f.regla && `regla "${f.regla}"`].filter(Boolean).join(' · ') })),
+        el('span', { className: 'm' + (f.importe.startsWith('-') ? ' neg' : ''), textContent: pesos(f.importe) }));
+      if (f.origen === 'movimiento') det.append(await clasificador(f));
+      filas.push(det);
+    }
+    $('#dFilas').replaceChildren(...filas);
+  } catch (e) { msg(e.message, 'mal', '#dMsg'); }
+}
+async function clasificador(f) {
+  const sel = el('select', { 'aria-label': 'Rubro' });
+  await Conc.selectRubro(sel, null, f.importe.startsWith('-'));
+  sel.firstChild.textContent = f.clasificado || detActual[0] !== 'sin' ? 'Reclasificar…' : 'Elegir rubro…';
+  const sedeSel = el('select', { 'aria-label': 'Filial' });
+  opciones(sedeSel, sedes.map(s => [s.id, s.nombre]), null, 'Filial de la cuenta');
+  const ok = el('button', { type: 'button', textContent: 'Guardar', hidden: true });
+  sel.onchange = sedeSel.onchange = () => { ok.hidden = !sel.value; };
+  ok.onclick = async () => {
+    ok.disabled = true;
+    try {
+      await api('fin/resultados/clasificar', { method: 'POST', body: { movimiento_id: f.movimiento_id, rubro_id: sel.value, sede_id: sedeSel.value || null } });
+      msg('Clasificado.', 'ok', '#dMsg'); await cargar(); await detalle(...detActual);
+    } catch (e) { msg(e.message, 'mal', '#dMsg'); ok.disabled = false; }
+  };
+  return el('div', { className: 'cl' }, sel, sedeSel, ok);
+}
+$('#dCerrar').onclick = () => $('#dlgDet').close();
+
+// ── Carga ──
+let sedes = [];
+async function cargar() {
+  const [a, b] = await Promise.all([api('fin/resultados?' + params()), api('fin/resultados?' + params(anterior()))]);
+  act = a; ant = b; pintar();
+}
+async function todo() {
+  if (!$('#desde').value || !$('#hasta').value) return;
+  const [a0, a1] = anterior();
+  $('#rango').textContent = `Del ${fecha($('#desde').value)} al ${fecha($('#hasta').value)} · anterior: ${fecha(a0).slice(0, 5)} al ${fecha(a1)}`;
+  msg('Cargando…');
+  try { await cargar(); msg(''); } catch (e) { msg(e.message, 'mal'); }
+}
+$$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); todo(); });
+$('#desde').onchange = $('#hasta').onchange = $('#sede').onchange = todo;
+(async () => {
+  try {
+    ({ sedes } = await api('sedes')); sedes = sedes.filter(s => s.activa);
+    const locales = sedes.filter(s => s.tipo === 'local');
+    opciones($('#sede'), [...locales, ...sedes.filter(s => s.tipo !== 'local')].map(s => [s.id, s.nombre]), locales.length === 1 ? locales[0].id : '', 'Todas las filiales');
+    elegirPeriodo('mes'); await todo();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

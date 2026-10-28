@@ -92,8 +92,47 @@ const Conc = (() => {
     if (d.acreditadas || costos) p.push(`Se conciliaron ${d.acreditadas} cobro(s) por ${pesos(d.acreditado)}` + (costos ? ` y ${pesos(deCentavos(costos))} de cargos e impuestos` : '') + '.');
     if (d.lotes_liquidados) p.push(`${d.lotes_liquidados} lote(s) nuevos esperando el depósito.`);
     if (d.lotes_confirmados) p.push(`${d.lotes_confirmados} lote(s) confirmados con el extracto.`);
+    if (d.reglas) p.push(`${d.reglas} línea(s) clasificadas por las reglas.`);
     return p.length || d.compensadas ? p.join(' ') : 'No había nada nuevo para conciliar.';
   }
+
+  // ── Rubros del estado de resultados ──
+  // Al registrar una línea se elige su rubro; "+ Nuevo rubro…" al final de la lista. Ventas y costo de mercadería
+  // los arma el sistema y no se ofrecen.
+  const LINEA = { cobro: 'Costos de cobro', impuestos: 'Impuestos', bancarios: 'Gastos bancarios', operativos: 'Gastos operativos',
+    diferencias: 'Diferencias', otros: 'Otros ingresos y gastos', fuera: 'No es resultado (aportes, retiros, préstamos)' };
+  let rubrosCache = null;
+  async function rubros(recargar) {
+    if (!rubrosCache || recargar) rubrosCache = (await api('fin/rubros')).rubros.filter(r => r.activo && LINEA[r.linea]);
+    return rubrosCache;
+  }
+  function nuevoRubro(lineaSugerida) {
+    return new Promise(listo => {
+      const nombre = el('input', { required: true }), linea = el('select');
+      opciones(linea, Object.entries(LINEA), lineaSugerida);
+      const msgR = el('span', { className: 'msg' });
+      const dlg = el('dialog', {}, el('form', { method: 'dialog' }, el('h2', { textContent: 'Nuevo rubro' }),
+        el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre)), el('div', { className: 'fila' }, el('label', {}, 'Línea del estado de resultados', linea)),
+        el('div', { className: 'acciones' }, el('button', { type: 'submit', className: 'prim', textContent: 'Crear' }),
+          el('button', { type: 'button', textContent: 'Cancelar', onclick: () => { dlg.close(); } }), msgR)));
+      dlg.querySelector('form').onsubmit = async e => {
+        e.preventDefault();
+        try {
+          const { id } = await api('fin/rubros', { method: 'POST', body: { nombre: nombre.value, linea: linea.value } });
+          await rubros(true); listo([id, nombre.value.trim()]); dlg.remove();
+        } catch (err) { msg(err.message, 'mal', msgR); }
+      };
+      dlg.addEventListener('close', () => { listo(null); dlg.remove(); });
+      document.body.append(dlg); dlg.showModal(); nombre.focus();
+    });
+  }
+  async function selectRubro(sel, valor, sale) {
+    const rs = await rubros();
+    opcionesConAlta(sel, rs.map(r => [r.id, `${r.nombre} · ${LINEA[r.linea]}`]), valor, 'Elegir rubro…',
+      { texto: '+ Nuevo rubro…', alta: () => nuevoRubro(sale ? 'operativos' : 'otros') });
+  }
+  // El texto de la regla que se propone: el concepto sin números (los de operación cambian en cada línea).
+  const patronDe = t => String(t || '').replace(/[#nº°]*\s*\d[\d./-]*/gi, ' ').replace(/\s+/g, ' ').replace(/[\s·:,#–-]+$/, '').trim();
 
   // ── Importador ──
   // opc: cuenta() -> id de la cuenta; procesador() -> si la cuenta es la de un procesador (concilia al importar);
@@ -145,7 +184,7 @@ const Conc = (() => {
           + (res.netas ? ` ${res.netas} liquidación(es) no están en el reporte de liquidaciones y quedan por el neto.` : '');
       } else csv = leidos[0];
       formato.hidden = !csv.mp; formato.textContent = txt;
-      ok.textContent = opc.procesador() ? 'Importar y conciliar' : 'Importar';
+      ok.textContent = 'Importar y conciliar';
       opcCsv.hidden = mapaWrap.hidden = capCsv.hidden = !!csv.mp;
       ok.disabled = !!(csv.mp && csv.mp.incompleto);
       if (csv.mp) titulo.textContent = `Importar ${csv.nombre}`; else pintarMapa();
@@ -168,7 +207,8 @@ const Conc = (() => {
         let t = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '') + '.';
         cerrar();
         // En la cuenta de un procesador se concilia en el mismo paso.
-        if (opc.procesador()) { opc.listo(t + ' Conciliando…', ''); t += ' ' + await automatica(opc.cuenta()); }
+        // Se concilia en el mismo paso: los cobros de un procesador y, en cualquier cuenta, las reglas de clasificación.
+        opc.listo(t + ' Conciliando…', ''); t += ' ' + await automatica(opc.cuenta());
         opc.listo(t, 'ok');
       } catch (e) { avisar(e.message, 'mal'); ok.disabled = false; }
     };
@@ -179,7 +219,11 @@ const Conc = (() => {
   // d: respuesta de /fin/conciliacion; ctx: recargar() (después de cada acción) y aviso(texto, tipo).
   function resolver(d, ctx) {
     const conciliar = async body => {
-      try { await api('fin/conciliacion', { method: 'POST', body }); ctx.aviso('Conciliado.', 'ok'); await ctx.recargar(); } catch (e) { alert(e.message); }
+      try {
+        const r = await api('fin/conciliacion', { method: 'POST', body });
+        ctx.aviso(r.regla ? `Conciliado. Regla creada${r.regla.aplicadas ? `: clasificó y concilió ${r.regla.aplicadas} línea(s) más` : ''}.` : 'Conciliado.', 'ok');
+        await ctx.recargar();
+      } catch (e) { alert(e.message); }
     };
     const sugDe = id => (d.sugerencias || []).find(x => x.lineas.includes(id));
     // Pareo sugerido para una línea (de una venta pagada en partes, con una diferencia chica, o un lote): se confirma acá.
@@ -238,11 +282,24 @@ const Conc = (() => {
         onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) }));
       const registrar = el('button', { type: 'button', textContent: k ? 'Otro: registrar movimiento' : 'Registrar movimiento' });
       const inicial = [...acc.childNodes];
-      registrar.onclick = () => {
-        const inp = el('input', { placeholder: l.importe.startsWith('-') ? 'Qué es: gasto bancario, impuesto…' : 'Qué es: aporte, reintegro…', value: pp.nombre });
+      // Registrar: qué es, su rubro (estado de resultados) y, si se tilda, la regla para que las próximas iguales se
+      // clasifiquen y concilien solas.
+      registrar.onclick = async () => {
+        const sale = l.importe.startsWith('-');
+        const inp = el('input', { placeholder: sale ? 'Qué es: gasto bancario, impuesto…' : 'Qué es: aporte, reintegro…', value: pp.nombre, 'aria-label': 'Concepto' });
+        const rub = el('select', { 'aria-label': 'Rubro' });
+        try { await selectRubro(rub, null, sale); } catch (e) { return alert(e.message); }
+        const patron = el('input', { value: patronDe(`${l.concepto}`), 'aria-label': 'Texto de la regla' });
+        const conRegla = el('input', { type: 'checkbox' });
+        const regla = el('label', { className: 'regla' }, conRegla, el('span', { textContent: 'Aplicar a las próximas que digan' }), patron);
         const ok = el('button', { type: 'button', className: 'prim', textContent: 'Registrar' });
-        ok.onclick = () => inp.value.trim() ? conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim() } }) : inp.focus();
-        acc.replaceChildren(inp, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => acc.replaceChildren(...inicial, registrar) }));
+        ok.onclick = () => {
+          if (!inp.value.trim()) return inp.focus();
+          if (!rub.value) return (rub.focus(), ctx.aviso('Elegí el rubro.', 'mal'));
+          if (conRegla.checked && patron.value.trim().length < 3) return (patron.focus(), ctx.aviso('El texto de la regla tiene que tener al menos 3 letras.', 'mal'));
+          conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim(), rubro_id: rub.value, regla: conRegla.checked ? patron.value.trim() : null } });
+        };
+        acc.replaceChildren(inp, rub, regla, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => acc.replaceChildren(...inicial, registrar) }));
         inp.focus(); inp.select();
       };
       acc.append(registrar);
@@ -297,5 +354,5 @@ const Conc = (() => {
     return det;
   }
 
-  return { TIPO_OP, conSigno, partes, automatica, importador, resolver, frenteExtracto };
+  return { TIPO_OP, LINEA, conSigno, partes, automatica, importador, resolver, frenteExtracto, selectRubro, rubros };
 })();

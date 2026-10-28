@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rubros y reglas · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>tr.inactivo td{color:var(--mut);}</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Rubros y reglas</h1>
+  <p class="sub">Los rubros ordenan los gastos e ingresos en el estado de resultados: cada uno va en una línea (costos de cobro, impuestos, gastos
+    bancarios…). Las reglas clasifican solas las líneas del extracto: "en esta cuenta, lo que dice tal cosa es de tal rubro". La conciliación
+    automática las aplica a lo que no es un cobro, asienta el movimiento y lo concilia; así la conciliación manual queda para lo que de verdad
+    hay que mirar. Una regla también se crea al registrar una línea en la conciliación ("Aplicar a las próximas").</p>
+  <span class="msg" id="msg"></span>
+
+  <section class="card">
+    <div class="barra"><h2 style="margin:0;flex:1">Reglas</h2><button class="prim" id="nuevaRegla">Nueva regla</button></div>
+    <div class="tabla-wrap"><table class="datos movil">
+      <thead><tr><th>Cuenta</th><th>Si es</th><th>Y dice</th><th>Rubro</th><th>Filial</th><th class="num">Aplicada</th><th></th></tr></thead>
+      <tbody id="tReglas"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <div class="barra"><h2 style="margin:0;flex:1">Rubros</h2><button id="nuevoRubro">Nuevo rubro</button></div>
+    <div class="tabla-wrap"><table class="datos movil">
+      <thead><tr><th>Rubro</th><th>Línea del estado</th><th></th></tr></thead>
+      <tbody id="tRubros"></tbody></table></div>
+    <p class="ayuda">Ventas y costo de mercadería vendida los arma el sistema (de las ventas y de los platos). Los rubros del sistema cambian de
+      nombre pero no de línea; ninguno se borra: se desactiva.</p>
+  </section>
+</main>
+
+<dialog id="dRegla"><form id="fr" novalidate>
+  <h2 id="drTitulo">Nueva regla</h2>
+  <div class="fila"><label>Cuenta<select name="cuenta_id"></select></label><label>Si es *<select name="sentido"><option value="egreso">Egreso (sale plata)</option><option value="ingreso">Ingreso (entra plata)</option></select></label></div>
+  <div class="fila"><label>Y el concepto contiene *<input name="patron" placeholder="VEP, mantenimiento cuenta, SIRCREB…"></label></div>
+  <div class="fila"><label>Rubro *<select name="rubro_id"></select></label><label>Filial<select name="sede_id"></select></label></div>
+  <p class="ayuda">Sin acentos ni mayúsculas: "Comisión" y "COMISION" son lo mismo. Si varias reglas coinciden, gana la del texto más largo.</p>
+  <label class="check" id="frActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>
+  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><button type="button" id="frBorrar" hidden>Borrar regla</button><span class="msg" id="msgR"></span></div>
+</form></dialog>
+
+<dialog id="dRubro"><form id="fu" novalidate>
+  <h2 id="duTitulo">Nuevo rubro</h2>
+  <div class="fila"><label>Nombre *<input name="nombre"></label></div>
+  <div class="fila"><label>Línea del estado *<select name="linea"></select></label></div>
+  <label class="check" id="fuActivo" hidden><input type="checkbox" name="activo" checked> Activo</label>
+  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgU"></span></div>
+</form></dialog>
+
+<script src="comun.js"></script>
+<script src="conciliar.js"></script>
+<script>
+const LINEA = { ventas: 'Ventas', cmv: 'Costo de mercadería vendida', ...Conc.LINEA };
+let rubros = [], reglas = [], cuentas = [], sedes = [];
+$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+
+async function cargar() {
+  [{ rubros }, { reglas }] = await Promise.all([api('fin/rubros'), api('fin/reglas')]);
+  filas($('#tReglas'), reglas, g => el('tr', { className: g.activa ? '' : 'inactivo' },
+    td(g.cuenta || 'Cualquiera'), td(g.sentido === 'egreso' ? 'Egreso' : 'Ingreso'), td(`"${g.patron}"`), td(g.rubro), td(g.sede || 'La de la cuenta'),
+    td(String(g.aplicadas), 'num'),
+    el('td', {}, el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirRegla(g) }))),
+    'Todavía no hay reglas. Creá una acá o al registrar una línea en la conciliación.', 7);
+  filas($('#tRubros'), rubros, r => el('tr', { className: r.activo ? '' : 'inactivo' },
+    td(r.nombre + (r.activo ? '' : ' (inactivo)')), td(LINEA[r.linea] || r.linea),
+    el('td', {}, ['ventas', 'cmv'].includes(r.linea) ? '' : el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirRubro(r) }))), '', 3);
+  etiquetarTabla($('#tReglas').closest('table')); etiquetarTabla($('#tRubros').closest('table'));
+}
+async function borrar() {
+  const g = reglas.find(x => x.id === fr.dataset.id); if (!g) return;
+  if (!confirm(`¿Borrar la regla "${g.patron}"? Lo que ya clasificó queda como está.`)) return;
+  try { await api('fin/reglas/' + g.id, { method: 'DELETE', body: {} }); $('#dRegla').close(); await cargar(); } catch (e) { msg(e.message, 'mal', '#msgR'); }
+}
+
+const fr = $('#fr');
+async function abrirRegla(g = null) {
+  fr.reset(); msg('', '', '#msgR'); $('#drTitulo').textContent = g ? 'Editar regla' : 'Nueva regla'; fr.dataset.id = g ? g.id : '';
+  opciones(fr.cuenta_id, cuentas.filter(c => c.activa && c.tipo !== 'cartera').map(c => [c.id, c.nombre]), g && g.cuenta_id, 'Cualquier cuenta');
+  opciones(fr.sede_id, sedes.map(s => [s.id, s.nombre]), g && g.sede_id, 'La filial de la cuenta');
+  await Conc.selectRubro(fr.rubro_id, g && g.rubro_id, true);
+  if (g) { fr.sentido.value = g.sentido; fr.patron.value = g.patron; fr.activa.checked = g.activa; }
+  fr.cuenta_id.disabled = fr.sentido.disabled = !!g; $('#frActiva').hidden = !g; $('#frBorrar').hidden = !g;
+  $('#dRegla').showModal();
+}
+fr.onsubmit = async e => {
+  e.preventDefault();
+  const body = { cuenta_id: fr.cuenta_id.value || null, sentido: fr.sentido.value, patron: fr.patron.value, rubro_id: fr.rubro_id.value, sede_id: fr.sede_id.value || null, activa: fr.activa.checked };
+  try {
+    const r = await api(fr.dataset.id ? 'fin/reglas/' + fr.dataset.id : 'fin/reglas', { method: fr.dataset.id ? 'PUT' : 'POST', body });
+    $('#dRegla').close(); await cargar();
+    if (r.aplicadas) msg(`Regla creada: clasificó y concilió ${r.aplicadas} línea(s) pendiente(s).`, 'ok');
+  } catch (e) { msg(e.message, 'mal', '#msgR'); }
+};
+$('#nuevaRegla').onclick = () => abrirRegla();
+$('#frBorrar').onclick = borrar;
+
+const fu = $('#fu');
+function abrirRubro(r = null) {
+  fu.reset(); msg('', '', '#msgU'); $('#duTitulo').textContent = r ? 'Editar rubro' : 'Nuevo rubro'; fu.dataset.id = r ? r.id : '';
+  opciones(fu.linea, Object.entries(Conc.LINEA), r ? r.linea : 'operativos');
+  if (r) { fu.nombre.value = r.nombre; fu.activo.checked = r.activo; }
+  fu.linea.disabled = !!(r && r.clave); $('#fuActivo').hidden = !r || !!r.clave;
+  $('#dRubro').showModal();
+}
+fu.onsubmit = async e => {
+  e.preventDefault();
+  try {
+    await api(fu.dataset.id ? 'fin/rubros/' + fu.dataset.id : 'fin/rubros', { method: fu.dataset.id ? 'PUT' : 'POST',
+      body: { nombre: fu.nombre.value, linea: fu.linea.value, activo: fu.activo.checked } });
+    $('#dRubro').close(); await Conc.rubros(true); await cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgU'); }
+};
+$('#nuevoRubro').onclick = () => abrirRubro();
+
+(async () => {
+  try { [{ cuentas }, { sedes }] = await Promise.all([api('fin/cuentas'), api('sedes')]); sedes = sedes.filter(s => s.activa); await cargar(); }
+  catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

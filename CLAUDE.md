@@ -536,6 +536,33 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   "a acreditar" del otro (`/fin/conciliacion/acreditar` con `otro_procesador`, sólo por el mismo importe).
 - Pendiente: modificadores de Fudo (subitems), propinas.
 
+### Estado de resultados por filial (pedido de Fer, 28/10/2026; migración 20261113)
+- `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
+  fila por hecho: sede, día devengado, rubro, importe con signo). A futuro se consolida en la central; **por ahora todo es de la
+  filial** (decisión de Fer). Líneas: Ventas, Costo de mercadería vendida, Margen bruto, Costos de cobro, Impuestos, Gastos
+  bancarios, Gastos operativos, Diferencias, Otros, Resultado. Comparado con el mismo tramo del mes anterior.
+- Decisiones de Fer: **devengado** (la venta y sus costos de cobro, en el día de la venta; lo demás, en el día del movimiento);
+  **ventas por el total, con IVA** (el IVA se ve después, en la central); el IVA de las comisiones, el impuesto a los débitos y
+  créditos y las retenciones **restan como gasto**; **Ingresos Brutos = lo retenido (SIRCREB) + lo pagado por VEP**, que sale
+  del extracto y se clasifica al aparecer.
+- De dónde sale cada cosa: ventas = lo vendido de cada día (como la jornada); costo de mercadería = el consumo teórico del kardex
+  (en 0 hasta vincular artículos con platos); cargos de la conciliación por su tipo de gasto (`fin.rubro_de`: SIRCREB/IIBB a
+  Ingresos Brutos); costo de un lote, exacto por cobro (bruto − neto) en el día y la filial de cada venta; acreditación con
+  diferencia, diferencia de cobro de un día, faltante o sobrante de efectivo y arqueo, a Diferencias. El saldo de apertura de un
+  extracto no es resultado.
+- **Filial** de un hecho: la de la venta a la que está atado; si no, la clasificada, o la de la **cuenta** (`fin.cuenta.sede_id`,
+  ahora para cualquier cuenta, "Filial" en Cajas y bancos). La migración asignó a CORTAFUEGO las cuentas de sus procesadores.
+- **Rubros** (`fin.rubro`, cada uno en una línea; los del sistema tienen `clave` y no cambian de línea; "No es resultado" para
+  aportes, retiros y préstamos). **Clasificación** aparte del libro mayor (`fin.clasificacion`: rubro y filial de un movimiento):
+  clasificar no mueve plata y se corrige sin anular. Lo que no tiene rubro no suma y se muestra "sin clasificar" para resolverlo
+  desde el estado (el detalle de cada rubro permite reclasificar).
+- **Reglas** (`fin.regla`: cuenta o cualquiera, ingreso o egreso, "el concepto contiene", rubro y filial opcional; sin acentos ni
+  mayúsculas, gana la más larga). La conciliación automática las aplica al final, **en cualquier cuenta** (un banco que no es de un
+  procesador sólo pasa por las reglas; importar siempre concilia): asienta el movimiento, lo clasifica y lo concilia. En la
+  conciliación manual, "Registrar movimiento" pide rubro y ofrece "Aplicar a las próximas que digan…" (crea la regla y la aplica a
+  lo pendiente). Deshacer una línea anula también lo que asentó una regla. Pantalla `rubros.html` (Configuración, "Rubros y reglas").
+- Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
+
 ### Tablero (fase 5, 21/10/2026)
 - **No guarda nada**: `logic.kardex` abre cada movimiento en una fila por punta (sede, signo, costo) y
   `logic.kardex_concepto` le pone para qué sirvió: teórico (ventas del POS), pérdida (merma, vencimiento),

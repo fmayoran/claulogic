@@ -129,7 +129,7 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // primero; las pantallas de detalle de cada registro van juntas en "Registros", y lo que se arma una vez, en
 // Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
 const GRUPOS = [
-  ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero']]],
+  ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['resultados.html', 'Estado de resultados']]],
   ['Ingresos', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos']]],
   ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente']]],
   ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['cheques.html', 'Cheques']]],
@@ -139,7 +139,7 @@ const GRUPOS = [
   ['Registros', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
                  ['procesar-ventas.html', 'Procesar ventas'], ['conciliacion.html', 'Conciliación']]],
   ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
-  ['Configuración', [['sedes.html', 'Sedes y puntos de venta'], ['medios-pago.html', 'Medios de pago'], ['almacenes.html', 'Almacenes'],
+  ['Configuración', [['sedes.html', 'Sedes y puntos de venta'], ['medios-pago.html', 'Medios de pago'], ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'],
                      ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
@@ -147,7 +147,7 @@ const GRUPOS = [
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
-  'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas' };
+  'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',

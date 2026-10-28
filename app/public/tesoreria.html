@@ -67,7 +67,7 @@
 <dialog id="dCuenta"><form id="fc" novalidate>
   <h2 id="dcTitulo">Nueva cuenta</h2>
   <div class="fila"><label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label>
-    <label id="fcSede">Sede *<select name="sede_id"></select></label></div>
+    <label id="fcSede"><span id="fcSedeEt">Sede *</span><select name="sede_id"></select></label></div>
   <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label></div>
   <p class="ayuda">Las cuentas de efectivo de los puntos de venta y las de los procesadores (Mercado Pago, Getnet…) se crean solas, desde
     Puntos de venta y Medios de pago.</p>
@@ -239,7 +239,12 @@ function abrirCuenta(c = null) {
   fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
   $('#dCuenta').showModal();
 }
-fc.tipo.onchange = () => { const banco = fc.tipo.value === 'banco'; $('#fcSede').hidden = fc.tipo.value !== 'caja'; $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco; };
+// La caja es de una sede; las demás cuentas pueden tener filial: sus gastos sin venta van a esa filial en el estado de resultados.
+fc.tipo.onchange = () => {
+  const banco = fc.tipo.value === 'banco', caja = fc.tipo.value === 'caja';
+  $('#fcSedeEt').textContent = caja ? 'Sede *' : 'Filial (estado de resultados)'; fc.sede_id.firstChild.textContent = caja ? 'Elegir…' : 'Sin filial';
+  $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco;
+};
 fc.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));

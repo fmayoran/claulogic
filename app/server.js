@@ -45,6 +45,7 @@ app.use('/api', require('./fotos'));
 app.use('/api', require('./sedes'));
 app.use('/api', require('./remitos'));
 app.use('/api', require('./finanzas'));
+app.use('/api', require('./resultados'));
 app.use('/api', require('./tesoreria'));
 app.use('/api', require('./pos'));
 app.use('/api', require('./tablero'));
