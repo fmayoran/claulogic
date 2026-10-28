@@ -20,6 +20,7 @@
   .er .linea.abierta .c::before{content:'−';} .er .linea.vacia .c{cursor:default;} .er .linea.vacia .c::before{content:'';}
   .er .rubro .c{padding-left:26px;font-size:.92rem;color:var(--fg);cursor:pointer;text-decoration:underline dotted var(--line);text-underline-offset:3px;}
   .er .rubro .i{font-size:.92rem;}
+  .er .rubro.tipo .c{cursor:default;text-decoration:none;}
   .er .total .c, .er .total .i{font-weight:700;border-top:2px solid var(--fg);} .er .total .p, .er .total .a{border-top:2px solid var(--fg);}
   .er .total.final .c, .er .total.final .i{font-size:1.08rem;}
   .neg{color:var(--mal);}
@@ -84,6 +85,8 @@ const ESTRUCTURA = [
   { linea: 'otros', nombre: 'Otros ingresos y gastos' },
   { total: 'Resultado de la filial', de: ['ventas', 'cmv', 'cobro', 'impuestos', 'bancarios', 'operativos', 'diferencias', 'otros'], final: true },
 ];
+// Como los llama Fudo: lo que el sistema guarda "para llevar" es el Mostrador.
+const TIPO_VENTA = { 'salón': 'Salón', 'para llevar': 'Mostrador', delivery: 'Delivery', 'sin tipo': 'Sin tipo' };
 const iso = d => d.toISOString().slice(0, 10);
 const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
 const sumaC = (xs, k = 'importe') => xs.reduce((s, x) => s + centavos(x[k] || '0'), 0n);
@@ -145,7 +148,13 @@ function pintar() {
       el('span', { className: 'c', textContent: e.nombre }), celda(v, 'i'), el('span', { className: 'p', textContent: e.linea === 'ventas' ? '' : pct(v, ventas) }), celda(va, 'a'));
     if (!vacia) f.querySelector('.c').onclick = () => { abierta ? abiertas.delete(e.linea) : abiertas.add(e.linea); pintar(); };
     filas.push(f);
-    if (abierta) for (const r of rs) {
+    // Las ventas se abren por tipo (como en Fudo: salón, mostrador, delivery), no por rubro.
+    if (abierta && e.linea === 'ventas') for (const t of act.ventas_por_tipo) {
+      const ta = ant.ventas_por_tipo.find(x => x.tipo === t.tipo);
+      filas.push(el('div', { className: 'rubro tipo' }, el('span', { className: 'c', textContent: `${TIPO_VENTA[t.tipo] || t.tipo} · ${t.ventas} venta${t.ventas === 1 ? '' : 's'}` }),
+        celda(centavos(t.importe), 'i'), el('span', { className: 'p', textContent: pct(centavos(t.importe), ventas) }), celda(ta ? centavos(ta.importe) : 0n, 'a')));
+    }
+    else if (abierta) for (const r of rs) {
       const ra = ant.rubros.find(x => x.rubro_id === r.rubro_id);
       const fr = el('div', { className: 'rubro' }, el('span', { className: 'c', textContent: r.rubro }), celda(centavos(r.importe), 'i'),
         el('span', { className: 'p', textContent: pct(centavos(r.importe), ventas) }), celda(ra ? centavos(ra.importe) : 0n, 'a'));

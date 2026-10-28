@@ -546,7 +546,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
   fila por hecho: sede, día devengado, rubro, importe con signo). A futuro se consolida en la central; **por ahora todo es de la
   filial** (decisión de Fer). Líneas: Ventas, Costo de mercadería vendida, Margen bruto, Costos de cobro, Impuestos, Gastos
-  bancarios, Gastos operativos, Diferencias, Otros, Resultado. Comparado con el mismo tramo del mes anterior.
+  bancarios, Gastos operativos, Diferencias, Otros, Resultado. Comparado con el mismo tramo del mes anterior. Ventas se abre
+  **por tipo de venta** con la cantidad (pedido de Fer, 28/10/2026; `ventas_por_tipo`), con los nombres de Fudo: Salón,
+  Mostrador (lo que se guarda "para llevar") y Delivery.
 - Decisiones de Fer: **devengado** (la venta y sus costos de cobro, en el día de la venta; lo demás, en el día del movimiento);
   **ventas por el total, con IVA** (el IVA se ve después, en la central); el IVA de las comisiones, el impuesto a los débitos y
   créditos y las retenciones **restan como gasto**; **Ingresos Brutos = lo retenido (SIRCREB) + lo pagado por VEP**, que sale

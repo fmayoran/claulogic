@@ -157,7 +157,7 @@ function periodo(req) {
 }
 r.get('/fin/resultados', h(async (req, res) => {
   const p = periodo(req);
-  const [{ rows }, { rows: [sinFilial] }] = await Promise.all([
+  const [{ rows }, { rows: [sinFilial] }, { rows: ventasPorTipo }] = await Promise.all([
     pool.query(
       `SELECT ru.id AS rubro_id, ru.nombre AS rubro, ru.linea, ru.orden, COUNT(*)::int AS n, SUM(x.importe)::numeric(16,2)::text AS importe
          FROM fin.resultado x LEFT JOIN fin.rubro ru ON ru.id = x.rubro_id
@@ -166,8 +166,16 @@ r.get('/fin/resultados', h(async (req, res) => {
     pool.query(
       `SELECT COUNT(*)::int AS n, COALESCE(SUM(importe), 0)::numeric(16,2)::text AS importe FROM fin.resultado
         WHERE dia BETWEEN $1 AND $2 AND sede_id IS NULL`, [p.desde, p.hasta]),
+    // Las ventas abiertas por tipo (salón, para llevar, delivery), con la misma regla que la vista: por el total del día.
+    pool.query(
+      `SELECT COALESCE(t.tipo, 'sin tipo') AS tipo, COUNT(*)::int AS ventas, SUM(COALESCE(t.total, it.vendido, 0))::numeric(16,2)::text AS importe
+         FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
+         LEFT JOIN LATERAL (SELECT SUM(COALESCE(x.importe, x.cantidad * x.precio)) AS vendido FROM pos.ticket_item x
+                             WHERE x.ticket_id = t.id AND NOT x.anulado) it ON true
+        WHERE t.estado = 'cerrado' AND t.dia BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR i.sede_id = $3::uuid)
+        GROUP BY 1 ORDER BY SUM(COALESCE(t.total, it.vendido, 0)) DESC`, [p.desde, p.hasta, p.sede]),
   ]);
-  res.json({ ok: true, ...p, rubros: rows, sin_filial: sinFilial });
+  res.json({ ok: true, ...p, rubros: rows, sin_filial: sinFilial, ventas_por_tipo: ventasPorTipo });
 }));
 // El detalle de un rubro (o "sin" = sin clasificar): cada hecho con su día, concepto, importe y cuenta.
 r.get('/fin/resultados/detalle', h(async (req, res) => {
