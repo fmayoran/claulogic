@@ -6,126 +6,142 @@
 <title>ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
 <style>
-  .dos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
   .salud{margin-top:28px;color:var(--mut);font-size:.85rem;display:flex;gap:8px;align-items:center;}
   .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;} .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
-  /* Proceso de abastecimiento: los dos inicios y la bandeja de lo que quedó a mitad de camino. */
-  .abast{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:16px 18px;margin:0 0 24px;}
-  .abast .cab{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:0 0 12px;}
-  .abast .cab h2{margin:0;} .abast .cab .botones{display:flex;gap:8px;flex-wrap:wrap;}
-  .pend{display:grid;gap:8px;}
-  .pend a{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;
-    background:var(--bg);color:var(--fg);text-decoration:none;}
-  .pend a:hover{border-color:var(--acento);}
-  .pend .q{font-weight:650;} .pend .m{grid-column:1;color:var(--mut);font-size:.86rem;} .pend .i{grid-row:1 / span 2;grid-column:2;align-self:center;text-align:right;font-weight:650;}
+  /* Panel (pedido de Fer, 01/11/2026): alertas con acceso directo; el detalle de cada una, a pedido. */
+  .atajos{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px;}
+  .alertas{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));align-items:start;margin:0 0 10px;}
+  .alerta{border:1px solid var(--line);border-left:4px solid var(--aviso);border-radius:12px;background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:4px;}
+  .alerta.mal{border-left-color:var(--mal);}
+  .alerta .cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .alerta .n{font-size:1.6rem;font-weight:750;font-stretch:80%;font-variant-numeric:tabular-nums;line-height:1.1;}
+  .alerta.mal .n{color:var(--mal);} .alerta.aviso .n{color:var(--aviso);}
+  .alerta .imp{font-weight:650;font-variant-numeric:tabular-nums;}
+  .alerta .t{font-weight:600;} .alerta .d{color:var(--mut);font-size:.84rem;}
+  .alerta .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .alerta .det{margin-top:6px;border-top:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:2px;font-size:.86rem;}
+  .alerta .det a{color:var(--fg);text-decoration:none;display:block;padding:3px 0;line-height:1.35;} .alerta .det b{font-weight:600;}
+  .alerta .det a:hover{color:var(--acento);} .alerta .det .m{color:var(--mut);}
+  .al-dia{color:var(--mut);font-size:.9rem;margin:6px 0 0;}
 </style>
 </head>
 <body>
 <main class="ancho">
   <h1>Panel</h1>
-  <p class="sub">Lo que hay que atender hoy en el almacén.</p>
-  <section class="abast" id="abastecimiento" hidden>
-    <div class="cab">
-      <h2>Proceso de abastecimiento <span class="tag" id="nPend"></span></h2>
-      <div class="botones" id="inicios">
-        <button type="button" class="prim" onclick="location.href='abastecimiento.html#lista'">Necesito comprar</button>
-        <button type="button" onclick="location.href='abastecimiento.html#nuevo/llegada'">Llegó mercadería</button>
-      </div>
-    </div>
-    <div class="pend" id="pendientes"></div>
-  </section>
-  <section class="abast" id="ingresos" hidden>
-    <div class="cab">
-      <h2>Proceso de ingresos <span class="tag" id="nIng"></span></h2>
-      <div class="botones"><button type="button" class="prim" onclick="location.href='ingresos.html'">Cerrar ingresos</button></div>
-    </div>
-    <p class="vacio" id="ingDet" style="margin:0"></p>
-  </section>
-  <div class="tarjetas">
-    <a class="tarjeta" id="tMin" href="stock.html?bajo_minimo=1"><div class="v">–</div><div class="t">productos bajo el mínimo</div></a>
-    <a class="tarjeta" id="tVence" href="stock.html?vence_dias=7"><div class="v">–</div><div class="t">lotes que vencen en 7 días</div></a>
-    <a class="tarjeta" id="tFrio" href="frio.html"><div class="v">–</div><div class="t">equipos de frío para revisar</div></a>
-    <a class="tarjeta" id="tCompras" href="compras.html"><div class="v">–</div><div class="t">compras por recibir</div></a>
-  </div>
-  <div class="dos">
-    <section>
-      <h2>Próximos vencimientos</h2>
-      <div class="tabla-wrap"><table class="datos">
-        <thead><tr><th>Producto</th><th>Lote</th><th>Dónde</th><th class="num">Cantidad</th><th>Vence</th></tr></thead>
-        <tbody id="vence"></tbody></table></div>
-    </section>
-    <section>
-      <h2>Bajo el mínimo</h2>
-      <div class="tabla-wrap"><table class="datos">
-        <thead><tr><th>Producto</th><th class="num">Hay</th><th class="num">Mínimo</th></tr></thead>
-        <tbody id="minimo"></tbody></table></div>
-    </section>
-  </div>
+  <p class="sub">Lo que hay que atender hoy. Cada tarjeta lleva a donde se resuelve; "Ver" muestra el detalle sin salir de acá.</p>
+  <div class="atajos" id="atajos"></div>
+  <h2>Para resolver</h2>
+  <div class="alertas" id="alertas"><p class="vacio">Consultando…</p></div>
+  <p class="al-dia" id="alDia"></p>
   <p class="salud"><span class="p" id="p"></span><span id="t">consultando…</span></p>
 </main>
 <script src="comun.js"></script>
 <script>
-function tarjeta(id, n, tipo) {
-  const t = $(id); t.querySelector('.v').textContent = n;
-  t.classList.toggle(tipo, n > 0);
+// Cada alerta: nivel (mal | aviso), cantidad, título, una línea de detalle, importe opcional, a dónde ir y, opcional, el detalle
+// a pedido (renglones con su enlace). Lo que está en orden va en una sola línea abajo.
+const alertas = [], alDia = [];
+const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
+function pintar() {
+  const orden = { mal: 0, aviso: 1 };
+  alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
+  $('#alertas').replaceChildren(...(alertas.length ? alertas.map(tarjeta) : [el('p', { className: 'vacio', textContent: 'Nada para resolver.' })]));
+  $('#alDia').textContent = alDia.length ? 'Al día: ' + alDia.join(', ') + '.' : '';
 }
-// Bandeja del proceso de abastecimiento: cada pendiente lleva al paso del asistente que falta (o a la
-// factura, si se cargó directo). Primero lo vencido.
-const ETAPA_TAG = { 'Por pedir': 'aviso', 'Por pagar': 'aviso', 'Esperando mercadería': '', 'Falta el comprobante': 'aviso', 'Comprobante sin registrar': 'aviso', 'Pedido sin terminar': '' };
-async function bandeja() {
-  const { usuario: u } = await cargarSesion();
+function tarjeta(a) {
+  const det = el('div', { className: 'det', hidden: true });
+  const acc = el('div', { className: 'acc' }, ir(a.accion || 'Resolver', a.href, 'prim chico'));
+  if (a.renglones && a.renglones.length) {
+    const ver = el('button', { type: 'button', className: 'chico', textContent: 'Ver' });
+    ver.onclick = () => {
+      if (!det.childNodes.length) det.append(...a.renglones.slice(0, 8).map(r => el('a', { href: r.href }, el('b', { textContent: r.t }), r.m ? el('span', { className: 'm', textContent: ' · ' + r.m }) : '')),
+        ...(a.renglones.length > 8 ? [el('a', { href: a.href }, el('span', { className: 'm', textContent: `y ${a.renglones.length - 8} más…` }))] : []));
+      det.hidden = !det.hidden; ver.textContent = det.hidden ? 'Ver' : 'Ocultar';
+    };
+    acc.append(ver);
+  }
+  return el('section', { className: 'alerta ' + a.nivel },
+    el('div', { className: 'cab' }, el('span', { className: 'n', textContent: a.n }), a.importe ? el('span', { className: 'imp', textContent: pesos(a.importe) }) : ''),
+    el('span', { className: 't', textContent: a.titulo }), a.detalle ? el('span', { className: 'd', textContent: a.detalle }) : '', acc, det);
+}
+const ir = (texto, href, cls = '') => el('button', { type: 'button', className: cls, textContent: texto, onclick: () => { location.href = href; } });
+const sumar = (xs, k) => deCentavos(xs.reduce((s, x) => s + centavos(x[k] || '0'), 0n));
+
+// Proceso de abastecimiento: lo pendiente agrupado por etapa; cada renglón lleva al paso del asistente que falta.
+const ETAPAS = [['Por pagar', 'aviso'], ['Falta el comprobante', 'aviso'], ['Comprobante sin registrar', 'aviso'], ['Esperando mercadería', 'aviso'],
+  ['Pedido sin terminar', 'aviso'], ['Por pedir', 'aviso']];
+async function abastecimiento(u) {
   const { pendientes } = await api('abastecimiento/pendientes');
-  const puedeCargar = u.puede.catalogo;
-  $('#abastecimiento').hidden = !puedeCargar && !pendientes.length;
-  $('#inicios').hidden = !puedeCargar;
   const vencida = p => p.vencimiento && diasHasta(p.vencimiento) < 0;
-  pendientes.sort((a, b) => (vencida(b) - vencida(a)) || String(a.vencimiento || a.fecha).localeCompare(String(b.vencimiento || b.fecha)));
-  $('#nPend').textContent = pendientes.length ? `${pendientes.length} pendiente${pendientes.length === 1 ? '' : 's'}` : '';
-  if (!pendientes.length) return $('#pendientes').replaceChildren(el('p', { className: 'vacio', textContent: 'Nada pendiente: todo lo recibido está facturado y pagado.' }));
-  $('#pendientes').replaceChildren(...pendientes.map(p => {
-    const v = vencida(p);
-    return el('a', { href: p.lista ? 'abastecimiento.html#lista' : p.directa ? 'comprobantes.html#' + p.comprobante_id : `abastecimiento.html#${p.compra_id}/${p.paso}` },
-      el('span', { className: 'q' }, p.proveedor, ' ', el('span', { className: 'tag ' + (v ? 'mal' : ETAPA_TAG[p.etapa] ?? ''), textContent: v ? 'Vencida' : p.etapa })),
-      el('span', { className: 'm', textContent: [p.lista ? 'desde el ' + fecha(p.fecha) : fecha(p.fecha), p.numero, p.renglones ? `${p.renglones} producto${p.renglones === 1 ? '' : 's'}` : null,
-        p.vencimiento ? (v ? 'venció el ' : 'vence el ') + fecha(p.vencimiento) : null, p.directa ? 'factura sin compra' : null].filter(Boolean).join(' · ') }),
-      el('span', { className: 'i', textContent: p.importe ? pesos(p.importe) : '' }));
-  }));
+  const destino = p => p.lista ? 'abastecimiento.html#lista' : p.directa ? 'comprobantes.html#' + p.comprobante_id : `abastecimiento.html#${p.compra_id}/${p.paso}`;
+  for (const [etapa, nivel] of ETAPAS) {
+    const ps = pendientes.filter(p => p.etapa === etapa).sort((a, b) => (vencida(b) - vencida(a)) || String(a.vencimiento || a.fecha).localeCompare(String(b.vencimiento || b.fecha)));
+    if (!ps.length) continue;
+    const venc = ps.filter(vencida).length, conImporte = u.puede.finanzas && ps.some(p => p.importe);
+    alertas.push({ nivel: venc ? 'mal' : nivel, n: ps.length, titulo: etapa === 'Por pedir' ? 'Para pedir (lista de compras)' : etapa,
+      detalle: venc ? `${plural(venc, 'vencida')} · abastecimiento` : 'Proceso de abastecimiento', importe: conImporte ? sumar(ps, 'importe') : null,
+      href: ps.length === 1 ? destino(ps[0]) : etapa === 'Por pedir' ? 'abastecimiento.html#lista' : destino(ps[0]), accion: ps.length === 1 ? 'Resolver' : 'Empezar por el primero',
+      renglones: ps.map(p => ({ href: destino(p), t: p.proveedor || 'Lista de compras',
+        m: [p.vencimiento ? (vencida(p) ? 'venció ' : 'vence ') + fecha(p.vencimiento) : fecha(p.fecha), conImporte && p.importe ? pesos(p.importe) : null].filter(Boolean).join(' · ') })) });
+  }
+  if (!pendientes.length) alDia.push('abastecimiento');
 }
-// Proceso de ingresos (finanzas): cuánto hay para resolver en las ventas y cuánto efectivo falta rendir.
-(async () => {
-  const { usuario: u } = await cargarSesion();
-  if (!u.puede.finanzas) return;
+
+// Proceso de ingresos (finanzas): ventas con algo para resolver, efectivo a rendir y lo electrónico atrasado, por punto de venta.
+async function ingresos() {
   const { puntos } = await api('pos/cierre?dias=14');
   if (!puntos.length) return;
-  const n = puntos.reduce((s, p) => s + p.tareas.filter(t => ['corrida', 'importar', 'dia'].includes(t.tipo)).length, 0);
-  const ef = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
-  $('#ingresos').hidden = false;
-  $('#nIng').textContent = n ? `${n} para resolver` : ''; $('#nIng').className = 'tag' + (n ? ' aviso' : '');
-  $('#ingDet').textContent = (n ? 'Hay ventas con algo para resolver.' : 'Las ventas están al día.') + (ef > 0n ? ` Efectivo a rendir: ${pesos(deCentavos(ef))}.` : ' El efectivo está rendido.');
-})().catch(() => {});
-bandeja().catch(e => { $('#abastecimiento').hidden = false; $('#pendientes').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); });
+  const deTipo = (p, ts) => p.tareas.filter(t => ts.includes(t.tipo));
+  const ventas = puntos.filter(p => deTipo(p, ['corrida', 'importar', 'dia']).length);
+  if (ventas.length) alertas.push({ nivel: ventas.some(p => deTipo(p, ['corrida', 'importar', 'dia']).some(t => t.nivel === 'mal')) ? 'mal' : 'aviso',
+    n: ventas.reduce((s, p) => s + deTipo(p, ['corrida', 'importar', 'dia']).length, 0), titulo: 'Ventas para resolver', detalle: 'Proceso de ingresos, paso 1',
+    href: 'ingresos.html#ventas', renglones: ventas.flatMap(p => deTipo(p, ['corrida', 'importar', 'dia']).map(t => ({ href: 'ingresos.html#ventas', t: p.nombre, m: t.texto }))) });
+  else alDia.push('ventas');
+  const ef = puntos.filter(p => centavos(p.efectivo_a_rendir) > 0n);
+  if (ef.length) alertas.push({ nivel: 'aviso', n: ef.length, titulo: ef.length === 1 ? 'Punto de venta con efectivo a rendir' : 'Puntos de venta con efectivo a rendir',
+    detalle: 'Proceso de ingresos, paso 2', importe: sumar(ef, 'efectivo_a_rendir'), href: 'ingresos.html#efectivo',
+    renglones: ef.map(p => ({ href: 'ingresos.html#efectivo', t: p.nombre, m: pesos(p.efectivo_a_rendir) })) });
+  const acr = puntos.flatMap(p => deTipo(p, ['acreditacion']).map(t => ({ ...t, pv: p.nombre })));
+  if (acr.length) alertas.push({ nivel: 'mal', n: acr.length, titulo: 'Cobros electrónicos atrasados', detalle: 'Sin acreditar a los 3 días', importe: sumar(acr, 'importe'),
+    href: 'ingresos.html#extractos', accion: 'Importar extractos', renglones: acr.map(t => ({ href: 'ingresos.html#extractos', t: t.pv, m: t.texto })) });
+}
+
+// Almacén: bajo el mínimo, lo que vence, el frío y las compras por recibir.
+async function almacen() {
+  const [{ productos }, { stock }, { equipos }, { compras }] = await Promise.all([
+    api('stock/productos?bajo_minimo=1'), api('stock?vence_dias=7'), api('frio'), api('compras')]);
+  const vence = stock.filter(s => !s.cantidad.startsWith('-') && s.vencimiento);
+  const frio = equipos.filter(e => e.desvio || e.sin_lectura_reciente);
+  const porRecibir = compras.filter(c => c.estado === 'pedida' || c.estado === 'borrador');
+  if (vence.length) alertas.push({ nivel: 'mal', n: vence.length, titulo: 'Lotes que vencen en 7 días', href: 'stock.html?vence_dias=7', accion: 'Ver en stock',
+    renglones: vence.map(s => ({ href: 'stock.html?vence_dias=7', t: `${s.producto} · ${s.lote || ''}`, m: 'vence ' + fecha(s.vencimiento) })) });
+  else alDia.push('vencimientos');
+  if (frio.length) alertas.push({ nivel: 'mal', n: frio.length, titulo: 'Equipos de frío para revisar', href: 'frio.html', accion: 'Ir a frío',
+    renglones: frio.map(e => ({ href: 'frio.html', t: e.nombre, m: e.desvio ? 'fuera de rango' : 'sin lectura reciente' })) });
+  else alDia.push('frío');
+  if (productos.length) alertas.push({ nivel: 'aviso', n: productos.length, titulo: 'Productos bajo el mínimo', href: 'abastecimiento.html#lista', accion: 'Sumar a la lista de compras',
+    renglones: productos.map(p => ({ href: 'productos.html#p/' + p.id, t: p.nombre, m: `hay ${cant(p.cantidad, p.unidad_base)} · mínimo ${cant(p.stock_minimo, p.unidad_base)}` })) });
+  else alDia.push('stock mínimo');
+  if (porRecibir.length) alertas.push({ nivel: 'aviso', n: porRecibir.length, titulo: 'Compras por recibir', href: 'abastecimiento.html', accion: 'Llegó mercadería',
+    renglones: porRecibir.map(c => ({ href: `abastecimiento.html#${c.id}/recepcion`, t: c.proveedor || 'Compra', m: fecha(c.fecha) })) });
+}
+
 (async () => {
-  try {
-    const [{ productos }, { stock }, { equipos }, { compras }] = await Promise.all([
-      api('stock/productos?bajo_minimo=1'), api('stock?vence_dias=7'), api('frio'), api('compras')]);
-    const vence = stock.filter(s => !s.cantidad.startsWith('-') && s.vencimiento);
-    tarjeta('#tMin', productos.length, 'aviso');
-    tarjeta('#tVence', vence.length, 'mal');
-    tarjeta('#tFrio', equipos.filter(e => e.desvio || e.sin_lectura_reciente).length, 'mal');
-    tarjeta('#tCompras', compras.filter(c => c.estado === 'pedida' || c.estado === 'borrador').length, 'aviso');
-    filas($('#vence'), vence.slice(0, 12), s => el('tr', {},
-      td(s.producto), td(s.lote), td(`${s.almacen} · ${s.ubicacion}`),
-      td(cant(s.cantidad, s.unidad_base), 'num'), el('td', {}, fecha(s.vencimiento), ' ', tagVence(s.vencimiento))),
-      'Nada vence en los próximos 7 días.', 5);
-    filas($('#minimo'), productos, p => el('tr', {},
-      td(p.nombre), td(cant(p.cantidad, p.unidad_base), 'num'), td(cant(p.stock_minimo, p.unidad_base), 'num')),
-      'Ningún producto está bajo el mínimo.', 3);
-  } catch (e) { $('#t').textContent = 'Error: ' + e.message; }
-  fetch('salud').then(r => r.json()).then(d => {
-    $('#p').className = 'p ' + (d.ok ? 'ok' : 'mal');
-    $('#t').textContent = d.ok ? `base ${d.base} responde en ${d.ms} ms` : 'la base no responde';
-  }).catch(() => { $('#p').className = 'p mal'; $('#t').textContent = 'sin respuesta del servidor'; });
+  const { usuario: u } = await cargarSesion();
+  const atajos = [];
+  if (u.puede.catalogo) atajos.push(ir('Necesito comprar', 'abastecimiento.html#lista', 'prim'), ir('Llegó mercadería', 'abastecimiento.html#nuevo/llegada'));
+  if (u.puede.finanzas) atajos.push(ir('Proceso de ingresos', 'ingresos.html'));
+  $('#atajos').replaceChildren(...atajos);
+  const partes = [abastecimiento(u), almacen()];
+  if (u.puede.finanzas) partes.push(ingresos());
+  const r = await Promise.allSettled(partes);
+  const err = r.find(x => x.status === 'rejected');
+  pintar();
+  if (err) $('#alertas').prepend(el('p', { className: 'msg mal', textContent: err.reason.message }));
 })();
+fetch('salud').then(r => r.json()).then(d => {
+  $('#p').className = 'p ' + (d.ok ? 'ok' : 'mal');
+  $('#t').textContent = d.ok ? `base ${d.base} responde en ${d.ms} ms` : 'la base no responde';
+}).catch(() => { $('#p').className = 'p mal'; $('#t').textContent = 'sin respuesta del servidor'; });
 </script>
 </body>
 </html>

@@ -680,3 +680,72 @@ function nuevoMedioPago() {
   });
 }
 
+
+// ── Fechas en dd/mm/aaaa ─────────────────────────────────────────────────────────────────────
+// El <input type="date"> muestra el formato del idioma del navegador (en un Chrome en inglés, mm/dd/aaaa: pedido de Fer,
+// 01/11/2026). Cada uno se acompaña de un campo de texto dd/mm/aaaa y un botón que abre el calendario; el original queda
+// oculto pero sigue teniendo el valor (AAAA-MM-DD), los eventos y los atributos, así las pantallas no cambian. También los
+// que se crean después (MutationObserver).
+(function () {
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const aDMY = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)}` : '';
+  const aISO = t => {
+    const m = String(t).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+    if (!m) return null;
+    const a = m[3].length === 2 ? '20' + m[3] : m[3], iso = `${a}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    const d = new Date(iso + 'T12:00:00Z');
+    return d.getUTCDate() === +m[1] && d.getUTCMonth() + 1 === +m[2] ? iso : null;
+  };
+  const ICONO = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+  function mejorar(inp) {
+    if (inp.dataset.dmy) return;
+    inp.dataset.dmy = '1';
+    const txt = document.createElement('input');
+    Object.assign(txt, { type: 'text', inputMode: 'numeric', placeholder: 'dd/mm/aaaa', autocomplete: 'off', className: 'fecha-dmy' });
+    txt.setAttribute('aria-label', inp.getAttribute('aria-label') || 'Fecha (dd/mm/aaaa)');
+    const cal = document.createElement('button');
+    Object.assign(cal, { type: 'button', className: 'fecha-cal', tabIndex: -1, innerHTML: ICONO });
+    cal.setAttribute('aria-label', 'Abrir calendario');
+    const caja = document.createElement('span');
+    caja.className = 'fecha-caja';
+    inp.parentNode.insertBefore(caja, inp);
+    caja.append(txt, cal, inp);
+    inp.classList.add('fecha-nativa'); inp.tabIndex = -1;
+    const sinc = () => { txt.value = aDMY(desc.get.call(inp)); txt.disabled = cal.disabled = inp.disabled; txt.required = inp.required; txt.setCustomValidity(''); };
+    // Lo que la pantalla escriba en el original se ve en el campo de texto.
+    Object.defineProperty(inp, 'value', { configurable: true, get() { return desc.get.call(this); }, set(v) { desc.set.call(this, v); sinc(); } });
+    const fijar = iso => {
+      if (desc.get.call(inp) === iso) return;
+      desc.set.call(inp, iso);
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    // Al tipear sólo números, las barras se ponen solas (01102026 -> 01/10/2026).
+    txt.addEventListener('input', () => {
+      const d = txt.value.replace(/\D/g, '');
+      if (/^\d+$/.test(txt.value) && d.length >= 3) txt.value = d.length <= 4 ? `${d.slice(0, 2)}/${d.slice(2)}` : `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4, 8)}`;
+    });
+    txt.addEventListener('change', () => {
+      const v = txt.value.trim();
+      if (!v) { txt.setCustomValidity(''); return fijar(''); }
+      const iso = aISO(v);
+      const fuera = iso && ((inp.min && iso < inp.min) || (inp.max && iso > inp.max));
+      if (!iso || fuera) {
+        txt.setCustomValidity(!iso ? 'Fecha inválida: usá dd/mm/aaaa.' : `La fecha tiene que estar entre ${aDMY(inp.min) || 'el principio'} y ${aDMY(inp.max) || 'hoy'}.`);
+        return txt.reportValidity();
+      }
+      txt.setCustomValidity(''); txt.value = aDMY(iso); fijar(iso);
+    });
+    inp.addEventListener('change', sinc); inp.addEventListener('input', sinc);   // elegida con el calendario
+    cal.onclick = () => { try { inp.showPicker(); } catch { txt.focus(); } };
+    if (inp.form) inp.form.addEventListener('reset', () => setTimeout(sinc));
+    new MutationObserver(sinc).observe(inp, { attributes: true, attributeFilter: ['disabled', 'required'] });
+    sinc();
+  }
+  const enRaiz = r => r.querySelectorAll && r.querySelectorAll('input[type="date"]').forEach(mejorar);
+  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
+    if (n.nodeType !== 1) return;
+    if (n.matches('input[type="date"]')) mejorar(n); else enRaiz(n);
+  }))).observe(document.documentElement, { childList: true, subtree: true });
+  enRaiz(document);
+})();

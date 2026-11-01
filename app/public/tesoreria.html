@@ -42,6 +42,7 @@
       <button id="manual">Ingreso o egreso</button>
       <button id="arquear">Arqueo de caja</button>
     </div>
+    <div class="segm" id="filiales" role="group" aria-label="Filial" style="margin:0 0 14px"></div>
     <div class="kpis" id="kpis"></div>
     <div id="grupos"></div>
   </section>
@@ -131,10 +132,31 @@ const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card
   el('div', { className: 'cab-t' }, el('h2', { textContent: titulo }), total != null ? el('span', { className: 'tot', textContent: total }) : ''),
   cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
 
+// Por filial (pedido de Fer, 01/11/2026: con dos empresas todo junto se mezclaba). "Todas" muestra sólo el resumen de cada
+// filial; elegir una muestra sus cuentas. La filial de una cuenta es su sede (la caja, la del punto de venta, la que se le
+// asignó en la ficha); las que no tienen, en "Sin filial". Se recuerda la última elegida.
+let filial = (() => { try { return localStorage.getItem('tesoreria-filial') || ''; } catch { return ''; } })();
+let datos = null;
+const SIN = 'sin';
+const filialDe = c => c.sede_id || SIN;
 async function cargar() {
   const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar')]);
-  cuentas = cs;
-  const activas = cuentas.filter(c => c.activa);
+  cuentas = cs; datos = { pa, pc };
+  pintarTablero();
+}
+function pintarTablero() {
+  const { pa, pc } = datos;
+  const todas = cuentas.filter(c => c.activa);
+  // Las filiales que tienen alguna cuenta, con su nombre; "Sin filial" al final si hace falta.
+  const fs = [...new Map(todas.map(c => [filialDe(c), c.sede || 'Sin filial'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
+  if (filial && !fs.some(([id]) => id === filial)) filial = '';
+  $('#filiales').replaceChildren(...[['', 'Todas'], ...fs].map(([id, n]) => {
+    const b = el('button', { type: 'button', textContent: n, className: id === filial ? 'act' : '' });
+    b.onclick = () => { filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {} pintarTablero(); };
+    return b;
+  }));
+  if (!filial) return resumenFiliales(todas, fs);
+  const activas = todas.filter(c => filialDe(c) === filial);
   const efectivoPV = activas.filter(c => c.punto_venta);
   const aAcreditar = activas.filter(c => c.tipo === 'cobranza');
   const disponibles = activas.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
@@ -153,6 +175,7 @@ async function cargar() {
       !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null))));
 
   // Por acreditar: cada procesador con su cuenta "a acreditar" y, debajo, de qué punto de venta viene lo que falta.
+  const procs = new Set(aAcreditar.map(c => c.procesador_pendiente).filter(Boolean));
   const porProc = aAcreditar.map(c => {
     const pvs = pa.filter(x => x.cuenta_id === c.id);
     const deposita = activas.find(x => x.procesador_deposita && c.procesador_pendiente && x.procesador_deposita.split(', ').includes(c.procesador_pendiente));
@@ -163,17 +186,47 @@ async function cargar() {
   });
   if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
     'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
-    ...porProc, cuandoEntra(pc), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
+    ...porProc, cuandoEntra(soloDe(pc, procs)), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
 
   if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
-    'Lo cobrado en efectivo que todavía no llegó a la central. Se rinde cuando la plata entra a una caja o al banco.',
+    'Lo cobrado en efectivo que el punto de venta todavía no rindió. Se rinde cuando la plata entra a una caja o al banco de la empresa.',
     ...efectivoPV.map(c => filaCuenta(c, [`Punto de venta ${c.punto_venta}`])),
     el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Rendir efectivo', onclick: () => { location.href = 'ingresos.html#efectivo'; } }))));
 
-  const inactivas = cuentas.filter(c => !c.activa);
+  const inactivas = cuentas.filter(c => !c.activa && filialDe(c) === filial);
   if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
     ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo], c.tipo === 'cartera' ? 'desactivada: sin cheques de terceros por ahora' : null]))));
   $('#grupos').replaceChildren(...g);
+}
+
+// "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir; tocarla la abre.
+function resumenFiliales(todas, fs) {
+  const de = id => todas.filter(c => filialDe(c) === id);
+  const disp = cs => cs.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
+  const acr = cs => cs.filter(c => c.tipo === 'cobranza'), ef = cs => cs.filter(c => c.punto_venta);
+  $('#kpis').replaceChildren(
+    kpi('Disponible', pesosC(suma(disp(todas))), 'bancos y cajas de todas las filiales'),
+    kpi('Por acreditar', pesosC(suma(acr(todas))), 'cobrado con los procesadores, todavía no depositado'),
+    kpi('Efectivo a rendir', pesosC(suma(ef(todas))), 'en los puntos de venta'));
+  $('#grupos').replaceChildren(grupo('Por filial', null, 'Tocá una filial para ver sus cuentas.',
+    el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' },
+      el('thead', {}, el('tr', {}, el('th', { textContent: 'Filial' }), el('th', { className: 'num', textContent: 'Disponible' }),
+        el('th', { className: 'num', textContent: 'Por acreditar' }), el('th', { className: 'num', textContent: 'Efectivo a rendir' }), el('th', { textContent: 'Sin conciliar' }))),
+      el('tbody', {}, ...fs.map(([id, n]) => {
+        const cs = de(id), sc = cs.reduce((t, c) => t + (c.lineas_sin_conciliar || 0), 0);
+        const tr = el('tr', { style: 'cursor:pointer' }, td(n), td(pesosC(suma(disp(cs))), 'num'), td(pesosC(suma(acr(cs))), 'num'), td(pesosC(suma(ef(cs))), 'num'),
+          el('td', {}, sc ? el('span', { className: 'tag aviso', textContent: `${sc} línea(s)` }) : ''));
+        tr.onclick = () => { filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {} pintarTablero(); };
+        return tr;
+      }))))));
+  etiquetarTabla($('#grupos table'));
+}
+// Lo que entra de los procesadores de la filial (los totales se recalculan con lo filtrado).
+function soloDe(pc, procs) {
+  const dias = pc.dias.filter(d => procs.has(d.procesador)), atrasado = pc.atrasado.filter(d => procs.has(d.procesador));
+  const xs = [...dias, ...atrasado];
+  return { ...pc, dias, atrasado, estimaciones: pc.estimaciones.filter(e => procs.has(e.procesador)), pagos: xs.reduce((t, x) => t + x.pagos, 0),
+    neto: deCentavos(xs.reduce((t, x) => t + centavos(x.neto), 0n)) };
 }
 
 // Cuándo entra: por fecha, el neto que se espera de cada procesador. Lo que informa el procesador (Fudo Pagos: fecha de

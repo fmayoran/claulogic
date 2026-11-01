@@ -240,6 +240,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `fin.anular_orden_pago` revierte todo; no se puede si un cheque propio ya se debitó. Una factura con
   pagos registrados no se anula. Los números de OP pueden tener huecos (un borrador borrado consume
   el suyo).
+- **Cajas y bancos por filial** (pedido de Fer, 01/11/2026: con dos empresas se mezclaba todo): un selector arriba (Todas y cada
+  filial, la sede de la cuenta; "Sin filial" si alguna no tiene); "Todas" muestra sólo una fila por filial (disponible, por
+  acreditar, efectivo a rendir, líneas sin conciliar) y tocarla la abre; en una filial, sus cuentas y "Cuándo entra" de sus
+  procesadores (`soloDe`). Se recuerda la última elegida.
 - **Cajas y bancos es un tablero** (pedido de Fer, 27/10/2026; `tesoreria.html`): arriba Disponible (bancos, incluidas las
   cuentas donde depositan los procesadores, y cajas de las sedes), Por acreditar y Efectivo a rendir; después cada grupo con
   sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
@@ -623,7 +627,13 @@ platos de carta, integración con POS (Fudo por API, archivo para cualquiera), c
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
-**Interfaz.** `comun.js` arma la navegación de todas las pantallas. **El menú va por proceso** (decisión de Fer,
+**Interfaz.** `comun.js` arma la navegación de todas las pantallas. **Fechas en dd/mm/aaaa** (pedido de Fer, 01/11/2026: el
+`<input type="date">` muestra el formato del idioma del navegador, mm/dd en un Chrome en inglés): `comun.js` acompaña cada uno
+(también los que se crean después) de un campo de texto dd/mm/aaaa con botón de calendario; el original queda oculto con el valor
+AAAA-MM-DD, los eventos y min/max, así las pantallas no cambian. Acepta 1/10/26 y 01102026; una fecha inválida o fuera de rango
+no se toma. **Panel** (`index.html`, pedido de Fer, 01/11/2026): atajos arriba y "Para resolver" con una tarjeta por tema
+(abastecimiento por etapa, ventas, efectivo a rendir, cobros atrasados, vencimientos, frío, mínimos, compras por recibir) con su
+acción; el detalle, a pedido ("Ver"); lo que está en orden, en una línea "Al día". **El menú va por proceso** (decisión de Fer,
 27/10/2026): Inicio, Ingresos (Tablero de ventas, Proceso de ingresos), Compras (Proceso de abastecimiento, Proveedores, Cuenta
 corriente), Tesorería (Cajas y bancos, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
