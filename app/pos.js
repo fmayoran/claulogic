@@ -15,6 +15,9 @@ const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') 
 const { rolEn, exigirOperarEn, exigirEncargadoDe, filtroSedes, puede } = require('./auth');
 const crypto = require('./crypto');
 const fudo = require('./fudo');
+const maxirest = require('./maxirest');
+// Sistemas que se traen por API (el resto, por archivo).
+const POR_API = ['fudo', 'maxirest'];
 const { MEDIOS_SQL, acreditarLotes } = require('./tesoreria');
 
 const r = express.Router();
@@ -118,17 +121,23 @@ function leerIntegracion(b) {
     ubicacion_id: texto(b.ubicacion_id),
     activa: b.activa === undefined ? true : !!b.activa,
     apiKey: texto(b.apiKey), apiSecret: texto(b.apiSecret),
+    // Maxirest: usuario (mail) y clave de Maxirest Cloud, y el código del restaurante si el usuario tiene más de uno.
+    mail: texto(b.mail), password: texto(b.password), cliente: texto(b.cliente),
     // Por API se traen solas todos los días a las 5:00 (se puede pausar); por archivo, siempre a mano.
     sincroniza_auto: b.sincroniza_auto === undefined ? true : !!b.sincroniza_auto,
   };
   if (!['fudo', 'maxirest', 'otro'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
   if (!['api', 'archivo'].includes(i.modo)) throw new ErrorUsuario('El modo es api o archivo.');
-  if (i.modo === 'api' && i.sistema !== 'fudo') throw new ErrorUsuario('Por ahora la API sólo está disponible para Fudo; Maxirest y otros van por archivo.');
+  if (i.modo === 'api' && !POR_API.includes(i.sistema)) throw new ErrorUsuario('Por API se traen Fudo y Maxirest; los demás sistemas van por archivo.');
   if ((i.apiKey && !i.apiSecret) || (!i.apiKey && i.apiSecret)) throw new ErrorUsuario('Cargá juntos el apiKey y el apiSecret.');
+  if ((i.mail && !i.password) || (!i.mail && i.password)) throw new ErrorUsuario('Cargá juntos el usuario y la clave de Maxirest.');
   return i;
 }
-// Las credenciales se cifran con la clave propia de ClauLogic y nunca se devuelven.
-const cifrar = i => i.apiKey ? crypto.encrypt(JSON.stringify({ apiKey: i.apiKey, apiSecret: i.apiSecret })) : null;
+// Las credenciales se cifran con la clave propia de ClauLogic y nunca se devuelven. Sin credenciales nuevas, null.
+const cifrar = i => i.sistema === 'maxirest'
+  ? (i.mail ? crypto.encrypt(JSON.stringify({ mail: i.mail, password: i.password, cliente: i.cliente || null })) : null)
+  : (i.apiKey ? crypto.encrypt(JSON.stringify({ apiKey: i.apiKey, apiSecret: i.apiSecret })) : null);
+const faltanCredenciales = i => i.sistema === 'maxirest' ? 'El modo API necesita el usuario y la clave de Maxirest.' : 'El modo API necesita apiKey y apiSecret.';
 
 // El sistema de venta de una sede punto de venta (una por sede; se configura desde la ficha de la sede).
 // Toma el nombre de la sede y descuenta de su única ubicación. Nace con su cuenta de efectivo
@@ -145,7 +154,7 @@ async function datosDeSede(c, i) {
 }
 r.post('/pos/integraciones', h(async (req, res) => {
   let i = leerIntegracion(req.body);
-  if (i.modo === 'api' && !i.apiKey) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
+  if (i.modo === 'api' && !cifrar(i)) throw new ErrorUsuario(faltanCredenciales(i));
   const id = await enTransaccion(async c => {
     i = await datosDeSede(c, i);
     const { rows: [n] } = await c.query(
@@ -167,14 +176,16 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
     if (ant.sede_id !== i.sede_id) throw new ErrorUsuario('El sistema de venta no cambia de sede.');
     i = await datosDeSede(c, i);
     // Sin credenciales nuevas se conservan las que había (no se muestran, así que no se reenvían).
-    const cred = i.modo !== 'api' ? null : i.apiKey ? cifrar(i) : ant.credenciales;
-    if (i.modo === 'api' && !cred) throw new ErrorUsuario('El modo API necesita apiKey y apiSecret.');
+    // Cambiar de sistema obliga a cargar las credenciales del nuevo (las del otro no le sirven).
+    const nuevas = cifrar(i);
+    const cred = i.modo !== 'api' ? null : nuevas || (ant.sistema === i.sistema ? ant.credenciales : null);
+    if (i.modo === 'api' && !cred) throw new ErrorUsuario(faltanCredenciales(i));
     await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9,
                           sincroniza_auto=$10 WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo, i.sincroniza_auto]);
     // La cuenta de efectivo acompaña el nombre del punto de venta.
     if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre)
       await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + i.nombre, ant.cuenta_efectivo_id]);
-    if (i.apiKey) fudo.olvidarToken(ant.id);
+    if (nuevas) { fudo.olvidarToken(ant.id); maxirest.olvidarToken(ant.id); }
   });
   res.json({ ok: true, id: req.params.id });
 }));
@@ -244,7 +255,7 @@ r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {
 // Trae las ventas de un rango por la API, guarda la liquidación de cada pago, procesa los días sin observaciones y
 // liquida los lotes vencidos. La usan la pantalla (un rango elegido) y la corrida diaria (`correr`).
 async function sincronizarRango(req, integ, desde, hasta) {
-  if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Esta integración es por archivo.');
+  if (integ.modo !== 'api' || !POR_API.includes(integ.sistema)) throw new ErrorUsuario('Esta integración es por archivo.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API.');
   const { rows: [rango] } = await pool.query(
     `SELECT to_char(($1::date::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS d,
@@ -257,15 +268,18 @@ async function sincronizarRango(req, integ, desde, hasta) {
   let datos, liq = new Map(), avisoLiquidacion = null;
   try {
     const cred = JSON.parse(crypto.decrypt(integ.credenciales));
-    datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
-    // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual.
-    try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, rango.h); }
-    catch (e) { if (!(e instanceof fudo.ErrorFudo)) throw e; avisoLiquidacion = e.message; console.error(`Fudo, liquidaciones (${integ.nombre}):`, e.message); }
+    if (integ.sistema === 'maxirest') datos = await maxirest.ventas(integ.id, cred, desde, hasta);   // por días del local
+    else {
+      datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
+      // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual.
+      try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, rango.h); }
+      catch (e) { if (!(e instanceof fudo.ErrorFudo)) throw e; avisoLiquidacion = e.message; console.error(`Fudo, liquidaciones (${integ.nombre}):`, e.message); }
+    }
   }
   // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página y el detalle se pierde.
   catch (e) {
-    if (!(e instanceof fudo.ErrorFudo)) throw e;
-    console.error(`Fudo (${integ.nombre}):`, e.message);
+    if (!(e instanceof fudo.ErrorFudo) && !(e instanceof maxirest.ErrorMaxirest)) throw e;
+    console.error(`${integ.sistema === 'maxirest' ? 'Maxirest' : 'Fudo'} (${integ.nombre}):`, e.message);
     throw new ErrorUsuario(e.message, 424);
   }
   const out = await enTransaccion(async c => {
@@ -310,7 +324,7 @@ async function sincronizarRango(req, integ, desde, hasta) {
 const DESDE_CORRIDA = `GREATEST(LEAST(current_date - 3, COALESCE((SELECT MAX(hasta) + 1 FROM pos.corrida WHERE integracion_id = $1 AND ok),
                                                          date_trunc('month', current_date - 1)::date)), current_date - 31)`;
 async function correr(req, integ, automatica, desdePedido = null, hastaPedido = null) {
-  if (integ.modo !== 'api' || integ.sistema !== 'fudo') throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
+  if (integ.modo !== 'api' || !POR_API.includes(integ.sistema)) throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API en la ficha de la sede.');
   // A mano se puede pedir desde y hasta cuándo (por ejemplo, volver a traer un mes entero, o cortar antes de ayer),
   // hasta 62 días atrás y nunca el día en curso.

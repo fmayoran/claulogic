@@ -45,9 +45,18 @@
           <label>API Key de Fudo<input name="apiKey" autocomplete="off"></label>
           <label>API Secret de Fudo<input name="apiSecret" type="password" autocomplete="new-password"></label>
         </div>
+        <div class="fila" id="filaCredMx">
+          <label>Usuario de Maxirest (mail)<input name="mail" type="email" autocomplete="off"></label>
+          <label>Clave de Maxirest<input name="password" type="password" autocomplete="new-password"></label>
+          <label>Código del restaurante<input name="cliente" inputmode="numeric" maxlength="12" placeholder="49502"></label>
+        </div>
         <label class="check" id="autoWrap"><input type="checkbox" name="sincroniza_auto" checked> Traer las ventas automáticamente todos los días a las 5:00 (el día anterior)</label>
         <p class="ayuda" id="ayudaCred">En Fudo (plan Pro): Aplicaciones externas &gt; API Pública General, y un usuario propio para la API en Administración &gt; Usuarios.
           Las credenciales se guardan cifradas y no se vuelven a mostrar; para cambiarlas, cargalas de nuevo.</p>
+        <p class="ayuda" id="ayudaCredMx">El usuario y la clave con que se entra a cloud.maxirest.com (conviene uno propio para ClauLogic). El código del restaurante
+          es el número que aparece arriba a la derecha en Maxirest; hace falta sólo si el usuario tiene más de un restaurante. Se guardan
+          cifrados y no se vuelven a mostrar; para cambiarlos, cargalos de nuevo. Maxirest no publica una API: se usa el servicio de su
+          propia página, que puede cambiar sin aviso.</p>
         <p class="ayuda" id="efectivoInfo"></p>
       </fieldset>
       <div class="acciones">
@@ -101,15 +110,18 @@ function aplicarTipo() {
   $('#fsVenta').hidden = !pv; $('#centralWrap').hidden = pv; $('#almWrap').hidden = !!actual || pv;
   if (pv) f.es_central.checked = false;
   f.tipo.disabled = !!actual;
-  if (f.sistema.value !== 'fudo') f.modo.value = 'archivo';
-  $('#filaCred').hidden = $('#ayudaCred').hidden = $('#autoWrap').hidden = f.modo.value !== 'api';
+  if (f.sistema.value === 'otro') f.modo.value = 'archivo';
+  const api = f.modo.value === 'api', mx = f.sistema.value === 'maxirest';
+  $('#autoWrap').hidden = !api;
+  $('#filaCred').hidden = $('#ayudaCred').hidden = !api || mx;
+  $('#filaCredMx').hidden = $('#ayudaCredMx').hidden = !api || !mx;
 }
 f.tipo.onchange = f.sistema.onchange = f.modo.onchange = aplicarTipo;
 function nueva() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva sede';
   $('#activaWrap').hidden = true; $('#ayudaActiva').hidden = true; $('#irVentas').hidden = true;
   $('#secArt').hidden = $('#secMed').hidden = true; $('#efectivoInfo').textContent = '';
-  f.modo.value = 'archivo'; f.apiKey.placeholder = f.apiSecret.placeholder = '';
+  f.modo.value = 'archivo'; f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = '';
   aplicarTipo(); $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
 async function abrir(id) {
@@ -120,7 +132,9 @@ async function abrir(id) {
   const i = integDe(id);
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
   f.sincroniza_auto.checked = i ? i.sincroniza_auto !== false : true;
-  f.apiKey.value = f.apiSecret.value = ''; f.apiKey.placeholder = f.apiSecret.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
+  f.apiKey.value = f.apiSecret.value = f.mail.value = f.password.value = f.cliente.value = '';
+  f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
+  f.cliente.placeholder = i && i.tiene_credenciales ? 'cargado (no se muestra)' : '49502';
   $('#efectivoInfo').textContent = i && i.cuenta_efectivo ? `Su efectivo entra en "${i.cuenta_efectivo}" (a rendir a la central: ${pesos(i.efectivo_a_rendir || '0')}). Rendirlo es una transferencia desde Tesorería.` : '';
   $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'procesar-ventas.html#' + i.id;
   aplicarTipo(); sinCambios(f);
@@ -140,7 +154,7 @@ f.onsubmit = async e => {
       const ant = integDe(d.id);
       const venta = { sede_id: d.id, sistema: f.sistema.value, modo: f.modo.value, codigo: f.codigo.value, activa: actual ? f.activa.checked : true,
                       sincroniza_auto: f.sincroniza_auto.checked,
-                      apiKey: f.apiKey.value, apiSecret: f.apiSecret.value };
+                      apiKey: f.apiKey.value, apiSecret: f.apiSecret.value, mail: f.mail.value, password: f.password.value, cliente: f.cliente.value };
       await api(ant ? 'pos/integraciones/' + ant.id : 'pos/integraciones', { method: ant ? 'PUT' : 'POST', body: venta });
     }
     actual = d.id; await cargar(); await abrir(d.id); msg('Guardado.', 'ok');

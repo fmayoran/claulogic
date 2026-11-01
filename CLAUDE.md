@@ -333,9 +333,20 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Las ventas traen además `discounts`, `tips` y `shippingCosts`, que todavía no se leen. Los errores de Fudo
   llevan su detalle (`errors[].detail`). `FUDO_AUTH_URL` y `FUDO_API_URL` existen para las pruebas (el
   simulador también rechaza `lte`). Credenciales cifradas con `crypto.js`.
-- **Maxirest no tiene API pública**: va por archivo (sus informes de ventas salen a Excel; se guardan
-  como CSV). La importación por archivo sirve para cualquier POS: renglones de venta y pagos, con mapeo
-  de columnas que se recuerda por integración (`pos.integracion.mapeo`).
+- **Maxirest por API** (`app/maxirest.js`; pedido de Fer, 01/11/2026, para SORELLE CIUCIO SA; migración 20261115). No tiene API
+  pública: se usa el servicio de su propia página (cloud.maxirest.com), relevado con Claude in Chrome y la sesión de Fer, sabiendo
+  que puede cambiar sin aviso. Login en dos pasos: `POST cloud-api…/usuarios/auth {mail, password}` da el token de usuario y los
+  restaurantes; `POST …/usuarios/login/cuentas/<codigo>` (con ese token, cuerpo vacío) da el token del restaurante; los dos duran 8
+  h y no se renuevan (se vuelve a entrar). "Ventas detalladas": `GET api-informes-legacy…/ventas/totales/detalles?from=<ms>&to=<ms>
+  &fechaComp=false`, con el día a las 00:00 de Buenos Aires en milisegundos (en texto da 500), el rango entero sin paginado. Una fila
+  por comprobante **y forma de pago**: con una sola forma el importe es `total`; con dos, el comprobante se repite y `subtotal` es lo
+  de cada forma. Así octubre de Sorelle da 808 comprobantes y $55.200.445, como sus pantallas. Tipo: Salon/Mostrador/Delivery; mozo
+  sólo el código ("Mozo 3"); forma vacía = medio "SIN NOMBRE". No trae artículos por comprobante (sólo el total por artículo del día,
+  `…/totales/articulos`) ni mesas abiertas. En la ficha de la sede: usuario (mail), clave y código del restaurante (49502), cifrados.
+  Sorelle maneja **dos cartas en el mismo sistema y la misma cuenta de Mercado Pago** (Wera Sushi y Lo de Titi Bodegón): una sola
+  cosa en lo financiero; se separan al ver ventas por producto.
+- **Por archivo** (cualquier POS): renglones de venta y pagos, con mapeo de columnas que se recuerda por integración
+  (`pos.integracion.mapeo`). La exportación de "Ventas detalladas" de Maxirest no trae la forma de pago aunque se vea en pantalla.
 - **Recepción idempotente**: `pos.ticket` único por (integración, id del POS); reimportar no duplica y
   una importación sin tickets nuevos no se guarda.
 - **Plato de carta** (`logic.plato`): la receta de venta, lo que consume una porción (insumos o
