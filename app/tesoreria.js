@@ -504,10 +504,12 @@ async function exigirCuentaDelFormato(cuenta, filas, formato) {
   if (!fmt) return;
   const { rows } = await pool.query(
     `SELECT p.nombre, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id WHERE p.activo`);
-  const pr = rows.find(x => fmt.procesador.test(x.nombre));
-  if (!pr || pr.cuenta_acredita_id === cuenta) return;
-  if (!pr.cuenta_acredita_id) throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: primero indicá en Medios de pago en qué cuenta deposita ${pr.nombre}.`);
-  throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: va en la cuenta ${pr.cuenta}, no en esta.`);
+  // Puede haber más de un procesador del mismo tipo (Mercado Pago de CORTAFUEGO y de SORELLE): vale la cuenta de cualquiera.
+  const prs = rows.filter(x => fmt.procesador.test(x.nombre)), pr = prs[0];
+  if (!pr || prs.some(x => x.cuenta_acredita_id === cuenta)) return;
+  const cuentas = prs.filter(x => x.cuenta_acredita_id).map(x => x.cuenta);
+  if (!cuentas.length) throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: primero indicá en Medios de pago en qué cuenta deposita ${pr.nombre}.`);
+  throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: va en ${cuentas.length > 1 ? 'una de las cuentas ' + cuentas.join(' o ') : 'la cuenta ' + cuentas[0]}, no en esta.`);
 }
 
 // Con la columna de saldo, cada fila tiene que cerrar con la anterior: saldo anterior + importe = saldo (en un archivo de
@@ -846,8 +848,11 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
     const pagoDe = new Map(previos.map(x => [x.operacion, x.id]));
     let acreditadas = 0, acreditado = 0n;
     for (const l of pend.filter(l => !usadas.has(l.id) && !l.importe.startsWith('-'))) {
-      const dias = p => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5;
-      const p = pagos.filter(p => libres.has(p.id) && normImp(p.importe) === normImp(l.importe) && dias(p) >= 0 && dias(p) <= 4)
+      // Si el extracto dice el día de la venta ("venta del AAAA-MM-DD": Mercado Pago libera el crédito del Point a los
+      // ~10 días), se parea contra ese día (o el anterior, una mesa abierta antes de medianoche); si no, hasta 4 días antes.
+      const diaVenta = (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1];
+      const dias = p => (Date.parse(diaVenta || l.fecha) - Date.parse(p.dia)) / 864e5;
+      const p = pagos.filter(p => libres.has(p.id) && normImp(p.importe) === normImp(l.importe) && dias(p) >= 0 && dias(p) <= (diaVenta ? 1 : 4))
         .sort((a, b) => dias(a) - dias(b))[0];
       if (!p) continue;
       libres.delete(p.id);

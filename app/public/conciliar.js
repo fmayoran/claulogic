@@ -1,7 +1,7 @@
 // Conciliación: lo que comparten la pantalla de Conciliación y el proceso de ingresos (paso de extractos y paso de
 // conciliar). Dos piezas:
-//   · Conc.importador: elegir el archivo, reconocer el formato (Mercado Pago pide el resumen y las liquidaciones
-//     juntos), mapear las columnas de un CSV común e importar en una cuenta. En la cuenta de un procesador concilia en
+//   · Conc.importador: elegir el archivo, reconocer el formato (Mercado Pago: el reporte de liberaciones solo, o el
+//     resumen y las liquidaciones juntos), mapear las columnas de un CSV común e importar en una cuenta. En la cuenta de un procesador concilia en
 //     el mismo paso.
 //   · Conc.resolver: lo que falta resolver de una cuenta, agrupado, con el pareo sugerido de cada línea y su acción.
 // Usa los helpers de comun.js (el, api, pesos, fecha, centavos…), que se cargan antes.
@@ -82,6 +82,70 @@ const Conc = (() => {
       out.push({ fecha: iso(c(movs.at(-1), 'RELEASE_DATE')), concepto: 'Saldo final', saldo: saldos.final, importe: '' });
     }
     return { filas: out, movimientos: movs.length, abiertas, netas, saldos };
+  }
+
+  // Mercado Pago en un solo archivo: el reporte de liberaciones (pedido de Fer, 01/11/2026), con las columnas
+  // GROSS_AMOUNT, MP_FEE_AMOUNT, FINANCING_FEE_AMOUNT, TAXES_DISAGGREGATED, TRANSACTION_APPROVAL_DATE y BALANCE_AMOUNT
+  // tildadas en su configuración. Cada fila es un movimiento de la cuenta con su saldo; una venta ("payment" que entra)
+  // se abre en cobro (bruto), comisión e impuestos (débitos y créditos aparte de las retenciones de Ingresos Brutos,
+  // SIRTAC y SIRCUPA), que suman exacto el neto. Las reservas que MP hace y libera al instante (reserve_for_*) y un
+  // cobro devuelto entero se cancelan y no se importan. Si la venta se aprobó otro día (Point con crédito libera a los
+  // ~10 días), el concepto lleva "venta del AAAA-MM-DD": el servidor parea contra ese día.
+  function liberacionesMP(filas) {
+    const enc = (filas[0] || []).map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n);
+    if (!['RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT'].every(n => col(n) >= 0)) return null;
+    const faltan = ['GROSS_AMOUNT', 'MP_FEE_AMOUNT', 'TAXES_AMOUNT', 'BALANCE_AMOUNT'].filter(n => col(n) < 0);
+    if (faltan.length) return { faltan };
+    const v = (f, n) => col(n) >= 0 ? String(f[col(n)] ?? '').trim() : '', k = x => centavos(x || '0');
+    const filasMP = filas.slice(1).map(f => ({ fecha: v(f, 'DATE').slice(0, 10), id: v(f, 'SOURCE_ID'), ref: v(f, 'EXTERNAL_REFERENCE'),
+      tipo: v(f, 'RECORD_TYPE'), desc: v(f, 'DESCRIPTION'), neto: deCentavos(k(v(f, 'NET_CREDIT_AMOUNT')) - k(v(f, 'NET_DEBIT_AMOUNT'))),
+      bruto: v(f, 'GROSS_AMOUNT') || '0', fee: deCentavos(k(v(f, 'MP_FEE_AMOUNT')) + k(v(f, 'FINANCING_FEE_AMOUNT'))), imp: v(f, 'TAXES_AMOUNT') || '0',
+      desglose: v(f, 'TAXES_DISAGGREGATED'), aprobada: v(f, 'TRANSACTION_APPROVAL_DATE').slice(0, 10), saldo: v(f, 'BALANCE_AMOUNT'), pos: v(f, 'POS_NAME') }));
+    const ini = filasMP.find(f => f.tipo === 'initial_available_balance'), movs = filasMP.filter(f => f.tipo === 'release');
+    // Lo que se cancela dentro del archivo: las reservas y un cobro con su devolución, por número de operación.
+    const netoDe = new Map();
+    for (const f of movs) if (/^(reserve_for_|payment$|refund$)/.test(f.desc)) {
+      const c = (f.desc.startsWith('reserve_for_') ? 'r|' : 'p|') + f.id;
+      netoDe.set(c, (netoDe.get(c) || 0n) + k(f.neto));
+    }
+    const devueltos = new Set(movs.filter(f => f.desc === 'refund' && netoDe.get('p|' + f.id) === 0n).map(f => f.id));
+    const cancela = f => (f.desc.startsWith('reserve_for_') && netoDe.get('r|' + f.id) === 0n) || ((f.desc === 'payment' || f.desc === 'refund') && devueltos.has(f.id));
+    // Impuestos del desglose (el CSV de MP no duplica las comillas del JSON: se lee con o sin ellas).
+    const impuestos = f => [...f.desglose.matchAll(/"?amount"?\s*:\s*(-?[\d.]+)\s*,\s*"?detail"?\s*:\s*"?([a-z_]+)"?\s*,\s*"?financial_entity"?\s*:\s*"?([a-z_]+)/gi)]
+      .map(m => ({ importe: m[1], detalle: m[2], ente: m[3] }));
+    const nombreImp = x => x.ente === 'debitos_creditos' ? 'Impuesto débitos y créditos Mercado Pago'
+      : `Retención IIBB ${x.ente === 'buenos_aires' ? x.detalle.replace(/^tax_withholding_/, '').toUpperCase() : x.ente.toUpperCase()} Mercado Pago`;
+    const canal = f => f.ref === 'Venta presencial' ? 'Point' : /^INSTORE/.test(f.ref) || f.pos ? 'QR' : 'online';
+    const QUE = { payout: 'Transferencia a banco', asset_management: 'Rendimiento dinero en cuenta', refund: 'Devolución de cobro' };
+    const out = []; let cobros = 0, cancelados = 0, sinAbrir = 0;
+    for (const f of movs) {
+      if (esCero(f.neto)) continue;
+      if (cancela(f)) { cancelados++; continue; }
+      const reserva = /^POTS/.test(f.ref), meli = /^MELIPAYMENTS/.test(f.ref);
+      const que = reserva ? (f.neto.startsWith('-') ? 'Reserva de dinero (apartado)' : 'Retiro de reserva (apartado)')
+        : meli ? 'Cobro de deuda Mercado Libre' : f.desc === 'payment' ? (f.neto.startsWith('-') ? 'Pago desde Mercado Pago' : 'Cobro Mercado Pago') : QUE[f.desc] || f.desc;
+      const venta = f.desc === 'payment' && !f.neto.startsWith('-') && !reserva;
+      const imps = impuestos(f), sumaImps = imps.reduce((s, x) => s + k(x.importe), 0n);
+      const partes = (venta ? [k(f.fee)] : []).concat(sumaImps === k(f.imp) ? imps.map(x => k(x.importe)) : [k(f.imp)]);
+      // Se abre sólo si bruto + comisión + impuestos da exacto el neto; si no, va por el neto.
+      if (!esCero(f.bruto) && k(f.bruto) + partes.reduce((s, x) => s + x, 0n) === k(f.neto) && !reserva) {
+        const det = venta ? [canal(f), f.aprobada && f.aprobada !== f.fecha ? `venta del ${f.aprobada}` : ''].filter(Boolean).join(' · ') : f.ref && !/^\d+$/.test(f.ref) ? '' : f.ref;
+        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}` });
+        if (venta && !esCero(f.fee)) out.push({ fecha: f.fecha, importe: f.fee, referencia: '#' + f.id, concepto: `Comisión Mercado Pago - ${f.id}` });
+        if (sumaImps === k(f.imp)) for (const x of imps) { if (!esCero(x.importe)) out.push({ fecha: f.fecha, importe: x.importe, referencia: '#' + f.id, concepto: `${nombreImp(x)} - ${f.id}` }); }
+        else if (!esCero(f.imp)) out.push({ fecha: f.fecha, importe: f.imp, referencia: '#' + f.id, concepto: `Impuestos Mercado Pago - ${f.id}` });
+        if (venta) cobros++;
+      } else {
+        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}` });
+        if (venta) sinAbrir++;
+      }
+    }
+    const ult = [...movs].reverse().find(f => f.saldo !== '');
+    if (ini && ult) {
+      out.unshift({ fecha: ini.fecha, concepto: 'Saldo inicial', saldo: ini.saldo, importe: '' });
+      out.push({ fecha: ult.fecha, concepto: 'Saldo final', saldo: ult.saldo, importe: '' });
+    }
+    return { filas: out, movimientos: movs.length, cobros, cancelados, sinAbrir, saldos: ini && ult ? { inicial: ini.saldo, final: ult.saldo } : null };
   }
 
   // Conciliación automática de la cuenta de un procesador; devuelve el resultado en una frase.
@@ -169,8 +233,24 @@ const Conc = (() => {
       const archivos = [...archivo.files]; if (!archivos.length) return;
       const leidos = await Promise.all(archivos.map(async a => ({ nombre: a.name, filas: parsearCSV(await leerTexto(a)) })));
       const liqA = leidos.find(x => liquidacionesMP(x.filas)), resA = leidos.find(x => x !== liqA && resumenMP(x.filas, null));
+      const libA = leidos.find(x => liberacionesMP(x.filas));
       let txt = '';
-      if (liqA || resA) {
+      if (libA) {
+        // El reporte de liberaciones solo alcanza: trae saldos, movimientos y el desglose de cada cobro.
+        const lib = liberacionesMP(libA.filas);
+        if (lib.faltan) {
+          csv = { nombre: libA.nombre, mp: { incompleto: true } };
+          txt = `Es el reporte de liberaciones de Mercado Pago, pero le faltan columnas: ${lib.faltan.join(', ')}. En Mercado Pago, en la configuración del `
+            + 'reporte de liberaciones, tildá GROSS_AMOUNT, MP_FEE_AMOUNT, FINANCING_FEE_AMOUNT, TAXES_AMOUNT, TAXES_DISAGGREGATED, TRANSACTION_APPROVAL_DATE '
+            + 'y BALANCE_AMOUNT, y generalo de nuevo.';
+        } else {
+          csv = { nombre: libA.nombre, mp: lib };
+          txt = `Formato reconocido: reporte de liberaciones de Mercado Pago, ${lib.movimientos} movimiento(s)`
+            + (lib.saldos ? `, saldo inicial ${pesos(lib.saldos.inicial)} y final ${pesos(lib.saldos.final)}` : '') + `. ${lib.cobros} cobro(s) se abren en bruto, comisión e impuestos.`
+            + (lib.cancelados ? ` ${lib.cancelados} fila(s) se cancelan entre sí (reservas de Mercado Pago y cobros devueltos) y no se importan.` : '')
+            + (lib.sinAbrir ? ` ${lib.sinAbrir} cobro(s) no cierran con su desglose y quedan por el neto.` : '');
+        }
+      } else if (liqA || resA) {
         const liq = liqA && liquidacionesMP(liqA.filas), res = resA && resumenMP(resA.filas, liq);
         // Hacen falta los dos: sin las liquidaciones, cada cobro queda por el neto y no se parea con las ventas; sin el
         // resumen, faltan los saldos, los pagos y las transferencias (y se duplicaría al llegar el resumen).
@@ -354,5 +434,5 @@ const Conc = (() => {
     return det;
   }
 
-  return { TIPO_OP, LINEA, conSigno, partes, automatica, importador, resolver, frenteExtracto, selectRubro, rubros };
+  return { TIPO_OP, LINEA, conSigno, partes, automatica, importador, resolver, frenteExtracto, selectRubro, rubros, liberacionesMP };
 })();

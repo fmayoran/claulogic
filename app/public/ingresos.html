@@ -375,7 +375,7 @@ $('#dCancelar').onclick = () => $('#dlgDif').close();
 // ── 3. Extractos ──
 // Qué archivo va en cada cuenta, según el procesador.
 function queArchivo(x) {
-  if (/mercado\s*pago/i.test(x.nombre)) return 'Elegí los dos archivos juntos: el resumen de cuenta (account_statement) y el reporte de liquidaciones (settlement).';
+  if (/mercado\s*pago/i.test(x.nombre)) return 'El reporte de liberaciones (con las columnas de bruto, comisión, impuestos y saldo), o el resumen de cuenta y el reporte de liquidaciones juntos.';
   if (/pago\s*24/i.test(x.nombre)) return 'El CSV de movimientos de la cuenta, con la columna de saldo.';
   return `El extracto en CSV de ${x.cuenta || 'la cuenta'}, con la columna de saldo.`;
 }
@@ -388,6 +388,11 @@ function comoBajar(x) {
       `Elegí el rango de fechas y la cuenta ${nro ? nro + ' ' : ''}del punto de venta.`,
       'Descargalo en CSV e importalo acá.'];
   }
+  if (/mercado\s*pago/i.test(x.nombre))
+    pasos = ['Entrá a Mercado Pago con la cuenta de la empresa y andá a Reportes > Liberaciones.',
+      'La primera vez, en la configuración del reporte tildá las columnas GROSS_AMOUNT, MP_FEE_AMOUNT, FINANCING_FEE_AMOUNT, TAXES_AMOUNT, '
+        + 'TAXES_DISAGGREGATED, TRANSACTION_APPROVAL_DATE, BALANCE_AMOUNT y POS_NAME, y guardala (queda para los siguientes).',
+      'Generá el reporte del período en CSV, descargalo e importalo acá.'];
   if (!pasos) return '';
   return el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {}, ...pasos.map(t => el('li', { textContent: t }))));
 }

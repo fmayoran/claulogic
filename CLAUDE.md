@@ -27,7 +27,11 @@ Decisiones de Fer:
   La importación entra a una tabla de recepción idempotente (reimportar un cierre no duplica).
 - **Stock por local**: cada local tiene almacén; centro → local es un traslado con remito interno.
   Ventas descuentan consumo teórico; los conteos del local dan la diferencia teórico vs. real.
-- **Una sola razón social** (si aparecen más, se agrega con migración a facturas, cuentas y pagos).
+- **Una sola razón social** (si aparecen más, se agrega con migración a facturas, cuentas y pagos). **Desde el 01/11/2026 hay
+  dos**: CORTAFUEGO S R L y **SORELLE CIUCIO SA** (local Sorelle, Maxirest). **CF CENTRAL es un holding que consolida, sin CUIT**
+  (decisión de Fer): la caja mayor es plata del grupo, el efectivo de las dos filiales se rinde ahí sin marcarlo como movimiento
+  entre sociedades, y los resultados de las filiales se consolidan en la central. Pendiente: empresas en el modelo (facturas,
+  IVA, cuentas y procesadores de cada razón social) y facturación de lo que el centro le manda a SORELLE.
 - **Contabilidad afuera**: exportaciones para el sistema del contador, sin plan de cuentas propio.
 - Los saldos financieros (cuenta corriente de proveedores, cajas y bancos) **se derivan de un libro
   mayor inmutable**, como el stock.
@@ -471,6 +475,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   conciliada; la apertura que haya creado queda. La conciliación automática sólo corre si el procesador tiene la
   cuenta en "Deposita en".
   Verificado con los de Fer de octubre: QR y transferencia 1,57%, débito 2,23%, crédito 7,85%.
+  **Un solo archivo: el reporte de liberaciones** (pedido de Fer, 01/11/2026; `liberacionesMP` en `conciliar.js`). Se reconoce
+  solo y alcanza sin el resumen. Hace falta tildar en su configuración GROSS_AMOUNT, MP_FEE_AMOUNT, FINANCING_FEE_AMOUNT,
+  TAXES_AMOUNT, TAXES_DISAGGREGATED, TRANSACTION_APPROVAL_DATE, BALANCE_AMOUNT y POS_NAME (sin ellas avisa cuáles faltan). Cada
+  venta se abre en cobro bruto, comisión e impuestos por el desglose (débitos y créditos; SIRTAC y SIRCUPA como "Retención IIBB",
+  que va a Ingresos Brutos), y todo suma exacto del saldo inicial al final. Las reservas que MP hace y libera al instante
+  (`reserve_for_*`) y un cobro devuelto entero se cancelan y no se importan. Lo demás va por el neto: transferencias a banco,
+  pagos desde la cuenta (con su impuesto aparte), rendimientos, apartados (`POTS…`) y cobros de deuda de Mercado Libre. Si la
+  venta se aprobó otro día que la liberación (Point con crédito libera a los ~10 días), el concepto lleva "venta del AAAA-MM-DD"
+  y la conciliación parea contra ese día (o el anterior). Canal: Point ("Venta presencial"), QR, online (sin punto de venta). Con
+  dos procesadores Mercado Pago, el extracto va en la cuenta de cualquiera de los dos.
   **Lotes (Fudo Pagos; decisiones de Fer, 26/10/2026; migración 20261109)**: Fudo informa por la API, pago por pago,
   la fecha de liquidación (`expectedBy`) y el neto (`receivedAmount`), sólo en el recurso `/payments` y sólo pidiendo
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta
