@@ -339,6 +339,12 @@ const Conc = (() => {
           `es la venta #${p.id_externo} del ${fecha(p.dia)}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} (${pesos(p.importe)}); `
           + 'ahí mismo se anuló un pago con este procesador por el mismo importe. La plata entró acá: se acredita acá y sale de lo que esperaba el otro.'), ok);
       }
+      if (x.tipo === 'en_efectivo') {
+        ok.onclick = () => confirmar({ en_efectivo: true });
+        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+          `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada en efectivo (${pesos(p.importe)}). `
+          + 'La plata entró acá: se acredita acá y sale del efectivo a rendir del punto de venta.'), ok);
+      }
       if (x.tipo === 'division') {
         const otras = x.lineas.filter(id => id !== l.id).map(id => d.lineas.find(y => y.id === id)).filter(Boolean);
         ok.onclick = () => confirmar({});
@@ -408,6 +414,26 @@ const Conc = (() => {
       return sec;
     };
     const grupos = [];
+    // Los cobros que en el sistema de venta quedaron como efectivo se confirman todos juntos (decisión de Fer, 02/11/2026).
+    const enEfectivo = (d.sugerencias || []).filter(x => x.tipo === 'en_efectivo');
+    if (enEfectivo.length) {
+      const todos = el('button', { type: 'button', className: 'prim', textContent: `Confirmar los ${enEfectivo.length}` });
+      todos.onclick = async () => {
+        todos.disabled = true; let hechos = 0;
+        for (const x of enEfectivo) {
+          try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: x.pago.id, linea_ids: x.lineas, en_efectivo: true } }); hechos++; }
+          catch (e) { ctx.aviso(`Se acreditaron ${hechos}; la venta #${x.pago.id_externo} dio error: ${e.message}`, 'mal'); break; }
+          todos.textContent = `Acreditando… ${hechos} de ${enEfectivo.length}`;
+        }
+        if (hechos === enEfectivo.length) ctx.aviso(`Se acreditaron los ${hechos} cobros cargados como efectivo.`, 'ok');
+        await ctx.recargar();
+      };
+      grupos.push(el('section', { className: 'card grupo-p' },
+        el('h3', {}, 'Cobrados acá, cargados como efectivo', el('small', { textContent: `${enEfectivo.length} · ${pesos(deCentavos(enEfectivo.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
+        el('p', { className: 'cap', textContent: 'Cobros que coinciden en importe y día con ventas que en el sistema de venta quedaron cobradas en efectivo. Confirmarlos los '
+          + 'acredita acá y los saca del efectivo a rendir del punto de venta (si ese efectivo ya se rindió, queda en negativo hasta corregir la rendición).' }),
+        el('div', { className: 'acciones' }, todos)));
+    }
     if (ingresos.length) grupos.push(grupo('Ingresos sin identificar', ingresos,
       d.procesador ? 'No coinciden con ningún cobro de las ventas: puede ser una venta de un día que todavía no se importó (traela y volvé a conciliar) o un ingreso que no viene de ventas (registralo).'
         : 'Plata que entró a la cuenta y no tiene movimiento: registrala o conciliala con el movimiento que corresponde.', filaLinea));

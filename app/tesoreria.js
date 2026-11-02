@@ -929,11 +929,24 @@ const OTRO_PROCESADOR_SQL = `
      AND EXISTS (SELECT 1 FROM pos.ticket_pago a JOIN pos.medio am ON am.id = a.medio_id JOIN fin.medio_pago amp ON amp.id = am.medio_pago_id
                   WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
 
+// Un cobro del procesador que en el sistema de venta quedó como efectivo (decisión de Fer, 02/11/2026: el efectivo de octubre
+// no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de las ventas
+// de la filial de la cuenta donde deposita el procesador; se acredita saliendo de la cuenta de efectivo del punto de venta.
+const EN_EFECTIVO_SQL = `
+  SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, i.nombre AS punto_venta
+    FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN pos.integracion i ON i.id = t.integracion_id
+    JOIN org.sede s ON s.id = i.sede_id
+   WHERE mp.tipo_operacion = 'efectivo' AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+     AND s.id = (SELECT sede_id FROM fin.cuenta WHERE id = $1::uuid)`;
+// El día de la venta de una línea: el que dice el concepto ("venta del AAAA-MM-DD", Mercado Pago) o el de la línea.
+const diaVentaDe = l => (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1] || l.fecha;
+
 async function sugerenciasProcesador(cuenta) {
   const { rows: [pr] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
   if (!pr) return [];
   const [{ rows: lineas }, { rows: pagos }] = await Promise.all([
-    pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text FROM fin.extracto_linea l
+    pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto FROM fin.extracto_linea l
                  WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL
                    AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) ORDER BY l.fecha, l.id`, [cuenta]),
     pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
@@ -1017,6 +1030,15 @@ async function sugerenciasProcesador(cuenta) {
     const p = otros.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && enVentana(l, p)).sort((a, b) => dias(l, a) - dias(l, b))[0];
     if (p) { usados.add(p.id); sug.push({ tipo: 'otro_procesador', pago: p, lineas: [l.id] }); }
   }
+  // Y lo que todavía queda: un pago de la misma filial cargado como efectivo, mismo importe, del día de la venta o el anterior.
+  const conSug2 = new Set(sug.flatMap(x => x.lineas));
+  const { rows: efectivo } = await pool.query(EN_EFECTIVO_SQL, [cuenta]);
+  const diasV = (l, p) => (Date.parse(diaVentaDe(l)) - Date.parse(p.dia)) / 864e5;
+  for (const l of lineas.filter(l => !conSug2.has(l.id))) {
+    const p = efectivo.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && diasV(l, p) >= 0 && diasV(l, p) <= 1)
+      .sort((a, b) => diasV(l, a) - diasV(l, b))[0];
+    if (p) { usados.add(p.id); sug.push({ tipo: 'en_efectivo', pago: p, lineas: [l.id] }); }
+  }
   return sug;
 }
 
@@ -1042,9 +1064,10 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [cuenta]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     // Un cobro cargado con otro procesador sólo si la venta tiene anulado un pago de éste por el mismo importe.
-    const otro = b.otro_procesador === true;
+    const otro = b.otro_procesador === true, efectivo = b.en_efectivo === true;
     const { rows: [p] } = otro
       ? await c.query(`SELECT * FROM (${OTRO_PROCESADOR_SQL}) x WHERE x.id = $2::uuid`, [pr.id, pagoId])
+      : efectivo ? await c.query(`SELECT * FROM (${EN_EFECTIVO_SQL}) x WHERE x.id = $2::uuid`, [cuenta, pagoId])
       : await c.query(
         `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
            FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
@@ -1052,8 +1075,9 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
           WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
           FOR UPDATE OF p`, [pagoId, pr.id]);
     if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador (o sus cobros no se procesaron).');
-    if (otro) await c.query('SELECT 1 FROM pos.ticket_pago WHERE id = $1 FOR UPDATE', [p.id]);
-    if (otro && (ls.length > 1 || centavos(ls[0].importe) !== centavos(p.importe))) throw new ErrorUsuario('Un cobro cargado con otro procesador se acredita sólo por el mismo importe.');
+    if (otro || efectivo) await c.query('SELECT 1 FROM pos.ticket_pago WHERE id = $1 FOR UPDATE', [p.id]);
+    if ((otro || efectivo) && (ls.length > 1 || centavos(ls[0].importe) !== centavos(p.importe)))
+      throw new ErrorUsuario(`Un cobro cargado ${otro ? 'con otro procesador' : 'como efectivo'} se acredita sólo por el mismo importe.`);
     const P = centavos(p.importe), L = ls.reduce((s, l) => s + centavos(l.importe), 0n), D = L - P;
     if (ls.length > 1 && D !== 0n) throw new ErrorUsuario(`Las líneas suman ${deCentavos(L)} y el cobro es de ${p.importe}: en partes, tienen que sumar exacto.`);
     if (D !== 0n) {
@@ -1061,6 +1085,7 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
       if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
     }
     const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
+      + (efectivo ? ' · cargada en el sistema de venta como efectivo' : '')
       + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
       + (D !== 0n ? ` · diferencia ${deCentavos(D)}: ${motivo}` : '');
     const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');

@@ -485,6 +485,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   venta se aprobó otro día que la liberación (Point con crédito libera a los ~10 días), el concepto lleva "venta del AAAA-MM-DD"
   y la conciliación parea contra ese día (o el anterior). Canal: Point ("Venta presencial"), QR, online (sin punto de venta). Con
   dos procesadores Mercado Pago, el extracto va en la cuenta de cualquiera de los dos.
+  **Cobrado acá, cargado como efectivo** (sugerencia `en_efectivo`; decisión de Fer, 02/11/2026: el efectivo de octubre no se
+  controló al detalle, así que si importe y día coinciden estaba mal cargado): un ingreso sin otra sugerencia que coincide con un
+  pago en efectivo ya procesado de una venta de la filial de la cuenta (`fin.cuenta.sede_id`), del día de la venta o el anterior.
+  Se confirman todos juntos ("Confirmar los N", grupo propio arriba de los ingresos): `/fin/conciliacion/acreditar` con
+  `en_efectivo` saca el importe de "Efectivo · <sede>" y lo acredita en la cuenta. Si ese efectivo ya se rindió, la cuenta de
+  efectivo queda en negativo y se corrige devolviendo esa parte de la rendición (transferencia de la caja a la cuenta de efectivo).
+  En SORELLE (octubre) fueron 26 cobros por $689.000. Desde noviembre el efectivo se concilia día a día.
   **Lotes (Fudo Pagos; decisiones de Fer, 26/10/2026; migración 20261109)**: Fudo informa por la API, pago por pago,
   la fecha de liquidación (`expectedBy`) y el neto (`receivedAmount`), sólo en el recurso `/payments` y sólo pidiendo
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta
