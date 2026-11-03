@@ -640,7 +640,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   volvió a traer del 01/10). La apertura de un extracto no cuenta lo anulado: una cuenta a la que se le deshizo todo vuelve a empezar.
 - **Corridas automáticas apagadas** (decisión de Fer, 03/11/2026, migración 20261119: "prefiero ir corriendo a mano" hasta tener todo
   probado): ventas (`sincroniza_auto`) y portales (`portal_auto`) en falso, y nacen en falso. Se prenden en la ficha de la sede o del
-  procesador.
+  procesador. El mismo día se vaciaron los datos de prueba del proceso de ingresos (migración 20261120, respaldo previo en
+  `/root/claulogic_respaldos/`) para correr octubre entero a mano desde la app; noviembre, recién con octubre cerrado.
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también
