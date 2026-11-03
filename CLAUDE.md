@@ -634,7 +634,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `fin.portal_corrida`, una automática por procesador y día. En el paso 3 de Ingresos, con portal: "Traer del portal y conciliar" (con
   "Elegir el rango") y el archivo como alternativa. Si el portal cambia, el error lo dice y el extracto sigue por archivo.
   **No se trae sin las ventas** (`ventasSinTraer`): cada punto de venta que cobra con el procesador tiene que tener traído hasta el
-  último día del rango; a mano lo rechaza diciendo cuáles faltan, la automática no corre. Pasó el 03/11/2026: la automática trajo
+  último día del rango; a mano lo rechaza diciendo cuáles faltan, la automática no corre. **Tramos de 31 días**: con un rango más largo
+  el portal devuelve el CSV vacío sin error, así que se trae en tramos (un extracto cada uno) y se concilia al final. Pasó el 03/11/2026: la automática trajo
   noviembre con las ventas sólo hasta octubre, asentó una apertura al 31/10 y pareó cobros con ventas de otros días (se deshizo y se
   volvió a traer del 01/10). La apertura de un extracto no cuenta lo anulado: una cuenta a la que se le deshizo todo vuelve a empezar.
 - **Corridas automáticas apagadas** (decisión de Fer, 03/11/2026, migración 20261119: "prefiero ir corriendo a mano" hasta tener todo

@@ -1526,10 +1526,18 @@ async function traerPortal(req, pr, automatica, desdePedido = null, hastaPedido 
   if (!co) return null;   // la automática de hoy ya corrió (u otro proceso la está corriendo)
   try {
     const cred = JSON.parse(crypto.decrypt(pr.portal_credenciales));
-    const ex = await pago24.extracto({ url: pr.portal_url, ...cred }, x.desde, x.hasta);
-    const imp = await importarExtracto({ cuenta_id: pr.cuenta_acredita_id, filas: ex.filas, decimal: ',', archivo: `Portal Pago24 ${x.desde} a ${x.hasta}` });
+    // Con más de 31 días el portal devuelve el CSV vacío, sin error (03/11/2026: del 01/10 al 02/11 vino una fila en blanco):
+    // se trae en tramos de hasta 31 días, cada uno su extracto, y se concilia una vez al final.
+    let cuentaPortal = null, filas = 0, nuevas = 0, repetidas = 0, saldoFinal = null;
+    for (let d = x.desde; d <= x.hasta; d = sumarDiasTes(d, 31)) {
+      const h = sumarDiasTes(d, 30) < x.hasta ? sumarDiasTes(d, 30) : x.hasta;
+      const ex = await pago24.extracto({ url: pr.portal_url, ...cred }, d, h);
+      if (!ex.filas.some(f => f.fecha)) throw new ErrorUsuario(`El portal no devolvió datos del ${d.split('-').reverse().join('/')} al ${h.split('-').reverse().join('/')}.`, 424);
+      const imp = await importarExtracto({ cuenta_id: pr.cuenta_acredita_id, filas: ex.filas, decimal: ',', archivo: `Portal Pago24 ${d} a ${h}` });
+      cuentaPortal = ex.cuenta; filas += ex.filas.length; nuevas += imp.nuevas; repetidas += imp.repetidas; saldoFinal = imp.saldo_final;
+    }
     const conc = await conciliarAutomatica(req, pr.cuenta_acredita_id);
-    const resumen = { cuenta: ex.cuenta, filas: ex.filas.length, nuevas: imp.nuevas, repetidas: imp.repetidas, saldo_final: imp.saldo_final,
+    const resumen = { cuenta: cuentaPortal, filas, nuevas, repetidas, saldo_final: saldoFinal,
       acreditadas: conc.acreditadas, gastos: Object.keys(conc.gastos || {}).length, reglas: conc.reglas, quedan: conc.quedan };
     await pool.query('UPDATE fin.portal_corrida SET terminada_en = now(), ok = true, resultado = $2 WHERE id = $1', [co.id, JSON.stringify(resumen)]);
     return { ...resumen, desde: x.desde, hasta: x.hasta };
