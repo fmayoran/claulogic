@@ -549,6 +549,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   final de la transacción, `fin.conciliacion_suma`). Deshacer anula lo que creó la confirmación (la acreditación y el
   costo de cada lote, que vuelve a esperado; la diferencia; o el lote armado con su cobro, que vuelve a pendiente). "SIRCREB" (retención de
   IIBB sobre acreditaciones) se clasifica como retención; en el extracto de Brubank los importes vacíos son "-".
+  **Brubank, por archivo** (03/11/2026): el portal web (empresas.brubank.com, GraphQL) pide en cada entrada un código por mail con
+  captcha o el QR de la app, y no tiene usuario sólo de consulta, así que no se automatiza. Va el CSV de **Estado de cuenta** (Fecha,
+  Referencia, Descripcion, Moneda, Creditos, Debitos, Saldo, Cuenta: la pantalla adivina las columnas), con el saldo en cada fila y
+  sin filas de saldo inicial ni final: si todas cierran con la anterior, `importarExtracto` saca el inicial y el final de la columna de
+  saldo. Cada acreditación trae con su misma referencia "Impuesto SIRCREB" (5%) e "Impuesto Ley 25413 s/de" (0,6%).
   Pago24 (verificado con su extracto de octubre): un movimiento por transacción; las tarjetas (Prisma) liquidan con
   "Gasto Transaccion" + "AR_IVA" aparte: débito en el día, crédito a los 2 días.
 - **Cierre diario** (rediseño de la operación de ingresos, etapa 1; decisiones de Fer, 26/10/2026; migración 20261110).

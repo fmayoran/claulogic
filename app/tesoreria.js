@@ -679,6 +679,18 @@ async function importarExtracto(b) {
     lineas.push(l);
   });
   controlarSaldos(conSaldo);
+  // Sin filas de saldo inicial y final (Brubank trae el saldo en cada fila): salen de la columna de saldo, siempre que
+  // todas las filas cierren con la anterior, en orden ascendente o descendente. Si no, no se adivina.
+  if (!saldoInicial && conSaldo.length >= 2 && conSaldo.length === lineas.length) {
+    const k = centavos, n = conSaldo.length;
+    const sube = conSaldo.every((b, i) => i === 0 || k(conSaldo[i - 1].saldo) + k(b.imp) === k(b.saldo));
+    const baja = !sube && conSaldo.every((b, i) => i === 0 || k(b.saldo) + k(conSaldo[i - 1].imp) === k(conSaldo[i - 1].saldo));
+    if (sube || baja) {
+      const [pri, ult] = sube ? [conSaldo[0], conSaldo[n - 1]] : [conSaldo[n - 1], conSaldo[0]];
+      saldoInicial = { fecha: lineas.map(l => l.fecha).sort()[0], saldo: deCentavos(k(pri.saldo) - k(pri.imp)) };
+      if (saldoFinal === null) saldoFinal = ult.saldo;
+    }
+  }
   const out = await enTransaccion(async c => {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');
