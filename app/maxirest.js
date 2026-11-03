@@ -51,6 +51,12 @@ const tokens = new Map();
 async function token(integracionId, cred) {
   const t = tokens.get(integracionId);
   if (t && t.vence > Date.now()) return t.token;
+  const { token: tk } = await entrar(cred);
+  tokens.set(integracionId, { token: tk, vence: Date.now() + 7.5 * 3600e3 });
+  return tk;
+}
+// El login en dos pasos: usuario y después el restaurante. Devuelve el token del restaurante y cuál es.
+async function entrar(cred) {
   const u = await pedir(`${LOGIN_URL}/auth`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mail: cred.mail, password: cred.password }) });
   if (!u.token) throw new ErrorMaxirest('Maxirest no devolvió el token de usuario.');
@@ -64,10 +70,18 @@ async function token(integracionId, cred) {
   const r = await pedir(`${LOGIN_URL}/login/cuentas/${encodeURIComponent(cli.codigo)}`, { method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${u.token}` }, body: '{}' });
   if (!r.token) throw new ErrorMaxirest('Maxirest no devolvió el token del restaurante.');
-  tokens.set(integracionId, { token: r.token, vence: Date.now() + 7.5 * 3600e3 });
-  return r.token;
+  return { token: r.token, restaurante: { codigo: String(cli.codigo), nombre: String(cli.nombre || '').trim() } };
 }
 const olvidarToken = id => tokens.delete(id);
+// Probar la conexión (botón de la ficha de la sede): entra y pide las ventas de ayer, sin guardar nada.
+async function probar(cred) {
+  const { token: tk, restaurante } = await entrar(cred);
+  const ayer = new Date(Date.now() - 3 * 3600e3 - 864e5).toISOString().slice(0, 10);
+  const q = new URLSearchParams({ from: String(msDia(ayer)), to: String(msDia(ayer)), fechaComp: 'false' });
+  const filas = await pedir(`${INFORMES_URL}/totales/detalles?${q}`, { headers: { Authorization: `Bearer ${tk}` } });
+  const comprobantes = Array.isArray(filas) ? new Set(filas.map(f => f && f.Comprobante).filter(Boolean)).size : 0;
+  return { texto: `Maxirest aceptó el usuario. Restaurante ${restaurante.codigo} · ${restaurante.nombre}: ${comprobantes} comprobante(s) ayer.` };
+}
 
 // Día del local (AAAA-MM-DD) a las 00:00 de Buenos Aires (UTC-3, sin horario de verano), en milisegundos.
 const msDia = dia => { const [a, m, d] = dia.split('-').map(Number); return Date.UTC(a, m - 1, d, 3); };
@@ -112,4 +126,4 @@ async function ventas(integracionId, cred, desde, hasta) {
   return { tickets, abiertas: {}, abiertasDetalle: {} };
 }
 
-module.exports = { ventas, olvidarToken, ErrorMaxirest };
+module.exports = { ventas, probar, olvidarToken, ErrorMaxirest };

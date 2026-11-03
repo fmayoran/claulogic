@@ -61,6 +61,7 @@
       </fieldset>
       <div class="acciones">
         <button type="submit" class="prim" id="guardar">Guardar</button>
+        <button type="button" id="probar" hidden>Probar conexión</button>
         <a id="irVentas" href="procesar-ventas.html" hidden>Traer y procesar sus ventas</a>
         <span class="msg" id="msg"></span>
       </div>
@@ -115,7 +116,19 @@ function aplicarTipo() {
   $('#autoWrap').hidden = !api;
   $('#filaCred').hidden = $('#ayudaCred').hidden = !api || mx;
   $('#filaCredMx').hidden = $('#ayudaCredMx').hidden = !api || !mx;
+  $('#probar').hidden = !pv || !api;
 }
+// Probar la conexión con lo que está en la ficha (lo no tipeado sale de lo guardado), sin guardar.
+$('#probar').onclick = async () => {
+  const i = actual && integDe(actual), b = $('#probar');
+  b.disabled = true; msg('Probando la conexión…');
+  try {
+    const d = await api('pos/integraciones/probar', { method: 'POST', body: { integracion_id: i ? i.id : null, sistema: f.sistema.value,
+      apiKey: f.apiKey.value, apiSecret: f.apiSecret.value, mail: f.mail.value, password: f.password.value, cliente: f.cliente.value } });
+    msg(d.texto, 'ok');
+  } catch (e) { msg(e.message, 'mal'); }
+  finally { b.disabled = false; }
+};
 f.tipo.onchange = f.sistema.onchange = f.modo.onchange = aplicarTipo;
 function nueva() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva sede';

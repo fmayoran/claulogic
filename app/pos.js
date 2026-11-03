@@ -139,6 +139,28 @@ const cifrar = i => i.sistema === 'maxirest'
   : (i.apiKey ? crypto.encrypt(JSON.stringify({ apiKey: i.apiKey, apiSecret: i.apiSecret })) : null);
 const faltanCredenciales = i => i.sistema === 'maxirest' ? 'El modo API necesita el usuario y la clave de Maxirest.' : 'El modo API necesita apiKey y apiSecret.';
 
+// Probar la conexión con la API del sistema de venta (botón de la ficha de la sede), con lo que está en la ficha: lo que no se
+// volvió a tipear (las credenciales guardadas no se muestran) se toma de lo guardado, si el sistema es el mismo. No guarda nada.
+r.post('/pos/integraciones/probar', h(async (req, res) => {
+  const b = req.body, sistema = texto(b.sistema, { campo: 'el sistema', requerido: true });
+  if (!POR_API.includes(sistema)) throw new ErrorUsuario('Sólo Fudo y Maxirest se conectan por API.');
+  let guardadas = {};
+  if (b.integracion_id) {
+    const { rows: [i] } = await pool.query('SELECT sistema, credenciales FROM pos.integracion WHERE id = $1::uuid', [texto(b.integracion_id)]);
+    if (i && i.sistema === sistema && i.credenciales) guardadas = JSON.parse(crypto.decrypt(i.credenciales));
+  }
+  const de = k => texto(b[k]) || guardadas[k] || null;
+  const cred = sistema === 'maxirest' ? { mail: de('mail'), password: de('password'), cliente: de('cliente') } : { apiKey: de('apiKey'), apiSecret: de('apiSecret') };
+  if (sistema === 'maxirest' ? !cred.mail || !cred.password : !cred.apiKey || !cred.apiSecret)
+    throw new ErrorUsuario(sistema === 'maxirest' ? 'Cargá el usuario y la clave de Maxirest.' : 'Cargá el apiKey y el apiSecret de Fudo.');
+  try { res.json({ ok: true, ...await (sistema === 'maxirest' ? maxirest : fudo).probar(cred) }); }
+  catch (e) {
+    // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página.
+    if (!(e instanceof fudo.ErrorFudo) && !(e instanceof maxirest.ErrorMaxirest)) throw e;
+    throw new ErrorUsuario(e.message, 424);
+  }
+}));
+
 // El sistema de venta de una sede punto de venta (una por sede; se configura desde la ficha de la sede).
 // Toma el nombre de la sede y descuenta de su única ubicación. Nace con su cuenta de efectivo
 // ("Efectivo · <sede>"): su saldo es lo que tiene pendiente de rendir a la central.

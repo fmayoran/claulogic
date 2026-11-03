@@ -930,15 +930,16 @@ const OTRO_PROCESADOR_SQL = `
                   WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
 
 // Un cobro del procesador que en el sistema de venta quedó como efectivo (decisión de Fer, 02/11/2026: el efectivo de octubre
-// no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de las ventas
-// de la filial de la cuenta donde deposita el procesador; se acredita saliendo de la cuenta de efectivo del punto de venta.
+// no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de los puntos de
+// venta que cobran con el procesador de la cuenta (SORELLE BODEGON Y SUSHI y SORELLE CAFETERIA comparten la cuenta de Mercado
+// Pago); se acredita saliendo de la cuenta de efectivo del punto de venta.
 const EN_EFECTIVO_SQL = `
   SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, i.nombre AS punto_venta
     FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
     JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN pos.integracion i ON i.id = t.integracion_id
-    JOIN org.sede s ON s.id = i.sede_id
    WHERE mp.tipo_operacion = 'efectivo' AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
-     AND s.id = (SELECT sede_id FROM fin.cuenta WHERE id = $1::uuid)`;
+     AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pr ON pr.id = pmp.procesador_id
+                   WHERE pr.cuenta_acredita_id = $1::uuid)`;
 // El día de la venta de una línea: el que dice el concepto ("venta del AAAA-MM-DD", Mercado Pago) o el de la línea.
 const diaVentaDe = l => (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1] || l.fecha;
 

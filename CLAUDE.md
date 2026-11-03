@@ -351,8 +351,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   de cada forma. Así octubre de Sorelle da 808 comprobantes y $55.200.445, como sus pantallas. Tipo: Salon/Mostrador/Delivery; mozo
   sólo el código ("Mozo 3"); forma vacía = medio "SIN NOMBRE". No trae artículos por comprobante (sólo el total por artículo del día,
   `…/totales/articulos`) ni mesas abiertas. En la ficha de la sede: usuario (mail), clave y código del restaurante (49502), cifrados.
+  **Probar conexión** (pedido de Fer, 03/11/2026): botón en la ficha de la sede, con modo API (`POST /pos/integraciones/probar`,
+  sólo administrador). Prueba lo que está en la ficha sin guardar; lo que no se volvió a tipear sale de lo guardado. Maxirest: el
+  login en dos pasos y las ventas de ayer ("Restaurante 49503 · …: N comprobante(s) ayer"); Fudo: el token y una venta de ayer
+  (confirma que la API Pública está habilitada). Los errores del sistema van con 424 y su mensaje.
   Sorelle maneja **dos cartas en el mismo sistema y la misma cuenta de Mercado Pago** (Wera Sushi y Lo de Titi Bodegón): una sola
-  cosa en lo financiero; se separan al ver ventas por producto.
+  cosa en lo financiero; se separan al ver ventas por producto. La sede se llama **SORELLE BODEGON Y SUSHI**. **SORELLE CAFETERIA**
+  (03/11/2026) es otro Maxirest (restaurante 49503, con su propio usuario) de la misma sociedad y **la misma cuenta de Mercado
+  Pago**: es otro punto de venta y, por decisión de Fer, un local separado en el estado de resultados. Compartir la cuenta no se
+  configura aparte: sus medios electrónicos se asignan a MERCADO PAGO SORELLE y la conciliación parea por procesador.
 - **Por archivo** (cualquier POS): renglones de venta y pagos, con mapeo de columnas que se recuerda por integración
   (`pos.integracion.mapeo`). La exportación de "Ventas detalladas" de Maxirest no trae la forma de pago aunque se vea en pantalla.
 - **Recepción idempotente**: `pos.ticket` único por (integración, id del POS); reimportar no duplica y
@@ -487,7 +494,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   dos procesadores Mercado Pago, el extracto va en la cuenta de cualquiera de los dos.
   **Cobrado acá, cargado como efectivo** (sugerencia `en_efectivo`; decisión de Fer, 02/11/2026: el efectivo de octubre no se
   controló al detalle, así que si importe y día coinciden estaba mal cargado): un ingreso sin otra sugerencia que coincide con un
-  pago en efectivo ya procesado de una venta de la filial de la cuenta (`fin.cuenta.sede_id`), del día de la venta o el anterior.
+  pago en efectivo ya procesado de una venta de cualquier punto de venta que cobra con ese procesador (no sólo la filial de la
+  cuenta: la cafetería de SORELLE usa la misma cuenta de Mercado Pago), del día de la venta o el anterior.
   Se confirman todos juntos ("Confirmar los N", grupo propio arriba de los ingresos): `/fin/conciliacion/acreditar` con
   `en_efectivo` saca el importe de "Efectivo · <sede>" y lo acredita en la cuenta. Si ese efectivo ya se rindió, la cuenta de
   efectivo queda en negativo y se corrige devolviendo esa parte de la rendición (transferencia de la caja a la cuenta de efectivo).

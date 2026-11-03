@@ -54,6 +54,18 @@ async function token(integracionId, cred) {
   return r.token;
 }
 const olvidarToken = id => tokens.delete(id);
+// Probar la conexión (botón de la ficha de la sede): pide el token y una venta, sin guardar nada. La venta confirma que
+// la API Pública está habilitada para ese usuario (el token solo no lo dice).
+async function probar(cred) {
+  const r = await pedir(AUTH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: cred.apiKey, apiSecret: cred.apiSecret }) });
+  if (!r.token) throw new ErrorFudo('Fudo no devolvió el token.');
+  // Una venta de ayer (día de la cocina, UTC-3), con el mismo filtro que la sincronización: sin filtro, Fudo rechaza el pedido.
+  const ayer = new Date(Date.now() - 3 * 3600e3 - 864e5).toISOString().slice(0, 10), hoy = new Date(Date.parse(ayer) + 864e5).toISOString().slice(0, 10);
+  await pedir(`${API_URL}/sales?${new URLSearchParams({ 'filter[createdAt]': `and(gte.${ayer}T03:00:00Z,lte.${hoy}T02:59:59Z)`, 'page[size]': '1' })}`,
+    { headers: { Authorization: `Bearer ${r.token}` } });
+  return { texto: 'Fudo aceptó las credenciales y la API Pública responde.' };
+}
 
 // Ids de una relación, en cualquiera de las dos formas.
 function ids(rel) {
@@ -161,4 +173,4 @@ async function liquidaciones(integracionId, cred, desdeUtc, hastaUtc) {
   throw new ErrorFudo(`El rango tiene más de ${MAX_PAGINAS * TAMANO} pagos: sincronizá en partes.`);
 }
 
-module.exports = { ventas, liquidaciones, olvidarToken, ErrorFudo };
+module.exports = { ventas, liquidaciones, probar, olvidarToken, ErrorFudo };
