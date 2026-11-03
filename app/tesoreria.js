@@ -129,6 +129,105 @@ async function porCobrar({ porSede = false } = {}) {
 }
 r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => { res.json({ ok: true, ...(await porCobrar({ porSede: req.query.por_sede === '1' })) }); }));
 
+// Tablero de Cajas y bancos (pedido de Fer, 03/11/2026, con el estilo del de ventas). No guarda nada: sale de `fin.movimiento_tes`.
+// Lo DISPONIBLE son los bancos y cajas (también las cuentas donde depositan los procesadores), sin el efectivo de los puntos de
+// venta, de la filial elegida (la sede de la cuenta; 'sin' = las que no tienen). Entradas y salidas son lo que entra o sale de ese
+// conjunto: una transferencia entre dos cuentas disponibles no es flujo, una desde "a acreditar" es una acreditación y una desde el
+// efectivo de un punto de venta, una rendición. Una anulación resta en la categoría de lo que anula, en su fecha, así el saldo
+// inicial más entradas menos salidas da el final. El saldo de apertura de un extracto no es flujo (se informa aparte).
+const CATEGORIA_TES = `
+  WITH esc AS (
+    SELECT c.id FROM fin.cuenta c
+     WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
+       AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1)),
+  m AS (
+    SELECT m.id, m.fecha, m.cuenta_id, m.concepto, m.anula_a IS NOT NULL AS anulacion, b.tipo, b.gasto, b.entrada > 0 AS es_entrada,
+           CASE WHEN b.entrada > 0 THEN m.entrada - m.salida ELSE m.salida - m.entrada END AS valor,
+           b.orden_pago_id, b.cheque_id, b.concepto AS concepto_base, b.id AS base_id,
+           (SELECT t.cuenta_id FROM fin.movimiento_tes t WHERE t.transferencia_id = b.transferencia_id AND t.id <> b.id
+               AND t.anula_a IS NULL AND (t.entrada > 0) <> (b.entrada > 0) LIMIT 1) AS otra
+      FROM fin.movimiento_tes m JOIN fin.movimiento_tes b ON b.id = COALESCE(m.anula_a, m.id)
+     WHERE m.cuenta_id IN (SELECT id FROM esc) AND m.fecha BETWEEN $2::date AND $3::date),
+  k AS (
+    SELECT m.*, oc.tipo AS otra_tipo, oc.nombre AS otra_nombre, ru.id AS rubro_id, ru.nombre AS rubro,
+           (SELECT p.marca FROM fin.procesador p WHERE p.cuenta_id = m.otra LIMIT 1) AS marca,
+           EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = m.otra) AS otra_efectivo,
+           m.otra IN (SELECT id FROM esc) AS interna
+      FROM m LEFT JOIN fin.cuenta oc ON oc.id = m.otra
+      LEFT JOIN fin.clasificacion cl ON cl.movimiento_id = m.base_id LEFT JOIN fin.rubro ru ON ru.id = cl.rubro_id),
+  cat AS (
+    SELECT k.*, CASE
+        WHEN concepto_base = 'Saldo de apertura según extracto' THEN 'apertura'
+        WHEN interna THEN 'interna'
+        WHEN otra IS NOT NULL AND otra_tipo = 'cobranza' THEN 'acr:' || COALESCE(marca, 'otro')
+        WHEN otra IS NOT NULL AND otra_efectivo THEN 'efectivo'
+        WHEN otra IS NOT NULL THEN 'transf'
+        WHEN rubro_id IS NOT NULL THEN 'rubro:' || rubro_id
+        WHEN gasto IS NOT NULL THEN 'gasto:' || gasto
+        WHEN orden_pago_id IS NOT NULL OR cheque_id IS NOT NULL THEN 'proveedores'
+        WHEN tipo = 'cobro' THEN 'cobro'
+        WHEN tipo = 'arqueo' THEN 'arqueo'
+        ELSE 'sin' END AS cat
+      FROM k)`;
+const NOMBRE_CAT = { apertura: 'Saldo de apertura', efectivo: 'Rendiciones de efectivo', proveedores: 'Pagos a proveedores', cobro: 'Cobros de ventas',
+  arqueo: 'Arqueos de caja', 'gasto:comision': 'Comisiones', 'gasto:iva_credito': 'IVA de comisiones', 'gasto:imp_debitos_creditos': 'Impuesto a los débitos y créditos',
+  'gasto:retencion': 'Retenciones', 'gasto:otro': 'Otros gastos de cobro' };
+const MARCA_NOMBRE = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', otro: 'otros procesadores' };
+const nombreCat = (cat, entrada, rubro) => cat.startsWith('acr:') ? `Acreditaciones ${MARCA_NOMBRE[cat.slice(4)] || cat.slice(4)}`
+  : cat.startsWith('rubro:') ? rubro : cat === 'transf' ? (entrada ? 'Transferencias recibidas' : 'Transferencias a otras cuentas')
+  : cat === 'sin' ? (entrada ? 'Otros ingresos sin clasificar' : 'Sin clasificar') : NOMBRE_CAT[cat] || cat;
+function filialTes(v) {
+  const f = texto(v) || '';
+  if (f && f !== 'sin' && !/^[0-9a-f-]{36}$/i.test(f)) throw new ErrorUsuario('Filial inválida.');
+  return f;
+}
+async function flujoTes(filial, desde, hasta) {
+  const [{ rows: [ini] }, { rows: dias }, { rows: cats }] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(SUM(m.entrada - m.salida), 0)::text AS saldo FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id
+        WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1) AND m.fecha < $2::date`, [filial, desde]),
+    pool.query(`${CATEGORIA_TES}
+      SELECT to_char(fecha, 'YYYY-MM-DD') AS dia,
+             COALESCE(SUM(valor) FILTER (WHERE es_entrada AND cat NOT IN ('interna', 'apertura')), 0)::text AS entradas,
+             COALESCE(SUM(valor) FILTER (WHERE NOT es_entrada AND cat NOT IN ('interna', 'apertura')), 0)::text AS salidas,
+             COALESCE(SUM(CASE WHEN es_entrada THEN valor ELSE -valor END), 0)::text AS neto,
+             COALESCE(SUM(CASE WHEN es_entrada THEN valor ELSE -valor END) FILTER (WHERE cat = 'apertura'), 0)::text AS apertura
+        FROM cat GROUP BY fecha ORDER BY fecha`, [filial, desde, hasta]),
+    pool.query(`${CATEGORIA_TES}
+      SELECT es_entrada, cat, MIN(rubro) AS rubro, SUM(valor)::text AS importe, COUNT(*) FILTER (WHERE NOT anulacion)::int AS movimientos
+        FROM cat WHERE cat NOT IN ('interna', 'apertura') GROUP BY es_entrada, cat HAVING SUM(valor) <> 0 ORDER BY SUM(valor) DESC`, [filial, desde, hasta]),
+  ]);
+  const tot = k => deCentavos(dias.reduce((t, d) => t + centavos(d[k]), 0n));
+  return { desde, hasta, saldo_inicial: ini.saldo, entradas: tot('entradas'), salidas: tot('salidas'), apertura: tot('apertura'),
+    saldo_final: deCentavos(centavos(ini.saldo) + dias.reduce((t, d) => t + centavos(d.neto), 0n)), dias,
+    categorias: cats.map(c => ({ lado: c.es_entrada ? 'entrada' : 'salida', cat: c.cat, nombre: nombreCat(c.cat, c.es_entrada, c.rubro), importe: c.importe, movimientos: c.movimientos })) };
+}
+const sumarDiasTes = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+r.get('/fin/tesoreria/tablero', h(async (req, res) => {
+  const filial = filialTes(req.query.filial);
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  if (desde > hasta) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
+  // El período anterior, de la misma duración y pegado al elegido.
+  const largo = Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1;
+  const [actual, anterior] = await Promise.all([flujoTes(filial, desde, hasta), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1))]);
+  res.json({ ok: true, ...actual, anterior });
+}));
+// Los movimientos detrás del tablero: los del período (un día, una categoría o un lado), sin las transferencias internas.
+r.get('/fin/tesoreria/tablero/movimientos', h(async (req, res) => {
+  const filial = filialTes(req.query.filial);
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  const lado = ['entrada', 'salida'].includes(req.query.lado) ? req.query.lado : null, cat = texto(req.query.cat);
+  const { rows } = await pool.query(`${CATEGORIA_TES}
+    SELECT cat.id, to_char(cat.fecha, 'YYYY-MM-DD') AS fecha, cat.cuenta_id, cu.nombre AS cuenta, cat.concepto, cat.cat, cat.rubro, cat.anulacion,
+           CASE WHEN es_entrada THEN 'entrada' ELSE 'salida' END AS lado, cat.valor::text AS importe, cat.otra_nombre
+      FROM cat JOIN fin.cuenta cu ON cu.id = cat.cuenta_id
+     WHERE cat NOT IN ('interna', 'apertura') AND ($4::text IS NULL OR cat = $4) AND ($5::text IS NULL OR es_entrada = ($5 = 'entrada'))
+     ORDER BY cat.fecha DESC, cat.id DESC LIMIT 1001`, [filial, desde, hasta, cat, lado]);
+  res.json({ ok: true, recortado: rows.length > 1000,
+    movimientos: rows.slice(0, 1000).map(m => ({ ...m, categoria: nombreCat(m.cat, m.lado === 'entrada', m.rubro) })) });
+}));
+
 function leerCuenta(b) {
   const c = {
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),

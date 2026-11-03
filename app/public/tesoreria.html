@@ -27,23 +27,80 @@
   .dia-c .f{font-weight:600;} .dia-c .i{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;}
   .dia-c .d{grid-column:1 / span 2;color:var(--mut);font-size:.84rem;display:flex;gap:4px 12px;flex-wrap:wrap;}
   .dia-c.atr .f{color:var(--mal);}
+  #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
+  #cuandoDet details{margin-top:8px;}
+  /* Detalle de movimientos: renglones livianos, como las ventas. */
+  .movs{display:grid;margin:8px 0 0;}
+  .mov{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(70px,auto) minmax(0,1fr) auto;gap:2px 16px;align-items:center;
+    padding:10px;border-radius:10px;cursor:pointer;border-bottom:1px solid var(--g-grilla);}
+  .mov:hover{background:var(--sel);} .mov:focus-visible{outline:2px solid var(--acento);}
+  .mov .f{color:var(--mut);font-size:.86rem;} .mov .d{display:flex;flex-direction:column;min-width:0;}
+  .mov .c{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .mov .m{color:var(--mut);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mov .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;} .mov .i.sal{color:var(--baja);} .mov.anul{opacity:.6;}
+  #abrirDet{margin-top:6px;}
 </style>
 </head>
 <body>
 <main class="ancho">
   <section id="vLista">
-    <h1>Cajas y bancos</h1>
-    <p class="sub">Arriba, lo que hay: lo disponible en bancos y cajas de la central, separado de lo que todavía no llegó (lo cobrado con
-      los procesadores que falta acreditar y el efectivo que los puntos de venta tienen que rendir). Tocá una cuenta para ver sus movimientos.
-      Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
+    <div class="t-cab">
+      <h1>Cajas y bancos</h1>
+      <p class="sub">Lo disponible en bancos y cajas, lo que entró y salió en el período y lo que todavía no llegó (lo cobrado con los
+        procesadores que falta acreditar y el efectivo que los puntos de venta tienen que rendir). Una transferencia entre dos cuentas
+        disponibles no es entrada ni salida. Tocá un día o una parte de un gráfico para ver esos movimientos, y una cuenta para ver los suyos.
+        Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
+    </div>
     <div class="barra">
       <button class="prim" id="nuevaCuenta">Nueva cuenta</button>
       <button id="transferir">Transferir entre cuentas</button>
       <button id="manual">Ingreso o egreso</button>
       <button id="arquear">Arqueo de caja</button>
     </div>
-    <div class="segm" id="filiales" role="group" aria-label="Filial" style="margin:0 0 14px"></div>
+    <div class="segm" id="filiales" role="group" aria-label="Filial" style="margin:0 0 10px"></div>
+    <div class="t-cab">
+      <div class="segm" id="periodo" role="group" aria-label="Período">
+        <button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
+        <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+      </div>
+      <div id="fechas" class="t-filtros" hidden><input id="tDesde" type="date" aria-label="Desde"><input id="tHasta" type="date" aria-label="Hasta"></div>
+    </div>
+    <p class="t-rango" id="rango"></p>
+    <span class="msg" id="msgT0"></span>
     <div class="kpis" id="kpis"></div>
+
+    <div class="t-grid t-g2">
+      <section class="card">
+        <div class="card-cab"><h2>Disponible por día</h2><div class="leyenda-linea"><span>Este período</span><span class="ant">Anterior</span></div></div>
+        <p class="cap" id="capSaldo">Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.</p>
+        <div id="gSaldo"></div>
+      </section>
+      <section class="card">
+        <h2>Entradas y salidas por día</h2>
+        <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
+        <div id="gFlujo"></div>
+      </section>
+    </div>
+    <div class="t-grid t-g2">
+      <section class="card"><h2>De dónde entró</h2><p class="cap">Tocá una parte para ver esos movimientos.</p><div id="gEntradas"></div></section>
+      <section class="card"><h2>En qué salió</h2><p class="cap">Por rubro si está clasificado; si no, por lo que es.</p><div id="gSalidas"></div></section>
+    </div>
+    <section class="card" id="cCuando" hidden>
+      <div class="card-cab"><h2 id="tCuando">Cuándo entra lo por acreditar</h2></div>
+      <p class="cap">Lo que se espera que deposite cada procesador, por el neto de costos. Informado: la fecha y el neto que da el procesador;
+        estimado: con la demora y el costo de lo que ya se acreditó.</p>
+      <div id="gCuando"></div>
+      <div id="cuandoDet"></div>
+    </section>
+    <section class="card" id="cDetalle">
+      <div class="card-cab"><h2 id="tDetalle">Movimientos del período</h2><span class="cap" id="cuentaDet" style="margin:0"></span></div>
+      <div class="chips" id="chips"></div>
+      <button type="button" id="abrirDet">Ver los movimientos</button>
+      <div id="detalle" hidden>
+        <div class="movs" id="movs"></div>
+        <div class="acciones" id="masWrap" hidden><button type="button" id="mas">Mostrar más</button></div>
+        <p class="ayuda" id="recorte" hidden>Se muestran los 1.000 movimientos más recientes: acotá el período o elegí un filtro.</p>
+      </div>
+    </section>
     <div id="grupos"></div>
   </section>
 
@@ -105,6 +162,7 @@
 </form></dialog>
 
 <script src="comun.js"></script>
+<script src="graficos.js"></script>
 <script>
 const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobranza: 'Cobranza a acreditar' };
 const MOV = { pago: 'Pago', transferencia: 'Transferencia', ingreso: 'Ingreso', egreso: 'Egreso', arqueo: 'Arqueo',
@@ -114,11 +172,20 @@ const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
 $$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
 const opcCuentas = (sel, filtro, vacio = 'Elegir…') => opciones(sel, cuentas.filter(c => c.activa && filtro(c)).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), null, vacio);
 
-// ── Tablero ──
+// ── Tablero (pedido de Fer, 03/11/2026: con el estilo del de ventas) ──
+const n = v => v == null || v === '' ? 0 : Number(v);
 const suma = (xs, k = 'saldo') => xs.reduce((t, x) => t + centavos(x[k] || '0'), 0n);
 const pesosC = c => pesos(deCentavos(c));
-const kpi = (et, valor, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+const kpiSimple = (et, valor, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
   el('span', { className: 'va', textContent: valor }), el('span', { className: 'pie' }, nota ? el('span', { textContent: nota }) : ''));
+// Cifra con variación contra el período anterior y mini curva por día.
+function kpiVar(et, valor, act, ant, curva, malo = false) {
+  const c = el('div', { className: 'curva' });
+  const card = el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }), el('span', { className: 'va', textContent: valor }),
+    el('span', { className: 'pie' }, Graf.variacion(act, ant, { malo }), n(ant) ? el('span', { textContent: 'vs. anterior' }) : ''), c);
+  if (curva && curva.length > 1) requestAnimationFrame(() => Graf.mini(c, curva));
+  return card;
+}
 // Una cuenta en un renglón: nombre, para qué es y su saldo; se toca para ver los movimientos.
 function filaCuenta(c, detalle = [], extra = null) {
   const d = el('span', { className: 'd' }, ...detalle.filter(Boolean).map(x => typeof x === 'string' ? el('span', { textContent: x }) : x));
@@ -132,11 +199,11 @@ const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card
   el('div', { className: 'cab-t' }, el('h2', { textContent: titulo }), total != null ? el('span', { className: 'tot', textContent: total }) : ''),
   cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
 
-// Por filial (pedido de Fer, 01/11/2026: con dos empresas todo junto se mezclaba). "Todas" muestra sólo el resumen de cada
-// filial; elegir una muestra sus cuentas. La filial de una cuenta es su sede (la caja, la del punto de venta, la que se le
-// asignó en la ficha); las que no tienen, en "Sin filial". Se recuerda la última elegida.
+// Por filial (pedido de Fer, 01/11/2026: con dos empresas todo junto se mezclaba). "Todas" muestra el resumen de cada filial; elegir
+// una muestra sus cuentas. La filial de una cuenta es su sede (la caja, la del punto de venta, la que se le asignó en la ficha); las
+// que no tienen, en "Sin filial". Se recuerda la última elegida. Los gráficos del período son de la filial elegida (o de todas).
 let filial = (() => { try { return localStorage.getItem('tesoreria-filial') || ''; } catch { return ''; } })();
-let datos = null;
+let datos = null, flujo = null;
 const SIN = 'sin';
 const filialDe = c => c.sede_id || SIN;
 // Lo por acreditar va a la filial del punto de venta que cobró, no a la de la cuenta: una cuenta de cobro compartida (la de
@@ -150,37 +217,120 @@ function parteDe(c, id) {
 }
 const acreditarDe = (todas, id) => todas.filter(c => c.tipo === 'cobranza' && (filialDe(c) === id || datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) === id)))
   .map(c => ({ ...c, saldo: parteDe(c, id), compartida: datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) !== id) }));
+const disponiblesDe = cs => cs.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
+
+// ── Período ──
+const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const diaCorto = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d).slice(0, 5)}`;
+const diaLargo = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d)}`;
+function diasEntre(desde, hasta) {
+  const out = [], d = new Date(desde + 'T12:00:00Z'), h = new Date(hasta + 'T12:00:00Z');
+  for (; d <= h; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+  return out;
+}
+function rango(p) {
+  const h = hoy(), d = new Date(h + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
+  if (p === '7') { d.setDate(d.getDate() - 6); return [iso(d), h]; }
+  if (p === 'mes') return [h.slice(0, 8) + '01', h];
+  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00'); x.setDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
+  return null;
+}
+function elegirPeriodo(p) {
+  $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
+  $('#fechas').hidden = p !== 'otro';
+  const r = rango(p); if (r) [$('#tDesde').value, $('#tHasta').value] = r;
+  try { localStorage.setItem('tesoreria-periodo', p); } catch {}
+}
+const filtros = {};   // dia, cat (lado|categoría): lo que se fue eligiendo en los gráficos
+const limpiarFiltros = () => { for (const k of Object.keys(filtros)) delete filtros[k]; };
+$$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); limpiarFiltros(); cargarFlujo(); });
+$('#tDesde').onchange = $('#tHasta').onchange = () => { limpiarFiltros(); cargarFlujo(); };
+const baseFlujo = () => new URLSearchParams({ desde: $('#tDesde').value, hasta: $('#tHasta').value, filial });
+
 async function cargar() {
   const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar?por_sede=1')]);
   cuentas = cs; datos = { pa, pc };
-  pintarTablero();
+  await cargarFlujo();
 }
+async function cargarFlujo() {
+  if (!$('#tDesde').value || !$('#tHasta').value) return;
+  msg('Cargando…', '', '#msgT0');
+  try { flujo = await api('fin/tesoreria/tablero?' + baseFlujo()); msg('', '', '#msgT0'); pintarTablero(); if (!$('#detalle').hidden) cargarMovs(); }
+  catch (e) { msg(e.message, 'mal', '#msgT0'); }
+}
+function elegirFilial(id) {
+  filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {}
+  limpiarFiltros(); cargarFlujo();
+}
+
 function pintarTablero() {
-  const { pa, pc } = datos;
+  const { pa, pc } = datos, f = flujo, a = f.anterior;
   const todas = cuentas.filter(c => c.activa);
   // Las filiales que tienen alguna cuenta, con su nombre; "Sin filial" al final si hace falta.
   const fs = [...new Map(todas.map(c => [filialDe(c), c.sede || 'Sin filial'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
-  if (filial && !fs.some(([id]) => id === filial)) filial = '';
-  $('#filiales').replaceChildren(...[['', 'Todas'], ...fs].map(([id, n]) => {
-    const b = el('button', { type: 'button', textContent: n, className: id === filial ? 'act' : '' });
-    b.onclick = () => { filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {} pintarTablero(); };
+  if (filial && !fs.some(([id]) => id === filial)) { filial = ''; return cargarFlujo(); }
+  $('#filiales').replaceChildren(...[['', 'Todas'], ...fs].map(([id, nm]) => {
+    const b = el('button', { type: 'button', textContent: nm, className: id === filial ? 'act' : '' });
+    b.onclick = () => elegirFilial(id);
     return b;
   }));
-  if (!filial) return resumenFiliales(todas, fs);
-  const activas = todas.filter(c => filialDe(c) === filial);
+  const desde = $('#tDesde').value, hasta = $('#tHasta').value;
+  $('#rango').textContent = `Del ${fecha(desde)} al ${fecha(hasta)} · comparado con ${fecha(a.desde)} al ${fecha(a.hasta)}`;
+
+  // Lo de hoy, de la filial (o de todas): disponible por tipo, por acreditar (repartido por punto de venta) y efectivo a rendir.
+  const activas = filial ? todas.filter(c => filialDe(c) === filial) : todas;
+  const aAcreditar = filial ? acreditarDe(todas, filial) : todas.filter(c => c.tipo === 'cobranza');
   const efectivoPV = activas.filter(c => c.punto_venta);
-  const aAcreditar = acreditarDe(todas, filial);
-  const disponibles = activas.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
+  const disponibles = disponiblesDe(activas);
   const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
   const cheques = suma(activas, 'cheques_pendientes');
-  $('#kpis').replaceChildren(
-    kpi('Disponible', pesosC(suma(disponibles)), `bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}`),
-    kpi('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'),
-    kpi('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`),
-    cheques ? kpi('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`) : '');
 
+  // Series por día del período (y del anterior, para comparar): saldo al cierre, entradas y salidas.
+  const serieDe = r => {
+    const ds = diasEntre(r.desde, r.hasta), por = new Map(r.dias.map(d => [d.dia, d]));
+    let s = n(r.saldo_inicial);
+    return { dias: ds, saldo: ds.map(d => (s += n((por.get(d) || {}).neto))), ent: ds.map(d => n((por.get(d) || {}).entradas)), sal: ds.map(d => n((por.get(d) || {}).salidas)) };
+  };
+  const sa = serieDe(f), sp = serieDe(a), hastaHoy = hasta >= hoy();
+  $('#kpis').replaceChildren(
+    kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo),
+    kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent),
+    kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true),
+    kpiSimple('Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'),
+    kpiSimple('Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`),
+    cheques ? kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`) : '');
+
+  const alto = matchMedia('(max-width:899px)').matches ? 220 : 280;
+  $('#capSaldo').textContent = 'Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.'
+    + (n(f.apertura) ? ` Incluye ${pesos(f.apertura)} de saldos de apertura de extractos, que no son entradas.` : '');
+  Graf.area($('#gSaldo'), {
+    etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
+    serie: { nombre: 'Disponible', valores: sa.saldo, texto: i => `${pesos(String(sa.saldo[i]))} · entró ${pesos(String(sa.ent[i]))}, salió ${pesos(String(sa.sal[i]))}` },
+    anterior: { nombre: 'Anterior', valores: sp.saldo, texto: i => `${pesos(String(sp.saldo[i]))} (${diaLargo(sp.dias[i])})` },
+    alElegir: i => alternar('dia', sa.dias[i]), elegido: filtros.dia ? sa.dias.indexOf(filtros.dia) : null, alto,
+  });
+  Graf.columnasSeries($('#gFlujo'), { etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d), alto,
+    series: [{ nombre: 'Entradas', valores: sa.ent }, { nombre: 'Salidas', valores: sa.sal }] });
+  const items = lado => f.categorias.filter(c => c.lado === lado).map(c => ({ clave: `${lado}|${c.cat}`, etiqueta: `${c.nombre} (${c.movimientos})`, valor: c.importe }));
+  Graf.dona($('#gEntradas'), { items: items('entrada'), sub: 'entró', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
+  Graf.dona($('#gSalidas'), { items: items('salida'), sub: 'salió', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
+
+  // Cuándo entra lo por acreditar: columnas por día (lo atrasado primero) y, a pedido, cada día con sus procesadores.
+  const pcF = filial ? soloDe(pc, filial) : pc;
+  $('#cCuando').hidden = !pcF.pagos;
+  if (pcF.pagos) {
+    $('#tCuando').textContent = `Cuándo entra lo por acreditar: ${pesos(pcF.neto)} netos`;
+    const porDia = new Map();
+    for (const d of pcF.dias) porDia.set(d.fecha, (porDia.get(d.fecha) || 0) + n(d.neto));
+    const cols = [...(pcF.atrasado.length ? [['atrasado', pcF.atrasado.reduce((t, x) => t + n(x.neto), 0)]] : []), ...porDia];
+    Graf.columnas($('#gCuando'), { etiquetas: cols.map(c => c[0]), valores: cols.map(c => c[1]), alto: 180,
+      ejeX: d => d === 'atrasado' ? 'atras.' : fecha(d).slice(0, 5), titulo: d => d === 'atrasado' ? 'Atrasado' : diaLargo(d) });
+    $('#cuandoDet').replaceChildren(el('details', { className: 'inact' }, el('summary', { textContent: 'Ver por día y procesador' }), cuandoEntra(pcF)));
+  }
+
+  if (!filial) return resumenFiliales(todas, fs);
   const g = [];
-  g.push(grupo('Disponible', pesosC(suma(disponibles)), 'Bancos (también las cuentas donde depositan los procesadores) y cajas de las sedes.',
+  g.push(grupo('Disponible', pesosC(suma(disponibles)), `Bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}. También las cuentas donde depositan los procesadores.`,
     ...disponibles.map(c => filaCuenta(c, [c.tipo === 'banco' ? 'Banco' : 'Caja', c.sede, c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c),
       !cero(c.cheques_pendientes) && el('span', { className: 'tag', textContent: `cheques a debitar ${pesos(c.cheques_pendientes)}` })],
       !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null))));
@@ -197,7 +347,7 @@ function pintarTablero() {
   });
   if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
     'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
-    ...porProc, cuandoEntra(soloDe(pc, filial)), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
+    ...porProc, el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
 
   if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
     'Lo cobrado en efectivo que el punto de venta todavía no rindió. Se rinde cuando la plata entra a una caja o al banco de la empresa.',
@@ -210,24 +360,18 @@ function pintarTablero() {
   $('#grupos').replaceChildren(...g);
 }
 
-// "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir; tocarla la abre.
+// "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.
 function resumenFiliales(todas, fs) {
-  const de = id => todas.filter(c => filialDe(c) === id);
-  const disp = cs => cs.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
-  const ef = cs => cs.filter(c => c.punto_venta);
-  $('#kpis').replaceChildren(
-    kpi('Disponible', pesosC(suma(disp(todas))), 'bancos y cajas de todas las filiales'),
-    kpi('Por acreditar', pesosC(suma(todas.filter(c => c.tipo === 'cobranza'))), 'cobrado con los procesadores, todavía no depositado'),
-    kpi('Efectivo a rendir', pesosC(suma(ef(todas))), 'en los puntos de venta'));
-  $('#grupos').replaceChildren(grupo('Por filial', null, 'Tocá una filial para ver sus cuentas.',
+  const de = id => todas.filter(c => filialDe(c) === id), ef = cs => cs.filter(c => c.punto_venta);
+  $('#grupos').replaceChildren(grupo('Por filial', null, 'Hoy. Tocá una filial para ver sus cuentas.',
     el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' },
       el('thead', {}, el('tr', {}, el('th', { textContent: 'Filial' }), el('th', { className: 'num', textContent: 'Disponible' }),
         el('th', { className: 'num', textContent: 'Por acreditar' }), el('th', { className: 'num', textContent: 'Efectivo a rendir' }), el('th', { textContent: 'Sin conciliar' }))),
-      el('tbody', {}, ...fs.map(([id, n]) => {
+      el('tbody', {}, ...fs.map(([id, nm]) => {
         const cs = de(id), sc = cs.reduce((t, c) => t + (c.lineas_sin_conciliar || 0), 0);
-        const tr = el('tr', { style: 'cursor:pointer' }, td(n), td(pesosC(suma(disp(cs))), 'num'), td(pesosC(suma(acreditarDe(todas, id))), 'num'), td(pesosC(suma(ef(cs))), 'num'),
+        const tr = el('tr', { style: 'cursor:pointer' }, td(nm), td(pesosC(suma(disponiblesDe(cs))), 'num'), td(pesosC(suma(acreditarDe(todas, id))), 'num'), td(pesosC(suma(ef(cs))), 'num'),
           el('td', {}, sc ? el('span', { className: 'tag aviso', textContent: `${sc} línea(s)` }) : ''));
-        tr.onclick = () => { filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {} pintarTablero(); };
+        tr.onclick = () => elegirFilial(id);
         return tr;
       }))))));
   etiquetarTabla($('#grupos table'));
@@ -241,10 +385,53 @@ function soloDe(pc, id) {
     neto: deCentavos(xs.reduce((t, x) => t + centavos(x.neto), 0n)) };
 }
 
+// ── Detalle: los movimientos del período, a medida que se elige algo en los gráficos ──
+const NOMBRE_FILTRO = { dia: v => diaLargo(v), cat: v => {
+  const [lado, cat] = v.split('|'), c = flujo.categorias.find(x => x.lado === lado && x.cat === cat);
+  return (lado === 'entrada' ? 'Entró: ' : 'Salió: ') + (c ? c.nombre : cat); } };
+function alternar(k, v) {
+  if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
+  pintarTablero(); abrirDetalle(true); cargarMovs();
+}
+function abrirDetalle(desplazar) {
+  $('#detalle').hidden = false; $('#abrirDet').hidden = true;
+  if (desplazar && matchMedia('(max-width:899px)').matches) $('#cDetalle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+$('#abrirDet').onclick = () => { abrirDetalle(false); cargarMovs(); };
+const DE_A = 50;
+let movs = [], mostrar = DE_A;
+$('#mas').onclick = () => { mostrar += DE_A; pintarMovs(); };
+async function cargarMovs() {
+  const p = baseFlujo();
+  if (filtros.dia) { p.set('desde', filtros.dia); p.set('hasta', filtros.dia); }
+  if (filtros.cat) { const [lado, cat] = filtros.cat.split('|'); p.set('lado', lado); p.set('cat', cat); }
+  $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
+    el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  try {
+    const r = await api('fin/tesoreria/tablero/movimientos?' + p);
+    movs = r.movimientos; mostrar = DE_A; $('#recorte').hidden = !r.recortado;
+    const ent = movs.filter(m => m.lado === 'entrada').reduce((t, m) => t + centavos(m.importe), 0n), sal = movs.filter(m => m.lado === 'salida').reduce((t, m) => t + centavos(m.importe), 0n);
+    $('#tDetalle').textContent = Object.keys(filtros).length ? 'Movimientos elegidos' : 'Movimientos del período';
+    $('#cuentaDet').textContent = `${movs.length}${r.recortado ? '+' : ''} movimientos · entró ${pesosC(ent)} · salió ${pesosC(sal)}`;
+    pintarMovs();
+  } catch (e) { msg(e.message, 'mal', '#msgT0'); }
+}
+function pintarMovs() {
+  $('#masWrap').hidden = movs.length <= mostrar;
+  $('#movs').replaceChildren(...(movs.length ? movs.slice(0, mostrar).map(m => {
+    const neg = m.importe.startsWith('-'), sal = (m.lado === 'salida') !== neg, abs = neg ? m.importe.slice(1) : m.importe;
+    const b = el('button', { type: 'button', className: 'mov' + (m.anulacion ? ' anul' : '') },
+      el('span', { className: 'f', textContent: fecha(m.fecha) }),
+      el('span', { className: 'd' }, el('span', { className: 'c', textContent: (m.anulacion ? 'Anulación · ' : '') + (m.concepto || m.categoria) }),
+        el('span', { className: 'm', textContent: [m.categoria, m.cuenta, m.otra_nombre && (m.lado === 'entrada' ? 'desde ' : 'hacia ') + m.otra_nombre].filter(Boolean).join(' · ') })),
+      el('span', { className: 'i' + (sal ? ' sal' : ''), textContent: (sal ? '−' : '+') + pesos(abs) }));
+    b.onclick = () => { location.hash = m.cuenta_id; };
+    return b;
+  }) : [el('p', { className: 'g-vacio', textContent: 'Sin movimientos.' })]));
+}
+
 // Cuándo entra: por fecha, el neto que se espera de cada procesador. Lo que informa el procesador (Fudo Pagos: fecha de
 // liquidación y neto por cobro) va como informado; lo demás, estimado con la demora y el costo de lo ya acreditado.
-const DIAS_SEM = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const diaCorto = d => `${DIAS_SEM[new Date(d + 'T12:00:00').getDay()]} ${fecha(d).slice(0, 5)}`;
 const FUENTE = { informado: 'informado', estimado: 'estimado', sin_historia: 'sin historia' };
 const OP = { transferencia: 'transferencia', qr: 'QR', debito: 'débito', credito: 'crédito', otro: 'otro' };
 function cuandoEntra(pc) {
@@ -359,11 +546,14 @@ fa.onsubmit = async e => {
 function ruta() {
   const id = location.hash.slice(1);
   $('#vLista').hidden = !!id; $('#vCuenta').hidden = !id;
-  if (!id) { actual = null; return; }
+  // Los gráficos se dibujan al ancho de su caja: al volver a la lista se redibujan.
+  if (!id) { actual = null; if (flujo) pintarTablero(); return; }
   verCuenta(id).catch(e => alert(e.message));
 }
 addEventListener('hashchange', ruta);
 (async () => {
+  const pg = (() => { try { return localStorage.getItem('tesoreria-periodo'); } catch { return null; } })();
+  elegirPeriodo(['7', 'mes', 'mesant'].includes(pg) ? pg : 'mes');
   try { [, { sedes }] = await Promise.all([cargar(), api('sedes')]); sedes = sedes.filter(s => s.activa); ruta(); }
   catch (e) { alert(e.message); }
 })();

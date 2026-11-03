@@ -257,6 +257,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
   cobros procesados sin acreditar ni en lote confirmado), y el efectivo de cada punto de venta. `/fin/cuentas` dice para qué
   es cada cuenta (`procesador_pendiente`, `procesador_deposita`, `punto_venta`). Tocar una cuenta abre sus movimientos.
+- **Tablero de Cajas y bancos** (pedido de Fer, 03/11/2026, con el estilo del de ventas; en Inicio): filial y período arriba (7 días,
+  este mes, mes anterior, fechas; se recuerda); cifras con variación contra el período anterior de la misma duración (disponible al
+  cierre, entradas, salidas) y lo de hoy (por acreditar, efectivo a rendir); área del disponible por día con el anterior punteado;
+  entradas y salidas por día; donas "De dónde entró" y "En qué salió"; cuándo entra lo por acreditar en columnas; movimientos a
+  pedido, filtrados por lo que se toca; y debajo las cuentas. `GET /fin/tesoreria/tablero` y `/tablero/movimientos` (`CATEGORIA_TES`
+  en `tesoreria.js`): disponible = bancos y cajas sin el efectivo de los puntos de venta; una transferencia entre dos disponibles no
+  es flujo; desde "a acreditar" es "Acreditaciones <marca>", desde el efectivo de un punto de venta "Rendiciones de efectivo"; si no,
+  el rubro clasificado, el tipo de gasto, pagos a proveedores, cobros o "sin clasificar". Una anulación resta en la categoría de lo que
+  anula, así saldo inicial + entradas − salidas = final. El saldo de apertura de un extracto no es flujo (se avisa).
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
   `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:
   lo que da el procesador (Fudo Pagos: `liquida_el` y `neto` por cobro; un lote esperado entra en su fecha). **Estimado**: la
