@@ -688,8 +688,9 @@ AAAA-MM-DD, los eventos y min/max, así las pantallas no cambian. Acepta 1/10/26
 no se toma. **Panel** (`index.html`, pedido de Fer, 01/11/2026): atajos arriba y "Para resolver" con una tarjeta por tema
 (abastecimiento por etapa, ventas, efectivo a rendir, cobros atrasados, vencimientos, frío, mínimos, compras por recibir) con su
 acción; el detalle, a pedido ("Ver"); lo que está en orden, en una línea "Al día". **El menú va por proceso** (decisión de Fer,
-27/10/2026): Inicio, Ingresos (Tablero de ventas, Proceso de ingresos), Compras (Proceso de abastecimiento, Proveedores, Cuenta
-corriente), Tesorería (Cajas y bancos, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
+27/10/2026; reordenado el 03/11/2026): Inicio con los tableros (Panel, Tablero de ventas, Cajas y bancos, Tablero, Estado de
+resultados), Operaciones con los asistentes (Proceso de ingresos, de abastecimiento y de egresos), Compras (Proveedores, Cuenta
+corriente, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
 y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Almacenes, Unidades productivas, Usuarios) al final.
 Barra lateral agrupada desde

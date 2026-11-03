@@ -125,14 +125,14 @@ function filas(tbody, items, fila, vacio, columnas) {
 }
 const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 
-// Secciones agrupadas por proceso (decisión de Fer, 27/10/2026): arriba lo que se opera, cada proceso con su asistente
-// primero; las pantallas de detalle de cada registro van juntas en "Registros", y lo que se arma una vez, en
-// Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
+// Secciones agrupadas por proceso (decisión de Fer, 27/10/2026; Inicio y Operaciones, 03/11/2026): en Inicio los tableros para
+// mirar, en Operaciones los asistentes de cada proceso; las pantallas de detalle de cada registro van juntas en "Registros", y lo
+// que se arma una vez, en Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
 const GRUPOS = [
-  ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['resultados.html', 'Estado de resultados']]],
-  ['Ingresos', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos']]],
-  ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente']]],
-  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['egresos.html', 'Proceso de egresos'], ['cheques.html', 'Cheques']]],
+  ['Inicio', [['index.html', 'Panel'], ['ventas.html', 'Tablero de ventas'], ['tesoreria.html', 'Cajas y bancos'], ['tablero.html', 'Tablero'],
+              ['resultados.html', 'Estado de resultados']]],
+  ['Operaciones', [['ingresos.html', 'Proceso de ingresos'], ['abastecimiento.html', 'Proceso de abastecimiento'], ['egresos.html', 'Proceso de egresos']]],
+  ['Compras', [['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
