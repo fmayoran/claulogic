@@ -257,9 +257,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
   cobros procesados sin acreditar ni en lote confirmado), y el efectivo de cada punto de venta. `/fin/cuentas` dice para qué
   es cada cuenta (`procesador_pendiente`, `procesador_deposita`, `punto_venta`). Tocar una cuenta abre sus movimientos.
-- **Tablero de Cajas y bancos** (pedido de Fer, 03/11/2026, con el estilo del de ventas; en Inicio): filial y período arriba (7 días,
-  este mes, mes anterior, fechas; se recuerda); cifras con variación contra el período anterior de la misma duración (disponible al
-  cierre, entradas, salidas) y lo de hoy (por acreditar, efectivo a rendir); área del disponible por día con el anterior punteado;
+- **Tablero de tesorería** (antes "Cajas y bancos"; pedido de Fer, 03/11/2026, con el estilo del de ventas; en Inicio): filial en un
+  combo como el local en ventas, y período (7 días, este mes, mes anterior, fechas; se recuerda); cifras con variación contra el período
+  anterior de la misma duración (disponible al cierre, entradas, salidas) y lo de hoy (por acreditar, efectivo a rendir); **dónde está el
+  disponible** al cierre del período, dona por banco y caja (`donde` en `/fin/tesoreria/tablero`; lo que está en descubierto se avisa
+  aparte), junto al área del disponible por día con el anterior punteado;
   entradas y salidas por día; donas "De dónde entró" y "En qué salió"; cuándo entra lo por acreditar en columnas; movimientos a
   pedido, filtrados por lo que se toca; y debajo las cuentas. `GET /fin/tesoreria/tablero` y `/tablero/movimientos` (`CATEGORIA_TES`
   en `tesoreria.js`): disponible = bancos y cajas sin el efectivo de los puntos de venta; una transferencia entre dos disponibles no
@@ -716,8 +718,10 @@ AAAA-MM-DD, los eventos y min/max, así las pantallas no cambian. Acepta 1/10/26
 no se toma. **Panel** (`index.html`, pedido de Fer, 01/11/2026): atajos arriba y "Para resolver" con una tarjeta por tema
 (abastecimiento por etapa, ventas, efectivo a rendir, cobros atrasados, vencimientos, frío, mínimos, compras por recibir) con su
 acción; el detalle, a pedido ("Ver"); lo que está en orden, en una línea "Al día". **El menú va por proceso** (decisión de Fer,
-27/10/2026; reordenado el 03/11/2026): Inicio con los tableros (Panel, Tablero de ventas, Cajas y bancos, Tablero, Estado de
-resultados), Operaciones con los asistentes (Proceso de ingresos, de abastecimiento y de egresos), Compras (Proveedores, Cuenta
+27/10/2026; reordenado el 03/11/2026): Inicio con los tableros (Panel, Tablero de ventas, Tablero de tesorería, Tablero, Estado de
+resultados), Operaciones con los asistentes (Proceso de ingresos, de abastecimiento y de egresos) y **Operaciones de tesorería**
+(`operaciones-tesoreria.html`: transferir, ingreso o egreso, arqueo, nueva cuenta y editar cuentas; se abre cada una con `#transferir`,
+`#movimiento`, `#arqueo`, `#nueva` o `#editar=<cuenta>`; el tablero sólo muestra), Compras (Proveedores, Cuenta
 corriente, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
 y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Almacenes, Unidades productivas, Usuarios) al final.

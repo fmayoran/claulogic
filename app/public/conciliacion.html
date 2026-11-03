@@ -202,7 +202,7 @@ $('#cuenta').onchange = () => { msg('', '', '#msgA'); $('#hechas').open = false;
 (async () => {
   try {
     bancos = (await api('fin/cuentas')).cuentas.filter(c => c.tipo === 'banco');
-    if (!bancos.length) { $('#eTitulo').textContent = 'No hay cuentas bancarias'; $('#eDetalle').textContent = 'Cargalas en Cajas y bancos.'; $('#importarBtn').hidden = true; return; }
+    if (!bancos.length) { $('#eTitulo').textContent = 'No hay cuentas bancarias'; $('#eDetalle').textContent = 'Cargalas en Operaciones de tesorería.'; $('#importarBtn').hidden = true; return; }
     opciones($('#cuenta'), bancos.map(b => [b.id, b.nombre]), location.hash.slice(1) || bancos[0].id);
     await cargar();
   } catch (e) { msg(e.message, 'mal', '#msgA'); }

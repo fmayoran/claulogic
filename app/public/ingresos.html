@@ -511,7 +511,7 @@ function pintarResultado() {
   $('#resultado').replaceChildren(ventas, cuando, porProc);
   api('fin/tesoreria/por-cobrar').then(pc => pintarCuando(cuando, pc)).catch(e => cuando.append(el('p', { className: 'ayuda', textContent: e.message })));
 }
-// Por fecha, el neto que se espera de los procesadores (informado o estimado; el detalle, en Cajas y bancos).
+// Por fecha, el neto que se espera de los procesadores (informado o estimado; el detalle, en el Tablero de tesorería).
 function pintarCuando(caja, pc) {
   if (!pc.pagos) return caja.append(el('p', { className: 'ayuda', textContent: 'No falta acreditar nada.' }));
   const porDia = new Map();
@@ -526,7 +526,7 @@ function pintarCuando(caja, pc) {
   caja.append(el('p', { className: 'ayuda', textContent: `${pesos(pc.neto)} netos de costos. La fecha y el neto los informa el procesador (Fudo Pagos); para los demás se estiman con lo que ya se acreditó.` }),
     pc.atrasado.length ? fila(`Atrasado, desde el ${corta(pc.atrasado[0].desde)}`, pc.atrasado, true) : '',
     ...[...porDia].map(([f, xs]) => fila(f === pc.hoy ? `Hoy, ${corta(f)}` : corta(f), xs)),
-    el('div', { style: 'margin-top:10px' }, ir('tesoreria.html', 'Ver en Cajas y bancos')));
+    el('div', { style: 'margin-top:10px' }, ir('tesoreria.html', 'Ver en el Tablero de tesorería')));
 }
 
 // El paso va en el # de la dirección: los enlaces (y el botón atrás) cambian de paso sin recargar.

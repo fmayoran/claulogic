@@ -212,8 +212,15 @@ r.get('/fin/tesoreria/tablero', h(async (req, res) => {
   if (desde > hasta) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
   // El período anterior, de la misma duración y pegado al elegido.
   const largo = Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1;
-  const [actual, anterior] = await Promise.all([flujoTes(filial, desde, hasta), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1))]);
-  res.json({ ok: true, ...actual, anterior });
+  const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)),
+    // Dónde está el disponible al cierre del período (pedido de Fer, 03/11/2026): el saldo de cada banco y caja a esa fecha.
+    pool.query(
+      `SELECT c.id, c.nombre, c.tipo, s.nombre AS sede, SUM(m.entrada - m.salida)::text AS saldo
+         FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id LEFT JOIN org.sede s ON s.id = c.sede_id
+        WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1) AND m.fecha <= $2::date
+        GROUP BY c.id, s.nombre HAVING SUM(m.entrada - m.salida) <> 0 ORDER BY SUM(m.entrada - m.salida) DESC`, [filial, hasta])]);
+  res.json({ ok: true, ...actual, anterior, donde });
 }));
 // Los movimientos detrás del tablero: los del período (un día, una categoría o un lado), sin las transferencias internas.
 r.get('/fin/tesoreria/tablero/movimientos', h(async (req, res) => {

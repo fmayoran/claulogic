@@ -177,7 +177,7 @@ function pintar() {
   if (sin) av.push(aviso(`${sin.n} movimiento(s) sin clasificar por ${pesos(sin.importe)}: no suman en el estado hasta que tengan rubro.`,
     el('button', { type: 'button', className: 'prim', textContent: 'Clasificar', onclick: () => detalle('sin', 'Sin clasificar') })));
   if (act.sin_filial.n) av.push(aviso(`${act.sin_filial.n} movimiento(s) por ${pesos(act.sin_filial.importe)} son de cuentas sin filial` + ($('#sede').value ? ' y no aparecen acá' : '')
-    + '. Asigná la filial de la cuenta en Cajas y bancos (Editar cuenta) o clasificalos con su filial.',
+    + '. Asigná la filial de la cuenta en Operaciones de tesorería (Editar) o clasificalos con su filial.',
     el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle('todos', 'Sin filial', true) })));
   const fuera = act.rubros.filter(r => r.linea === 'fuera');
   if (fuera.length) av.push(aviso(`No es resultado (aportes, retiros, préstamos): ${pC(sumaC(fuera))}.`,

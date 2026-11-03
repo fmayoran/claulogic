@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Tesorería · ClauLogic</title>
+<title>Tablero de tesorería · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <style>tr.anulado td{color:var(--mut);} tr.anulado td.num{text-decoration:line-through;} .neg{color:var(--mal);}
@@ -44,20 +44,15 @@
 <main class="ancho">
   <section id="vLista">
     <div class="t-cab">
-      <h1>Cajas y bancos</h1>
+      <h1>Tablero de tesorería</h1>
       <p class="sub">Lo disponible en bancos y cajas, lo que entró y salió en el período y lo que todavía no llegó (lo cobrado con los
         procesadores que falta acreditar y el efectivo que los puntos de venta tienen que rendir). Una transferencia entre dos cuentas
         disponibles no es entrada ni salida. Tocá un día o una parte de un gráfico para ver esos movimientos, y una cuenta para ver los suyos.
-        Los saldos salen de los movimientos: ninguno se escribe a mano.</p>
+        Los saldos salen de los movimientos: ninguno se escribe a mano. Las transferencias, ingresos, egresos, arqueos y cuentas nuevas
+        se cargan en Operaciones de tesorería.</p>
+      <div class="t-filtros"><select id="filial" aria-label="Filial"></select></div>
     </div>
-    <div class="barra">
-      <button class="prim" id="nuevaCuenta">Nueva cuenta</button>
-      <button id="transferir">Transferir entre cuentas</button>
-      <button id="manual">Ingreso o egreso</button>
-      <button id="arquear">Arqueo de caja</button>
-    </div>
-    <div class="segm" id="filiales" role="group" aria-label="Filial" style="margin:0 0 10px"></div>
-    <div class="t-cab">
+    <div class="t-cab" style="margin-top:-8px">
       <div class="segm" id="periodo" role="group" aria-label="Período">
         <button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
         <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
@@ -70,16 +65,22 @@
 
     <div class="t-grid t-g2">
       <section class="card">
+        <h2 id="tDonde">Dónde está el disponible</h2>
+        <p class="cap" id="capDonde"></p>
+        <div id="gDonde"></div>
+        <p class="ayuda" id="descubierto" hidden></p>
+      </section>
+      <section class="card">
         <div class="card-cab"><h2>Disponible por día</h2><div class="leyenda-linea"><span>Este período</span><span class="ant">Anterior</span></div></div>
         <p class="cap" id="capSaldo">Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.</p>
         <div id="gSaldo"></div>
       </section>
-      <section class="card">
-        <h2>Entradas y salidas por día</h2>
-        <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
-        <div id="gFlujo"></div>
-      </section>
     </div>
+    <section class="card">
+      <h2>Entradas y salidas por día</h2>
+      <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
+      <div id="gFlujo"></div>
+    </section>
     <div class="t-grid t-g2">
       <section class="card"><h2>De dónde entró</h2><p class="cap">Tocá una parte para ver esos movimientos.</p><div id="gEntradas"></div></section>
       <section class="card"><h2>En qué salió</h2><p class="cap">Por rubro si está clasificado; si no, por lo que es.</p><div id="gSalidas"></div></section>
@@ -105,7 +106,7 @@
   </section>
 
   <section id="vCuenta" hidden>
-    <p><a href="tesoreria.html">Volver a las cuentas</a></p>
+    <p><a href="tesoreria.html">Volver al tablero</a></p>
     <h1 id="cTitulo"></h1>
     <p class="sub" id="cSub"></p>
     <p class="ayuda" id="notaCartera" hidden>Cuenta del sistema: es donde quedan los cheques de terceros que se reciben,
@@ -113,7 +114,7 @@
       en cartera. Se mueve desde <a href="cheques.html">Cheques</a>.</p>
     <div class="barra">
       <label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
-      <button id="editarCuenta">Editar cuenta</button>
+      <a id="editarCuenta" href="#">Editar cuenta</a>
       <a id="irConciliar" href="#" hidden>Conciliar con el extracto</a>
     </div>
     <div class="tabla-wrap"><table class="datos">
@@ -122,55 +123,14 @@
   </section>
 </main>
 
-<dialog id="dCuenta"><form id="fc" novalidate>
-  <h2 id="dcTitulo">Nueva cuenta</h2>
-  <div class="fila"><label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label>
-    <label id="fcSede"><span id="fcSedeEt">Sede *</span><select name="sede_id"></select></label></div>
-  <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label></div>
-  <p class="ayuda">Las cuentas de efectivo de los puntos de venta y las de los procesadores (Mercado Pago, Getnet…) se crean solas, desde
-    Puntos de venta y Medios de pago.</p>
-  <div class="fila" id="fcBanco"><label>Banco<input name="banco"></label><label>Número de cuenta<input name="numero"></label></div>
-  <div class="fila" id="fcCbu"><label>CBU<input name="cbu" inputmode="numeric" maxlength="22"></label><label>Alias<input name="alias"></label></div>
-  <label class="check" id="fcActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>
-  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgC"></span></div>
-</form></dialog>
-
-<dialog id="dTransf"><form id="ft" novalidate>
-  <h2>Transferir entre cuentas</h2>
-  <div class="fila"><label>Desde *<select name="origen_id"></select></label><label>Hacia *<select name="destino_id"></select></label></div>
-  <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label></div>
-  <div class="fila"><label>Concepto<input name="concepto" placeholder="Extracción para caja, depósito de efectivo…"></label></div>
-  <div class="acciones"><button type="submit" class="prim">Transferir</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgT"></span></div>
-</form></dialog>
-
-<dialog id="dManual"><form id="fm" novalidate>
-  <h2>Ingreso o egreso</h2>
-  <p class="ayuda" style="margin:0 0 12px">Lo que no es un pago a proveedor: comisiones, impuestos bancarios, aportes, gastos de caja. Los pagos van por orden de pago.</p>
-  <div class="fila"><label>Cuenta *<select name="cuenta_id"></select></label><label>Tipo *<select name="tipo"><option value="egreso">Egreso</option><option value="ingreso">Ingreso</option></select></label></div>
-  <div class="fila"><label>Importe *<input name="importe" inputmode="numeric"></label><label>Fecha<input name="fecha" type="date"></label></div>
-  <div class="fila"><label>Concepto *<input name="concepto"></label></div>
-  <div class="acciones"><button type="submit" class="prim">Registrar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgM"></span></div>
-</form></dialog>
-
-<dialog id="dArqueo"><form id="fa" novalidate>
-  <h2>Arqueo de caja</h2>
-  <p class="ayuda" style="margin:0 0 12px">Contá el efectivo y cargalo. Si no coincide con el sistema, se asienta un sobrante o un faltante por la diferencia.</p>
-  <div class="fila"><label>Caja *<select name="cuenta_id"></select></label><label>En el sistema<input id="arqSistema" disabled></label></div>
-  <div class="fila"><label>Contado *<input name="contado" inputmode="numeric"></label><label>Motivo *<input name="motivo" placeholder="arqueo de cierre, cambio de turno…"></label></div>
-  <div id="arqResultado" class="ayuda"></div>
-  <div class="acciones"><button type="submit" class="prim">Asentar arqueo</button><button type="button" data-cerrar>Cerrar</button><span class="msg" id="msgA"></span></div>
-</form></dialog>
-
 <script src="comun.js"></script>
 <script src="graficos.js"></script>
 <script>
 const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobranza: 'Cobranza a acreditar' };
 const MOV = { pago: 'Pago', transferencia: 'Transferencia', ingreso: 'Ingreso', egreso: 'Egreso', arqueo: 'Arqueo',
   alta_cheque: 'Alta de cheque', endoso: 'Endoso', deposito_cheque: 'Depósito de cheque', debito_cheque: 'Débito de cheque', anulacion: 'Anulación' };
-let cuentas = [], sedes = [], actual = null;
+let cuentas = [], actual = null;
 const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
-$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
-const opcCuentas = (sel, filtro, vacio = 'Elegir…') => opciones(sel, cuentas.filter(c => c.activa && filtro(c)).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), null, vacio);
 
 // ── Tablero (pedido de Fer, 03/11/2026: con el estilo del de ventas) ──
 const n = v => v == null || v === '' ? 0 : Number(v);
@@ -258,6 +218,7 @@ async function cargarFlujo() {
   try { flujo = await api('fin/tesoreria/tablero?' + baseFlujo()); msg('', '', '#msgT0'); pintarTablero(); if (!$('#detalle').hidden) cargarMovs(); }
   catch (e) { msg(e.message, 'mal', '#msgT0'); }
 }
+$('#filial').onchange = () => elegirFilial($('#filial').value);
 function elegirFilial(id) {
   filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {}
   limpiarFiltros(); cargarFlujo();
@@ -269,11 +230,7 @@ function pintarTablero() {
   // Las filiales que tienen alguna cuenta, con su nombre; "Sin filial" al final si hace falta.
   const fs = [...new Map(todas.map(c => [filialDe(c), c.sede || 'Sin filial'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
   if (filial && !fs.some(([id]) => id === filial)) { filial = ''; return cargarFlujo(); }
-  $('#filiales').replaceChildren(...[['', 'Todas'], ...fs].map(([id, nm]) => {
-    const b = el('button', { type: 'button', textContent: nm, className: id === filial ? 'act' : '' });
-    b.onclick = () => elegirFilial(id);
-    return b;
-  }));
+  opciones($('#filial'), fs, filial, 'Todas las filiales');
   const desde = $('#tDesde').value, hasta = $('#tHasta').value;
   $('#rango').textContent = `Del ${fecha(desde)} al ${fecha(hasta)} · comparado con ${fecha(a.desde)} al ${fecha(a.hasta)}`;
 
@@ -301,6 +258,16 @@ function pintarTablero() {
     cheques ? kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`) : '');
 
   const alto = matchMedia('(max-width:899px)').matches ? 220 : 280;
+  // Dónde está físicamente el disponible al cierre del período: cada banco y caja con su saldo a esa fecha (pedido de Fer, 03/11/2026).
+  // Lo que está en descubierto no entra en la dona: se avisa debajo.
+  const enBancos = f.donde.filter(c => c.tipo === 'banco').reduce((t, c) => t + n(c.saldo), 0), enCajas = f.donde.filter(c => c.tipo === 'caja').reduce((t, c) => t + n(c.saldo), 0);
+  $('#tDonde').textContent = `Dónde está el disponible ${hastaHoy ? 'hoy' : 'al ' + fecha(hasta)}`;
+  $('#capDonde').textContent = `En bancos ${pesos(String(enBancos))} · en cajas ${pesos(String(enCajas))}. Tocá una cuenta para ver sus movimientos.`;
+  Graf.dona($('#gDonde'), { items: f.donde.map(c => ({ clave: c.id, etiqueta: c.nombre + (!filial && c.sede ? ` · ${c.sede}` : ''), valor: c.saldo })),
+    sub: 'disponible', alElegir: id => { location.hash = id; } });
+  const desc = f.donde.filter(c => n(c.saldo) < 0);
+  $('#descubierto').hidden = !desc.length;
+  $('#descubierto').textContent = desc.length ? 'En descubierto (no entra en el gráfico): ' + desc.map(c => `${c.nombre} ${pesos(c.saldo)}`).join(', ') + '.' : '';
   $('#capSaldo').textContent = 'Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.'
     + (n(f.apertura) ? ` Incluye ${pesos(f.apertura)} de saldos de apertura de extractos, que no son entradas.` : '');
   Graf.area($('#gSaldo'), {
@@ -461,7 +428,7 @@ async function verCuenta(id) {
   $('#cSub').textContent = [TIPO[c.tipo], c.sede, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
     'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
   $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
-  $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#notaCartera').hidden = c.tipo !== 'cartera';
+  $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#editarCuenta').href = 'operaciones-tesoreria.html#editar=' + c.id; $('#notaCartera').hidden = c.tipo !== 'cartera';
   const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
   const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
   filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },
@@ -481,68 +448,6 @@ async function anular(m) {
 }
 $('#desde').onchange = $('#hasta').onchange = () => verCuenta(actual.id);
 
-// ── Diálogos ──
-const fc = $('#fc');
-function abrirCuenta(c = null) {
-  fc.reset(); msg('', '', '#msgC'); $('#dcTitulo').textContent = c ? 'Editar cuenta' : 'Nueva cuenta';
-  opciones(fc.sede_id, sedes.map(s => [s.id, s.nombre]), c && c.sede_id, 'Elegir…');
-  if (c) for (const k of ['nombre', 'tipo', 'banco', 'numero', 'cbu', 'alias']) fc[k].value = c[k] || '';
-  fc.activa.checked = c ? c.activa : true; $('#fcActiva').hidden = !c;
-  fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
-  $('#dCuenta').showModal();
-}
-// La caja es de una sede; las demás cuentas pueden tener filial: sus gastos sin venta van a esa filial en el estado de resultados.
-fc.tipo.onchange = () => {
-  const banco = fc.tipo.value === 'banco', caja = fc.tipo.value === 'caja';
-  $('#fcSedeEt').textContent = caja ? 'Sede *' : 'Filial (estado de resultados)'; fc.sede_id.firstChild.textContent = caja ? 'Elegir…' : 'Sin filial';
-  $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco;
-};
-fc.onsubmit = async e => {
-  e.preventDefault();
-  const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));
-  body.activa = fc.activa.checked;
-  try {
-    await api(fc.dataset.id ? 'fin/cuentas/' + fc.dataset.id : 'fin/cuentas', { method: fc.dataset.id ? 'PUT' : 'POST', body });
-    $('#dCuenta').close(); await cargar(); if (actual) verCuenta(actual.id);
-  } catch (e) { msg(e.message, 'mal', '#msgC'); }
-};
-$('#nuevaCuenta').onclick = () => abrirCuenta();
-$('#editarCuenta').onclick = () => abrirCuenta(actual);
-
-const ft = $('#ft');
-$('#transferir').onclick = () => { ft.reset(); msg('', '', '#msgT'); opcCuentas(ft.origen_id, c => c.tipo !== 'cartera'); opcCuentas(ft.destino_id, c => c.tipo !== 'cartera'); $('#dTransf').showModal(); };
-ft.onsubmit = async e => {
-  e.preventDefault();
-  try { await api('fin/transferencias', { method: 'POST', body: Object.fromEntries(new FormData(ft)) }); $('#dTransf').close(); await cargar(); }
-  catch (e) { msg(e.message, 'mal', '#msgT'); }
-};
-
-const fm = $('#fm');
-$('#manual').onclick = () => { fm.reset(); msg('', '', '#msgM'); opcCuentas(fm.cuenta_id, c => c.tipo !== 'cartera'); if (actual && actual.tipo !== 'cartera') fm.cuenta_id.value = actual.id; $('#dManual').showModal(); };
-fm.onsubmit = async e => {
-  e.preventDefault();
-  try { await api('fin/movimientos', { method: 'POST', body: Object.fromEntries(new FormData(fm)) }); $('#dManual').close(); await cargar(); if (actual) verCuenta(actual.id); }
-  catch (e) { msg(e.message, 'mal', '#msgM'); }
-};
-
-const fa = $('#fa');
-const mostrarSistema = () => { const c = cuentas.find(x => x.id === fa.cuenta_id.value); $('#arqSistema').value = c ? pesos(c.saldo) : ''; };
-$('#arquear').onclick = () => {
-  fa.reset(); msg('', '', '#msgA'); $('#arqResultado').textContent = '';
-  opcCuentas(fa.cuenta_id, c => c.tipo === 'caja'); if (actual && actual.tipo === 'caja') fa.cuenta_id.value = actual.id;
-  mostrarSistema(); $('#dArqueo').showModal();
-};
-fa.cuenta_id.onchange = mostrarSistema;
-fa.onsubmit = async e => {
-  e.preventDefault();
-  try {
-    const { arqueo: a } = await api('fin/arqueos', { method: 'POST', body: Object.fromEntries(new FormData(fa)) });
-    $('#arqResultado').textContent = cero(a.diferencia) ? `Cerraba: el sistema tenía ${pesos(a.sistema)}.`
-      : `Sistema ${pesos(a.sistema)}, contado ${pesos(a.contado)}: se asentó un ${a.diferencia.startsWith('-') ? 'faltante' : 'sobrante'} de ${pesos(a.diferencia.replace('-', ''))}.`;
-    await cargar(); mostrarSistema(); if (actual) verCuenta(actual.id);
-  } catch (e) { msg(e.message, 'mal', '#msgA'); }
-};
-
 function ruta() {
   const id = location.hash.slice(1);
   $('#vLista').hidden = !!id; $('#vCuenta').hidden = !id;
@@ -554,7 +459,7 @@ addEventListener('hashchange', ruta);
 (async () => {
   const pg = (() => { try { return localStorage.getItem('tesoreria-periodo'); } catch { return null; } })();
   elegirPeriodo(['7', 'mes', 'mesant'].includes(pg) ? pg : 'mes');
-  try { [, { sedes }] = await Promise.all([cargar(), api('sedes')]); sedes = sedes.filter(s => s.activa); ruta(); }
+  try { await cargar(); ruta(); }
   catch (e) { alert(e.message); }
 })();
 </script>
