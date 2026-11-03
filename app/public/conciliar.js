@@ -198,6 +198,22 @@ const Conc = (() => {
   // El texto de la regla que se propone: el concepto sin números (los de operación cambian en cada línea).
   const patronDe = t => String(t || '').replace(/[#nº°]*\s*\d[\d./-]*/gi, ' ').replace(/\s+/g, ' ').replace(/[\s·:,#–-]+$/, '').trim();
 
+  // Formatos de banco conocidos: se reconocen por el encabezado y se importan directo, sin mostrar el mapeo de columnas.
+  const sinAcento = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  const FORMATOS = [
+    { nombre: 'estado de cuenta de Brubank', decimal: ',',
+      columnas: { fecha: 'fecha', referencia: 'referencia', concepto: 'descripcion', credito: 'creditos', debito: 'debitos', saldo: 'saldo' },
+      tambien: ['moneda', 'cuenta'] },
+  ];
+  function formatoDe(filas) {
+    const enc = (filas[0] || []).map(sinAcento);
+    for (const f of FORMATOS) {
+      if (![...Object.values(f.columnas), ...f.tambien].every(c => enc.includes(c))) continue;
+      return { nombre: f.nombre, decimal: f.decimal, mapa: Object.fromEntries(Object.entries(f.columnas).map(([rol, c]) => [rol, enc.indexOf(c)])) };
+    }
+    return null;
+  }
+
   // ── Importador ──
   // opc: cuenta() -> id de la cuenta; procesador() -> si la cuenta es la de un procesador (concilia al importar);
   // ayuda: texto sobre qué archivo va; listo(texto): al terminar.
@@ -262,6 +278,16 @@ const Conc = (() => {
         else txt = `Formato reconocido: resumen de cuenta de Mercado Pago, ${res.movimientos} movimiento(s)`
           + (res.saldos ? `, saldo inicial ${pesos(res.saldos.inicial)} y final ${pesos(res.saldos.final)}` : '') + `. ${res.abiertas} cobro(s) se abren en bruto, comisión e impuesto.`
           + (res.netas ? ` ${res.netas} liquidación(es) no están en el reporte de liquidaciones y quedan por el neto.` : '');
+      } else if (leidos.length === 1 && formatoDe(leidos[0].filas)) {
+        // Un formato conocido se importa y se concilia en el acto.
+        const fmt = formatoDe(leidos[0].filas);
+        csv = { ...leidos[0], fmt };
+        titulo.textContent = `Importar ${csv.nombre}`;
+        formato.hidden = false; formato.textContent = `Formato reconocido: ${fmt.nombre}, ${csv.filas.length - 1} fila(s).`;
+        opcCsv.hidden = mapaWrap.hidden = capCsv.hidden = true;
+        ok.textContent = 'Importar y conciliar';
+        caja.hidden = false; caja.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return importar();
       } else csv = leidos[0];
       formato.hidden = !csv.mp; formato.textContent = txt;
       ok.textContent = 'Importar y conciliar';
@@ -272,10 +298,13 @@ const Conc = (() => {
     };
     encab.onchange = () => csv && pintarMapa();
     no.onclick = cerrar;
-    ok.onclick = async () => {
+    async function importar() {
       let filas, dec = decimal.value;
       if (csv.mp) { filas = csv.mp.filas; dec = '.'; }
-      else {
+      else if (csv.fmt) {
+        dec = csv.fmt.decimal;
+        filas = csv.filas.slice(1).map(f => Object.fromEntries(Object.entries(csv.fmt.mapa).map(([k, i]) => [k, f[i] ?? ''])));
+      } else {
         const mapa = {}; mHead.querySelectorAll('select').forEach(s => { if (s.value) mapa[s.value] = +s.dataset.col; });
         if (mapa.fecha === undefined || (mapa.importe === undefined && mapa.debito === undefined && mapa.credito === undefined))
           return avisar('Falta indicar la fecha y el importe (o débito y crédito).', 'mal');
@@ -291,7 +320,8 @@ const Conc = (() => {
         opc.listo(t + ' Conciliando…', ''); t += ' ' + await automatica(opc.cuenta());
         opc.listo(t, 'ok');
       } catch (e) { avisar(e.message, 'mal'); ok.disabled = false; }
-    };
+    }
+    ok.onclick = importar;
     return { el: el('div', {}, archivo, caja), abrir: () => archivo.click() };
   }
 
