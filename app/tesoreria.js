@@ -1389,7 +1389,7 @@ r.get('/fin/procesadores/resumen', h(async (req, res) => {
   const out = [];
   for (const p of rows) out.push({ id: p.id, nombre: p.nombre, marca: p.marca, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
     portal: p.portal, portal_auto: p.portal_auto, ultima_corrida: p.ultima_corrida,
-    resumen: p.cuenta_acredita_id ? await resumenProcesador(p.cuenta_acredita_id) : null });
+    resumen: p.cuenta_acredita_id ? await resumenProcesador(p.cuenta_acredita_id) : null, ventas: await ventasDelProcesador(p.id) });
   res.json({ ok: true, procesadores: out });
 }));
 
@@ -1488,37 +1488,57 @@ r.post('/fin/procesadores/probar-portal', h(async (req, res) => {
 // Traer el extracto de Pago24 desde su portal (etapa 2): baja el CSV del rango, lo importa en la cuenta donde deposita, como
 // si se hubiera subido el archivo, y concilia. Sin rango pedido: desde el día siguiente al último extracto (al menos los 3
 // últimos días, que reimportar no duplica; sin extractos, desde el 1 del mes) hasta ayer, para traer días completos.
-// Los puntos de venta que cobran con el procesador y no tienen traídas las ventas hasta `hasta`: el último día traído es el
-// último sincronizado por API o, por archivo, el de la última venta.
-async function ventasSinTraer(procesadorId, hasta) {
+// Hasta dónde están traídas las ventas de los puntos de venta que cobran con el procesador (pedido de Fer, 03/11/2026: el extracto
+// se trae hasta ahí, no hasta ayer, así se puede ir mes por mes). Por punto de venta, el primer y el último día traído (el último
+// sincronizado por API o, por archivo, el de la última venta); en total, desde el primero de todos y hasta el último que tienen
+// TODOS (el menor): más allá, algún punto de venta no tiene contra qué conciliar.
+async function ventasDelProcesador(procesadorId) {
   const { rows } = await pool.query(
-    `SELECT s.nombre AS sede, to_char(GREATEST((SELECT MAX(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
-                                              (SELECT MAX(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS ultimo
+    `SELECT s.nombre AS sede,
+            to_char(LEAST((SELECT MIN(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
+                          (SELECT MIN(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS primero,
+            to_char(GREATEST((SELECT MAX(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
+                             (SELECT MAX(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS ultimo
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
       WHERE i.activa AND s.activa
         AND EXISTS (SELECT 1 FROM pos.medio m JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id WHERE m.integracion_id = i.id AND mp.procesador_id = $1)
       ORDER BY s.nombre`, [procesadorId]);
-  return rows.filter(r => !r.ultimo || r.ultimo < hasta);
+  const conVentas = rows.filter(r => r.ultimo);
+  return { puntos: rows, desde: conVentas.length ? conVentas.map(r => r.primero).sort()[0] : null,
+    hasta: rows.length && conVentas.length === rows.length ? conVentas.map(r => r.ultimo).sort()[0] : null };
 }
+const dmy = iso => iso.split('-').reverse().join('/');
 async function traerPortal(req, pr, automatica, desdePedido = null, hastaPedido = null) {
   if (!pr.portal_url || !pr.portal_credenciales) throw new ErrorUsuario('Falta la conexión con el portal en la ficha del procesador.');
   if (!pr.cuenta_acredita_id) throw new ErrorUsuario(`Primero indicá en qué cuenta deposita ${pr.nombre}.`);
+  // Sin rango: desde el día siguiente al último extracto (sin extractos, el primer día de ventas traídas) hasta el último día de
+  // ventas traídas de todos sus puntos de venta (nunca hoy). Con rango, el que se pidió, que igual no puede pasar de las ventas.
+  const ventas = await ventasDelProcesador(pr.id);
+  if (!ventas.puntos.length) throw new ErrorUsuario(`Ningún punto de venta cobra con ${pr.nombre}: asigná sus medios en la ficha de la sede.`);
+  const sinNada = ventas.puntos.filter(v => !v.ultimo);
+  if (sinNada.length && !automatica) throw new ErrorUsuario(`Todavía no hay ventas traídas de ${sinNada.map(v => v.sede).join(', ')}: traelas primero (paso 1).`);
+  if (sinNada.length) return null;
   const { rows: [x] } = await pool.query(
     `SELECT to_char(x.desde, 'YYYY-MM-DD') AS desde, to_char(x.hasta, 'YYYY-MM-DD') AS hasta,
             x.desde < current_date - 62 AS muy_atras, x.hasta > current_date - 1 AS adelante, x.desde > x.hasta AS al_reves
-       FROM (SELECT COALESCE($2::date, (SELECT CASE WHEN MAX(hasta) IS NOT NULL THEN LEAST(MAX(hasta) + 1, current_date - 3) END FROM fin.extracto WHERE cuenta_id = $1),
-                             date_trunc('month', current_date - 1)::date) AS desde,
-                    COALESCE($3::date, current_date - 1) AS hasta) x`, [pr.cuenta_acredita_id, desdePedido, hastaPedido]);
+       FROM (SELECT COALESCE($2::date, (SELECT MAX(hasta) + 1 FROM fin.extracto WHERE cuenta_id = $1), $4::date) AS desde,
+                    COALESCE($3::date, LEAST($5::date, current_date - 1)) AS hasta) x`,
+    [pr.cuenta_acredita_id, desdePedido, hastaPedido, ventas.desde, ventas.hasta]);
+  if (!desdePedido && !hastaPedido && x.al_reves) {
+    if (automatica) return null;
+    throw new ErrorUsuario(`El extracto ya llega hasta el ${dmy(ventas.hasta)}, como las ventas traídas. Traé más ventas en el paso 1, o elegí el rango para volver a traer días.`);
+  }
   if (x.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
   if (x.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
   if (x.al_reves) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
   // Sin las ventas del rango, los cobros no tienen contra qué parearse y la conciliación queda a medias o parea mal (pasó el
   // 03/11/2026: se trajo noviembre con las ventas sólo hasta octubre). Se exige que cada punto de venta que cobra con este
   // procesador tenga traído hasta el último día del rango; la automática, sin eso, no corre (y vuelve a probar más tarde).
-  const faltan = await ventasSinTraer(pr.id, x.hasta);
+  const faltan = ventas.puntos.filter(v => v.ultimo < x.hasta);
   if (faltan.length) {
     if (automatica) return null;
-    throw new ErrorUsuario(`Faltan traer las ventas hasta el ${x.hasta.split('-').reverse().join('/')} de ${faltan.map(f => f.sede + (f.ultimo ? ` (traídas hasta el ${f.ultimo.split('-').reverse().join('/')})` : ' (sin ventas traídas)')).join(', ')}: traelas primero.`);
+    throw new ErrorUsuario(`Las ventas de ${faltan.map(f => `${f.sede} llegan hasta el ${dmy(f.ultimo)}`).join(', ')}: el extracto se puede traer hasta ese día, `
+      + `no hasta el ${dmy(x.hasta)}. Traé las ventas que faltan en el paso 1 o elegí otro rango.`);
   }
   const { rows: [co] } = await pool.query(
     'INSERT INTO fin.portal_corrida (procesador_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id',

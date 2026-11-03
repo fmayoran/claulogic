@@ -39,6 +39,11 @@
   .al-dia::before{content:'✓';display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ok-bg);font-size:.8rem;}
   /* Algo para resolver, con su acción al lado o abajo */
   .tarea{border-top:1px solid var(--g-grilla);padding:12px 2px;display:grid;gap:8px;}
+  /* Paso 3: qué está traído (ventas, extracto) y qué falta conciliar, por procesador. */
+  .estado-proc{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:0;font-size:.92rem;font-weight:400;color:var(--fg);}
+  .estado-proc dt{color:var(--mut);} .estado-proc dd{margin:0;}
+  .al-dia .estado-proc{flex:1;}
+  .tarea .estado-proc{padding-left:2px;}
   .tarea .t{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;align-items:center;font-size:.95rem;}
   .tarea .t::before{content:'';width:10px;height:10px;border-radius:50%;background:var(--aviso);grid-row:span 2;}
   .tarea.mal .t::before{background:var(--mal);}
@@ -182,7 +187,7 @@ function estadoPasos() {
   const efectivo = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
   const cobradoEf = puntos.reduce((s, p) => s + p.dias.reduce((a, d) => a + centavos(d.efectivo || '0'), 0n), 0n);
   const conCuenta = procs.filter(x => x.resumen);
-  const sinExtracto = procs.filter(x => !x.resumen || !x.resumen.extracto.hasta || x.resumen.extracto.hasta < ayer).length;
+  const sinExtracto = procs.filter(x => !x.resumen || !extractoAlDia(x)).length;
   // Sólo las líneas de ingresos: los cobros y sus costos (las transferencias y los pagos van al proceso de egresos).
   const lineas = conCuenta.reduce((s, x) => s + (x.resumen.extracto.lineas_ingresos || 0), 0);
   return {
@@ -374,6 +379,26 @@ fD.onsubmit = async e => {
 $('#dCancelar').onclick = () => $('#dlgDif').close();
 
 // ── 3. Extractos ──
+// El extracto se trae hasta donde están traídas las ventas de todos los puntos de venta que cobran con el procesador (pedido de
+// Fer, 03/11/2026: se trabaja mes por mes; pedirlo hasta ayer no tenía sentido con las ventas hasta el 31). Sin ventas, no hay
+// extracto que traer todavía.
+const extractoAlDia = x => { const e = x.resumen.extracto, v = x.ventas || {}; return !v.hasta ? !!e.hasta || !(v.puntos || []).length : !!e.hasta && e.hasta >= v.hasta; };
+// Qué está traído y qué falta, en renglones cortos: ventas, extracto y lo que queda por conciliar.
+function estadoProcesador(x) {
+  const e = x.resumen.extracto, v = x.ventas || { puntos: [] }, filas = [];
+  const sinVentas = v.puntos.filter(p => !p.ultimo);
+  filas.push(['Ventas', !v.puntos.length ? 'ningún punto de venta cobra con este procesador'
+    : sinVentas.length ? `falta traer las de ${sinVentas.map(p => p.sede).join(', ')}`
+    : `del ${fecha(v.desde)} al ${fecha(v.hasta)}` + (v.puntos.length > 1 && new Set(v.puntos.map(p => p.ultimo)).size > 1
+      ? ` (${v.puntos.map(p => `${p.sede} hasta el ${fecha(p.ultimo)}`).join(', ')})` : '')]);
+  filas.push(['Extracto', !e.hasta ? 'todavía no se importó ninguno' : `hasta el ${fecha(e.hasta)}`
+    + (v.hasta && e.hasta < v.hasta ? ` · falta del ${fecha(sumarDias(e.hasta, 1))} al ${fecha(v.hasta)}` : '')
+    + (!e.hasta && v.hasta ? ` · traelo del ${fecha(v.desde)} al ${fecha(v.hasta)}` : '')]);
+  const pend = x.resumen.pendientes || [], cobros = pend.reduce((t, d) => t + d.pagos, 0);
+  if (e.hasta) filas.push(['Por conciliar', [e.lineas_ingresos ? `${e.lineas_ingresos} línea(s) de ingresos del extracto` : 'ninguna línea de ingresos',
+    cobros ? `${cobros} cobro(s) sin acreditar, del ${fecha(pend[0].dia)} al ${fecha(pend.at(-1).dia)}` : null].filter(Boolean).join(' · ')]);
+  return el('dl', { className: 'estado-proc' }, ...filas.flatMap(([k, t]) => [el('dt', { textContent: k }), el('dd', { textContent: t })]));
+}
 // Qué archivo va en cada cuenta, según el procesador.
 function queArchivo(x) {
   if (x.marca === 'mercadopago') return 'El reporte de liberaciones (con las columnas de bruto, comisión, impuestos y saldo), o el resumen de cuenta y el reporte de liquidaciones juntos.';
@@ -415,12 +440,12 @@ function pintarExtractos() {
     const e = x.resumen.extracto, nota = el('span', { className: 'msg msg-b' });
     const imp = Conc.importador({ cuenta: () => x.cuenta_id, procesador: () => true,
       listo: async (t, tipo) => { if (tipo === 'ok') { await refrescar(); msg(`${x.cuenta}: ${t}`, 'ok'); } else { nota.textContent = t; nota.className = 'msg msg-b'; } } });
-    const alDia = e.hasta && e.hasta >= ayer;
-    // Sin rango, desde el día siguiente al último extracto hasta ayer; a pedido, el que se elija (hasta 62 días atrás).
+    const alDia = extractoAlDia(x);
+    // Sin rango, desde el día siguiente al último extracto hasta el último día de ventas traídas; a pedido, el que se elija.
     const rDesde = el('input', { type: 'date', max: ayer }), rHasta = el('input', { type: 'date', max: ayer });
     const rango = x.portal ? el('details', { className: 'como' }, el('summary', { textContent: 'Elegir el rango' }),
       el('div', { className: 'fila' }, el('label', {}, 'Desde', rDesde), el('label', {}, 'Hasta', rHasta)),
-      el('p', { className: 'ayuda', textContent: 'Sin rango se trae desde el día siguiente al último extracto hasta ayer. Volver a traer días ya importados no duplica nada.' })) : '';
+      el('p', { className: 'ayuda', textContent: 'Sin rango se trae desde el día siguiente al último extracto hasta el último día de ventas traídas. Volver a traer días ya importados no duplica nada.' })) : '';
     // Con la conexión al portal (Pago24), el extracto se trae solo (todos los días, después de las ventas) o con "Traer del
     // portal"; el archivo queda como alternativa.
     const traer = x.portal && boton('Traer del portal y conciliar', async () => {
@@ -435,9 +460,7 @@ function pintarExtractos() {
     cab.append(el('div', { className: 'acc' }, ...(traer ? [traer, boton('Importar archivo', imp.abrir)]
       : [boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)])));
     cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ` + (x.portal ? corridaPortal(x) : queArchivo(x)) }), x.portal ? rango : comoBajar(x));
-    const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
-      : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_ingresos ? ` Quedan ${e.lineas_ingresos} línea(s) de ingresos para conciliar.` : '') })
-      : el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: `El último extracto llega hasta el ${fecha(e.hasta)}: falta del ${fecha(sumarDias(e.hasta, 1))} a ayer.` })));
+    const estado = el('div', { className: alDia ? 'al-dia' : 'tarea' }, estadoProcesador(x));
     return el('section', { className: 'card bloque' }, cab, estado, nota, imp.el);
   }));
 }

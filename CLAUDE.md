@@ -628,13 +628,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   En la ficha del procesador (Medios de pago): dirección, usuario y clave (cifrados), "Traer el extracto solo" (`portal_auto`), la última
   corrida y "Probar conexión" (`POST /fin/procesadores/probar-portal`: detecta clave mala, captcha y código de verificación). **Traer**
   (`traerPortal` en `tesoreria.js`, `POST /fin/procesadores/:id/traer`): baja el CSV, lo pasa por `importarExtracto` (la misma función que
-  el archivo subido) en la cuenta donde deposita y corre `conciliarAutomatica`; sin rango, desde el día siguiente al último extracto (al
-  menos los 3 últimos días; sin extractos, desde el 1 del mes) hasta ayer, hasta 62 días atrás. **Todos los días**, el programador lo corre
+  el archivo subido) en la cuenta donde deposita y corre `conciliarAutomatica`; sin rango, desde el día siguiente al último extracto (sin
+  extractos, el primer día de ventas traídas) **hasta el último día de ventas traídas** de todos los puntos de venta que cobran con el
+  procesador (`ventasDelProcesador`; pedido de Fer, 03/11/2026: se trabaja mes por mes y pedirlo hasta ayer no tenía sentido), nunca hoy,
+  hasta 62 días atrás. El paso 3 muestra por procesador las ventas traídas, hasta dónde llega el extracto y lo que falta conciliar
+  (líneas de ingresos y cobros sin acreditar), y está al día cuando el extracto llega hasta las ventas. **Todos los días**, el programador lo corre
   después de la sincronización de las ventas (así sus cobros ya están procesados), firmado por `sistema`; cada corrida queda en
   `fin.portal_corrida`, una automática por procesador y día. En el paso 3 de Ingresos, con portal: "Traer del portal y conciliar" (con
   "Elegir el rango") y el archivo como alternativa. Si el portal cambia, el error lo dice y el extracto sigue por archivo.
-  **No se trae sin las ventas** (`ventasSinTraer`): cada punto de venta que cobra con el procesador tiene que tener traído hasta el
-  último día del rango; a mano lo rechaza diciendo cuáles faltan, la automática no corre. **Tramos de 31 días**: con un rango más largo
+  **No se trae sin las ventas**: cada punto de venta que cobra con el procesador tiene que tener traído hasta el último día del rango;
+  a mano lo rechaza diciendo hasta dónde llega cada uno, la automática no corre. **Tramos de 31 días**: con un rango más largo
   el portal devuelve el CSV vacío sin error, así que se trae en tramos (un extracto cada uno) y se concilia al final. Pasó el 03/11/2026: la automática trajo
   noviembre con las ventas sólo hasta octubre, asentó una apertura al 31/10 y pareó cobros con ventas de otros días (se deshizo y se
   volvió a traer del 01/10). La apertura de un extracto no cuenta lo anulado: una cuenta a la que se le deshizo todo vuelve a empezar.
