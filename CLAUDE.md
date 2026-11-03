@@ -612,6 +612,18 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `?lado=` y el resumen del procesador trae `lineas_ingresos` y `lineas_egresos`. El paso 4 de Ingresos cuenta y muestra sólo los
   ingresos; **`egresos.html`** (Tesorería, "Proceso de egresos") muestra, cuenta por cuenta (bancos con extracto), los egresos sin
   resolver, con "Aplicar las reglas"; ahí van a ir las órdenes de pago a proveedores. Conciliación sigue mostrando todo.
+- **Pago24 por el portal — EN CURSO** (pedido de Fer, 03/11/2026; migración 20261117, `app/pago24.js`). Pago24 (Traxion) no tiene API (lo
+  confirmó Fer): el portal lo arma el servidor con un framework propio ("Ajaxifier"), relevado con Claude en el navegador de Fer. Todo
+  pasa por `/tr4?_s=<sesión>&_k=<clave>`: `_s` fija en la sesión, `_k` nueva en cada respuesta (de los links o el formulario de la
+  última); cookie SERVERID (afinidad) que hay que mantener; los campos son números que cambian en cada carga (se ubican por etiqueta o
+  tipo); la búsqueda responde la página entera con la tabla (Fecha, Descripción, Contraparte, Débitos en negativo, Créditos, Saldo,
+  Objs.), 100 filas por página; ojo: en la Cta. Cte. Virtual los signos van al revés. Sin navegador en el servidor (sin swap, riesgo de
+  OOM): un cliente HTTP que repite lo que hace la página. **Etapa 1 (hecha)**: dirección del portal, usuario y clave en la ficha del
+  procesador Pago24 (Medios de pago; `fin.procesador.portal_url` y `portal_credenciales`, cifradas; el portal es
+  `https://traxion.telerecargas.com.ar/`, que desde el servidor muestra el formulario sin el widget del captcha) y "Probar conexión"
+  (`POST /fin/procesadores/probar-portal`): entra y devuelve sólo los textos del menú; detecta clave mala, captcha (reCAPTCHA) y
+  código de verificación. Si desde el servidor pide captcha, no es viable y el extracto sigue por archivo. Falta: el recorrido hasta la
+  pestaña, la búsqueda por fechas, el paginado (o la exportación, si no es un Excel de verdad) y la importación diaria.
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también

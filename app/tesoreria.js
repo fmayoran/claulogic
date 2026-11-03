@@ -5,6 +5,8 @@ const express = require('express');
 const { pool } = require('./db');
 const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion } = require('./util');
 const { aplicarReglas, crearRegla, rubroValido } = require('./resultados');
+const crypto = require('./crypto');
+const pago24 = require('./pago24');
 // Plata exacta en centavos (BigInt) para sumar importes en texto sin pasar por float.
 const centavos = v => { const s = String(v), neg = s.startsWith('-'), [e, d = ''] = s.replace('-', '').split('.'); const c = BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -c : c; };
 const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
@@ -1386,7 +1388,7 @@ const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.
 r.get('/fin/procesadores', h(async (req, res) => {
   const { rows: procesadores } = await pool.query(
     `SELECT pr.id, pr.nombre, pr.marca, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
-            pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita,
+            pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita, pr.portal_url, pr.portal_credenciales IS NOT NULL AS tiene_portal,
             COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
                        WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
        FROM fin.procesador pr JOIN fin.cuenta cu ON cu.id = pr.cuenta_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = cu.id
@@ -1399,10 +1401,14 @@ function leerProcesador(b) {
               marca: texto(b.marca) || marcaDe(b.nombre),
               cuenta_acredita_id: texto(b.cuenta_acredita_id),
               activo: b.activo === undefined ? true : !!b.activo,
-              tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String) };
+              tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
+              portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave) };
   if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
+  if (p.marca !== 'pago24') Object.assign(p, { portal_url: null, portal_usuario: null, portal_clave: null });
+  if (p.portal_url && !/^https:\/\/[^\s/]+/.test(p.portal_url)) throw new ErrorUsuario('La dirección del portal empieza con https://');
+  if (!!p.portal_usuario !== !!p.portal_clave) throw new ErrorUsuario('Cargá juntos el usuario y la clave del portal.');
   return p;
 }
 // Deja activos exactamente los tipos elegidos (los que se sacan se desactivan: puede haber cobros con ellos).
@@ -1431,12 +1437,35 @@ async function cuentaAcredita(c, p, cuentaPendiente) {
   if (p.cuenta_acredita_id === cuentaPendiente) throw new ErrorUsuario('La cuenta donde deposita no puede ser la misma "a acreditar".');
   return p.cuenta_acredita_id;
 }
+// Usuario y clave del portal (Pago24), cifrados con la clave propia de ClauLogic; nunca se devuelven. Sin datos nuevos, null.
+const cifrarPortal = p => p.portal_usuario ? crypto.encrypt(JSON.stringify({ usuario: p.portal_usuario, clave: p.portal_clave })) : null;
+// Probar la conexión con el portal (botón de la ficha del procesador), con lo que está en la ficha: lo que no se volvió a tipear
+// se toma de lo guardado. No guarda nada.
+r.post('/fin/procesadores/probar-portal', h(async (req, res) => {
+  const b = req.body;
+  let guardadas = {}, urlGuardada = null;
+  if (b.procesador_id) {
+    const { rows: [p] } = await pool.query('SELECT portal_url, portal_credenciales FROM fin.procesador WHERE id = $1::uuid', [texto(b.procesador_id)]);
+    if (p) { urlGuardada = p.portal_url; if (p.portal_credenciales) guardadas = JSON.parse(crypto.decrypt(p.portal_credenciales)); }
+  }
+  const cred = { url: texto(b.portal_url) || urlGuardada, usuario: texto(b.portal_usuario) || guardadas.usuario, clave: texto(b.portal_clave) || guardadas.clave };
+  if (!cred.url || !/^https:\/\//.test(cred.url)) throw new ErrorUsuario('Cargá la dirección del portal (https://…).');
+  if (!cred.usuario || !cred.clave) throw new ErrorUsuario('Cargá el usuario y la clave del portal de Pago24.');
+  try { res.json({ ok: true, ...await pago24.probar(cred) }); }
+  catch (e) {
+    // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página.
+    if (!(e instanceof pago24.ErrorPago24)) throw e;
+    console.error('pago24:', e.message);
+    throw new ErrorUsuario(e.message, 424);
+  }
+}));
 r.post('/fin/procesadores', h(async (req, res) => {
   const p = leerProcesador(req.body);
   const id = await enTransaccion(async c => {
     const cuenta = await cuentaProcesador(c, p);
-    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id, marca) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), p.marca]);
+    const { rows: [n] } = await c.query(
+      'INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id, marca, portal_url, portal_credenciales) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), p.marca, p.portal_url, cifrarPortal(p)]);
     await guardarTipos(c, n.id, p.tipos);
     return n.id;
   });
@@ -1448,8 +1477,10 @@ r.put('/fin/procesadores/:id', h(async (req, res) => {
     const { rows: [ant] } = await c.query('SELECT cuenta_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
     if (!ant) throw new ErrorUsuario('No existe ese procesador.', 404);
     const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
-    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4, marca = $6 WHERE id = $5',
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca]);
+    // Sin usuario y clave nuevos se conservan los guardados (no se muestran, así que no se reenvían); otra marca los borra.
+    await c.query(`UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4, marca = $6, portal_url = $7,
+                          portal_credenciales = CASE WHEN $6 <> 'pago24' THEN NULL ELSE COALESCE($8, portal_credenciales) END WHERE id = $5`,
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca, p.portal_url, cifrarPortal(p)]);
     await guardarTipos(c, req.params.id, p.tipos);
   });
   res.json({ ok: true });

@@ -37,6 +37,16 @@
           Conciliación y se concilia solo contra los cobros: lo acreditado pasa de "a acreditar" a esta cuenta, con sus cargos e impuestos.</p>
         <label class="check" id="activoWrap" hidden><input type="checkbox" name="activo" checked> Activo</label>
       </fieldset>
+      <fieldset id="portal" hidden>
+        <legend>Conexión con el portal</legend>
+        <p class="ayuda">Para traer solo el extracto de la Cta. Cte. Disponible, sin bajar el archivo. Pago24 no tiene API: se entra a su portal con
+          el usuario de la empresa. El usuario y la clave se guardan cifrados y no se vuelven a mostrar; para cambiarlos, tipealos de nuevo.</p>
+        <div class="fila"><label>Dirección del portal<input name="portal_url" placeholder="https://…" autocomplete="off"></label></div>
+        <div class="fila"><label>Usuario<input name="portal_usuario" autocomplete="off"></label>
+          <label>Clave<input name="portal_clave" type="password" autocomplete="new-password"></label></div>
+        <div class="acciones"><button type="button" id="probar">Probar conexión</button><span class="msg" id="msgP"></span></div>
+        <div id="probado"></div>
+      </fieldset>
       <div class="acciones"><button type="submit" class="prim" id="guardar">Guardar</button><span class="msg" id="msg"></span></div>
     </form>
   </main>
@@ -74,27 +84,48 @@ function llenarCuentas(valor) {
 function llenarDeposita(valor) {
   opciones(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar');
 }
+// La conexión con el portal es sólo de Pago24 (el único sin API que se trae entrando a su página).
+const mostrarPortal = () => { $('#portal').hidden = f.marca.value !== 'pago24'; };
+f.marca.addEventListener('change', mostrarPortal);
 function nuevo() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo procesador'; $('#activoWrap').hidden = true; f.marca.value = 'mercadopago';
   llenarCuentas(null); llenarDeposita(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
+  mostrarPortal(); msg('', '', '#msgP'); $('#probado').replaceChildren();
 }
 function abrir(id) {
   const p = procesadores.find(x => x.id === id); if (!p) return nuevo();
   actual = id; msg(''); $('#titulo').textContent = p.nombre;
   f.nombre.value = p.nombre; f.marca.value = p.marca; f.activo.checked = p.activo; $('#activoWrap').hidden = false;
   $$('#tipos input').forEach(x => { x.checked = p.tipos.includes(x.value); });
+  f.portal_url.value = p.portal_url || ''; f.portal_usuario.value = ''; f.portal_clave.value = '';
+  f.portal_usuario.placeholder = p.tiene_portal ? 'guardado (tipealo para cambiarlo)' : '';
+  f.portal_clave.placeholder = p.tiene_portal ? 'guardada' : '';
+  mostrarPortal(); msg('', '', '#msgP'); $('#probado').replaceChildren();
   llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); sinCambios(f); cargar();
 }
 f.onsubmit = async e => {
   e.preventDefault();
   const body = { nombre: f.nombre.value, marca: f.marca.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
-                 activo: actual ? f.activo.checked : true };
+                 activo: actual ? f.activo.checked : true,
+                 portal_url: f.portal_url.value.trim() || null, portal_usuario: f.portal_usuario.value.trim() || null, portal_clave: f.portal_clave.value || null };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'fin/procesadores/' + actual : 'fin/procesadores', { method: actual ? 'PUT' : 'POST', body });
     await cargar(); abrir(d.id || actual); msg('Guardado.', 'ok');
   } catch (err) { msg(err.message, 'mal'); }
   finally { $('#guardar').disabled = false; }
+};
+// Probar con lo que está en la ficha, sin guardar: entra al portal y cuenta qué ve.
+$('#probar').onclick = async () => {
+  $('#probar').disabled = true; msg('Entrando al portal…', '', '#msgP'); $('#probado').replaceChildren();
+  try {
+    const r = await api('fin/procesadores/probar-portal', { method: 'POST', body: { procesador_id: actual, portal_url: f.portal_url.value.trim() || null,
+      portal_usuario: f.portal_usuario.value.trim() || null, portal_clave: f.portal_clave.value || null } });
+    msg(r.mensaje, 'ok', '#msgP');
+    if (r.opciones && r.opciones.length) $('#probado').replaceChildren(el('details', {}, el('summary', { textContent: 'Lo que se ve después de entrar' }),
+      el('p', { className: 'ayuda', textContent: r.opciones.join(' · ') })));
+  } catch (e) { msg(e.message, 'mal', '#msgP'); }
+  finally { $('#probar').disabled = false; }
 };
 $('#nuevo').onclick = nuevo;
 cargar().then(() => procesadores.length ? abrir(procesadores[0].id) : nuevo()).catch(e => msg(e.message, 'mal'));
