@@ -690,7 +690,10 @@ async function importarExtracto(b) {
     // anterior: así su saldo puede coincidir con el del extracto desde el primer día (decisión de Fer).
     let apertura = null;
     if (saldoInicial && !/^-?0+(\.0+)?$/.test(saldoInicial.saldo)) {
-      const { rows: [{ hay }] } = await c.query('SELECT EXISTS (SELECT 1 FROM fin.movimiento_tes WHERE cuenta_id = $1) AS hay', [cuenta]);
+      // Lo anulado no cuenta: una cuenta a la que se le deshizo todo (03/11/2026, Pago24) vuelve a empezar.
+      const { rows: [{ hay }] } = await c.query(
+        `SELECT EXISTS (SELECT 1 FROM fin.movimiento_tes m WHERE m.cuenta_id = $1 AND m.anula_a IS NULL
+                          AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)) AS hay`, [cuenta]);
       if (!hay) {
         const neg = saldoInicial.saldo.startsWith('-');
         await c.query(
@@ -828,7 +831,10 @@ r.post('/fin/conciliacion', h(async (req, res) => {
 // alcanza con separarlo de la línea: se anula (las dos patas de la acreditación, con su misma fecha) y el pago de la
 // venta vuelve a quedar sin acreditar, para que la línea se pueda volver a conciliar.
 r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
-  const linea = numero(req.params.linea, { campo: 'la línea', requerido: true });
+  await deshacerConciliacion(numero(req.params.linea, { campo: 'la línea', requerido: true }));
+  res.json({ ok: true });
+}));
+async function deshacerConciliacion(linea) {
   await enTransaccion(async c => {
     const { rows: movs } = await c.query(
       `SELECT m.* FROM fin.conciliacion k JOIN fin.movimiento_tes m ON m.id = k.movimiento_id WHERE k.linea_id = $1 FOR UPDATE OF k`, [linea]);
@@ -874,8 +880,7 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
     }
     await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = NULL WHERE acreditado_linea_id = ANY($1::bigint[])', [lineas]);
   });
-  res.json({ ok: true });
-}));
+}
 
 // ── Conciliación de la cuenta de un procesador ──────────────────────────────────────────────
 // El extracto de la cuenta donde deposita un procesador (Pago24, Mercado Pago…) se concilia solo contra los pagos de
@@ -1423,7 +1428,7 @@ function leerProcesador(b) {
               activo: b.activo === undefined ? true : !!b.activo,
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
               portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave),
-              portal_auto: b.portal_auto === undefined ? true : !!b.portal_auto };
+              portal_auto: !!b.portal_auto };
   if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
@@ -1483,6 +1488,18 @@ r.post('/fin/procesadores/probar-portal', h(async (req, res) => {
 // Traer el extracto de Pago24 desde su portal (etapa 2): baja el CSV del rango, lo importa en la cuenta donde deposita, como
 // si se hubiera subido el archivo, y concilia. Sin rango pedido: desde el día siguiente al último extracto (al menos los 3
 // últimos días, que reimportar no duplica; sin extractos, desde el 1 del mes) hasta ayer, para traer días completos.
+// Los puntos de venta que cobran con el procesador y no tienen traídas las ventas hasta `hasta`: el último día traído es el
+// último sincronizado por API o, por archivo, el de la última venta.
+async function ventasSinTraer(procesadorId, hasta) {
+  const { rows } = await pool.query(
+    `SELECT s.nombre AS sede, to_char(GREATEST((SELECT MAX(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
+                                              (SELECT MAX(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS ultimo
+       FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+      WHERE i.activa AND s.activa
+        AND EXISTS (SELECT 1 FROM pos.medio m JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id WHERE m.integracion_id = i.id AND mp.procesador_id = $1)
+      ORDER BY s.nombre`, [procesadorId]);
+  return rows.filter(r => !r.ultimo || r.ultimo < hasta);
+}
 async function traerPortal(req, pr, automatica, desdePedido = null, hastaPedido = null) {
   if (!pr.portal_url || !pr.portal_credenciales) throw new ErrorUsuario('Falta la conexión con el portal en la ficha del procesador.');
   if (!pr.cuenta_acredita_id) throw new ErrorUsuario(`Primero indicá en qué cuenta deposita ${pr.nombre}.`);
@@ -1495,6 +1512,14 @@ async function traerPortal(req, pr, automatica, desdePedido = null, hastaPedido 
   if (x.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
   if (x.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
   if (x.al_reves) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
+  // Sin las ventas del rango, los cobros no tienen contra qué parearse y la conciliación queda a medias o parea mal (pasó el
+  // 03/11/2026: se trajo noviembre con las ventas sólo hasta octubre). Se exige que cada punto de venta que cobra con este
+  // procesador tenga traído hasta el último día del rango; la automática, sin eso, no corre (y vuelve a probar más tarde).
+  const faltan = await ventasSinTraer(pr.id, x.hasta);
+  if (faltan.length) {
+    if (automatica) return null;
+    throw new ErrorUsuario(`Faltan traer las ventas hasta el ${x.hasta.split('-').reverse().join('/')} de ${faltan.map(f => f.sede + (f.ultimo ? ` (traídas hasta el ${f.ultimo.split('-').reverse().join('/')})` : ' (sin ventas traídas)')).join(', ')}: traelas primero.`);
+  }
   const { rows: [co] } = await pool.query(
     'INSERT INTO fin.portal_corrida (procesador_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id',
     [pr.id, automatica, x.desde, x.hasta]);
@@ -1615,5 +1640,5 @@ async function asentarLote(c, loteId, fecha) {
   return ent.id;
 }
 
-Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar, traerPortalesAutomaticos });
+Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar, traerPortalesAutomaticos, traerPortal, deshacerConciliacion });
 module.exports = r;

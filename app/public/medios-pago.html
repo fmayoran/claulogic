@@ -44,7 +44,7 @@
         <div class="fila"><label>Dirección del portal<input name="portal_url" placeholder="https://…" autocomplete="off"></label></div>
         <div class="fila"><label>Usuario<input name="portal_usuario" autocomplete="off"></label>
           <label>Clave<input name="portal_clave" type="password" autocomplete="new-password"></label></div>
-        <label class="check"><input type="checkbox" name="portal_auto" checked> Traer el extracto solo, todos los días después de las ventas</label>
+        <label class="check"><input type="checkbox" name="portal_auto"> Traer el extracto solo, todos los días después de las ventas</label>
         <p class="ayuda" id="ultimaCorrida"></p>
         <div class="acciones"><button type="button" id="probar">Probar conexión</button><span class="msg" id="msgP"></span></div>
         <div id="probado"></div>
@@ -102,7 +102,7 @@ function abrir(id) {
   f.portal_url.value = p.portal_url || ''; f.portal_usuario.value = ''; f.portal_clave.value = '';
   f.portal_usuario.placeholder = p.tiene_portal ? 'guardado (tipealo para cambiarlo)' : '';
   f.portal_clave.placeholder = p.tiene_portal ? 'guardada' : '';
-  f.portal_auto.checked = p.portal_auto !== false;
+  f.portal_auto.checked = !!p.portal_auto;
   const c = p.ultima_corrida;
   $('#ultimaCorrida').textContent = !c ? '' : `Última vez que se trajo (${c.automatica ? 'automática' : 'a mano'}): `
     + `${new Date(c.iniciada_en).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}, `

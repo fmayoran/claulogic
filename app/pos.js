@@ -124,7 +124,7 @@ function leerIntegracion(b) {
     // Maxirest: usuario (mail) y clave de Maxirest Cloud, y el código del restaurante si el usuario tiene más de uno.
     mail: texto(b.mail), password: texto(b.password), cliente: texto(b.cliente),
     // Por API se traen solas todos los días a las 5:00 (se puede pausar); por archivo, siempre a mano.
-    sincroniza_auto: b.sincroniza_auto === undefined ? true : !!b.sincroniza_auto,
+    sincroniza_auto: !!b.sincroniza_auto,
   };
   if (!['fudo', 'maxirest', 'otro'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
   if (!['api', 'archivo'].includes(i.modo)) throw new ErrorUsuario('El modo es api o archivo.');
@@ -1161,5 +1161,5 @@ r.post('/pos/efectivo/:integracion/diferencia', h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
-Object.assign(r, { correrAutomaticas });
+Object.assign(r, { correrAutomaticas, correr });
 module.exports = r;

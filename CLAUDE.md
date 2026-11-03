@@ -633,6 +633,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   después de la sincronización de las ventas (así sus cobros ya están procesados), firmado por `sistema`; cada corrida queda en
   `fin.portal_corrida`, una automática por procesador y día. En el paso 3 de Ingresos, con portal: "Traer del portal y conciliar" (con
   "Elegir el rango") y el archivo como alternativa. Si el portal cambia, el error lo dice y el extracto sigue por archivo.
+  **No se trae sin las ventas** (`ventasSinTraer`): cada punto de venta que cobra con el procesador tiene que tener traído hasta el
+  último día del rango; a mano lo rechaza diciendo cuáles faltan, la automática no corre. Pasó el 03/11/2026: la automática trajo
+  noviembre con las ventas sólo hasta octubre, asentó una apertura al 31/10 y pareó cobros con ventas de otros días (se deshizo y se
+  volvió a traer del 01/10). La apertura de un extracto no cuenta lo anulado: una cuenta a la que se le deshizo todo vuelve a empezar.
+- **Corridas automáticas apagadas** (decisión de Fer, 03/11/2026, migración 20261119: "prefiero ir corriendo a mano" hasta tener todo
+  probado): ventas (`sincroniza_auto`) y portales (`portal_auto`) en falso, y nacen en falso. Se prenden en la ficha de la sede o del
+  procesador.
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también

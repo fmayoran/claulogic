@@ -50,7 +50,7 @@
           <label>Clave de Maxirest<input name="password" type="password" autocomplete="new-password"></label>
           <label>Código del restaurante<input name="cliente" inputmode="numeric" maxlength="12" placeholder="49502"></label>
         </div>
-        <label class="check" id="autoWrap"><input type="checkbox" name="sincroniza_auto" checked> Traer las ventas automáticamente todos los días a las 5:00 (el día anterior)</label>
+        <label class="check" id="autoWrap"><input type="checkbox" name="sincroniza_auto"> Traer las ventas automáticamente todos los días a las 5:00 (el día anterior)</label>
         <p class="ayuda" id="ayudaCred">En Fudo (plan Pro): Aplicaciones externas &gt; API Pública General, y un usuario propio para la API en Administración &gt; Usuarios.
           Las credenciales se guardan cifradas y no se vuelven a mostrar; para cambiarlas, cargalas de nuevo.</p>
         <p class="ayuda" id="ayudaCredMx">El usuario y la clave con que se entra a cloud.maxirest.com (conviene uno propio para ClauLogic). El código del restaurante
@@ -144,7 +144,7 @@ async function abrir(id) {
   $('#activaWrap').hidden = false; $('#ayudaActiva').hidden = false;
   const i = integDe(id);
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
-  f.sincroniza_auto.checked = i ? i.sincroniza_auto !== false : true;
+  f.sincroniza_auto.checked = !!(i && i.sincroniza_auto);
   f.apiKey.value = f.apiSecret.value = f.mail.value = f.password.value = f.cliente.value = '';
   f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
   f.cliente.placeholder = i && i.tiene_credenciales ? 'cargado (no se muestra)' : '49502';
