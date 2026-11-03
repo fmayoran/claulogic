@@ -108,8 +108,8 @@
   </section>
 
   <section class="paso" id="p-conciliar" hidden>
-    <p class="intro">Lo que la conciliación automática no pudo resolver, cuenta por cuenta, para revisar a mano. Primero lo que tiene sugerencia
-      (se confirma con un toque).</p>
+    <p class="intro">Los cobros que la conciliación automática no pudo resolver, cuenta por cuenta, para revisar a mano. Primero lo que tiene sugerencia
+      (se confirma con un toque). Las transferencias, los pagos y los débitos de estas cuentas van al <a href="egresos.html">proceso de egresos</a>.</p>
     <div class="segm" id="cuentasC" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
     <section class="card estado-c" id="cEstado" hidden>
       <div><p class="titulo" id="cTitulo"></p><p class="detalle" id="cDetalle"></p></div>
@@ -183,7 +183,8 @@ function estadoPasos() {
   const cobradoEf = puntos.reduce((s, p) => s + p.dias.reduce((a, d) => a + centavos(d.efectivo || '0'), 0n), 0n);
   const conCuenta = procs.filter(x => x.resumen);
   const sinExtracto = procs.filter(x => !x.resumen || !x.resumen.extracto.hasta || x.resumen.extracto.hasta < ayer).length;
-  const lineas = conCuenta.reduce((s, x) => s + (x.resumen.extracto.lineas_pendientes || 0), 0);
+  // Sólo las líneas de ingresos: los cobros y sus costos (las transferencias y los pagos van al proceso de egresos).
+  const lineas = conCuenta.reduce((s, x) => s + (x.resumen.extracto.lineas_ingresos || 0), 0);
   return {
     ventas: nVentas ? [false, `${nVentas} para resolver`] : [true, 'al día'],
     // "Rendido" sólo si hubo efectivo, las ventas no tienen nada pendiente (cobros sin procesar no llegan a la cuenta de
@@ -410,7 +411,7 @@ function pintarExtractos() {
     cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)));
     cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }), comoBajar(x));
     const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
-      : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_pendientes ? ` Quedan ${e.lineas_pendientes} línea(s) para conciliar.` : '') })
+      : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_ingresos ? ` Quedan ${e.lineas_ingresos} línea(s) de ingresos para conciliar.` : '') })
       : el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: `El último extracto llega hasta el ${fecha(e.hasta)}: falta del ${fecha(sumarDias(e.hasta, 1))} a ayer.` })));
     return el('section', { className: 'card bloque' }, cab, estado, nota, imp.el);
   }));
@@ -424,18 +425,18 @@ async function pintarConciliar() {
     $('#cuentasC').replaceChildren(); $('#cEstado').hidden = true;
     return $('#resolver').replaceChildren(el('section', { className: 'card vacio-ok' }, el('b', { textContent: 'Todavía no hay extractos' }), 'Importalos en el paso anterior.'));
   }
-  if (!conExt.some(x => x.cuenta_id === cuentaC)) cuentaC = (conExt.find(x => x.resumen.extracto.lineas_pendientes) || conExt[0]).cuenta_id;
+  if (!conExt.some(x => x.cuenta_id === cuentaC)) cuentaC = (conExt.find(x => x.resumen.extracto.lineas_ingresos) || conExt[0]).cuenta_id;
   $('#cuentasC').replaceChildren(...conExt.map(x => {
-    const n = x.resumen.extracto.lineas_pendientes || 0;
+    const n = x.resumen.extracto.lineas_ingresos || 0;
     const b = el('button', { type: 'button', className: x.cuenta_id === cuentaC ? 'act' : '', textContent: `${x.nombre}${n ? ` · ${n}` : ''}` });
     b.onclick = () => { cuentaC = x.cuenta_id; msg('', '', '#msgC'); pintarConciliar(); };
     return b;
   }));
   const x = conExt.find(y => y.cuenta_id === cuentaC);
-  const d = await api('fin/conciliacion?cuenta=' + cuentaC);
+  const d = await api(`fin/conciliacion?cuenta=${cuentaC}&lado=ingresos`);
   const n = d.lineas.length + d.movimientos.length;
   $('#cEstado').hidden = false;
-  $('#cTitulo').textContent = n ? `${x.cuenta}: faltan resolver ${n} ${n === 1 ? 'línea' : 'líneas'}` : `${x.cuenta}: todo conciliado`;
+  $('#cTitulo').textContent = n ? `${x.cuenta}: faltan resolver ${n} ${n === 1 ? 'línea' : 'líneas'} de ingresos` : `${x.cuenta}: ingresos conciliados`;
   $('#cTitulo').className = 'titulo' + (n ? '' : ' ok');
   const { cuentas: cs } = await api('fin/cuentas'), c = cs.find(y => y.id === cuentaC);
   $('#cDetalle').replaceChildren(...Conc.frenteExtracto(c ? c.saldo : '0', d.procesador));

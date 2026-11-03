@@ -584,6 +584,19 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `otro_procesador`): si la venta tiene anulado un pago del procesador del extracto por el mismo importe y el válido es de
   otro (la #1276 de CORTAFUEGO entró por Mercado Pago y en Fudo quedó como Pago24), se propone acreditarlo ahí, saliendo del
   "a acreditar" del otro (`/fin/conciliacion/acreditar` con `otro_procesador`, sólo por el mismo importe).
+- **Ingresos y egresos, procesos separados** (decisión de Fer, 03/11/2026: que la conciliación de ingresos sea casi automática).
+  Cada línea pendiente tiene su **lado** (`ladoDe` en `tesoreria.js`): los cobros, lo que entra y los **costos de la venta** (cargos,
+  IVA, impuestos y retenciones: los que reconoce `clasificar`, que se registran en el proceso de ingresos) son de **ingresos**; lo
+  demás que sale (transferencias a banco, pagos desde la cuenta, débitos, apartados) es de **egresos**. `/fin/conciliacion` acepta
+  `?lado=` y el resumen del procesador trae `lineas_ingresos` y `lineas_egresos`. El paso 4 de Ingresos cuenta y muestra sólo los
+  ingresos; **`egresos.html`** (Tesorería, "Proceso de egresos") muestra, cuenta por cuenta (bancos con extracto), los egresos sin
+  resolver, con "Aplicar las reglas"; ahí van a ir las órdenes de pago a proveedores. Conciliación sigue mostrando todo.
+- **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
+  SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
+  reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también
+  cobra y devuelve; cifrado y nunca de vuelta al navegador): `POST|GET|PUT /v1/account/release_report/config` (columnas, una vez),
+  `POST /v1/account/release_report` {begin_date, end_date} (202, asíncrono), `GET /v1/account/release_report/list`,
+  `GET /v1/account/release_report/{file_name}`; también `POST|DELETE …/schedule` para que lo genere solo.
 - Pendiente: modificadores de Fudo (subitems), propinas.
 
 ### Estado de resultados por filial (pedido de Fer, 28/10/2026; migración 20261113)

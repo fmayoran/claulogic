@@ -604,13 +604,14 @@ r.post('/fin/extractos', h(async (req, res) => {
 // del mismo importe y cheques propios emitidos por ese importe, con la fecha más cercana primero.
 r.get('/fin/conciliacion', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
+  const lado = ['ingresos', 'egresos'].includes(req.query.lado) ? req.query.lado : null;
   const [lineas, movs, cheques, hechas] = await Promise.all([
     pool.query(`SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
                  WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
     // Los movimientos que deberían aparecer en el extracto: desde que empiezan los extractos importados (la apertura
     // y lo anterior no van a aparecer nunca), y sin los anulados ni sus anulaciones (se cancelan entre sí).
-    pool.query(`SELECT m.id, m.fecha, m.tipo, m.concepto, (m.entrada - m.salida)::text AS importe FROM fin.movimiento_tes m
+    pool.query(`SELECT m.id, m.fecha, m.tipo, m.concepto, m.gasto, (m.entrada - m.salida)::text AS importe FROM fin.movimiento_tes m
                  WHERE m.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id)
                    AND m.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)
                    AND m.fecha >= COALESCE((SELECT MIN(desde) FROM fin.extracto e WHERE e.cuenta_id = m.cuenta_id), '-infinity'::date)
@@ -632,16 +633,19 @@ r.get('/fin/conciliacion', h(async (req, res) => {
       ...cheques.rows.filter(ch => norm(ch.importe) === norm(l.importe))
         .map(ch => ({ tipo: 'cheque', id: ch.id, fecha: ch.fecha_pago, descripcion: `Cheque propio Nº ${ch.numero} (vence ${ch.fecha_pago})`, dias: dias(ch.fecha_pago, l.fecha) })),
     ].sort((a, b) => a.dias - b.dias);
-    return { ...l, candidatos: cand };
-  });
+    return { ...l, lado: ladoDe(l), candidatos: cand };
+  }).filter(l => !lado || l.lado === lado);
+  // Un movimiento que todavía no está en el extracto: lo que entra es de ingresos; lo que sale, de egresos.
+  const movsLado = movs.rows.map(m => ({ ...m, lado: String(m.importe).startsWith('-') && !m.gasto ? 'egresos' : 'ingresos' }))
+    .filter(m => !lado || m.lado === lado);
   const { rows: extractos } = await pool.query(
     `SELECT e.id, e.archivo, e.importado_en, e.importado_por, to_char(e.desde, 'YYYY-MM-DD') AS desde, to_char(e.hasta, 'YYYY-MM-DD') AS hasta,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id) AS lineas,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id
                 AND (l.compensa_a IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
        FROM fin.extracto e WHERE e.cuenta_id = $1::uuid ORDER BY e.importado_en DESC LIMIT 20`, [cuenta]);
-  res.json({ ok: true, lineas: out, movimientos: movs.rows, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
-    sugerencias: await sugerenciasProcesador(cuenta), extractos });
+  res.json({ ok: true, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
+    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos });
 }));
 
 // Descartar un extracto importado por error (un archivo equivocado, o el resumen de Mercado Pago sin las
@@ -797,6 +801,10 @@ function grupoDeLotes(lotes, l) {
   return mejor && mejor.g;
 }
 const clasificar = l => (GASTOS.find(([, re]) => re.test(`${l.concepto} ${l.referencia}`)) || [])[0] || null;
+// De qué proceso es una línea pendiente (decisión de Fer, 03/11/2026): los cobros, lo que entra y los costos de la venta
+// (cargos, IVA, impuestos y retenciones) son del proceso de ingresos; lo demás que sale (transferencias, pagos, débitos),
+// del proceso de egresos.
+const ladoDe = l => !String(l.importe).startsWith('-') || clasificar(l) ? 'ingresos' : 'egresos';
 const esReverso = l => /reverso/i.test(`${l.concepto} ${l.referencia}`);
 const normImp = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
 const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
@@ -1173,6 +1181,11 @@ async function resumenProcesador(cuenta) {
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = p.cuenta_acredita_id
       WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
   if (!pr) return null;
+  const { rows: pendLineas } = await pool.query(
+    `SELECT l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta]);
+  const porLado = { ingresos: 0, egresos: 0 };
+  for (const l of pendLineas) porLado[ladoDe(l)]++;
   const [{ rows: [ext] }, { rows: pendientes }, { rows: costos }, { rows: [sinLinea] }] = await Promise.all([
     pool.query(`SELECT to_char(MAX(hasta), 'YYYY-MM-DD') AS hasta,
                        (SELECT saldo_final::text FROM fin.extracto WHERE cuenta_id = $1 AND saldo_final IS NOT NULL ORDER BY hasta DESC, importado_en DESC LIMIT 1) AS saldo_final,
@@ -1239,7 +1252,7 @@ async function resumenProcesador(cuenta) {
                  WHERE mp.procesador_id = $1 AND p.lote_id IS NOT NULL GROUP BY mp.tipo_operacion ORDER BY SUM(p.importe) DESC`, [pr.id]),
   ]);
   const todosCostos = [...costos, ...costosLote.map(x => ({ ...x, comision: x.costo, iva: '0', imp_debitos_creditos: '0', retencion: '0' }))];
-  return { ...pr, extracto: ext, pendientes, costos: todosCostos, gastos_sin_venta: sinLinea, lotes, por_liquidar: porLiquidar };
+  return { ...pr, extracto: { ...ext, lineas_ingresos: porLado.ingresos, lineas_egresos: porLado.egresos }, pendientes, costos: todosCostos, gastos_sin_venta: sinLinea, lotes, por_liquidar: porLiquidar };
 }
 
 // Las cuentas de los procesadores, para el proceso de ingresos: dónde deposita cada uno, hasta cuándo llega su último

@@ -132,7 +132,7 @@ const GRUPOS = [
   ['Inicio', [['index.html', 'Panel'], ['tablero.html', 'Tablero'], ['resultados.html', 'Estado de resultados']]],
   ['Ingresos', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos']]],
   ['Compras', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente']]],
-  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['cheques.html', 'Cheques']]],
+  ['Tesorería', [['tesoreria.html', 'Cajas y bancos'], ['egresos.html', 'Proceso de egresos'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
@@ -147,7 +147,7 @@ const GRUPOS = [
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
-  'tesoreria.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
+  'tesoreria.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',

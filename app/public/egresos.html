@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Proceso de egresos · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<link rel="stylesheet" href="conciliar.css">
+<style>
+  .intro{color:var(--mut);margin:0 0 16px;max-width:760px;}
+  .estado-c{display:flex;flex-wrap:wrap;gap:10px 24px;align-items:center;justify-content:space-between;margin:0 0 16px;}
+  .estado-c .titulo{font-size:1.25rem;font-weight:700;margin:0 0 4px;} .estado-c .titulo.ok{color:var(--sube);}
+  .estado-c .detalle{color:var(--mut);font-size:.9rem;margin:0;max-width:640px;} .estado-c .detalle b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600;}
+  .msg-b{display:block;margin-top:6px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="t-cab">
+    <h1>Proceso de egresos</h1>
+    <p class="sub">Lo que sale de las cuentas y no es un costo de las ventas: transferencias a bancos, pagos a proveedores, débitos y servicios.
+      Los cobros de las ventas y sus cargos e impuestos se concilian en el proceso de ingresos.</p>
+  </div>
+  <p class="intro">Cuenta por cuenta, lo que salió según el extracto y todavía no tiene su movimiento. Un pago a un proveedor se concilia con su
+    orden de pago; un gasto se registra con su rubro (y, si se repite, con una regla para que las próximas se registren solas). Los extractos se
+    importan en el <a href="ingresos.html#extractos">proceso de ingresos</a> o en <a href="conciliacion.html">Conciliación</a>.</p>
+  <div class="segm" id="cuentas" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
+  <section class="card estado-c" id="estado" hidden>
+    <div><p class="titulo" id="titulo"></p><p class="detalle" id="detalle"></p></div>
+    <button type="button" id="auto">Aplicar las reglas</button>
+    <span class="msg msg-b" id="msgE" style="flex-basis:100%"></span>
+  </section>
+  <div id="resolver"></div>
+</main>
+<script src="comun.js"></script>
+<script src="conciliar.js"></script>
+<script>
+// Las cuentas con extracto importado y sus egresos pendientes (decisión de Fer, 03/11/2026: los egresos van aparte para que la
+// conciliación de ingresos sea casi automática).
+let cuentas = [], cuenta = null;
+async function cargar() {
+  const { cuentas: cs } = await api('fin/cuentas');
+  const conExt = cs.filter(c => c.activa && c.tipo === 'banco');
+  const datos = await Promise.all(conExt.map(c => api(`fin/conciliacion?cuenta=${c.id}&lado=egresos`).then(d => ({ c, d }))));
+  // Sólo las que tienen algún extracto importado.
+  cuentas = datos.filter(x => x.d.extractos.length);
+  if (!cuentas.length) {
+    $('#estado').hidden = true;
+    return $('#resolver').replaceChildren(el('section', { className: 'card vacio-ok' }, el('b', { textContent: 'Todavía no hay extractos' }),
+      'Importalos en el proceso de ingresos o en Conciliación.'));
+  }
+  if (!cuentas.some(x => x.c.id === cuenta)) cuenta = (cuentas.find(x => x.d.lineas.length) || cuentas[0]).c.id;
+  pintar();
+}
+function pintar() {
+  $('#cuentas').replaceChildren(...cuentas.map(({ c, d }) => {
+    const n = d.lineas.length;
+    const b = el('button', { type: 'button', className: c.id === cuenta ? 'act' : '', textContent: `${c.nombre}${n ? ` · ${n}` : ''}` });
+    b.onclick = () => { cuenta = c.id; msg('', '', '#msgE'); pintar(); };
+    return b;
+  }));
+  const { c, d } = cuentas.find(x => x.c.id === cuenta), n = d.lineas.length;
+  const total = d.lineas.reduce((s, l) => s + centavos(l.importe), 0n);
+  $('#estado').hidden = false;
+  $('#titulo').textContent = n ? `${c.nombre}: ${n} ${n === 1 ? 'egreso' : 'egresos'} sin resolver` : `${c.nombre}: egresos conciliados`;
+  $('#titulo').className = 'titulo' + (n ? '' : ' ok');
+  $('#detalle').replaceChildren(...(n ? ['Suman ', el('b', { textContent: pesos(deCentavos(total)) }), ' según el extracto.'] : ['Todo lo que salió de esta cuenta tiene su movimiento.']));
+  $('#resolver').replaceChildren(...Conc.resolver(d, { recargar: async () => { await cargar(); }, aviso: (t, tipo) => msg(t, tipo, '#msgE') }));
+}
+// Las reglas de clasificación (y en la cuenta de un procesador, todo lo automático) sobre lo pendiente.
+$('#auto').onclick = async () => {
+  $('#auto').disabled = true; msg('Aplicando…', '', '#msgE');
+  try { const t = await Conc.automatica(cuenta); await cargar(); msg(t, 'ok', '#msgE'); } catch (e) { msg(e.message, 'mal', '#msgE'); }
+  finally { $('#auto').disabled = false; }
+};
+cargar().catch(e => msg(e.message, 'mal', '#msgE'));
+</script>
+</body>
+</html>
