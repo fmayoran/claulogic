@@ -44,6 +44,8 @@
         <div class="fila"><label>Dirección del portal<input name="portal_url" placeholder="https://…" autocomplete="off"></label></div>
         <div class="fila"><label>Usuario<input name="portal_usuario" autocomplete="off"></label>
           <label>Clave<input name="portal_clave" type="password" autocomplete="new-password"></label></div>
+        <label class="check"><input type="checkbox" name="portal_auto" checked> Traer el extracto solo, todos los días después de las ventas</label>
+        <p class="ayuda" id="ultimaCorrida"></p>
         <div class="acciones"><button type="button" id="probar">Probar conexión</button><span class="msg" id="msgP"></span></div>
         <div id="probado"></div>
       </fieldset>
@@ -100,6 +102,11 @@ function abrir(id) {
   f.portal_url.value = p.portal_url || ''; f.portal_usuario.value = ''; f.portal_clave.value = '';
   f.portal_usuario.placeholder = p.tiene_portal ? 'guardado (tipealo para cambiarlo)' : '';
   f.portal_clave.placeholder = p.tiene_portal ? 'guardada' : '';
+  f.portal_auto.checked = p.portal_auto !== false;
+  const c = p.ultima_corrida;
+  $('#ultimaCorrida').textContent = !c ? '' : `Última vez que se trajo (${c.automatica ? 'automática' : 'a mano'}): `
+    + `${new Date(c.iniciada_en).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}, `
+    + (c.ok ? `del ${fecha(c.desde)} al ${fecha(c.hasta)}, ${c.resultado.nuevas} línea(s) nueva(s).` : c.ok === false ? `falló: ${c.error}` : 'en curso.');
   mostrarPortal(); msg('', '', '#msgP'); $('#probado').replaceChildren();
   llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); sinCambios(f); cargar();
 }
@@ -107,7 +114,7 @@ f.onsubmit = async e => {
   e.preventDefault();
   const body = { nombre: f.nombre.value, marca: f.marca.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
                  activo: actual ? f.activo.checked : true,
-                 portal_url: f.portal_url.value.trim() || null, portal_usuario: f.portal_usuario.value.trim() || null, portal_clave: f.portal_clave.value || null };
+                 portal_url: f.portal_url.value.trim() || null, portal_usuario: f.portal_usuario.value.trim() || null, portal_clave: f.portal_clave.value || null, portal_auto: f.portal_auto.checked };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'fin/procesadores/' + actual : 'fin/procesadores', { method: actual ? 'PUT' : 'POST', body });

@@ -103,4 +103,93 @@ async function probar(cred) {
     opciones: links.slice(0, 80), cuentas, tamano: s.html.length };
 }
 
-module.exports = { probar, entrar, ErrorPago24, formularioDeEntrada, textoVisible };
+// ── Etapa 2: el extracto de la Cta. Cte. Disponible ──
+// Recorrido relevado desde el servidor el 03/11/2026 con el usuario de CORTAFUEGO:
+//   · "Financiero" es un link común del menú; su página tiene el formulario con las pestañas (links, cada uno trae su
+//     fragmento de campos) y los botones Buscar y Limpiar.
+//   · La pestaña Disponible trae Desde y Hasta (dd/mm/aaaa), Agrupar (casilla, no se manda), Dist/PV, Producto (1 = pesos)
+//     y un buscador de cuenta (select2) que no se manda en el formulario: elegir una cuenta es un pedido aparte que la
+//     deja guardada en la sesión. El usuario ve la cuenta de distribuidor y la del punto de venta: se elige la del punto
+//     de venta.
+//   · Buscar es un POST del formulario (el botón con valor vacío); la tabla viene paginada de a 100, pero "Exportar a
+//     Excel" baja en realidad un CSV de todo el rango (reporte.csv, `;`, coma decimal, ISO-8859-1), con el saldo inicial
+//     y el final: Fecha;Descripción;Contraparte;Débitos;Créditos;Saldo;Objs.;V.
+const hrefDe = (html, re) => {
+  for (const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) if (re.test(textoVisible(m[2]))) {
+    const h = (m[1].match(/href\s*=\s*"([^"]*)"/i) || [])[1]; if (h) return entidades(h);
+  }
+  return null;
+};
+const sesionDe = html => { const m = html.match(/_s=([^&"']+)&(?:amp;)?_k=([^&"']+)/); return m ? { s: m[1], k: m[2] } : null; };
+// El campo que sigue a una etiqueta ("Desde fecha:"): su nombre numérico.
+const campoDe = (html, etiqueta) => { const i = html.search(etiqueta); if (i < 0) return null; const m = html.slice(i).match(/<(?:input|select)\b[^>]*name="(\d+)"/); return m && m[1]; };
+const dmy = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+const cambio = qué => new ErrorPago24(`El portal de Pago24 cambió (${qué}): el extracto sigue por archivo hasta adaptar la conexión.`);
+
+// Un CSV con `;` (y comillas si algún campo las trae), como filas de texto.
+function filasCSV(texto) {
+  const filas = []; let fila = [], campo = '', comillas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (comillas) { if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; } else if (ch === '"') comillas = false; else campo += ch; }
+    else if (ch === '"') comillas = true;
+    else if (ch === ';') { fila.push(campo); campo = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && texto[i + 1] === '\n') i++; fila.push(campo); filas.push(fila); fila = []; campo = ''; }
+    else campo += ch;
+  }
+  if (campo || fila.length) { fila.push(campo); filas.push(fila); }
+  return filas.filter(f => f.some(c => c.trim()));
+}
+// Las filas del reporte en el formato que recibe la importación de extractos (como las mapea la pantalla: Objs. es la
+// referencia, donde viene el número de operación al que se refiere un cargo o un impuesto).
+function filasExtracto(csv) {
+  const [cab, ...resto] = filasCSV(csv);
+  const col = n => cab.findIndex(c => sinAcentos(c).replace(/[^a-z]/g, '') === n);
+  const ix = { fecha: col('fecha'), concepto: col('descripcion'), debito: col('debitos'), credito: col('creditos'), saldo: col('saldo'), referencia: col('objs') };
+  if (Object.values(ix).some(i => i < 0)) throw cambio('columnas del reporte');
+  return resto.map(f => Object.fromEntries(Object.entries(ix).map(([k, i]) => [k, (f[i] || '').trim()])));
+}
+
+async function extracto(cred, desde, hasta) {
+  const s = await entrar(cred);
+  const fin = await s.pedir(hrefDe(s.html, /^Financiero$/) || (() => { throw cambio('no está Financiero en el menú'); })());
+  const boton = (fin.match(/name="(\d+)"\s+value="Buscar"/) || [])[1];
+  const hTab = hrefDe(fin, /Cta\.?\s*Cte\.?\s*Disponible/i);
+  if (!boton || !hTab) throw cambio('la pantalla Financiero');
+  const tab = await s.pedir(hTab);
+  const ses = sesionDe(tab);
+  const f = { desde: campoDe(tab, /Desde fecha/i), hasta: campoDe(tab, /Hasta fecha/i), dist: campoDe(tab, /Dist\/PV/i), producto: campoDe(tab, /Producto/i),
+              oculto: (tab.match(/name="(\d+)"\s+type="hidden"/) || [])[1] };
+  if (!ses || Object.values(f).some(x => !x)) throw cambio('la pestaña Cta. Cte. Disponible');
+  // La cuenta: la del punto de venta (o la que diga la ficha, si hubiera más de una).
+  const fuente = (tab.match(/\.select2\(\{[\s\S]*?"url":"[^"]*&(\d+)"/) || [])[1];
+  const elegir = tab.match(/"data":\["_s=[^"]+","_k=[^"]+","(\d+)","(\d+)="\+encodeURIComponent\(evt\.params\.data\.id\)/);
+  if (!fuente || !elegir) throw cambio('el buscador de cuenta');
+  let lista;
+  try { lista = JSON.parse(await s.pedir(`/tr4?_s=${ses.s}&_k=${ses.k}&${fuente}&q=${encodeURIComponent(cred.cuenta || '')}&page=1`, { ajax: 'XMLHttpRequest' })); }
+  catch (e) { if (e instanceof ErrorPago24) throw e; throw cambio('la lista de cuentas'); }
+  const pvs = (lista.items || []).filter(g => /punto de venta/i.test(g.text || '')).flatMap(g => g.children || []);
+  const cuenta = cred.cuenta ? pvs.find(x => String(x.text).startsWith(String(cred.cuenta))) : pvs.length === 1 ? pvs[0] : null;
+  if (!cuenta) throw new ErrorPago24(pvs.length ? `El usuario de Pago24 tiene ${pvs.length} cuentas de punto de venta (${pvs.map(x => x.text).join(', ')}): falta indicar cuál.`
+    : 'El usuario de Pago24 no tiene ninguna cuenta de punto de venta.');
+  await s.pedir(`/tr4?_s=${ses.s}&_k=${ses.k}&${elegir[1]}&${elegir[2]}=${encodeURIComponent(cuenta.id)}`, { ajax: 'XMLHttpRequest' });
+  const cuerpo = new URLSearchParams({ [f.desde]: dmy(desde), [f.oculto]: '', [f.hasta]: dmy(hasta), [f.dist]: '', [f.producto]: '1', [boton]: '' });
+  const res = await s.pedir(`/tr4?_s=${ses.s}&_k=${ses.k}`, { method: 'POST', cuerpo: cuerpo.toString(), ajax: 'Ajaxifier' });
+  const hExp = (res.match(/href="([^"]*)"[^>]*>(?:\s*<i[^>]*><\/i>)?\s*Exportar a Excel/i) || [])[1];
+  if (!hExp) {
+    const aviso = textoVisible(res).match(/[^.]*(no se encontr|sin datos|inv[aá]lid|error)[^.]*\.?/i);
+    throw aviso ? new ErrorPago24(`Pago24 respondió: "${aviso[0].trim().slice(0, 160)}".`) : cambio('el resultado de la búsqueda');
+  }
+  // La descarga es un archivo común (no Ajaxifier), en ISO-8859-1.
+  let r;
+  try {
+    r = await fetch(new URL(entidades(hExp), s.base), { signal: AbortSignal.timeout(ESPERA_MS),
+      headers: { Accept: '*/*', 'User-Agent': 'Mozilla/5.0 (ClauLogic)', Cookie: [...s.cookies].map(([k, v]) => `${k}=${v}`).join('; ') } });
+  } catch { throw new ErrorPago24('No se pudo bajar el reporte de Pago24.'); }
+  if (!r.ok) throw new ErrorPago24(`Pago24 respondió ${r.status} al bajar el reporte.`);
+  const csv = Buffer.from(await r.arrayBuffer()).toString('latin1');
+  if (!/^\s*Fecha;/i.test(csv)) throw cambio('el archivo exportado');
+  return { cuenta: cuenta.text, filas: filasExtracto(csv) };
+}
+
+module.exports = { probar, entrar, extracto, filasExtracto, ErrorPago24, formularioDeEntrada, textoVisible };

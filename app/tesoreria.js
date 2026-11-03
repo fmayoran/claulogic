@@ -634,8 +634,9 @@ function controlarSaldos(filas) {
       + 'como crédito resta. Revisá las columnas (Débito y Crédito al revés, o el importe con el signo cambiado) y volvé a importar.');
 }
 
-r.post('/fin/extractos', h(async (req, res) => {
-  const b = req.body;
+// Importar un extracto ya separado en columnas (fecha, concepto, referencia, débito y crédito o importe, saldo): lo usan la
+// pantalla (que mapea las columnas del archivo) y el portal de Pago24 (que baja el CSV). Reimportar no duplica.
+async function importarExtracto(b) {
   const cuenta = texto(b.cuenta_id, { campo: 'la cuenta', requerido: true });
   const decimal = b.decimal === '.' ? '.' : ',';
   const filas = Array.isArray(b.filas) ? b.filas : [];
@@ -701,8 +702,9 @@ r.post('/fin/extractos', h(async (req, res) => {
     await c.query('UPDATE fin.extracto SET lineas_nuevas = $1, lineas_repetidas = $2 WHERE id = $3', [nuevas, lineas.length - nuevas, e.id]);
     return { nuevas, repetidas: lineas.length - nuevas, apertura, saldo_final: saldoFinal };
   });
-  res.status(201).json({ ok: true, ...out });
-}));
+  return out;
+}
+r.post('/fin/extractos', h(async (req, res) => { res.status(201).json({ ok: true, ...await importarExtracto(req.body) }); }));
 
 // Lo que falta conciliar de una cuenta, con candidatos para cada línea: movimientos sin conciliar
 // del mismo importe y cheques propios emitidos por ese importe, con la fecha más cercana primero.
@@ -913,8 +915,8 @@ const esReverso = l => /reverso/i.test(`${l.concepto} ${l.referencia}`);
 const normImp = v => { let [e, d = ''] = String(v).split('.'); return e + '.' + (d + '00').slice(0, 2); };
 const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
 
-r.post('/fin/conciliacion/automatica', h(async (req, res) => {
-  const cuenta = texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true });
+// La conciliación automática de una cuenta (botón de la pantalla, y después de importar el extracto del portal de Pago24).
+async function conciliarAutomatica(req, cuenta) {
   // Si el procesador liquida por lotes, primero se liquidan los que ya llegaron a su fecha. Una cuenta que no es de un
   // procesador sólo pasa por las reglas de clasificación.
   const { rows: [prl] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
@@ -1020,7 +1022,10 @@ r.post('/fin/conciliacion/automatica', h(async (req, res) => {
     return { procesador: pr.nombre, compensadas, acreditadas, acreditado: deCentavos(acreditado), quedan, lotes_confirmados: lotesConfirmados, reglas,
              gastos: Object.fromEntries(Object.entries(gastos).map(([k, v]) => [k, deCentavos(v)])) };
   });
-  res.status(201).json({ ok: true, ...out, lotes_liquidados: liquidados ? liquidados.lotes.length : 0 });
+  return { ...out, lotes_liquidados: liquidados ? liquidados.lotes.length : 0 };
+}
+r.post('/fin/conciliacion/automatica', h(async (req, res) => {
+  res.status(201).json({ ok: true, ...await conciliarAutomatica(req, texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true })) });
 }));
 
 // Pareos sugeridos (decisión de Fer, 25/10/2026): lo que la conciliación automática no parea porque no coincide
@@ -1363,10 +1368,15 @@ async function resumenProcesador(cuenta) {
 // extracto, qué falta resolver y qué falta acreditar. Un procesador sin "Deposita en" viene igual, para avisarlo.
 r.get('/fin/procesadores/resumen', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT p.id, p.nombre, p.marca, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id
+    `SELECT p.id, p.nombre, p.marca, p.cuenta_acredita_id, c.nombre AS cuenta, p.portal_credenciales IS NOT NULL AS portal, p.portal_auto,
+            (SELECT json_build_object('automatica', k.automatica, 'desde', k.desde, 'hasta', k.hasta, 'iniciada_en', k.iniciada_en, 'ok', k.ok,
+                                      'resultado', k.resultado, 'error', k.error)
+               FROM fin.portal_corrida k WHERE k.procesador_id = p.id ORDER BY k.iniciada_en DESC LIMIT 1) AS ultima_corrida
+       FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id
       WHERE p.activo ORDER BY p.nombre`);
   const out = [];
-  for (const p of rows) out.push({ id: p.id, nombre: p.nombre, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
+  for (const p of rows) out.push({ id: p.id, nombre: p.nombre, marca: p.marca, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
+    portal: p.portal, portal_auto: p.portal_auto, ultima_corrida: p.ultima_corrida,
     resumen: p.cuenta_acredita_id ? await resumenProcesador(p.cuenta_acredita_id) : null });
   res.json({ ok: true, procesadores: out });
 }));
@@ -1388,7 +1398,10 @@ const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.
 r.get('/fin/procesadores', h(async (req, res) => {
   const { rows: procesadores } = await pool.query(
     `SELECT pr.id, pr.nombre, pr.marca, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
-            pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita, pr.portal_url, pr.portal_credenciales IS NOT NULL AS tiene_portal,
+            pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita, pr.portal_url, pr.portal_credenciales IS NOT NULL AS tiene_portal, pr.portal_auto,
+            (SELECT json_build_object('automatica', c.automatica, 'desde', c.desde, 'hasta', c.hasta, 'iniciada_en', c.iniciada_en, 'ok', c.ok,
+                                      'resultado', c.resultado, 'error', c.error)
+               FROM fin.portal_corrida c WHERE c.procesador_id = pr.id ORDER BY c.iniciada_en DESC LIMIT 1) AS ultima_corrida,
             COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
                        WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
        FROM fin.procesador pr JOIN fin.cuenta cu ON cu.id = pr.cuenta_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = cu.id
@@ -1402,7 +1415,8 @@ function leerProcesador(b) {
               cuenta_acredita_id: texto(b.cuenta_acredita_id),
               activo: b.activo === undefined ? true : !!b.activo,
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
-              portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave) };
+              portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave),
+              portal_auto: b.portal_auto === undefined ? true : !!b.portal_auto };
   if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
@@ -1459,6 +1473,57 @@ r.post('/fin/procesadores/probar-portal', h(async (req, res) => {
     throw new ErrorUsuario(e.message, 424);
   }
 }));
+// Traer el extracto de Pago24 desde su portal (etapa 2): baja el CSV del rango, lo importa en la cuenta donde deposita, como
+// si se hubiera subido el archivo, y concilia. Sin rango pedido: desde el día siguiente al último extracto (al menos los 3
+// últimos días, que reimportar no duplica; sin extractos, desde el 1 del mes) hasta ayer, para traer días completos.
+async function traerPortal(req, pr, automatica, desdePedido = null, hastaPedido = null) {
+  if (!pr.portal_url || !pr.portal_credenciales) throw new ErrorUsuario('Falta la conexión con el portal en la ficha del procesador.');
+  if (!pr.cuenta_acredita_id) throw new ErrorUsuario(`Primero indicá en qué cuenta deposita ${pr.nombre}.`);
+  const { rows: [x] } = await pool.query(
+    `SELECT to_char(x.desde, 'YYYY-MM-DD') AS desde, to_char(x.hasta, 'YYYY-MM-DD') AS hasta,
+            x.desde < current_date - 62 AS muy_atras, x.hasta > current_date - 1 AS adelante, x.desde > x.hasta AS al_reves
+       FROM (SELECT COALESCE($2::date, (SELECT CASE WHEN MAX(hasta) IS NOT NULL THEN LEAST(MAX(hasta) + 1, current_date - 3) END FROM fin.extracto WHERE cuenta_id = $1),
+                             date_trunc('month', current_date - 1)::date) AS desde,
+                    COALESCE($3::date, current_date - 1) AS hasta) x`, [pr.cuenta_acredita_id, desdePedido, hastaPedido]);
+  if (x.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
+  if (x.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
+  if (x.al_reves) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
+  const { rows: [co] } = await pool.query(
+    'INSERT INTO fin.portal_corrida (procesador_id, automatica, desde, hasta) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING id',
+    [pr.id, automatica, x.desde, x.hasta]);
+  if (!co) return null;   // la automática de hoy ya corrió (u otro proceso la está corriendo)
+  try {
+    const cred = JSON.parse(crypto.decrypt(pr.portal_credenciales));
+    const ex = await pago24.extracto({ url: pr.portal_url, ...cred }, x.desde, x.hasta);
+    const imp = await importarExtracto({ cuenta_id: pr.cuenta_acredita_id, filas: ex.filas, decimal: ',', archivo: `Portal Pago24 ${x.desde} a ${x.hasta}` });
+    const conc = await conciliarAutomatica(req, pr.cuenta_acredita_id);
+    const resumen = { cuenta: ex.cuenta, filas: ex.filas.length, nuevas: imp.nuevas, repetidas: imp.repetidas, saldo_final: imp.saldo_final,
+      acreditadas: conc.acreditadas, gastos: Object.keys(conc.gastos || {}).length, reglas: conc.reglas, quedan: conc.quedan };
+    await pool.query('UPDATE fin.portal_corrida SET terminada_en = now(), ok = true, resultado = $2 WHERE id = $1', [co.id, JSON.stringify(resumen)]);
+    return { ...resumen, desde: x.desde, hasta: x.hasta };
+  } catch (e) {
+    await pool.query('UPDATE fin.portal_corrida SET terminada_en = now(), ok = false, error = $2 WHERE id = $1', [co.id, String(e.message || e).slice(0, 500)]);
+    console.error(`Portal ${pr.nombre}${automatica ? ' (automática)' : ''}:`, e.message);
+    if (automatica) return null;
+    // 424 y no 502: el proxy de EasyPanel reemplaza toda respuesta 502 por su propia página.
+    if (e instanceof pago24.ErrorPago24) throw new ErrorUsuario(e.message, 424);
+    throw e;
+  }
+}
+// "Traer ahora" (a mano, en el rango que se elija; no consume la automática del día).
+r.post('/fin/procesadores/:id/traer', h(async (req, res) => {
+  const { rows: [pr] } = await pool.query('SELECT * FROM fin.procesador WHERE id = $1::uuid', [req.params.id]);
+  if (!pr) throw new ErrorUsuario('No existe ese procesador.', 404);
+  res.status(201).json({ ok: true, ...await traerPortal(req, pr, false, fecha(req.body.desde, { campo: 'Desde' }), fecha(req.body.hasta, { campo: 'Hasta' })) });
+}));
+// Las automáticas pendientes de hoy (las llama el programador después de las ventas, firmadas por el usuario de sistema).
+async function traerPortalesAutomaticos(req) {
+  const { rows } = await pool.query(
+    `SELECT p.* FROM fin.procesador p WHERE p.activo AND p.portal_auto AND p.portal_credenciales IS NOT NULL AND p.cuenta_acredita_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM fin.portal_corrida c WHERE c.procesador_id = p.id AND c.automatica AND c.fecha = current_date)`);
+  for (const pr of rows) await traerPortal(req, pr, true);
+  return rows.length;
+}
 r.post('/fin/procesadores', h(async (req, res) => {
   const p = leerProcesador(req.body);
   const id = await enTransaccion(async c => {
@@ -1479,8 +1544,8 @@ r.put('/fin/procesadores/:id', h(async (req, res) => {
     const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
     // Sin usuario y clave nuevos se conservan los guardados (no se muestran, así que no se reenvían); otra marca los borra.
     await c.query(`UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4, marca = $6, portal_url = $7,
-                          portal_credenciales = CASE WHEN $6 <> 'pago24' THEN NULL ELSE COALESCE($8, portal_credenciales) END WHERE id = $5`,
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca, p.portal_url, cifrarPortal(p)]);
+                          portal_credenciales = CASE WHEN $6 <> 'pago24' THEN NULL ELSE COALESCE($8, portal_credenciales) END, portal_auto = $9 WHERE id = $5`,
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca, p.portal_url, cifrarPortal(p), p.portal_auto]);
     await guardarTipos(c, req.params.id, p.tipos);
   });
   res.json({ ok: true });
@@ -1543,5 +1608,5 @@ async function asentarLote(c, loteId, fecha) {
   return ent.id;
 }
 
-Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar });
+Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar, traerPortalesAutomaticos });
 module.exports = r;

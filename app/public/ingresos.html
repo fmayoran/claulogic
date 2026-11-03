@@ -397,6 +397,14 @@ function comoBajar(x) {
   if (!pasos) return '';
   return el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {}, ...pasos.map(t => el('li', { textContent: t }))));
 }
+// Cómo se trae el extracto de un procesador conectado a su portal, y cómo salió la última vez.
+function corridaPortal(x) {
+  const c = x.ultima_corrida, auto = x.portal_auto ? 'Se trae solo del portal todos los días, después de las ventas.' : 'Conectado al portal (la corrida diaria está en pausa).';
+  if (!c) return auto;
+  const cuando = `${new Date(c.iniciada_en).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit' })} ${hora(c.iniciada_en)}`;
+  return `${auto} Última ${c.automatica ? 'automática' : 'a mano'}, ${cuando}: ` + (c.ok ? `${c.resultado.nuevas} línea(s) nueva(s).`
+    : c.ok === false ? `falló (${c.error}).` : 'en curso.');
+}
 function pintarExtractos() {
   $('#extractos').replaceChildren(...procs.map(x => {
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: x.nombre }));
@@ -408,8 +416,25 @@ function pintarExtractos() {
     const imp = Conc.importador({ cuenta: () => x.cuenta_id, procesador: () => true,
       listo: async (t, tipo) => { if (tipo === 'ok') { await refrescar(); msg(`${x.cuenta}: ${t}`, 'ok'); } else { nota.textContent = t; nota.className = 'msg msg-b'; } } });
     const alDia = e.hasta && e.hasta >= ayer;
-    cab.append(el('div', { className: 'acc' }, boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)));
-    cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ${queArchivo(x)}` }), comoBajar(x));
+    // Sin rango, desde el día siguiente al último extracto hasta ayer; a pedido, el que se elija (hasta 62 días atrás).
+    const rDesde = el('input', { type: 'date', max: ayer }), rHasta = el('input', { type: 'date', max: ayer });
+    const rango = x.portal ? el('details', { className: 'como' }, el('summary', { textContent: 'Elegir el rango' }),
+      el('div', { className: 'fila' }, el('label', {}, 'Desde', rDesde), el('label', {}, 'Hasta', rHasta)),
+      el('p', { className: 'ayuda', textContent: 'Sin rango se trae desde el día siguiente al último extracto hasta ayer. Volver a traer días ya importados no duplica nada.' })) : '';
+    // Con la conexión al portal (Pago24), el extracto se trae solo (todos los días, después de las ventas) o con "Traer del
+    // portal"; el archivo queda como alternativa.
+    const traer = x.portal && boton('Traer del portal y conciliar', async () => {
+      nota.textContent = 'Entrando al portal y bajando el extracto…'; nota.className = 'msg msg-b';
+      try {
+        const r = await api(`fin/procesadores/${x.id}/traer`, { method: 'POST', body: { desde: rDesde.value || null, hasta: rHasta.value || null } });
+        await refrescar();
+        msg(`${x.nombre}: del ${fecha(r.desde)} al ${fecha(r.hasta)}, ${r.nuevas} línea(s) nueva(s)` + (r.repetidas ? ` y ${r.repetidas} ya importada(s)` : '')
+          + `; ${r.acreditadas} cobro(s) acreditado(s)` + (r.quedan ? `, quedan ${r.quedan} línea(s) para revisar.` : '.'), 'ok');
+      } catch (err) { nota.textContent = err.message; nota.className = 'msg msg-b mal'; }
+    }, !alDia);
+    cab.append(el('div', { className: 'acc' }, ...(traer ? [traer, boton('Importar archivo', imp.abrir)]
+      : [boton(alDia ? 'Importar otro y conciliar' : 'Importar y conciliar', imp.abrir, !alDia)])));
+    cab.append(el('span', { className: 'sinc', textContent: `Deposita en ${x.cuenta}. ` + (x.portal ? corridaPortal(x) : queArchivo(x)) }), x.portal ? rango : comoBajar(x));
     const estado = !e.hasta ? el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: 'Todavía no importaste ningún extracto de esta cuenta.' })))
       : alDia ? el('p', { className: 'al-dia', textContent: `Extracto al día: llega hasta el ${fecha(e.hasta)}.` + (e.lineas_ingresos ? ` Quedan ${e.lineas_ingresos} línea(s) de ingresos para conciliar.` : '') })
       : el('div', { className: 'tarea' }, el('div', { className: 't' }, el('span', { textContent: `El último extracto llega hasta el ${fecha(e.hasta)}: falta del ${fecha(sumarDias(e.hasta, 1))} a ayer.` })));
