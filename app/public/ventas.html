@@ -118,6 +118,23 @@
 <script>
 const n = v => v == null || v === '' ? 0 : Number(v);
 const etiquetaM = m => m.sin_asignar ? m.nombres : etiquetaMedio(m);
+// La dona de medios agrupa por marca (Efectivo, Mercado Pago, Pago24…: no por la cuenta de cobro de cada empresa) y, con una
+// marca elegida, abre por tipo de operación (QR, débito, crédito…). Lo que todavía no tiene medio asignado va con su nombre.
+const marcaDeM = m => m.sin_asignar ? m.clave : 'marca:' + (m.marca || m.tipo_operacion);
+const nombreMarca = k => k === 'marca:efectivo' ? 'Efectivo' : MARCA[k.slice(6)] || k;
+const marcaElegida = () => { const v = filtros.medio || ''; return v.startsWith('marca:') ? v : v.startsWith('mt:') ? 'marca:' + v.split(':')[1] : null; };
+function itemsMedios(medios) {
+  const sel = marcaElegida(), grupos = new Map();
+  for (const m of medios) {
+    const k = marcaDeM(m);
+    if (sel && k !== sel) continue;
+    const clave = sel ? `mt:${sel.slice(6)}:${m.tipo_operacion}` : k;
+    const g = grupos.get(clave) || { clave, etiqueta: sel ? TIPO_OP[m.tipo_operacion] : m.sin_asignar ? m.nombres : nombreMarca(k), valor: 0,
+      marca: m.sin_asignar ? el('span', { className: 'tag aviso', textContent: 'sin asignar', style: 'margin-left:6px' }) : '' };
+    g.valor += n(m.importe); grupos.set(clave, g);
+  }
+  return [...grupos.values()].sort((a, b) => b.valor - a.valor);
+}
 // Promedio al peso, en enteros: los importes llegan como texto exacto de la base.
 const prom = (total, cant) => cant ? String(Math.round(n(total) / cant)) : null;
 const ZONA = { timeZone: 'America/Argentina/Buenos_Aires' };
@@ -217,10 +234,12 @@ function pintar() {
     pintarHoras($('#gHoras'), 190);
   }
 
-  Graf.dona($('#gMedios'), {
-    items: r.medios.map(m => ({ clave: m.clave, etiqueta: etiquetaM(m), valor: m.importe,
-      marca: m.sin_asignar ? el('span', { className: 'tag aviso', textContent: 'sin asignar', style: 'margin-left:6px' }) : '' })),
-    centro: Graf.compacto(n(t.cobrado)), sub: 'cobrado', alElegir: c => alternar('medio', c), elegido: filtros.medio ?? null });
+  // Con una marca elegida, tocar un tipo lo elige (y tocarlo de nuevo vuelve a la marca); sin marca, tocar una la abre.
+  const selM = marcaElegida();
+  const itemsM = itemsMedios(r.medios);
+  Graf.dona($('#gMedios'), { items: itemsM, centro: Graf.compacto(selM ? itemsM.reduce((s, x) => s + x.valor, 0) : n(t.cobrado)), sub: selM ? nombreMarca(selM) : 'cobrado',
+    alElegir: c => { if (selM && filtros.medio === c) { filtros.medio = selM; pintar(); abrirDetalle(true); cargarVentas(); } else alternar('medio', c); },
+    elegido: filtros.medio ?? null });
   const dif = n(t.cobrado) - n(t.vendido);
   $('#cobrado').replaceChildren(el('span', {}, 'Cobrado ', el('b', { textContent: pesos(t.cobrado) })),
     Math.abs(dif) >= 1 ? el('span', { className: 'difiere' }, 'Difiere de lo vendido en ', el('b', { textContent: pesos(String(dif)) }))
@@ -253,7 +272,10 @@ function pintarHoras(cont, alto) {
 }
 
 // ── Detalle: se abre a medida que se elige algo en los gráficos ──
-const NOMBRE_FILTRO = { dia: v => diaLargo(v), medio: v => { const m = resumen.medios.find(x => x.clave === v); return m ? etiquetaM(m) : 'medio'; },
+const NOMBRE_FILTRO = { dia: v => diaLargo(v), medio: v => {
+    if (v.startsWith('marca:')) return nombreMarca(v);
+    if (v.startsWith('mt:')) { const [, mk, tp] = v.split(':'); return `${nombreMarca('marca:' + mk)} · ${TIPO_OP[tp]}`; }
+    const m = resumen.medios.find(x => x.clave === v); return m ? etiquetaM(m) : 'medio'; },
   hora: v => `de ${v} a ${v + 1} h`, tipo: v => v, mozo: v => v };
 function alternar(k, v) {
   if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;

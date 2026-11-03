@@ -554,9 +554,10 @@ function filtroVentas(req) {
   if ((new Date(hasta) - new Date(desde)) / 864e5 > 366) throw new ErrorUsuario('El período puede ser de hasta un año.');
   const integ = texto(req.query.integracion);
   if (integ && !UUID.test(integ)) throw new ErrorUsuario('Punto de venta inválido.');
-  // Un medio de pago global (su id) o un medio del sistema todavía sin asignar ('m:' + su id).
+  // Un medio de pago global (su id), un medio del sistema todavía sin asignar ('m:' + su id), una marca ('marca:mercadopago',
+  // 'marca:efectivo') o una marca con su tipo de operación ('mt:mercadopago:qr'): el tablero agrupa por marca y abre por tipo.
   const medio = texto(req.query.medio);
-  if (medio && !UUID.test(medio.replace(/^m:/, ''))) throw new ErrorUsuario('Medio de pago inválido.');
+  if (medio && !UUID.test(medio.replace(/^m:/, '')) && !/^(marca:[a-z0-9]+|mt:[a-z0-9]+:[a-z]+)$/.test(medio)) throw new ErrorUsuario('Medio de pago inválido.');
   // Para ir abriendo el detalle desde los gráficos: el tipo de venta y la hora de apertura.
   const tipo = texto(req.query.tipo), hora = req.query.hora == null || req.query.hora === '' ? null : Number(req.query.hora);
   if (hora != null && !(Number.isInteger(hora) && hora >= 0 && hora <= 23)) throw new ErrorUsuario('Hora inválida.');
@@ -576,8 +577,11 @@ const VENTAS_CTE = `
      WHERE ($1::uuid[] IS NULL OR i.sede_id = ANY($1)) AND ($2::uuid IS NULL OR t.integracion_id = $2)
        AND t.dia BETWEEN $3::date AND $4::date
        AND ($5::text IS NULL OR EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+                                         LEFT JOIN fin.medio_pago fmp ON fmp.id = m.medio_pago_id LEFT JOIN fin.procesador fpr ON fpr.id = fmp.procesador_id
                                          WHERE p.ticket_id = t.id AND NOT p.anulado
-                                           AND COALESCE(m.medio_pago_id::text, 'm:' || m.id) = $5))
+                                           AND $5 IN (COALESCE(m.medio_pago_id::text, 'm:' || m.id),
+                                                      'marca:' || COALESCE(fpr.marca, fmp.tipo_operacion),
+                                                      'mt:' || COALESCE(fpr.marca, fmp.tipo_operacion) || ':' || fmp.tipo_operacion)))
        AND ($6::text IS NULL OR COALESCE(t.tipo, 'sin dato') = $6)
        AND ($7::int IS NULL OR extract(hour FROM COALESCE(t.abierto_en, t.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires')::int = $7)
        AND ($8::text IS NULL OR COALESCE(t.mozo, 'sin mozo') = $8))`;
@@ -608,13 +612,13 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos] = await Promise.all([
     q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
     // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
-    q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, m.medio_pago_id IS NULL AS sin_asignar,
+    q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, pr.marca, m.medio_pago_id IS NULL AS sin_asignar,
               string_agg(DISTINCT m.nombre, ', ') AS nombres, SUM(p.importe)::numeric(16,2)::text AS importe,
               count(*)::int AS pagos, count(DISTINCT t.id)::int AS ventas
          FROM t JOIN pos.ticket_pago p ON p.ticket_id = t.id AND NOT p.anulado JOIN pos.medio m ON m.id = p.medio_id
          LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
         WHERE t.estado = 'cerrado'
-        GROUP BY 1, 2, 3, 4 ORDER BY SUM(p.importe) DESC`),
+        GROUP BY 1, 2, 3, 4, 5 ORDER BY SUM(p.importe) DESC`),
     q(DIAS),
     q(`SELECT ${HORA_SQL} AS hora,
               count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
@@ -638,7 +642,7 @@ r.get('/pos/ventas', h(async (req, res) => {
   const { rows } = await pool.query(VENTAS_CTE + `
     SELECT t.id, t.id_externo, t.punto_venta, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.abierto_en, t.cerrado_en, t.estado,
            t.vendido::numeric(16,2)::text AS total, t.tipo, t.mesa, t.mozo, t.personas,
-           COALESCE((SELECT json_agg(json_build_object('clave', ${CLAVE_MEDIO}, 'medio', m.nombre, 'procesador', pr.nombre,
+           COALESCE((SELECT json_agg(json_build_object('clave', ${CLAVE_MEDIO}, 'medio', m.nombre, 'procesador', pr.nombre, 'marca', pr.marca,
                                                        'tipo_operacion', mp.tipo_operacion, 'importe', p.importe::text) ORDER BY p.importe DESC)
                        FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
                        LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
@@ -660,7 +664,7 @@ r.get('/pos/ventas/:id', h(async (req, res) => {
     pool.query(`SELECT a.nombre AS articulo, a.codigo_externo, trim_scale(i.cantidad)::text AS cantidad,
                        COALESCE(i.importe, i.cantidad * i.precio)::numeric(16,2)::text AS importe, i.anulado
                   FROM pos.ticket_item i JOIN pos.articulo a ON a.id = i.articulo_id WHERE i.ticket_id = $1 ORDER BY a.nombre`, [t.id]),
-    pool.query(`SELECT m.nombre AS medio, pr.nombre AS procesador, mp.tipo_operacion, p.importe::text, p.anulado,
+    pool.query(`SELECT m.nombre AS medio, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, p.importe::text, p.anulado,
                        p.cobro_id IS NOT NULL AS procesado, cu.nombre AS cuenta
                   FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
                   LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
@@ -767,7 +771,7 @@ r.get('/pos/jornadas/:integracion/:dia', h(async (req, res) => {
   if (!j) throw new ErrorUsuario('No hay ventas importadas de ese día.', 404);
   const [medios, cobros, anuladas, imps] = await Promise.all([
     pool.query(
-      `SELECT m.id, m.nombre, m.medio_pago_id, mp.tipo_operacion, pr.nombre AS procesador, cu.nombre AS cuenta,
+      `SELECT m.id, m.nombre, m.medio_pago_id, mp.tipo_operacion, pr.nombre AS procesador, pr.marca, cu.nombre AS cuenta,
               SUM(p.importe)::text AS importe, SUM(p.importe) FILTER (WHERE p.cobro_id IS NULL)::text AS pendiente, count(*)::int AS pagos
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
          JOIN pos.medio m ON m.id = p.medio_id

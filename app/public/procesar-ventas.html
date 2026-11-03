@@ -344,13 +344,13 @@ async function abrirDia(dia) {
     let celda;
     if (corrige && (!m.medio_pago_id || (m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente)))) {
       celda = el('select');
-      opcionesConAlta(celda, mediosPago.map(x => [x.id, etiquetaMedio(x)]), m.medio_pago_id, 'Falta asignar', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      opcionesConAlta(celda, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Falta asignar', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
       celda.addEventListener('change', async () => {
         if (!celda.value) return;
         try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: celda.value } }); await abrirDia(diaActual); msg('Medio asignado.', 'ok', '#msgJ'); }
         catch (e) { msg(e.message, 'mal', '#msgJ'); }
       });
-    } else celda = m.medio_pago_id ? etiquetaMedio(m) : el('span', { className: 'tag mal', textContent: 'falta asignar' });
+    } else celda = m.medio_pago_id ? etiquetaMedio(m, true) : el('span', { className: 'tag mal', textContent: 'falta asignar' });
     return el('tr', {}, td(m.nombre), el('td', {}, celda), td(m.cuenta || '—'),
       el('td', {}, pesos(m.importe), m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente) ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : ''));
   }, 'Sin cobros.', 4);

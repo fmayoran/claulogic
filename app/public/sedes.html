@@ -201,7 +201,7 @@ async function cargarMedios(i) {
   $('#secMed').hidden = false;
   filas($('#med'), medios, m => {
     const s = el('select'), cuenta = td(m.cuenta || '—'), est = el('span', { className: 'msg' });
-    opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x)]), m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: async () => { const r = await nuevoMedioPago(); if (r) ({ medios: mediosPago } = await api('pos/medios-pago')); return r; } });
+    opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: async () => { const r = await nuevoMedioPago(); if (r) ({ medios: mediosPago } = await api('pos/medios-pago')); return r; } });
     s.addEventListener('change', async () => {
       if (!s.value) return;
       try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: s.value } });

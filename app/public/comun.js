@@ -647,17 +647,24 @@ function etiquetarTabla(tabla) {
 
 // ── Medios de pago del grupo ────────────────────────────────────────────────────────────────
 const TIPO_OP = { efectivo: 'Efectivo', transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
-const etiquetaMedio = m => m.procesador ? `${m.procesador} · ${TIPO_OP[m.tipo_operacion]}` : TIPO_OP[m.tipo_operacion];
+// La marca del procesador (lista fija): "Mercado Pago · QR" no depende del nombre de la cuenta de cobro de cada empresa. Donde hay
+// que distinguir la cuenta (al asignar un medio en la ficha de una sede), conCuenta la agrega entre paréntesis.
+const MARCA = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', otro: 'Otro' };
+const etiquetaMedio = (m, conCuenta) => {
+  const base = m.marca ? `${MARCA[m.marca]} · ${TIPO_OP[m.tipo_operacion]}` : m.procesador ? `${m.procesador} · ${TIPO_OP[m.tipo_operacion]}` : TIPO_OP[m.tipo_operacion];
+  return conCuenta && m.procesador ? `${base} (${m.procesador})` : base;
+};
 // Alta rápida de un medio de pago: un procesador existente con un tipo nuevo, o un procesador nuevo
 // (su cuenta a acreditar se crea sola). Devuelve [id, etiqueta] del medio.
 function nuevoMedioPago() {
   return new Promise(async resolve => {
     const { procesadores } = await api('fin/procesadores');
-    const f2 = el('form', { novalidate: true }), proc = el('select'), nombre = el('input', { placeholder: 'Mercado Pago, Getnet, Fudo Pagos…' });
+    const f2 = el('form', { novalidate: true }), proc = el('select'), nombre = el('input', { placeholder: 'Mercado Pago SORELLE' });
+    const marca = el('select'); opciones(marca, Object.entries(MARCA), 'mercadopago');
     const tipo = el('select'); opciones(tipo, Object.entries(TIPO_OP).filter(([k]) => k !== 'efectivo'), 'qr');
     opciones(proc, procesadores.filter(p => p.activo).map(p => [p.id, p.nombre]), null, '— procesador nuevo —');
     const m = el('span', { className: 'msg' }); let hecho = null;
-    const filaNombre = el('div', { className: 'fila' }, el('label', {}, 'Nombre del procesador nuevo *', nombre));
+    const filaNombre = el('div', { className: 'fila' }, el('label', {}, 'Procesador *', marca), el('label', {}, 'Cuenta de cobro (nombre) *', nombre));
     proc.onchange = () => { filaNombre.hidden = !!proc.value; };
     const dlg = el('dialog', {}, el('h2', { textContent: 'Medio de pago nuevo' }), f2);
     f2.append(el('div', { className: 'fila' }, el('label', {}, 'Procesador', proc), el('label', {}, 'Tipo de operación *', tipo)), filaNombre,
@@ -668,11 +675,12 @@ function nuevoMedioPago() {
       e.preventDefault();
       try {
         const p = procesadores.find(x => x.id === proc.value);
-        if (p) await api('fin/procesadores/' + p.id, { method: 'PUT', body: { nombre: p.nombre, cuenta_id: p.cuenta_id, activo: true, tipos: [...new Set([...p.tipos, tipo.value])] } });
-        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, tipos: [tipo.value] } });
+        if (p) await api('fin/procesadores/' + p.id, { method: 'PUT', body: { nombre: p.nombre, marca: p.marca, cuenta_id: p.cuenta_id, cuenta_acredita_id: p.cuenta_acredita_id,
+          activo: true, tipos: [...new Set([...p.tipos, tipo.value])] } });
+        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, marca: marca.value, tipos: [tipo.value] } });
         const { medios: mediosPago } = await api('pos/medios-pago');
         const n = mediosPago.find(x => x.tipo_operacion === tipo.value && (p ? x.procesador_id === p.id : (x.procesador || '').toLowerCase() === nombre.value.trim().toLowerCase()));
-        hecho = n ? [n.id, etiquetaMedio(n)] : null; dlg.close();
+        hecho = n ? [n.id, etiquetaMedio(n, true)] : null; dlg.close();
       } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
     };
     dlg.addEventListener('close', () => { dlg.remove(); resolve(hecho); });

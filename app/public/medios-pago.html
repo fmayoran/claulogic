@@ -24,7 +24,10 @@
     <form id="f" novalidate>
       <fieldset>
         <legend>Procesador</legend>
-        <div class="fila"><label>Nombre *<input name="nombre" maxlength="60" placeholder="Mercado Pago"></label></div>
+        <div class="fila"><label>Procesador *<select name="marca"></select></label>
+          <label>Cuenta de cobro *<input name="nombre" maxlength="60" placeholder="Mercado Pago SORELLE"></label></div>
+        <p class="ayuda">El procesador es uno solo aunque cada empresa tenga su cuenta: los reportes agrupan por procesador ("Mercado Pago ·
+          QR") y la conciliación, por cuenta de cobro (cada una con su extracto).</p>
         <div>Tipos de operación *</div>
         <div class="tipos" id="tipos"></div>
         <div class="fila"><label>Lo cobrado queda en<select name="cuenta_id"></select></label></div>
@@ -44,6 +47,7 @@ const TIPOS = [['qr', 'Pago QR'], ['transferencia', 'Transferencia'], ['debito',
 const NOMBRE_TIPO = Object.fromEntries(TIPOS);
 let procesadores = [], cuentas = [], actual = null;
 const f = $('#f');
+opciones(f.marca, Object.entries(MARCA), 'mercadopago');
 $('#tipos').replaceChildren(...TIPOS.map(([v, t]) => el('label', {}, el('input', { type: 'checkbox', value: v }), t)));
 const tiposElegidos = () => $$('#tipos input:checked').map(x => x.value);
 
@@ -54,7 +58,7 @@ async function cargar() {
       el('div', { className: 'm', textContent: 'a la cuenta de efectivo de cada punto de venta' })),
     ...procesadores.map(p => {
       const b = el('button', { type: 'button', className: 'item' + (p.id === actual ? ' sel' : '') + (p.activo ? '' : ' inactivo') },
-        el('div', { className: 'n', textContent: p.nombre }),
+        el('div', { className: 'n', textContent: p.nombre }), el('div', { className: 'm', textContent: MARCA[p.marca] || '' }),
         el('div', { className: 'm', textContent: `${p.tipos.map(t => NOMBRE_TIPO[t]).join(', ') || 'sin tipos'} · a acreditar ${pesos(p.saldo)}` }));
       b.onclick = () => abrir(p.id);
       return b;
@@ -71,19 +75,19 @@ function llenarDeposita(valor) {
   opciones(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar');
 }
 function nuevo() {
-  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo procesador'; $('#activoWrap').hidden = true;
+  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo procesador'; $('#activoWrap').hidden = true; f.marca.value = 'mercadopago';
   llenarCuentas(null); llenarDeposita(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
 function abrir(id) {
   const p = procesadores.find(x => x.id === id); if (!p) return nuevo();
   actual = id; msg(''); $('#titulo').textContent = p.nombre;
-  f.nombre.value = p.nombre; f.activo.checked = p.activo; $('#activoWrap').hidden = false;
+  f.nombre.value = p.nombre; f.marca.value = p.marca; f.activo.checked = p.activo; $('#activoWrap').hidden = false;
   $$('#tipos input').forEach(x => { x.checked = p.tipos.includes(x.value); });
   llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); sinCambios(f); cargar();
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
+  const body = { nombre: f.nombre.value, marca: f.marca.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
                  activo: actual ? f.activo.checked : true };
   $('#guardar').disabled = true;
   try {

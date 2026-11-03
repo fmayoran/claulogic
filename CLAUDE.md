@@ -389,7 +389,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     rendir es una transferencia a la caja de la central.
   - **Medios de pago globales** (`fin.procesador` + `fin.medio_pago`, pantalla `medios-pago.html`):
     procesador (Mercado Pago, Getnet, Fudo Pagos) × tipo de operación (QR, transferencia, débito, crédito), más
-    el efectivo. Cada procesador acredita en **una** cuenta (si no se elige, se crea "<procesador> a
+    el efectivo. **Marca y cuenta de cobro** (decisión de Fer, 03/11/2026; migración 20261116): `fin.procesador.marca` es de una lista
+    fija (`mercadopago`, `pago24`, `fudo`, `getnet`, `otro`; en pantalla Mercado Pago, Pago24, Fudo Pagos, Getnet, Otro) y lo que
+    se llama procesador es la **cuenta de cobro** de una empresa en esa marca ("MERCADO PAGO SORELLE", "MERCADO PAGO CORTAFUEGO":
+    una sola marca, dos cuentas). Los reportes agrupan por marca y tipo: el medio se muestra "Mercado Pago · QR" (`etiquetaMedio`;
+    con la cuenta entre paréntesis donde hay que distinguirla, al asignarlo en la ficha de una sede) y la dona del Tablero de
+    ventas va por marca (Efectivo, Mercado Pago, Pago24, Fudo Pagos) y, al tocar una, por tipo (filtros `marca:<marca>` y
+    `mt:<marca>:<tipo>`). La conciliación sigue por cuenta de cobro, y el formato de un extracto (Pago24, Mercado Pago) se
+    reconoce por la marca, no por el nombre. "SIN NOMBRE SORELLE" quedó inactivo.
+    Cada procesador acredita en **una** cuenta (si no se elige, se crea "<procesador> a
     acreditar"); el tipo queda en cada cobro (`pos.ticket_pago` → `pos.medio.medio_pago_id`) para calcular
     después el costo de cada operación.
   - Cada texto del sistema ("TARJETA DEBITO") se asigna a un medio global en Puntos de venta (encargado o

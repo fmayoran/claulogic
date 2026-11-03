@@ -492,10 +492,10 @@ function operacionDe(l) {
 // pantalla) va en la cuenta donde deposita ese procesador: en otra cuenta se conciliaría contra lo que no es (pasó con
 // el de Pago24 importado en Brubank).
 const FORMATOS = [
-  { nombre: 'Pago24', procesador: /pago\s*24/i,
+  { nombre: 'Pago24', marca: 'pago24',
     es: f => /^(recaudaci[oó]n|gasto transacci[oó]n|liquidaci[oó]n impuesto|pago cliente|transferencia bancaria (egreso|ingreso))\s*-\s*\d{6,}/i.test(String(f.concepto || '').trim())
       || /AR_(IVA|DCB|IIBB|GAN)\b/.test(String(f.referencia || '')) },
-  { nombre: 'Mercado Pago', procesador: /mercado\s*pago/i, es: f => /^(cobro|comisi[oó]n) mercado pago/i.test(String(f.concepto || '').trim()) },
+  { nombre: 'Mercado Pago', marca: 'mercadopago', es: f => /^(cobro|comisi[oó]n) mercado pago/i.test(String(f.concepto || '').trim()) },
 ];
 async function exigirCuentaDelFormato(cuenta, filas, formato) {
   const conDatos = filas.filter(f => String(f.fecha ?? '').trim());
@@ -503,9 +503,9 @@ async function exigirCuentaDelFormato(cuenta, filas, formato) {
     : FORMATOS.find(x => conDatos.length && conDatos.filter(x.es).length * 5 >= conDatos.length);   // la quinta parte alcanza
   if (!fmt) return;
   const { rows } = await pool.query(
-    `SELECT p.nombre, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id WHERE p.activo`);
+    `SELECT p.nombre, p.marca, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id WHERE p.activo`);
   // Puede haber más de un procesador del mismo tipo (Mercado Pago de CORTAFUEGO y de SORELLE): vale la cuenta de cualquiera.
-  const prs = rows.filter(x => fmt.procesador.test(x.nombre)), pr = prs[0];
+  const prs = rows.filter(x => x.marca === fmt.marca), pr = prs[0];
   if (!pr || prs.some(x => x.cuenta_acredita_id === cuenta)) return;
   const cuentas = prs.filter(x => x.cuenta_acredita_id).map(x => x.cuenta);
   if (!cuentas.length) throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: primero indicá en Medios de pago en qué cuenta deposita ${pr.nombre}.`);
@@ -1259,7 +1259,7 @@ async function resumenProcesador(cuenta) {
 // extracto, qué falta resolver y qué falta acreditar. Un procesador sin "Deposita en" viene igual, para avisarlo.
 r.get('/fin/procesadores/resumen', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT p.id, p.nombre, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id
+    `SELECT p.id, p.nombre, p.marca, p.cuenta_acredita_id, c.nombre AS cuenta FROM fin.procesador p LEFT JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id
       WHERE p.activo ORDER BY p.nombre`);
   const out = [];
   for (const p of rows) out.push({ id: p.id, nombre: p.nombre, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
@@ -1272,13 +1272,18 @@ r.get('/fin/procesadores/resumen', h(async (req, res) => {
 // acredita en UNA cuenta (de cobranza): si no se elige, se crea "<procesador> a acreditar". El tipo de
 // operación queda en cada cobro para calcular después el costo de operar con cada uno.
 const TIPOS_OP = ['transferencia', 'qr', 'debito', 'credito', 'otro'];
-const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, mp.tipo_operacion, mp.activo,
+// La marca del procesador (lista fija, migración 20261116): lo que se llama "procesador" es la cuenta de cobro de una empresa en
+// esa marca. Los reportes agrupan por marca; la conciliación, por cuenta de cobro.
+const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'otro'];
+const marcaDe = nombre => /mercado\s*pago/i.test(nombre || '') ? 'mercadopago' : /pago\s*24/i.test(nombre || '') ? 'pago24' : /fudo/i.test(nombre || '') ? 'fudo'
+  : /getnet/i.test(nombre || '') ? 'getnet' : 'otro';
+const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, mp.activo,
                            pr.cuenta_id, cu.nombre AS cuenta
                       FROM fin.medio_pago mp LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
                       LEFT JOIN fin.cuenta cu ON cu.id = pr.cuenta_id`;
 r.get('/fin/procesadores', h(async (req, res) => {
   const { rows: procesadores } = await pool.query(
-    `SELECT pr.id, pr.nombre, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
+    `SELECT pr.id, pr.nombre, pr.marca, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
             pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita,
             COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
                        WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
@@ -1289,9 +1294,11 @@ r.get('/fin/procesadores', h(async (req, res) => {
 }));
 function leerProcesador(b) {
   const p = { nombre: texto(b.nombre, { campo: 'el nombre del procesador', requerido: true }), cuenta_id: texto(b.cuenta_id),
+              marca: texto(b.marca) || marcaDe(b.nombre),
               cuenta_acredita_id: texto(b.cuenta_acredita_id),
               activo: b.activo === undefined ? true : !!b.activo,
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String) };
+  if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
   return p;
@@ -1326,8 +1333,8 @@ r.post('/fin/procesadores', h(async (req, res) => {
   const p = leerProcesador(req.body);
   const id = await enTransaccion(async c => {
     const cuenta = await cuentaProcesador(c, p);
-    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta)]);
+    const { rows: [n] } = await c.query('INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id, marca) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), p.marca]);
     await guardarTipos(c, n.id, p.tipos);
     return n.id;
   });
@@ -1339,8 +1346,8 @@ r.put('/fin/procesadores/:id', h(async (req, res) => {
     const { rows: [ant] } = await c.query('SELECT cuenta_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
     if (!ant) throw new ErrorUsuario('No existe ese procesador.', 404);
     const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
-    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4 WHERE id = $5',
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id]);
+    await c.query('UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4, marca = $6 WHERE id = $5',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca]);
     await guardarTipos(c, req.params.id, p.tipos);
   });
   res.json({ ok: true });

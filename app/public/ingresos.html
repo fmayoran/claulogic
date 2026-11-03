@@ -307,7 +307,7 @@ async function tareaVenta(p, t) {
     const [{ medios }, { medios: mediosPago }] = await Promise.all([api(`pos/integraciones/${p.id}/medios`), api('pos/medios-pago')]);
     for (const m of medios.filter(m => !m.medio_pago_id && !m.cuenta_id)) {
       const s = el('select', { 'aria-label': 'Medio de pago' });
-      opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x)]), '', 'Elegí el medio de pago', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), '', 'Elegí el medio de pago', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
       s.addEventListener('change', async () => {
         if (!s.value) return;
         try {
@@ -376,20 +376,20 @@ $('#dCancelar').onclick = () => $('#dlgDif').close();
 // ── 3. Extractos ──
 // Qué archivo va en cada cuenta, según el procesador.
 function queArchivo(x) {
-  if (/mercado\s*pago/i.test(x.nombre)) return 'El reporte de liberaciones (con las columnas de bruto, comisión, impuestos y saldo), o el resumen de cuenta y el reporte de liquidaciones juntos.';
-  if (/pago\s*24/i.test(x.nombre)) return 'El CSV de movimientos de la cuenta, con la columna de saldo.';
+  if (x.marca === 'mercadopago') return 'El reporte de liberaciones (con las columnas de bruto, comisión, impuestos y saldo), o el resumen de cuenta y el reporte de liquidaciones juntos.';
+  if (x.marca === 'pago24') return 'El CSV de movimientos de la cuenta, con la columna de saldo.';
   return `El extracto en CSV de ${x.cuenta || 'la cuenta'}, con la columna de saldo.`;
 }
 // Dónde se baja el archivo en cada procesador, a pedido (es difícil de encontrar: pedido de Fer, 28/10/2026).
 function comoBajar(x) {
   let pasos = null;
-  if (/pago\s*24/i.test(x.nombre)) {
+  if (x.marca === 'pago24') {
     const nro = ((x.cuenta || '').match(/\d{4,}/) || [])[0];
     pasos = ['Entrá a Pago24 y andá a Reportes > Financiero > Cta. Cte. Disponible.',
       `Elegí el rango de fechas y la cuenta ${nro ? nro + ' ' : ''}del punto de venta.`,
       'Descargalo en CSV e importalo acá.'];
   }
-  if (/mercado\s*pago/i.test(x.nombre))
+  if (x.marca === 'mercadopago')
     pasos = ['Entrá a Mercado Pago con la cuenta de la empresa y andá a Reportes > Liberaciones.',
       'La primera vez, en la configuración del reporte tildá las columnas GROSS_AMOUNT, MP_FEE_AMOUNT, FINANCING_FEE_AMOUNT, TAXES_AMOUNT, '
         + 'TAXES_DISAGGREGATED, TRANSACTION_APPROVAL_DATE, BALANCE_AMOUNT y POS_NAME, y guardala (queda para los siguientes).',
