@@ -247,7 +247,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Cajas y bancos por filial** (pedido de Fer, 01/11/2026: con dos empresas se mezclaba todo): un selector arriba (Todas y cada
   filial, la sede de la cuenta; "Sin filial" si alguna no tiene); "Todas" muestra sólo una fila por filial (disponible, por
   acreditar, efectivo a rendir, líneas sin conciliar) y tocarla la abre; en una filial, sus cuentas y "Cuándo entra" de sus
-  procesadores (`soloDe`). Se recuerda la última elegida.
+  cobros (`soloDe`). Se recuerda la última elegida. **Lo por acreditar va a la filial del punto de venta que cobró**, no a la de la
+  cuenta (03/11/2026: la cuenta de Mercado Pago de SORELLE es de Bodegón y la usa también la cafetería): `parteDe` reparte la cuenta
+  "a acreditar" por los cobros pendientes (`/fin/tesoreria/por-acreditar` trae `sede_id`; `/por-cobrar?por_sede=1` agrupa además por
+  filial) y el resto sin cobro que lo explique queda en la filial de la cuenta. Lo ya acreditado (el banco o la cuenta de MP) sigue en
+  la filial de la cuenta.
 - **Cajas y bancos es un tablero** (pedido de Fer, 27/10/2026; `tesoreria.html`): arriba Disponible (bancos, incluidas las
   cuentas donde depositan los procesadores, y cajas de las sedes), Por acreditar y Efectivo a rendir; después cada grupo con
   sus cuentas: lo por acreditar por procesador y, debajo, **de qué punto de venta viene** (`GET /fin/tesoreria/por-acreditar`:
