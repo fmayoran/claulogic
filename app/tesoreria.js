@@ -641,6 +641,18 @@ function controlarSaldos(filas) {
       + 'como crédito resta. Revisá las columnas (Débito y Crédito al revés, o el importe con el signo cambiado) y volvé a importar.');
 }
 
+// El período que declara el nombre del archivo ("2026-10-01 al 2026-10-31", "… a …"), si contiene todas las líneas, no es
+// del futuro y no pasa de 62 días: si no, no se toma.
+function periodoDeclarado(archivo, fechas) {
+  const m = String(archivo || '').match(/(\d{4}-\d{2}-\d{2})\s+(?:al?|-)\s+(\d{4}-\d{2}-\d{2})/i);
+  if (!m) return null;
+  const [, desde, hasta] = m, hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+  if (!(desde <= hasta) || hasta >= hoy || Number.isNaN(Date.parse(desde)) || Number.isNaN(Date.parse(hasta))) return null;
+  if ((Date.parse(hasta) - Date.parse(desde)) / 864e5 > 62) return null;
+  if (fechas.length && (fechas[0] < desde || fechas.at(-1) > hasta)) return null;
+  return { desde, hasta };
+}
+
 // Importar un extracto ya separado en columnas (fecha, concepto, referencia, débito y crédito o importe, saldo): lo usan la
 // pantalla (que mapea las columnas del archivo) y el portal de Pago24 (que baja el CSV). Reimportar no duplica.
 async function importarExtracto(b) {
@@ -695,9 +707,15 @@ async function importarExtracto(b) {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');
     const fechas = lineas.map(l => l.fecha).sort();
+    // El período del extracto: el de sus líneas, ampliado al que declara el nombre del archivo (Brubank: "[2026-10-01 al
+    // 2026-10-31]"). Un fin de semana sin movimientos al final no es un día que falte (03/11/2026: el de octubre terminaba
+    // el viernes 30 y el paso 3 pedía el 31).
+    const per = periodoDeclarado(b.archivo, fechas);
+    const desde = [(saldoInicial && saldoInicial.fecha) || fechas[0], per && per.desde].filter(Boolean).sort()[0] || null;
+    const hasta = [fechas.at(-1), per && per.hasta].filter(Boolean).sort().at(-1) || null;
     const { rows: [e] } = await c.query(
       'INSERT INTO fin.extracto (cuenta_id, archivo, saldo_inicial, saldo_final, desde, hasta) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-      [cuenta, texto(b.archivo), saldoInicial && saldoInicial.saldo, saldoFinal, (saldoInicial && saldoInicial.fecha) || fechas[0] || null, fechas.at(-1) || null]);
+      [cuenta, texto(b.archivo), saldoInicial && saldoInicial.saldo, saldoFinal, desde, hasta]);
     // Una cuenta que recién empieza (sin movimientos) toma como apertura el saldo inicial del extracto, el día
     // anterior: así su saldo puede coincidir con el del extracto desde el primer día (decisión de Fer).
     let apertura = null;
