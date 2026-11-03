@@ -36,10 +36,11 @@ r.get('/fin/cuentas', h(async (req, res) => {
 }));
 
 // Lo cobrado con cada procesador que todavía no llegó a la cuenta donde deposita, por punto de venta: los cobros ya
-// procesados, sin acreditar con el extracto ni en un lote confirmado. Para el tablero de Cajas y bancos.
+// procesados, sin acreditar con el extracto ni en un lote confirmado. Para el tablero de Cajas y bancos, que lo reparte por la
+// filial del punto de venta: una cuenta de cobro compartida (la cafetería y el bodegón de SORELLE) no es toda de la filial de la cuenta.
 r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta,
+    `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta, i.sede_id,
             COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe, to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde,
             COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
@@ -57,11 +58,11 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
 // con el costo real por tipo (`resumenProcesador`). Sin historia, la fecha es el día siguiente a la venta y el neto, el
 // bruto. Lo que debía entrar antes de hoy y no llegó va aparte, atrasado. No guarda nada: se deriva cada vez.
 const sumarDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-async function porCobrar() {
+async function porCobrar({ porSede = false } = {}) {
   const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }] = await Promise.all([
     pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
     pool.query(
-      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, i.nombre AS punto_venta, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
+      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, i.nombre AS punto_venta, i.sede_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
@@ -111,8 +112,10 @@ async function porCobrar() {
         muestras: dm ? dm.muestras : 0, costo_pct: cp == null ? null : (Number(cp) / 100).toFixed(2) });
     }
     tot.pagos++; tot.bruto += bruto; tot.neto += neto;
-    const destino = fecha < hoy ? atrasado : dias, clave = (fecha < hoy ? '' : fecha) + '|' + p.procesador + '|' + fuente;
-    const g = destino.get(clave) || { fecha: fecha < hoy ? null : fecha, desde: fecha, procesador: p.procesador, fuente, pagos: 0, bruto: 0n, neto: 0n, en_lote: 0 };
+    // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
+    const destino = fecha < hoy ? atrasado : dias, clave = (fecha < hoy ? '' : fecha) + '|' + p.procesador + '|' + fuente + (porSede ? '|' + p.sede_id : '');
+    const g = destino.get(clave) || { fecha: fecha < hoy ? null : fecha, desde: fecha, procesador: p.procesador, fuente, pagos: 0, bruto: 0n, neto: 0n, en_lote: 0,
+      ...(porSede ? { sede_id: p.sede_id } : {}) };
     g.pagos++; g.bruto += bruto; g.neto += neto; if (p.en_lote) g.en_lote++; if (fecha < g.desde) g.desde = fecha;
     destino.set(clave, g);
   }
@@ -124,7 +127,7 @@ async function porCobrar() {
     estimaciones: [...usadas.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.tipo_operacion.localeCompare(b.tipo_operacion)),
   };
 }
-r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => { res.json({ ok: true, ...(await porCobrar()) }); }));
+r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => { res.json({ ok: true, ...(await porCobrar({ porSede: req.query.por_sede === '1' })) }); }));
 
 function leerCuenta(b) {
   const c = {

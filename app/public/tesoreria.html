@@ -139,8 +139,19 @@ let filial = (() => { try { return localStorage.getItem('tesoreria-filial') || '
 let datos = null;
 const SIN = 'sin';
 const filialDe = c => c.sede_id || SIN;
+// Lo por acreditar va a la filial del punto de venta que cobró, no a la de la cuenta: una cuenta de cobro compartida (la de
+// Mercado Pago de SORELLE la usan el bodegón y la cafetería) se reparte. Lo que la cuenta tiene sin cobro pendiente que lo
+// explique queda en su propia filial, así la suma de las filiales es el saldo de la cuenta.
+function parteDe(c, id) {
+  const xs = datos.pa.filter(x => x.cuenta_id === c.id);
+  let t = suma(xs.filter(x => (x.sede_id || SIN) === id), 'importe');
+  if (filialDe(c) === id) t += centavos(c.saldo) - suma(xs, 'importe');
+  return deCentavos(t);
+}
+const acreditarDe = (todas, id) => todas.filter(c => c.tipo === 'cobranza' && (filialDe(c) === id || datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) === id)))
+  .map(c => ({ ...c, saldo: parteDe(c, id), compartida: datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) !== id) }));
 async function cargar() {
-  const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar')]);
+  const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar?por_sede=1')]);
   cuentas = cs; datos = { pa, pc };
   pintarTablero();
 }
@@ -158,7 +169,7 @@ function pintarTablero() {
   if (!filial) return resumenFiliales(todas, fs);
   const activas = todas.filter(c => filialDe(c) === filial);
   const efectivoPV = activas.filter(c => c.punto_venta);
-  const aAcreditar = activas.filter(c => c.tipo === 'cobranza');
+  const aAcreditar = acreditarDe(todas, filial);
   const disponibles = activas.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
   const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
   const cheques = suma(activas, 'cheques_pendientes');
@@ -175,18 +186,18 @@ function pintarTablero() {
       !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null))));
 
   // Por acreditar: cada procesador con su cuenta "a acreditar" y, debajo, de qué punto de venta viene lo que falta.
-  const procs = new Set(aAcreditar.map(c => c.procesador_pendiente).filter(Boolean));
   const porProc = aAcreditar.map(c => {
-    const pvs = pa.filter(x => x.cuenta_id === c.id);
-    const deposita = activas.find(x => x.procesador_deposita && c.procesador_pendiente && x.procesador_deposita.split(', ').includes(c.procesador_pendiente));
-    return el('div', {}, filaCuenta(c, [c.procesador_pendiente ? `Procesador ${c.procesador_pendiente}` : 'Cobranza', deposita ? `deposita en ${deposita.nombre}` : 'falta indicar dónde deposita']),
+    const pvs = pa.filter(x => x.cuenta_id === c.id && (x.sede_id || SIN) === filial);
+    const deposita = todas.find(x => x.procesador_deposita && c.procesador_pendiente && x.procesador_deposita.split(', ').includes(c.procesador_pendiente));
+    return el('div', {}, filaCuenta(c, [c.procesador_pendiente ? `Procesador ${c.procesador_pendiente}` : 'Cobranza', deposita ? `deposita en ${deposita.nombre}` : 'falta indicar dónde deposita',
+      c.compartida && el('span', { className: 'tag', title: 'La cuenta la usan también otros puntos de venta: acá va sólo lo cobrado en esta filial.', textContent: 'cuenta compartida: lo de esta filial' })]),
       ...pvs.map(x => el('div', { className: 'pv' }, el('span', {}, el('b', { textContent: x.punto_venta }),
         ` · ${x.pagos} cobro(s) desde el ${fecha(x.desde)}` + (x.en_lote ? ` · ${x.en_lote} en lotes esperando el depósito` : '')),
         el('span', { className: 'i', textContent: pesos(x.importe) }))));
   });
   if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
     'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
-    ...porProc, cuandoEntra(soloDe(pc, procs)), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
+    ...porProc, cuandoEntra(soloDe(pc, filial)), el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
 
   if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
     'Lo cobrado en efectivo que el punto de venta todavía no rindió. Se rinde cuando la plata entra a una caja o al banco de la empresa.',
@@ -203,10 +214,10 @@ function pintarTablero() {
 function resumenFiliales(todas, fs) {
   const de = id => todas.filter(c => filialDe(c) === id);
   const disp = cs => cs.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
-  const acr = cs => cs.filter(c => c.tipo === 'cobranza'), ef = cs => cs.filter(c => c.punto_venta);
+  const ef = cs => cs.filter(c => c.punto_venta);
   $('#kpis').replaceChildren(
     kpi('Disponible', pesosC(suma(disp(todas))), 'bancos y cajas de todas las filiales'),
-    kpi('Por acreditar', pesosC(suma(acr(todas))), 'cobrado con los procesadores, todavía no depositado'),
+    kpi('Por acreditar', pesosC(suma(todas.filter(c => c.tipo === 'cobranza'))), 'cobrado con los procesadores, todavía no depositado'),
     kpi('Efectivo a rendir', pesosC(suma(ef(todas))), 'en los puntos de venta'));
   $('#grupos').replaceChildren(grupo('Por filial', null, 'Tocá una filial para ver sus cuentas.',
     el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' },
@@ -214,17 +225,18 @@ function resumenFiliales(todas, fs) {
         el('th', { className: 'num', textContent: 'Por acreditar' }), el('th', { className: 'num', textContent: 'Efectivo a rendir' }), el('th', { textContent: 'Sin conciliar' }))),
       el('tbody', {}, ...fs.map(([id, n]) => {
         const cs = de(id), sc = cs.reduce((t, c) => t + (c.lineas_sin_conciliar || 0), 0);
-        const tr = el('tr', { style: 'cursor:pointer' }, td(n), td(pesosC(suma(disp(cs))), 'num'), td(pesosC(suma(acr(cs))), 'num'), td(pesosC(suma(ef(cs))), 'num'),
+        const tr = el('tr', { style: 'cursor:pointer' }, td(n), td(pesosC(suma(disp(cs))), 'num'), td(pesosC(suma(acreditarDe(todas, id))), 'num'), td(pesosC(suma(ef(cs))), 'num'),
           el('td', {}, sc ? el('span', { className: 'tag aviso', textContent: `${sc} línea(s)` }) : ''));
         tr.onclick = () => { filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {} pintarTablero(); };
         return tr;
       }))))));
   etiquetarTabla($('#grupos table'));
 }
-// Lo que entra de los procesadores de la filial (los totales se recalculan con lo filtrado).
-function soloDe(pc, procs) {
-  const dias = pc.dias.filter(d => procs.has(d.procesador)), atrasado = pc.atrasado.filter(d => procs.has(d.procesador));
-  const xs = [...dias, ...atrasado];
+// Lo que entra de los cobros de la filial, por el punto de venta que cobró (los totales se recalculan con lo filtrado).
+function soloDe(pc, id) {
+  const de = d => (d.sede_id || SIN) === id;
+  const dias = pc.dias.filter(de), atrasado = pc.atrasado.filter(de);
+  const xs = [...dias, ...atrasado], procs = new Set(xs.map(x => x.procesador));
   return { ...pc, dias, atrasado, estimaciones: pc.estimaciones.filter(e => procs.has(e.procesador)), pagos: xs.reduce((t, x) => t + x.pagos, 0),
     neto: deCentavos(xs.reduce((t, x) => t + centavos(x.neto), 0n)) };
 }
