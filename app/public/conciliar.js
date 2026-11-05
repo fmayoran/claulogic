@@ -6,7 +6,7 @@
 //   · Conc.resolver: lo que falta resolver de una cuenta, agrupado, con el pareo sugerido de cada línea y su acción.
 // Usa los helpers de comun.js (el, api, pesos, fecha, centavos…), que se cargan antes.
 const Conc = (() => {
-  const TIPO_OP = { transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', otro: 'Otro' };
+  const TIPO_OP = { transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', online: 'Pago online', otro: 'Otro' };
   const conSigno = v => el('span', { className: String(v).startsWith('-') ? 'neg' : '', textContent: pesos(v) });
   const suma = arr => deCentavos(arr.reduce((s, x) => s + centavos(x.importe), 0n));
   // "Recaudacion - 1580185668 (Bruto) " -> nombre "Recaudacion" y número de operación aparte.

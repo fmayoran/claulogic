@@ -29,7 +29,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
             -- Para qué es la cuenta: la "a acreditar" de un procesador, donde deposita uno, o el efectivo de un punto de venta.
             (SELECT pr.nombre FROM fin.procesador pr WHERE pr.cuenta_id = c.id LIMIT 1) AS procesador_pendiente,
             (SELECT string_agg(pr.nombre, ', ' ORDER BY pr.nombre) FROM fin.procesador pr WHERE pr.cuenta_acredita_id = c.id) AS procesador_deposita,
-            (SELECT i.nombre FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id LIMIT 1) AS punto_venta
+            (SELECT i.nombre FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id ORDER BY i.sistema = 'pedidosya' LIMIT 1) AS punto_venta
        FROM fin.cuenta c
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id
        LEFT JOIN org.sede s ON s.id = c.sede_id
@@ -107,7 +107,8 @@ async function porCobrar({ porSede = false } = {}) {
       const dm = demora.get(p.procesador_id + '|' + p.tipo_operacion) || demora.get(p.procesador_id + '|');
       const cp = costo.get(p.procesador_id + '|' + p.tipo_operacion) ?? costo.get(p.procesador_id + '|') ?? null;
       fecha = p.liquida_el || sumarDias(p.dia, dm ? dm.dias : 1);
-      neto = cp == null ? bruto : bruto - bruto * cp / 10000n;
+      // Con el neto informado por pago (PedidosYa, sin fecha de liquidación), el neto es ése.
+      neto = p.neto != null ? centavos(p.neto) : cp == null ? bruto : bruto - bruto * cp / 10000n;
       fuente = dm ? 'estimado' : 'sin_historia';
       const k = p.procesador + '|' + p.tipo_operacion;
       if (!usadas.has(k)) usadas.set(k, { procesador: p.procesador, tipo_operacion: p.tipo_operacion, dias: dm ? dm.dias : null,
@@ -174,7 +175,7 @@ const CATEGORIA_TES = `
 const NOMBRE_CAT = { apertura: 'Saldo de apertura', efectivo: 'Rendiciones de efectivo', proveedores: 'Pagos a proveedores', cobro: 'Cobros de ventas',
   arqueo: 'Arqueos de caja', 'gasto:comision': 'Comisiones', 'gasto:iva_credito': 'IVA de comisiones', 'gasto:imp_debitos_creditos': 'Impuesto a los débitos y créditos',
   'gasto:retencion': 'Retenciones', 'gasto:otro': 'Otros gastos de cobro' };
-const MARCA_NOMBRE = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', otro: 'otros procesadores' };
+const MARCA_NOMBRE = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', pedidosya: 'PedidosYa', otro: 'otros procesadores' };
 const nombreCat = (cat, entrada, rubro) => cat.startsWith('acr:') ? `Acreditaciones ${MARCA_NOMBRE[cat.slice(4)] || cat.slice(4)}`
   : cat.startsWith('rubro:') ? rubro : cat === 'transf' ? (entrada ? 'Transferencias recibidas' : 'Transferencias a otras cuentas')
   : cat === 'sin' ? (entrada ? 'Otros ingresos sin clasificar' : 'Sin clasificar') : NOMBRE_CAT[cat] || cat;
@@ -1427,12 +1428,12 @@ r.get('/fin/procesadores/resumen', h(async (req, res) => {
 // Procesador (Mercado Pago, Getnet, Fudo Pagos…) + tipo de operación, más el efectivo. Cada procesador
 // acredita en UNA cuenta (de cobranza): si no se elige, se crea "<procesador> a acreditar". El tipo de
 // operación queda en cada cobro para calcular después el costo de operar con cada uno.
-const TIPOS_OP = ['transferencia', 'qr', 'debito', 'credito', 'otro'];
+const TIPOS_OP = ['transferencia', 'qr', 'debito', 'credito', 'online', 'otro'];
 // La marca del procesador (lista fija, migración 20261116): lo que se llama "procesador" es la cuenta de cobro de una empresa en
 // esa marca. Los reportes agrupan por marca; la conciliación, por cuenta de cobro.
-const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'otro'];
+const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'pedidosya', 'otro'];
 const marcaDe = nombre => /mercado\s*pago/i.test(nombre || '') ? 'mercadopago' : /pago\s*24/i.test(nombre || '') ? 'pago24' : /fudo/i.test(nombre || '') ? 'fudo'
-  : /getnet/i.test(nombre || '') ? 'getnet' : 'otro';
+  : /getnet/i.test(nombre || '') ? 'getnet' : /pedidos\s*ya/i.test(nombre || '') ? 'pedidosya' : 'otro';
 const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, mp.activo,
                            pr.cuenta_id, cu.nombre AS cuenta
                       FROM fin.medio_pago mp LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
@@ -1459,7 +1460,7 @@ function leerProcesador(b) {
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
               portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave),
               portal_auto: !!b.portal_auto };
-  if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet u otro.');
+  if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet, PedidosYa u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
   if (p.marca !== 'pago24') Object.assign(p, { portal_url: null, portal_usuario: null, portal_clave: null });

@@ -330,7 +330,8 @@ async function tareaVenta(p, t) {
 
 // ── 2. Efectivo ──
 function pintarEfectivo() {
-  $('#efectivo').replaceChildren(...puntos.map(p => {
+  // PedidosYa comparte el efectivo con el sistema principal de su local: se rinde una sola vez, ahí.
+  $('#efectivo').replaceChildren(...puntos.filter(p => p.sistema !== 'pedidosya').map(p => {
     const saldo = centavos(p.efectivo_a_rendir), pend = p.dias.filter(d => centavos(d.efectivo_pendiente) > 0n);
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
       el('div', { className: 'acc' }, saldo > 0n ? boton('Rendir', () => abrirRendir(p), true) : '', saldo > 0n ? boton('Diferencia', () => abrirDif(p)) : ''));

@@ -74,11 +74,13 @@ r.put('/sedes/:id', h(async (req, res) => {
     await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4, es_central=$5 WHERE id=$6',
       [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, req.params.id]);
     // El sistema de venta y su cuenta de efectivo llevan el nombre de la sede.
-    const { rows: [pv] } = await c.query('SELECT id, nombre, cuenta_efectivo_id FROM pos.integracion WHERE sede_id = $1', [req.params.id]);
+    const { rows: [pv] } = await c.query(`SELECT id, nombre, cuenta_efectivo_id FROM pos.integracion WHERE sede_id = $1 AND sistema <> 'pedidosya'`, [req.params.id]);
     if (pv && pv.nombre !== s.nombre) {
       await c.query('UPDATE pos.integracion SET nombre = $1 WHERE id = $2', [s.nombre, pv.id]);
       if (pv.cuenta_efectivo_id) await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + s.nombre, pv.cuenta_efectivo_id]);
     }
+    // PedidosYa, el segundo sistema del local (comparte la cuenta de efectivo con el principal).
+    await c.query(`UPDATE pos.integracion SET nombre = $1 WHERE sede_id = $2 AND sistema = 'pedidosya' AND nombre <> $1`, ['PedidosYa · ' + s.nombre, req.params.id]);
   });
   res.json({ ok: true, id: req.params.id });
 }));

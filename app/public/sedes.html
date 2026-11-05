@@ -58,6 +58,10 @@
           cifrados y no se vuelven a mostrar; para cambiarlos, cargalos de nuevo. Maxirest no publica una API: se usa el servicio de su
           propia página, que puede cambiar sin aviso.</p>
         <p class="ayuda" id="efectivoInfo"></p>
+        <label class="check" id="peyaWrap" style="margin-top:12px"><input type="checkbox" name="pedidosya"> También vende por PedidosYa</label>
+        <p class="ayuda" id="ayudaPeya">Los pedidos de PedidosYa se importan con el archivo que exporta su portal (Procesar ventas) y suman a las ventas
+          de este local. Lo cobrado en línea va a la cuenta de cobro de PedidosYa del local (Medios de pago); un pedido en efectivo, a su
+          efectivo a rendir.</p>
       </fieldset>
       <div class="acciones">
         <button type="submit" class="prim" id="guardar">Guardar</button>
@@ -88,10 +92,12 @@
 <script src="comun.js"></script>
 <script>
 const TIPO = { centro: 'Centro', local: 'Punto de venta' };
-const SISTEMA = { fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro' };
+const SISTEMA = { fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro', pedidosya: 'PedidosYa' };
 let sedes = [], integraciones = [], platos = [], mediosPago = [], actual = null, yo = null;
 const f = $('#f');
-const integDe = id => integraciones.find(i => i.sede_id === id);
+// El sistema principal del local y, si vende por PedidosYa, ése (segundo sistema del mismo local).
+const integDe = id => integraciones.find(i => i.sede_id === id && i.sistema !== 'pedidosya');
+const peyaDe = id => integraciones.find(i => i.sede_id === id && i.sistema === 'pedidosya');
 
 async function cargar() {
   [{ sedes }, { integraciones }] = await Promise.all([api('sedes'), api('pos/integraciones')]);
@@ -100,7 +106,8 @@ async function cargar() {
     const b = el('button', { type: 'button', className: 'item' + (s.id === actual ? ' sel' : '') + (s.activa ? '' : ' inactivo') },
       el('div', { className: 'n' }, s.nombre, s.es_central ? el('span', { className: 'tag ok', textContent: 'central', style: 'margin-left:6px' }) : '',
         s.tipo === 'local' && i && i.articulos_sin_receta ? el('span', { className: 'tag aviso', textContent: `${i.articulos_sin_receta} sin receta`, style: 'margin-left:6px' }) : ''),
-      el('div', { className: 'm', textContent: [TIPO[s.tipo], i ? `${SISTEMA[i.sistema]} por ${i.modo}` : null, s.direccion].filter(Boolean).join(' · ') }));
+      el('div', { className: 'm', textContent: [TIPO[s.tipo], i ? `${SISTEMA[i.sistema]} por ${i.modo}` : null, peyaDe(s.id) && peyaDe(s.id).activa ? 'PedidosYa' : null,
+        s.direccion].filter(Boolean).join(' · ') }));
     b.onclick = () => abrir(s.id);
     return b;
   }));
@@ -117,6 +124,8 @@ function aplicarTipo() {
   $('#filaCred').hidden = $('#ayudaCred').hidden = !api || mx;
   $('#filaCredMx').hidden = $('#ayudaCredMx').hidden = !api || !mx;
   $('#probar').hidden = !pv || !api;
+  // PedidosYa se suma a un sistema principal ya guardado.
+  $('#peyaWrap').hidden = $('#ayudaPeya').hidden = !pv || !(actual && integDe(actual));
 }
 // Probar la conexión con lo que está en la ficha (lo no tipeado sale de lo guardado), sin guardar.
 $('#probar').onclick = async () => {
@@ -145,6 +154,7 @@ async function abrir(id) {
   const i = integDe(id);
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
   f.sincroniza_auto.checked = !!(i && i.sincroniza_auto);
+  const py = peyaDe(id); f.pedidosya.checked = !!(py && py.activa);
   f.apiKey.value = f.apiSecret.value = f.mail.value = f.password.value = f.cliente.value = '';
   f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
   f.cliente.placeholder = i && i.tiene_credenciales ? 'cargado (no se muestra)' : '49502';
@@ -152,7 +162,7 @@ async function abrir(id) {
   $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'procesar-ventas.html#' + i.id;
   aplicarTipo(); sinCambios(f);
   $('#secArt').hidden = $('#secMed').hidden = true;
-  if (s.tipo === 'local' && i) await Promise.all([cargarArticulos(i), cargarMedios(i)]);
+  if (s.tipo === 'local' && i) await Promise.all([cargarArticulos([i, py]), cargarMedios([i, py])]);
   await cargar();
 }
 f.onsubmit = async e => {
@@ -169,6 +179,11 @@ f.onsubmit = async e => {
                       sincroniza_auto: f.sincroniza_auto.checked,
                       apiKey: f.apiKey.value, apiSecret: f.apiSecret.value, mail: f.mail.value, password: f.password.value, cliente: f.cliente.value };
       await api(ant ? 'pos/integraciones/' + ant.id : 'pos/integraciones', { method: ant ? 'PUT' : 'POST', body: venta });
+      // PedidosYa: se da de alta la primera vez que se tilda; destildarlo lo desactiva (sus ventas quedan).
+      const py = peyaDe(d.id);
+      if (ant && (py ? py.activa !== f.pedidosya.checked : f.pedidosya.checked))
+        await api(py ? 'pos/integraciones/' + py.id : 'pos/integraciones', { method: py ? 'PUT' : 'POST',
+          body: { sede_id: d.id, sistema: 'pedidosya', modo: 'archivo', activa: f.pedidosya.checked } });
     }
     actual = d.id; await cargar(); await abrir(d.id); msg('Guardado.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }
@@ -176,8 +191,10 @@ f.onsubmit = async e => {
 };
 
 // ── Artículos y medios del sistema de venta ──
-async function cargarArticulos(i) {
-  const { articulos } = await api(`pos/integraciones/${i.id}/articulos`);
+// Los de los dos sistemas del local (el principal y PedidosYa), los de PedidosYa con su nombre adelante.
+const conSistema = (x, a) => x.sistema === 'pedidosya' ? { ...a, nombre: 'PedidosYa · ' + a.nombre, integ: x } : { ...a, integ: x };
+async function cargarArticulos(lista) {
+  const articulos = (await Promise.all(lista.filter(Boolean).map(x => api(`pos/integraciones/${x.id}/articulos`).then(r => r.articulos.map(a => conSistema(x, a)))))).flat();
   $('#secArt').hidden = false;
   filas($('#art'), articulos, a => {
     const pl = el('select', { disabled: a.sin_consumo }); opciones(pl, platos.map(p => [p.id, p.nombre]), a.plato_id, 'Sin receta');
@@ -195,8 +212,10 @@ async function cargarArticulos(i) {
   }, 'Todavía no se importó ninguna venta: los artículos aparecen con la primera importación.', 6);
   etiquetarTabla($('#tArt'));
 }
-async function cargarMedios(i) {
-  const [{ medios }, mp] = await Promise.all([api(`pos/integraciones/${i.id}/medios`), api('pos/medios-pago')]);
+async function cargarMedios(lista) {
+  const [medios, mp] = await Promise.all([
+    Promise.all(lista.filter(Boolean).map(x => api(`pos/integraciones/${x.id}/medios`).then(r => r.medios.map(m => conSistema(x, m))))).then(v => v.flat()),
+    api('pos/medios-pago')]);
   mediosPago = mp.medios;
   $('#secMed').hidden = false;
   filas($('#med'), medios, m => {
@@ -205,7 +224,7 @@ async function cargarMedios(i) {
     s.addEventListener('change', async () => {
       if (!s.value) return;
       try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: s.value } });
-            const { medios: ms } = await api(`pos/integraciones/${i.id}/medios`);
+            const { medios: ms } = await api(`pos/integraciones/${m.integ.id}/medios`);
             cuenta.textContent = (ms.find(x => x.id === m.id) || {}).cuenta || '—'; est.textContent = 'guardado'; est.className = 'msg ok'; }
       catch (e) { est.textContent = e.message; est.className = 'msg mal'; }
     });

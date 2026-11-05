@@ -151,7 +151,7 @@ function diasEntre(desde, hasta) {
 }
 
 // ── Período ──
-let integraciones = [], resumen = null, ventas = [];
+let integraciones = [], locales = [], resumen = null, ventas = [];
 const filtros = {};   // dia, medio, hora, tipo, mozo: lo que se fue eligiendo en los gráficos
 const ayer = () => { const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
 function rango(p) {
@@ -174,7 +174,7 @@ $('#integ').onchange = () => { limpiarFiltros(); cargar(); };
 
 function base() {
   const p = new URLSearchParams({ desde: $('#desde').value, hasta: $('#hasta').value });
-  if ($('#integ').value) p.set('integracion', $('#integ').value);
+  if ($('#integ').value) p.set('sede', $('#integ').value);
   return p;
 }
 async function cargar() {
@@ -252,12 +252,20 @@ function pintar() {
   Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${x.tipo} (${x.ventas})`, valor: x.vendido })),
     sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
 
-  // Varios locales: el ranking es por local (tocar uno lo elige arriba); uno solo: por mozo.
-  const varios = !$('#integ').value && r.puntos.length > 1;
-  $('#tRank').textContent = varios ? 'Por local' : 'Por mozo';
-  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
-  if (varios) Graf.ranking($('#gRank'), { items: r.puntos.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas })),
+  // Varios locales: el ranking es por local (tocar uno lo elige arriba); un local con PedidosYa: por canal (su sistema y
+  // PedidosYa); si no, por mozo.
+  const porLocal = new Map();
+  for (const x of r.puntos) {
+    const g = porLocal.get(x.sede_id) || { clave: x.sede_id, etiqueta: (locales.find(l => l[0] === x.sede_id) || [, x.nombre])[1], valor: 0n, ventas: 0 };
+    g.valor += centavos(x.vendido); g.ventas += x.ventas; porLocal.set(x.sede_id, g);
+  }
+  const varios = !$('#integ').value && porLocal.size > 1, canales = !varios && r.puntos.length > 1;
+  $('#tRank').textContent = varios ? 'Por local' : canales ? 'Por canal' : 'Por mozo';
+  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' : canales ? 'Lo vendido en el salón y por PedidosYa.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
+  if (varios) Graf.ranking($('#gRank'), { items: [...porLocal.values()].sort((a, b) => (b.valor > a.valor) - (b.valor < a.valor)).map(x => ({ ...x, valor: deCentavos(x.valor) })),
     nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: id => { $('#integ').value = id; limpiarFiltros(); cargar(); } });
+  else if (canales) Graf.ranking($('#gRank'), { items: r.puntos.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas })),
+    nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: () => {} });
   else Graf.ranking($('#gRank'), { items: r.mozos.slice(0, 8).map(x => ({ clave: x.mozo, etiqueta: x.mozo, valor: x.vendido, ventas: x.ventas, personas: x.personas })),
     nota: x => `${x.ventas} ventas` + (x.personas ? ` · ${num(String(x.personas))} cubiertos` : ''), alElegir: m => alternar('mozo', m), elegido: filtros.mozo ?? null });
 }
@@ -351,8 +359,12 @@ $('#dlgVenta').addEventListener('click', e => { if (e.target === $('#dlgVenta'))
     const activas = integraciones.filter(i => i.activa);
     if (!activas.length) { msg('No hay puntos de venta configurados: cargalos en Configuración > Sedes.', 'aviso'); return; }
     // El enlace puede traer sólo el punto de venta (desde Sedes) o el filtro completo.
+    // El filtro es por local (sede): PedidosYa suma a las ventas del local (decisión de Fer, 05/11/2026). Un enlace viejo con
+    // el punto de venta abre su local.
     const h = location.hash.slice(1), p = new URLSearchParams(h.includes('=') ? h : h ? 'integracion=' + h : '');
-    opciones($('#integ'), activas.map(i => [i.id, i.nombre]), p.get('integracion') || (activas.length === 1 ? activas[0].id : ''), activas.length > 1 ? 'Todos los locales' : undefined);
+    for (const i of activas) if (!locales.some(l => l[0] === i.sede_id)) locales.push([i.sede_id, i.sede]);
+    const pedido = p.get('sede') || (activas.find(i => i.id === p.get('integracion')) || {}).sede_id;
+    opciones($('#integ'), locales, pedido || (locales.length === 1 ? locales[0][0] : ''), locales.length > 1 ? 'Todos los locales' : undefined);
     const max = ayer(); $('#desde').max = $('#hasta').max = max;
     if (p.get('desde') && p.get('hasta')) {
       const coincide = ['ayer', '7', 'mes', 'mesant'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });

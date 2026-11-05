@@ -400,7 +400,7 @@ function pintarMovs() {
 // Cuándo entra: por fecha, el neto que se espera de cada procesador. Lo que informa el procesador (Fudo Pagos: fecha de
 // liquidación y neto por cobro) va como informado; lo demás, estimado con la demora y el costo de lo ya acreditado.
 const FUENTE = { informado: 'informado', estimado: 'estimado', sin_historia: 'sin historia' };
-const OP = { transferencia: 'transferencia', qr: 'QR', debito: 'débito', credito: 'crédito', otro: 'otro' };
+const OP = { transferencia: 'transferencia', qr: 'QR', debito: 'débito', credito: 'crédito', online: 'online', otro: 'otro' };
 function cuandoEntra(pc) {
   if (!pc.pagos) return '';
   const renglon = (titulo, xs, atr) => el('div', { className: 'dia-c' + (atr ? ' atr' : '') }, el('span', { className: 'f', textContent: titulo }),

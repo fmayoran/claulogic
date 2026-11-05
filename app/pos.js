@@ -126,8 +126,9 @@ function leerIntegracion(b) {
     // Por API se traen solas todos los días a las 5:00 (se puede pausar); por archivo, siempre a mano.
     sincroniza_auto: !!b.sincroniza_auto,
   };
-  if (!['fudo', 'maxirest', 'otro'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
+  if (!['fudo', 'maxirest', 'otro', 'pedidosya'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
   if (!['api', 'archivo'].includes(i.modo)) throw new ErrorUsuario('El modo es api o archivo.');
+  if (i.sistema === 'pedidosya' && i.modo !== 'archivo') throw new ErrorUsuario('PedidosYa va por archivo: no tiene API para el local.');
   if (i.modo === 'api' && !POR_API.includes(i.sistema)) throw new ErrorUsuario('Por API se traen Fudo y Maxirest; los demás sistemas van por archivo.');
   if ((i.apiKey && !i.apiSecret) || (!i.apiKey && i.apiSecret)) throw new ErrorUsuario('Cargá juntos el apiKey y el apiSecret.');
   if ((i.mail && !i.password) || (!i.mail && i.password)) throw new ErrorUsuario('Cargá juntos el usuario y la clave de Maxirest.');
@@ -161,9 +162,12 @@ r.post('/pos/integraciones/probar', h(async (req, res) => {
   }
 }));
 
-// El sistema de venta de una sede punto de venta (una por sede; se configura desde la ficha de la sede).
+// El sistema de venta de una sede punto de venta (uno por sede; se configura desde la ficha de la sede).
 // Toma el nombre de la sede y descuenta de su única ubicación. Nace con su cuenta de efectivo
 // ("Efectivo · <sede>"): su saldo es lo que tiene pendiente de rendir a la central.
+// PedidosYa es un segundo sistema del mismo local (decisión de Fer, 05/11/2026: suma a sus ventas): se llama
+// "PedidosYa · <sede>" y usa la cuenta de efectivo del sistema principal, que tiene que existir antes.
+const nombrePedidosYa = sede => 'PedidosYa · ' + sede;
 async function datosDeSede(c, i) {
   const { rows: [sd] } = await c.query('SELECT nombre, tipo, es_central FROM org.sede WHERE id = $1::uuid', [i.sede_id]);
   if (!sd) throw new ErrorUsuario('No existe esa sede.');
@@ -172,7 +176,13 @@ async function datosDeSede(c, i) {
     `SELECT u.id, u.almacen_id FROM logic.ubicacion u JOIN logic.almacen a ON a.id = u.almacen_id
       WHERE a.sede_id = $1 AND a.activo AND u.activa ORDER BY u.nombre LIMIT 1`, [i.sede_id]);
   if (!u) throw new ErrorUsuario('La sede no tiene su depósito: revisalo en Almacenes.');
-  return { ...i, nombre: sd.nombre, almacen_id: u.almacen_id, ubicacion_id: u.id };
+  let efectivo = null;
+  if (i.sistema === 'pedidosya') {
+    const { rows: [pr] } = await c.query(`SELECT cuenta_efectivo_id FROM pos.integracion WHERE sede_id = $1 AND sistema <> 'pedidosya'`, [i.sede_id]);
+    if (!pr) throw new ErrorUsuario('Primero guardá el sistema de venta principal del local; PedidosYa se suma a ése.');
+    efectivo = pr.cuenta_efectivo_id;
+  }
+  return { ...i, nombre: i.sistema === 'pedidosya' ? nombrePedidosYa(sd.nombre) : sd.nombre, almacen_id: u.almacen_id, ubicacion_id: u.id, efectivo };
 }
 r.post('/pos/integraciones', h(async (req, res) => {
   let i = leerIntegracion(req.body);
@@ -183,8 +193,8 @@ r.post('/pos/integraciones', h(async (req, res) => {
       `INSERT INTO pos.integracion (nombre, codigo, sede_id, sistema, modo, almacen_id, ubicacion_id, activa, credenciales, sincroniza_auto)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
       [i.nombre, i.codigo, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null, i.sincroniza_auto]);
-    const { rows: [cu] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id) VALUES ($1, 'caja', $2) RETURNING id`,
-      ['Efectivo · ' + i.nombre, i.sede_id]);
+    const { rows: [cu] } = i.efectivo ? { rows: [{ id: i.efectivo }] }
+      : await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id) VALUES ($1, 'caja', $2) RETURNING id`, ['Efectivo · ' + i.nombre, i.sede_id]);
     await c.query('UPDATE pos.integracion SET cuenta_efectivo_id = $1 WHERE id = $2', [cu.id, n.id]);
     return n.id;
   });
@@ -196,6 +206,7 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
   await enTransaccion(async c => {
     const ant = await integracion(c, req, req.params.id, true);
     if (ant.sede_id !== i.sede_id) throw new ErrorUsuario('El sistema de venta no cambia de sede.');
+    if ((ant.sistema === 'pedidosya') !== (i.sistema === 'pedidosya')) throw new ErrorUsuario('PedidosYa no se convierte en otro sistema de venta (ni al revés).');
     i = await datosDeSede(c, i);
     // Sin credenciales nuevas se conservan las que había (no se muestran, así que no se reenvían).
     // Cambiar de sistema obliga a cargar las credenciales del nuevo (las del otro no le sirven).
@@ -205,7 +216,7 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
     await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9,
                           sincroniza_auto=$10 WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo, i.sincroniza_auto]);
     // La cuenta de efectivo acompaña el nombre del punto de venta.
-    if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre)
+    if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre && i.sistema !== 'pedidosya')
       await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + i.nombre, ant.cuenta_efectivo_id]);
     if (nuevas) { fudo.olvidarToken(ant.id); maxirest.olvidarToken(ant.id); }
   });
@@ -253,8 +264,8 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
       await c.query('INSERT INTO pos.ticket_item (ticket_id, articulo_id, cantidad, precio, importe, anulado) VALUES ($1,$2,$3,$4,$5,$6)',
         [nt.id, await idArticulo(it.codigo, it.nombre), it.cantidad, it.precio, it.importe ?? null, !!it.anulado]);
     for (const p of t.pagos)
-      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo) VALUES ($1,$2,$3,$4,$5)',
-        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null]);
+      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo, neto) VALUES ($1,$2,$3,$4,$5,$6)',
+        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null, p.neto ?? null]);
   }
   // Si no había nada nuevo (el mismo día importado dos veces), no queda una importación vacía.
   if (!nuevos) {
@@ -419,6 +430,7 @@ const ANULADO = /^(s[ií]|si|true|1|anulad[oa]|cancelad[oa]|x)$/i;
 
 r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
   const b = req.body, decimal = b.decimal === '.' ? '.' : ',';
+  if (Array.isArray(b.pedidos)) return importarPedidosYa(req, res);
   const ventas = Array.isArray(b.ventas) ? b.ventas : [], pagos = Array.isArray(b.pagos) ? b.pagos : [];
   if (!ventas.length) throw new ErrorUsuario('El archivo de ventas no tiene filas.');
   if (ventas.length > 50000) throw new ErrorUsuario('Demasiadas filas: importá por día o por semana.');
@@ -465,6 +477,92 @@ r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
   });
   res.status(201).json({ ok: true, ...out, cobros: await procesarListos(req, integ, out.desde, out.hasta) });
 }));
+
+// PedidosYa por archivo (decisión de Fer, 05/11/2026): el "orderDetails.csv" que exporta el portal (Partner Portal), una fila por
+// pedido con sus importes y la lista de artículos en texto ("1 Chinchulines, 1 Mollejas"). La pantalla manda las filas tal
+// cual, por nombre de columna; los importes vienen con coma decimal y punto de miles.
+//   · Lo vendido es lo que cobra el local: el subtotal menos los descuentos y vales que financia el local (los que financia
+//     PedidosYa no le cuestan nada). Es el total del ticket y el importe del pago.
+//   · Pago en línea: el pago va a la cuenta de cobro de PedidosYa con su neto, el "Ingreso estimado" (lo vendido menos
+//     comisión, comisión por pago en línea, IVA de las comisiones y lo demás que cobre PedidosYa). La diferencia es el costo,
+//     que queda en el día y el local de la venta cuando el depósito confirma la liquidación (como los lotes de Fudo Pagos).
+//   · Efectivo: lo cobra el local y entra en su efectivo a rendir. La comisión de ese pedido PedidosYa la descuenta de la
+//     liquidación ("Monto adeudado a PedidosYa"): va como un pago de $0 en la cuenta de PedidosYa con neto negativo, así la
+//     liquidación esperada es la suma de los netos y el costo queda en la venta.
+//   · Entregado = venta cerrada; cancelado o rechazado = anulada; lo demás (en curso) no se importa todavía. El día en curso
+//     no se importa: esos pedidos se dejan afuera y se avisa.
+const sinTildes = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const COLUMNAS_PEYA = { nro: 'nro de pedido', estado: 'estado del pedido', fecha: 'fecha del pedido', entregado: 'entregado el', cancelado: 'cancelado el',
+  entrega: 'tipo de entrega', forma: 'forma de pago', subtotal: 'total parcial', desc: 'descuento financiado por usted', vale: 'vale financiado por usted',
+  ingreso: 'ingreso estimado', efectivo: 'monto en efectivo ya cobrado por el local', adeudado: 'monto adeudado a pedidosya', articulos: 'articulos del pedido' };
+const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
+const MEDIO_COMISION_EFECTIVO = 'Comisión de pedidos en efectivo';
+function articulosPeYa(txt) {
+  return String(txt || '').split(/,\s*(?=\d+\s)/).map(x => x.trim()).filter(Boolean).map(x => {
+    const m = x.match(/^(\d+)\s+(.+)$/);
+    return m ? { cantidad: m[1], nombre: m[2].trim() } : { cantidad: '1', nombre: x };
+  });
+}
+async function importarPedidosYa(req, res) {
+  const b = req.body, filas = b.pedidos;
+  const integ = await integracion(pool, req, req.params.id);
+  exigirOperarEn(req, integ.sede_id, integ.sede);
+  if (integ.sistema !== 'pedidosya') throw new ErrorUsuario('Este punto de venta no es PedidosYa.');
+  if (!filas.length) throw new ErrorUsuario('El archivo no tiene pedidos.');
+  if (filas.length > 20000) throw new ErrorUsuario('Demasiados pedidos: importá de a un mes.');
+  // Las columnas se buscan por nombre, sin tildes ni mayúsculas (el portal puede cambiar el orden).
+  const claves = Object.keys(filas[0] || {}), col = {};
+  for (const [k, nombre] of Object.entries(COLUMNAS_PEYA)) col[k] = claves.find(c => sinTildes(c) === nombre);
+  const faltan = OBLIGATORIAS_PEYA.filter(k => !col[k]).map(k => `"${COLUMNAS_PEYA[k]}"`);
+  if (faltan.length) throw new ErrorUsuario(`No es el archivo de pedidos de PedidosYa (orderDetails): faltan las columnas ${faltan.join(', ')}.`);
+  const { rows: [hoyDb] } = await pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS d`);
+  const tickets = [], omitidos = { hoy: 0, en_curso: 0 };
+  const imp = (f, k, n) => col[k] ? importeArchivo(f[col[k]], ',', `Pedido de la fila ${n}, ${COLUMNAS_PEYA[k]}`) || '0' : '0';
+  const resta = (...xs) => deCentavos(xs.slice(1).reduce((a, x) => a - centavos(x), centavos(xs[0])));
+  filas.forEach((f, i) => {
+    const n = i + 2, nro = String(f[col.nro] ?? '').trim();
+    if (!nro) throw new ErrorUsuario(`Fila ${n}: falta el número de pedido.`);
+    const estado = sinTildes(f[col.estado]);
+    const anulado = /cancel|rechaz/.test(estado);
+    if (!anulado && !/entregad/.test(estado)) { omitidos.en_curso++; return; }
+    const abierto = fechaHoraArchivo(f[col.fecha], `Fila ${n}, fecha del pedido`);
+    if (abierto.slice(0, 10) >= hoyDb.d) { omitidos.hoy++; return; }
+    const cierre = [col.entregado, col.cancelado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
+    const venta = resta(imp(f, 'subtotal', n), imp(f, 'desc', n), imp(f, 'vale', n));
+    const ingreso = imp(f, 'ingreso', n), forma = String(f[col.forma] ?? '').trim() || 'Sin forma de pago';
+    const pagos = [];
+    if (/efectivo/i.test(forma)) {
+      const cobrado = imp(f, 'efectivo', n);
+      pagos.push({ codigo: forma, nombre: forma, importe: esCero(cobrado) ? venta : cobrado });
+      // Lo que el local le debe a PedidosYa por este pedido (su comisión): se descuenta de la liquidación.
+      const debe = col.adeudado ? imp(f, 'adeudado', n) : resta(cobrado, ingreso);
+      if (!esCero(debe)) pagos.push({ codigo: MEDIO_COMISION_EFECTIVO, nombre: MEDIO_COMISION_EFECTIVO, importe: '0', neto: resta('0', debe) });
+    } else pagos.push({ codigo: forma, nombre: forma, importe: venta, neto: ingreso });
+    tickets.push({
+      id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
+      estado: anulado ? 'anulado' : 'cerrado', total: venta,
+      tipo: /retiro|pick/i.test(String(f[col.entrega] ?? '')) ? 'para llevar' : 'delivery', mesa: null, mozo: null, personas: null,
+      items: articulosPeYa(f[col.articulos]).map(a => ({ codigo: a.nombre, nombre: a.nombre, cantidad: a.cantidad, precio: null, importe: null })),
+      pagos,
+    });
+  });
+  if (!tickets.length) throw new ErrorUsuario(omitidos.hoy ? 'El archivo sólo trae pedidos de hoy: el día en curso no se importa.' : 'El archivo no tiene pedidos entregados ni cancelados.');
+  const out = await enTransaccion(async c => {
+    const fechas = tickets.map(t => t.abierto_en.slice(0, 10)).sort();
+    const o = await recibir(c, integ, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets });
+    // Los medios se asignan solos: el efectivo, al efectivo del local; el resto, a la cuenta de cobro de PedidosYa del local
+    // (la de marca PedidosYa cuya cuenta "a acreditar" es de esta sede), si hay una sola. Si no, quedan para asignar a mano.
+    await c.query(
+      `WITH pr AS (SELECT mp.id FROM fin.medio_pago mp JOIN fin.procesador p ON p.id = mp.procesador_id JOIN fin.cuenta cu ON cu.id = p.cuenta_id
+                    WHERE p.marca = 'pedidosya' AND p.activo AND mp.activo AND mp.tipo_operacion = 'online' AND cu.sede_id = $2),
+            ef AS (SELECT id FROM fin.medio_pago WHERE tipo_operacion = 'efectivo' AND procesador_id IS NULL AND activo LIMIT 1)
+       UPDATE pos.medio m SET medio_pago_id = CASE WHEN m.codigo_externo ~* 'efectivo' AND m.codigo_externo <> $3 THEN (SELECT id FROM ef)
+                                                   WHEN (SELECT count(*) FROM pr) = 1 THEN (SELECT id FROM pr) END
+        WHERE m.integracion_id = $1 AND m.medio_pago_id IS NULL`, [integ.id, integ.sede_id, MEDIO_COMISION_EFECTIVO]);
+    return { ...o, desde: fechas[0], hasta: fechas.at(-1) };
+  });
+  res.status(201).json({ ok: true, ...out, omitidos, cobros: await procesarListos(req, integ, out.desde, out.hasta) });
+}
 
 // ── Importaciones ────────────────────────────────────────────────────────────────────────────
 const RESUMEN = `
@@ -569,7 +667,7 @@ const HORA_SQL = `extract(hour FROM COALESCE(abierto_en, cerrado_en) AT TIME ZON
 // sólo de importaciones vigentes.
 const VENTAS_CTE = `
   WITH t AS (
-    SELECT t.*, i.nombre AS punto_venta,
+    SELECT t.*, i.nombre AS punto_venta, i.sede_id,
            COALESCE(t.total, (SELECT SUM(COALESCE(it.importe, it.cantidad * it.precio)) FROM pos.ticket_item it
                                WHERE it.ticket_id = t.id AND NOT it.anulado), 0) AS vendido
       FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
@@ -627,8 +725,8 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
               COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas,
               COALESCE(SUM(vendido) FILTER (WHERE personas > 0), 0)::numeric(16,2)::text AS vendido_con_personas
          FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
-    q(`SELECT integracion_id AS id, punto_venta AS nombre, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
-         FROM t WHERE estado = 'cerrado' GROUP BY 1, 2 ORDER BY SUM(vendido) DESC`),
+    q(`SELECT integracion_id AS id, punto_venta AS nombre, sede_id, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido
+         FROM t WHERE estado = 'cerrado' GROUP BY 1, 2, 3 ORDER BY SUM(vendido) DESC`),
     q(`SELECT COALESCE(mozo, 'sin mozo') AS mozo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido,
               COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas
          FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
@@ -1003,7 +1101,7 @@ r.get('/pos/cierre', h(async (req, res) => {
   if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('El cierre diario es de finanzas.', 403);
   const n = Math.min(60, Math.max(7, Number(req.query.dias) || 14));
   const { rows: integs } = await pool.query(
-    `SELECT i.id, i.nombre, s.nombre AS sede, i.sistema, i.modo, i.sincroniza_auto, i.credenciales IS NOT NULL AS tiene_credenciales,
+    `SELECT i.id, i.nombre, s.nombre AS sede, i.sede_id, i.sistema, i.modo, i.sincroniza_auto, i.credenciales IS NOT NULL AS tiene_credenciales,
             i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, COALESCE(sce.saldo, 0)::text AS efectivo_a_rendir,
             (SELECT row_to_json(c) FROM (SELECT c.fecha, c.automatica, c.ok, c.error, c.resultado, c.iniciada_en, c.terminada_en,
                                                 to_char(c.desde, 'YYYY-MM-DD') AS desde, to_char(c.hasta, 'YYYY-MM-DD') AS hasta
@@ -1054,6 +1152,9 @@ r.get('/pos/cierre', h(async (req, res) => {
     ]);
     // Efectivo a rendir por día: lo rendido cubre primero lo más viejo, así que lo que queda en la cuenta son los
     // días más recientes, hasta sumar el saldo.
+    // PedidosYa comparte la cuenta de efectivo con el sistema principal del local: el efectivo a rendir se muestra una sola
+    // vez, en el principal.
+    if (i.sistema === 'pedidosya') i.efectivo_a_rendir = '0.00';
     let falta = centavos(i.efectivo_a_rendir);
     for (const d of dias) {
       const e = centavos(d.efectivo);

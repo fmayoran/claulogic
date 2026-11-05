@@ -651,6 +651,21 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   probado): ventas (`sincroniza_auto`) y portales (`portal_auto`) en falso, y nacen en falso. Se prenden en la ficha de la sede o del
   procesador. El mismo día se vaciaron los datos de prueba del proceso de ingresos (migración 20261120, respaldo previo en
   `/root/claulogic_respaldos/`) para correr octubre entero a mano desde la app; noviembre, recién con octubre cerrado.
+- **PedidosYa** (pedido de Fer, 05/11/2026; migración 20261122). Los tres locales venden por PedidosYa y esos pedidos no pasan por
+  Fudo ni por Maxirest (no hay doble conteo). El Partner Portal no tiene API para el local y tiene protección contra bots: va **por
+  archivo** (`orderDetails.csv` del portal). **Adentro del local** (decisión de Fer): es un segundo sistema de la misma sede
+  (`sistema = 'pedidosya'`, sólo modo archivo, "PedidosYa · <sede>"; `integracion_sede_ux` es ahora uno por sede sin contar PedidosYa,
+  más `integracion_pedidosya_ux`), con la ubicación y la **cuenta de efectivo del sistema principal** (por eso el efectivo a rendir se
+  muestra sólo en la principal). Se tilda en la ficha de la sede una vez guardado el sistema principal. Importar (`importarPedidosYa`
+  en `pos.js`, columnas por nombre): Entregado = cerrado, Cancelado/Rechazado = anulado, en curso y de hoy quedan afuera; tipo Delivery.
+  **Venta = Total parcial − descuento y vale financiados por el local** (lo que financia PedidosYa no la toca). Pago online: a "PEDIDOSYA
+  <empresa> a acreditar" por la venta, con `neto` = Ingreso estimado (la diferencia es el costo: comisiones e IVA). Pago en efectivo: lo
+  cobró el local (a su efectivo) y su comisión va como un pago de $0 con neto negativo (−Monto adeudado), así la suma de netos es lo
+  que va a depositar. Medios asignados solos al importar. Marca `pedidosya`, tipo de operación `online` ("Pago online"). El tablero de
+  ventas filtra por local (`sede=`) y con un local de varios sistemas muestra "Por canal". **Pendiente con la primera liquidación**:
+  "Deposita en" (CORTAFUEGO: Brubank, que ya es de Fudo Pagos: hace falta que la conciliación automática admita varios procesadores
+  por cuenta) y el pareo del depósito contra la suma de netos de varios días; hasta entonces el paso 1 avisa cobros sin acreditar.
+  Después, los dos locales de SORELLE (una cuenta de cobro PedidosYa por empresa).
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también
