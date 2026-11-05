@@ -38,9 +38,11 @@
         <label>Pedidos de PedidosYa *<input type="file" id="archPeya" accept=".csv,.txt,text/csv"></label>
         <button type="button" class="prim" id="importarPeya" disabled>Importar</button>
       </div>
+      <div id="tiendasPeya" hidden></div>
       <p class="ayuda">En el portal de PedidosYa: Pedidos, elegí el rango (hasta ayer) y exportá el detalle ("orderDetails.csv"). Se importa tal
-        cual: cada pedido entregado es una venta del local (lo que cobra el local, sin los descuentos que paga PedidosYa) y lo que PedidosYa
-        va a depositar queda como neto de cada cobro. Reimportar no duplica; los pedidos de hoy se dejan afuera.</p>
+        cual: cada pedido entregado es una venta del local por el precio de carta; el descuento que pone el local, las comisiones y su IVA
+        quedan como costo, y lo que PedidosYa va a depositar, como neto. Si el archivo junta varias tiendas, cada pedido va al local de su
+        tienda. Reimportar no duplica; los pedidos de hoy se dejan afuera.</p>
     </div>
     <div id="porArchivo" hidden>
       <div class="barra">
@@ -195,19 +197,49 @@ $('#archPeya').onchange = async () => {
   const a = $('#archPeya').files[0]; peya = null; $('#importarPeya').disabled = true; msg('', '', '#msgI');
   if (!a) return;
   const filas = parsearCSV(await leerTexto(a)), enc = filas[0] || [];
-  peya = { nombre: a.name, pedidos: filas.slice(1).filter(f => f.some(x => String(x).trim())).map(f => Object.fromEntries(enc.map((c, i) => [c, f[i] ?? '']))) };
-  msg(`${peya.pedidos.length} pedido(s) en el archivo.`, '', '#msgI'); $('#importarPeya').disabled = !peya.pedidos.length;
+  peya = { nombre: a.name, pedidos: filas.slice(1).filter(f => f.some(x => String(x).trim())).map(f => Object.fromEntries(enc.map((c, i) => [c, f[i] ?? '']))), tiendas: {} };
+  msg(`${peya.pedidos.length} pedido(s) en el archivo.`, '', '#msgI');
+  pintarTiendas();
 };
+// Una cuenta del portal con varias tiendas (SORELLE: bodegón, sushi y cafetería) exporta todas juntas: cada pedido va al local de
+// su "ID de tienda". Las tiendas que todavía no tienen local se eligen acá, una vez; después se recuerdan.
+const normCol = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+function pintarTiendas() {
+  const caja = $('#tiendasPeya'), listo = () => { $('#importarPeya').disabled = !peya || !peya.pedidos.length || pend.some(t => !peya.tiendas[t.id]); };
+  let pend = [];
+  caja.hidden = true; caja.replaceChildren();
+  if (!peya || !peya.pedidos.length) return listo();
+  const claves = Object.keys(peya.pedidos[0]), cId = claves.find(c => normCol(c) === 'id de tienda'), cNom = claves.find(c => normCol(c) === 'nombre del local');
+  if (!cId) return listo();
+  const tiendas = new Map();
+  for (const f of peya.pedidos) { const id = String(f[cId] || '').trim(); const t = tiendas.get(id) || { id, nombre: String(f[cNom] || '').trim() || 'sin nombre', pedidos: 0 }; t.pedidos++; tiendas.set(id, t); }
+  const peyas = integraciones.filter(i => i.sistema === 'pedidosya' && i.activa), de = id => peyas.find(i => (i.tiendas || []).includes(id));
+  // Un archivo de una sola tienda en un local que todavía no tiene ninguna: se la queda solo.
+  if (tiendas.size === 1 && !de([...tiendas.keys()][0]) && !(integ.tiendas || []).length) return listo();
+  pend = [...tiendas.values()].filter(t => !de(t.id));
+  const conocidas = [...tiendas.values()].filter(t => de(t.id));
+  caja.append(el('p', { className: 'ayuda', textContent: `El archivo trae ${tiendas.size} tienda(s). ` +
+    (conocidas.length ? conocidas.map(t => `${t.nombre} (${t.pedidos}) va a ${de(t.id).nombre}`).join('; ') + '. ' : '') +
+    (pend.length ? 'Elegí el local de cada tienda nueva; queda guardado para las próximas.' : '') }));
+  for (const t of pend) {
+    const sel = el('select', {}, el('option', { value: '', textContent: 'Elegí el local…' }), ...peyas.map(i => el('option', { value: i.id, textContent: i.nombre })));
+    sel.onchange = () => { if (sel.value) peya.tiendas[t.id] = sel.value; else delete peya.tiendas[t.id]; listo(); };
+    caja.append(el('label', {}, `${t.nombre} · ID ${t.id || 'sin ID'} · ${t.pedidos} pedido(s)`, sel));
+  }
+  caja.hidden = false; listo();
+}
 $('#importarPeya').onclick = async () => {
   if (!peya) return;
   $('#importarPeya').disabled = true; msg('Importando…', '', '#msgI');
   try {
-    const d = await api(`pos/integraciones/${integ.id}/importar`, { method: 'POST', body: { archivo: peya.nombre, pedidos: peya.pedidos } });
+    const d = await api(`pos/integraciones/${integ.id}/importar`, { method: 'POST', body: { archivo: peya.nombre, pedidos: peya.pedidos, tiendas: peya.tiendas } });
     resultado(d);
+    if (d.locales && d.locales.length > 1)
+      msg(`${$('#msgI').textContent} Por local: ${d.locales.map(x => `${x.nombre} ${x.nuevos} nuevo(s)` + (x.repetidos ? `, ${x.repetidos} ya estaban` : '')).join('; ')}.`, 'ok', '#msgI');
     const om = d.omitidos || {}, avisos = [om.hoy ? `${om.hoy} pedido(s) de hoy quedaron afuera (el día en curso no se importa)` : '',
       om.en_curso ? `${om.en_curso} pedido(s) todavía en curso` : ''].filter(Boolean);
     if (avisos.length) msg(`${$('#msgI').textContent} ${avisos.join('; ')}.`, 'aviso', '#msgI');
-    peya = null; $('#archPeya').value = '';
+    peya = null; $('#archPeya').value = ''; $('#tiendasPeya').hidden = true;
     await cargarIntegraciones(); await Promise.all([cargar(), cargarDias()]);
   } catch (e) { msg(e.message, 'mal', '#msgI'); $('#importarPeya').disabled = false; }
 };
@@ -248,7 +280,7 @@ function pintarProcesados(c) {
     c.procesados.length ? el('li', { className: 'ok' }, `Cobros procesados: ${c.procesados.length} día(s) por ${pesos(String(total))} (`
       + c.procesados.map(p => fecha(p.dia).slice(0, 5)).join(', ') + ').') : '',
     ...c.revisar.map(r => el('li', { className: r.estado === 'pendientes' || r.estado === 'diferencia' ? 'bloquea' : 'aviso' },
-      el('strong', { textContent: `${fecha(r.dia)}: ` }), r.motivo || 'para revisar.')),
+      el('strong', { textContent: `${r.punto_venta ? r.punto_venta + ' · ' : ''}${fecha(r.dia)}: ` }), r.motivo || 'para revisar.')),
     !c.procesados.length && !c.revisar.length ? el('li', {}, 'No había cobros por procesar.') : '')));
 }
 $('#procListos').onclick = async () => {
@@ -412,6 +444,7 @@ function elegir() {
   history.replaceState(null, '', 'procesar-ventas.html#' + integ.id);
   const esPeya = integ.sistema === 'pedidosya';
   $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo' || esPeya; $('#porPeya').hidden = !esPeya;
+  if (esPeya && peya) pintarTiendas();
   // El enlace no está si el usuario no puede configurar (lo quita la navegación común).
   if ($('#config')) $('#config').href = 'sedes.html#' + integ.sede_id;
   Promise.all([cargar(), cargarDias()]).catch(e => alert(e.message));

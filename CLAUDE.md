@@ -670,7 +670,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   ventas filtra por local (`sede=`) y con un local de varios sistemas muestra "Por canal". **Pendiente con la primera liquidación**:
   "Deposita en" (CORTAFUEGO: Brubank, que ya es de Fudo Pagos: hace falta que la conciliación automática admita varios procesadores
   por cuenta) y el pareo del depósito contra la suma de netos de varios días; hasta entonces el paso 1 avisa cobros sin acreditar.
-  Después, los dos locales de SORELLE (una cuenta de cobro PedidosYa por empresa).
+  **Varias tiendas en un archivo** (SORELLE, 05/11/2026; migración 20261124): la cuenta del portal de SORELLE tiene tres tiendas
+  (bodegón, sushi y cafetería) y el `orderDetails` las junta. Cada pedido va al local de su "ID de tienda" (`pos.integracion.tiendas`):
+  en Procesar ventas, las tiendas sin local se eligen una vez y quedan guardadas (un archivo de una sola tienda en un local sin tiendas
+  se la queda solo); se importa desde cualquier local de PedidosYa. Cuenta de cobro **PEDIDOSYA SORELLE** (su "a acreditar" en la sede
+  del bodegón); la cafetería la toma por ser del mismo archivo (si un local no tiene cuenta PedidosYa en su sede, usa la de los otros
+  locales del archivo). CORTAFUEGO: tienda 643855.
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también

@@ -101,7 +101,7 @@ r.get('/pos/integraciones', h(async (req, res) => {
             i.credenciales IS NOT NULL AS tiene_credenciales,
             (SELECT COUNT(*)::int FROM pos.articulo_pendiente p WHERE p.integracion_id = i.id) AS articulos_sin_receta,
             (SELECT COUNT(*)::int FROM pos.medio m WHERE m.integracion_id = i.id AND m.cuenta_id IS NULL) AS medios_sin_cuenta,
-            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir, i.sincroniza_auto
+            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir, i.sincroniza_auto, i.tiendas
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
        JOIN logic.almacen a ON a.id = i.almacen_id JOIN logic.ubicacion u ON u.id = i.ubicacion_id
@@ -497,7 +497,8 @@ const sinTildes = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').
 const COLUMNAS_PEYA = { nro: 'nro de pedido', estado: 'estado del pedido', fecha: 'fecha del pedido', entregado: 'entregado el', cancelado: 'cancelado el',
   entrega: 'tipo de entrega', forma: 'forma de pago', subtotal: 'total parcial', desc: 'descuento financiado por usted', vale: 'vale financiado por usted',
   ingreso: 'ingreso estimado', efectivo: 'monto en efectivo ya cobrado por el local', adeudado: 'monto adeudado a pedidosya', articulos: 'articulos del pedido',
-  comision: 'comision', comision_online: 'comision por pago en linea', impuesto: 'impuesto', marketing: 'total de costes de marketing' };
+  comision: 'comision', comision_online: 'comision por pago en linea', impuesto: 'impuesto', marketing: 'total de costes de marketing',
+  tienda: 'id de tienda', local: 'nombre del local' };
 const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
 const MEDIO_COMISION_EFECTIVO = 'Pedidos en efectivo · liquidación PedidosYa';
 function articulosPeYa(txt) {
@@ -506,10 +507,12 @@ function articulosPeYa(txt) {
     return m ? { cantidad: m[1], nombre: m[2].trim() } : { cantidad: '1', nombre: x };
   });
 }
+// Una cuenta del portal puede tener varias tiendas (SORELLE: bodegón, sushi y cafetería, en dos sedes) y el archivo las junta:
+// cada pedido va al local de su "ID de tienda" (pos.integracion.tiendas). Las tiendas que el navegador asigna (b.tiendas:
+// {id de tienda: integración}) quedan guardadas; un archivo de una sola tienda en un local sin tiendas se la queda solo.
 async function importarPedidosYa(req, res) {
   const b = req.body, filas = b.pedidos;
   const integ = await integracion(pool, req, req.params.id);
-  exigirOperarEn(req, integ.sede_id, integ.sede);
   if (integ.sistema !== 'pedidosya') throw new ErrorUsuario('Este punto de venta no es PedidosYa.');
   if (!filas.length) throw new ErrorUsuario('El archivo no tiene pedidos.');
   if (filas.length > 20000) throw new ErrorUsuario('Demasiados pedidos: importá de a un mes.');
@@ -531,6 +534,7 @@ async function importarPedidosYa(req, res) {
     const abierto = fechaHoraArchivo(f[col.fecha], `Fila ${n}, fecha del pedido`);
     if (abierto.slice(0, 10) >= hoyDb.d) { omitidos.hoy++; return; }
     const cierre = [col.entregado, col.cancelado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
+    const tienda = col.tienda ? String(f[col.tienda] ?? '').trim() : '', local = col.local ? String(f[col.local] ?? '').trim() : '';
     // Opción B de Fer: la venta es el total parcial; el descuento y el vale que financia el local son costos.
     const venta = imp(f, 'subtotal', n), descLocal = deCentavos(centavos(imp(f, 'desc', n)) + centavos(imp(f, 'vale', n)));
     const ingreso = imp(f, 'ingreso', n), forma = String(f[col.forma] ?? '').trim() || 'Sin forma de pago';
@@ -555,7 +559,7 @@ async function importarPedidosYa(req, res) {
       pagos.push({ codigo: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma, nombre: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma,
                    importe, neto, costos: anulado ? null : costos });
     tickets.push({
-      id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
+      tienda, local, id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
       estado: anulado ? 'anulado' : 'cerrado', total: venta,
       tipo: /retiro|pick/i.test(String(f[col.entrega] ?? '')) ? 'para llevar' : 'delivery', mesa: null, mozo: null, personas: null,
       items: articulosPeYa(f[col.articulos]).map(a => ({ codigo: a.nombre, nombre: a.nombre, cantidad: a.cantidad, precio: null, importe: null })),
@@ -563,21 +567,67 @@ async function importarPedidosYa(req, res) {
     });
   });
   if (!tickets.length) throw new ErrorUsuario(omitidos.hoy ? 'El archivo sólo trae pedidos de hoy: el día en curso no se importa.' : 'El archivo no tiene pedidos entregados ni cancelados.');
-  const out = await enTransaccion(async c => {
-    const fechas = tickets.map(t => t.abierto_en.slice(0, 10)).sort();
-    const o = await recibir(c, integ, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets });
-    // Los medios se asignan solos: el efectivo, al efectivo del local; el resto, a la cuenta de cobro de PedidosYa del local
-    // (la de marca PedidosYa cuya cuenta "a acreditar" es de esta sede), si hay una sola. Si no, quedan para asignar a mano.
-    await c.query(
-      `WITH pr AS (SELECT mp.id FROM fin.medio_pago mp JOIN fin.procesador p ON p.id = mp.procesador_id JOIN fin.cuenta cu ON cu.id = p.cuenta_id
-                    WHERE p.marca = 'pedidosya' AND p.activo AND mp.activo AND mp.tipo_operacion = 'online' AND cu.sede_id = $2),
-            ef AS (SELECT id FROM fin.medio_pago WHERE tipo_operacion = 'efectivo' AND procesador_id IS NULL AND activo LIMIT 1)
-       UPDATE pos.medio m SET medio_pago_id = CASE WHEN m.codigo_externo ~* 'efectivo' AND m.codigo_externo <> $3 THEN (SELECT id FROM ef)
-                                                   WHEN (SELECT count(*) FROM pr) = 1 THEN (SELECT id FROM pr) END
-        WHERE m.integracion_id = $1 AND m.medio_pago_id IS NULL`, [integ.id, integ.sede_id, MEDIO_COMISION_EFECTIVO]);
-    return { ...o, desde: fechas[0], hasta: fechas.at(-1) };
+  // A qué local va cada tienda.
+  const { rows: peyas } = await pool.query(`SELECT id, tiendas FROM pos.integracion WHERE sistema = 'pedidosya' AND activa`);
+  const asignadas = Object.entries(b.tiendas && typeof b.tiendas === 'object' ? b.tiendas : {});
+  for (const [t, destino] of asignadas)
+    if (!peyas.some(x => x.id === destino)) throw new ErrorUsuario(`La tienda ${t} se asignó a un local que no vende por PedidosYa.`);
+  const deTienda = new Map(peyas.flatMap(x => x.tiendas.map(t => [t, x.id])));
+  for (const [t, destino] of asignadas) deTienda.set(String(t), destino);
+  const enArchivo = [...new Set(tickets.map(t => t.tienda))];
+  const sinTienda = enArchivo.filter(t => !deTienda.has(t));
+  if (sinTienda.length === 1 && enArchivo.length === 1 && !(peyas.find(x => x.id === integ.id)?.tiendas || []).length) deTienda.set(sinTienda[0], integ.id);
+  const faltanTiendas = enArchivo.filter(t => !deTienda.has(t));
+  if (faltanTiendas.length) {
+    const nombre = t => tickets.find(x => x.tienda === t).local || 'sin nombre';
+    throw new ErrorUsuario(`El archivo trae tiendas que no están asignadas a ningún local: ${faltanTiendas.map(t => `${nombre(t)} (${t || 'sin ID'})`).join(', ')}. `
+      + 'Elegí el local de cada una antes de importar.', 409);
+  }
+  const grupos = new Map();
+  for (const t of tickets) { const d = deTienda.get(t.tienda); if (!grupos.has(d)) grupos.set(d, []); grupos.get(d).push(t); }
+  const destinos = [];
+  for (const id of grupos.keys()) {
+    const x = await integracion(pool, req, id);
+    exigirOperarEn(req, x.sede_id, x.sede);
+    destinos.push(x);
+  }
+  const hechos = await enTransaccion(async c => {
+    // Las tiendas nuevas quedan en su local (y salen de cualquier otro).
+    for (const [t, d] of deTienda) if (enArchivo.includes(t) && t) {
+      await c.query(`UPDATE pos.integracion SET tiendas = array_remove(tiendas, $1) WHERE sistema = 'pedidosya' AND id <> $2 AND $1 = ANY(tiendas)`, [t, d]);
+      await c.query(`UPDATE pos.integracion SET tiendas = array_append(tiendas, $1) WHERE id = $2 AND NOT ($1 = ANY(tiendas))`, [t, d]);
+    }
+    // Los medios se asignan solos: el efectivo, al efectivo del local; el resto, a la cuenta de cobro de PedidosYa del local (la de
+    // marca PedidosYa cuya cuenta "a acreditar" es de su sede) o, si no tiene, a la de los otros locales del mismo archivo (es la
+    // misma cuenta del portal: la cafetería de SORELLE usa la del bodegón). Si no se puede decidir, quedan para asignar a mano.
+    const { rows: cand } = await c.query(
+      `SELECT cu.sede_id, mp.id FROM fin.medio_pago mp JOIN fin.procesador p ON p.id = mp.procesador_id JOIN fin.cuenta cu ON cu.id = p.cuenta_id
+        WHERE p.marca = 'pedidosya' AND p.activo AND mp.activo AND mp.tipo_operacion = 'online' AND cu.sede_id = ANY($1::uuid[])`, [destinos.map(x => x.sede_id)]);
+    const propios = x => cand.filter(k => k.sede_id === x.sede_id).map(k => k.id);
+    const delArchivo = [...new Set(destinos.flatMap(x => { const p = propios(x); return p.length === 1 ? p : []; }))];
+    const out = [];
+    for (const x of destinos) {
+      const ts = grupos.get(x.id), fechas = ts.map(t => t.abierto_en.slice(0, 10)).sort();
+      const o = await recibir(c, x, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets: ts });
+      const p = propios(x), medio = p.length === 1 ? p[0] : p.length === 0 && delArchivo.length === 1 ? delArchivo[0] : null;
+      await c.query(
+        `WITH ef AS (SELECT id FROM fin.medio_pago WHERE tipo_operacion = 'efectivo' AND procesador_id IS NULL AND activo LIMIT 1)
+         UPDATE pos.medio m SET medio_pago_id = CASE WHEN m.codigo_externo ~* 'efectivo' AND m.codigo_externo <> $3 THEN (SELECT id FROM ef) ELSE $2::uuid END
+          WHERE m.integracion_id = $1 AND m.medio_pago_id IS NULL`, [x.id, medio, MEDIO_COMISION_EFECTIVO]);
+      out.push({ integ: x, ...o, desde: fechas[0], hasta: fechas.at(-1) });
+    }
+    return out;
   });
-  res.status(201).json({ ok: true, ...out, omitidos, cobros: await procesarListos(req, integ, out.desde, out.hasta) });
+  // Los días sin observaciones se cobran solos, local por local.
+  const cobros = puede(req.usuario, 'finanzas') ? { procesados: [], revisar: [] } : null;
+  for (const hch of hechos) {
+    const r = await procesarListos(req, hch.integ, hch.desde, hch.hasta);
+    if (r) for (const k of ['procesados', 'revisar']) cobros[k].push(...r[k].map(d => ({ ...d, punto_venta: hch.integ.nombre })));
+  }
+  const fechas = hechos.flatMap(x => [x.desde, x.hasta]).sort();
+  res.status(201).json({ ok: true, nuevos: hechos.reduce((t, x) => t + x.nuevos, 0), repetidos: hechos.reduce((t, x) => t + x.repetidos, 0),
+    desde: fechas[0], hasta: fechas.at(-1), omitidos, cobros,
+    locales: hechos.map(x => ({ id: x.integ.id, nombre: x.integ.nombre, nuevos: x.nuevos, repetidos: x.repetidos })) });
 }
 
 // ── Importaciones ────────────────────────────────────────────────────────────────────────────
