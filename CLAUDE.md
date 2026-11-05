@@ -658,10 +658,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   más `integracion_pedidosya_ux`), con la ubicación y la **cuenta de efectivo del sistema principal** (por eso el efectivo a rendir se
   muestra sólo en la principal). Se tilda en la ficha de la sede una vez guardado el sistema principal. Importar (`importarPedidosYa`
   en `pos.js`, columnas por nombre): Entregado = cerrado, Cancelado/Rechazado = anulado, en curso y de hoy quedan afuera; tipo Delivery.
-  **Venta = Total parcial − descuento y vale financiados por el local** (lo que financia PedidosYa no la toca). Pago online: a "PEDIDOSYA
-  <empresa> a acreditar" por la venta, con `neto` = Ingreso estimado (la diferencia es el costo: comisiones e IVA). Pago en efectivo: lo
-  cobró el local (a su efectivo) y su comisión va como un pago de $0 con neto negativo (−Monto adeudado), así la suma de netos es lo
-  que va a depositar. Medios asignados solos al importar. Marca `pedidosya`, tipo de operación `online` ("Pago online"). El tablero de
+  **Venta = Total parcial** (opción B de Fer, 05/11/2026): el descuento y el vale financiados por el local son un costo, rubro
+  "Descuentos y promociones"; lo que financia PedidosYa no se registra. Lo que se liquida con PedidosYa va a "PEDIDOSYA <empresa> a
+  acreditar" por la venta menos el efectivo que cobró el local, con `neto` = Ingreso estimado menos ese efectivo (negativo en un pedido
+  en efectivo: el local le debe la comisión) y **sus costos** (`pos.ticket_pago.costos`, migración 20261123: descuento del local,
+  comisión, comisión por pago en línea, IVA de las comisiones, marketing y "Otros cargos" por lo que no se explica, así importe −
+  costos = neto exacto). **Al procesar el cobro del día se asientan como egresos de "a acreditar"**, sumados por concepto y atados al
+  cobro (anularlo los revierte): la cuenta queda con el neto a depositar y el costo, devengado en el día y el local de la venta. Al
+  conciliar el depósito sólo se pasa el neto a la cuenta del banco: no asentar el costo otra vez (ni por la rama de lotes de
+  `fin.resultado`). Medios asignados solos al importar. Marca `pedidosya`, tipo de operación `online` ("Pago online"). El tablero de
   ventas filtra por local (`sede=`) y con un local de varios sistemas muestra "Por canal". **Pendiente con la primera liquidación**:
   "Deposita en" (CORTAFUEGO: Brubank, que ya es de Fudo Pagos: hace falta que la conciliación automática admita varios procesadores
   por cuenta) y el pareo del depósito contra la suma de netos de varios días; hasta entonces el paso 1 avisa cobros sin acreditar.

@@ -264,8 +264,8 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
       await c.query('INSERT INTO pos.ticket_item (ticket_id, articulo_id, cantidad, precio, importe, anulado) VALUES ($1,$2,$3,$4,$5,$6)',
         [nt.id, await idArticulo(it.codigo, it.nombre), it.cantidad, it.precio, it.importe ?? null, !!it.anulado]);
     for (const p of t.pagos)
-      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo, neto) VALUES ($1,$2,$3,$4,$5,$6)',
-        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null, p.neto ?? null]);
+      await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo, neto, costos) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null, p.neto ?? null, p.costos ? JSON.stringify(p.costos) : null]);
   }
   // Si no había nada nuevo (el mismo día importado dos veces), no queda una importación vacía.
   if (!nuevos) {
@@ -483,20 +483,23 @@ r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
 // cual, por nombre de columna; los importes vienen con coma decimal y punto de miles.
 //   · Lo vendido es lo que cobra el local: el subtotal menos los descuentos y vales que financia el local (los que financia
 //     PedidosYa no le cuestan nada). Es el total del ticket y el importe del pago.
-//   · Pago en línea: el pago va a la cuenta de cobro de PedidosYa con su neto, el "Ingreso estimado" (lo vendido menos
-//     comisión, comisión por pago en línea, IVA de las comisiones y lo demás que cobre PedidosYa). La diferencia es el costo,
-//     que queda en el día y el local de la venta cuando el depósito confirma la liquidación (como los lotes de Fudo Pagos).
-//   · Efectivo: lo cobra el local y entra en su efectivo a rendir. La comisión de ese pedido PedidosYa la descuenta de la
-//     liquidación ("Monto adeudado a PedidosYa"): va como un pago de $0 en la cuenta de PedidosYa con neto negativo, así la
-//     liquidación esperada es la suma de los netos y el costo queda en la venta.
+//   · Venta = total parcial (opción B de Fer, 05/11/2026): el descuento y el vale que financia el local son un costo; lo que
+//     financia PedidosYa no se registra.
+//   · Lo que se liquida con PedidosYa va a su cuenta "a acreditar" por la venta menos lo cobrado en efectivo, con su neto
+//     (el "Ingreso estimado" menos ese efectivo: negativo si el pedido fue en efectivo y el local le debe la comisión) y sus
+//     costos desglosados (descuento del local, comisión, comisión por pago en línea, IVA de las comisiones, marketing, otros).
+//     Al procesar el cobro del día los costos se asientan como egresos de "a acreditar": queda el neto, que es lo que va a
+//     depositar, y el costo cae en el día y el local de la venta.
+//   · Efectivo: lo cobra el local y entra en su efectivo a rendir.
 //   · Entregado = venta cerrada; cancelado o rechazado = anulada; lo demás (en curso) no se importa todavía. El día en curso
 //     no se importa: esos pedidos se dejan afuera y se avisa.
 const sinTildes = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const COLUMNAS_PEYA = { nro: 'nro de pedido', estado: 'estado del pedido', fecha: 'fecha del pedido', entregado: 'entregado el', cancelado: 'cancelado el',
   entrega: 'tipo de entrega', forma: 'forma de pago', subtotal: 'total parcial', desc: 'descuento financiado por usted', vale: 'vale financiado por usted',
-  ingreso: 'ingreso estimado', efectivo: 'monto en efectivo ya cobrado por el local', adeudado: 'monto adeudado a pedidosya', articulos: 'articulos del pedido' };
+  ingreso: 'ingreso estimado', efectivo: 'monto en efectivo ya cobrado por el local', adeudado: 'monto adeudado a pedidosya', articulos: 'articulos del pedido',
+  comision: 'comision', comision_online: 'comision por pago en linea', impuesto: 'impuesto', marketing: 'total de costes de marketing' };
 const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
-const MEDIO_COMISION_EFECTIVO = 'Comisión de pedidos en efectivo';
+const MEDIO_COMISION_EFECTIVO = 'Pedidos en efectivo · liquidación PedidosYa';
 function articulosPeYa(txt) {
   return String(txt || '').split(/,\s*(?=\d+\s)/).map(x => x.trim()).filter(Boolean).map(x => {
     const m = x.match(/^(\d+)\s+(.+)$/);
@@ -528,16 +531,29 @@ async function importarPedidosYa(req, res) {
     const abierto = fechaHoraArchivo(f[col.fecha], `Fila ${n}, fecha del pedido`);
     if (abierto.slice(0, 10) >= hoyDb.d) { omitidos.hoy++; return; }
     const cierre = [col.entregado, col.cancelado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
-    const venta = resta(imp(f, 'subtotal', n), imp(f, 'desc', n), imp(f, 'vale', n));
+    // Opción B de Fer: la venta es el total parcial; el descuento y el vale que financia el local son costos.
+    const venta = imp(f, 'subtotal', n), descLocal = deCentavos(centavos(imp(f, 'desc', n)) + centavos(imp(f, 'vale', n)));
     const ingreso = imp(f, 'ingreso', n), forma = String(f[col.forma] ?? '').trim() || 'Sin forma de pago';
+    const enEfectivo = /efectivo/i.test(forma);
+    // Lo que el local cobró en mano (pedidos en efectivo); el resto de la venta se liquida con PedidosYa, por su neto.
+    const efectivo = !enEfectivo ? '0' : (col.efectivo && !esCero(imp(f, 'efectivo', n)) ? imp(f, 'efectivo', n) : resta(venta, descLocal));
+    const importe = resta(venta, efectivo), neto = resta(ingreso, efectivo);
+    // Los costos que informa PedidosYa; lo que no se explica con ellos (tarifa mínima, reembolsos, cargos al cliente, otros
+    // cargos) va como "Otros cargos", así importe − costos = neto exacto.
+    const costos = [
+      ['descuento', 'Descuentos financiados por el local', descLocal],
+      ['comision', 'Comisión PedidosYa', imp(f, 'comision', n)],
+      ['comision', 'Comisión por pago en línea PedidosYa', imp(f, 'comision_online', n)],
+      ['iva_credito', 'IVA de comisiones PedidosYa', imp(f, 'impuesto', n)],
+      ['marketing', 'Marketing PedidosYa', imp(f, 'marketing', n)],
+    ].filter(x => !esCero(x[2])).map(([gasto, concepto, importe]) => ({ gasto, concepto, importe }));
+    const resto = resta(importe, neto, ...costos.map(x => x.importe));
+    if (!esCero(resto)) costos.push({ gasto: 'comision', concepto: 'Otros cargos PedidosYa', importe: resto });
     const pagos = [];
-    if (/efectivo/i.test(forma)) {
-      const cobrado = imp(f, 'efectivo', n);
-      pagos.push({ codigo: forma, nombre: forma, importe: esCero(cobrado) ? venta : cobrado });
-      // Lo que el local le debe a PedidosYa por este pedido (su comisión): se descuenta de la liquidación.
-      const debe = col.adeudado ? imp(f, 'adeudado', n) : resta(cobrado, ingreso);
-      if (!esCero(debe)) pagos.push({ codigo: MEDIO_COMISION_EFECTIVO, nombre: MEDIO_COMISION_EFECTIVO, importe: '0', neto: resta('0', debe) });
-    } else pagos.push({ codigo: forma, nombre: forma, importe: venta, neto: ingreso });
+    if (enEfectivo) pagos.push({ codigo: forma, nombre: forma, importe: efectivo });
+    if (!esCero(importe) || costos.length)
+      pagos.push({ codigo: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma, nombre: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma,
+                   importe, neto, costos: anulado ? null : costos });
     tickets.push({
       id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
       estado: anulado ? 'anulado' : 'cerrado', total: venta,
@@ -922,8 +938,23 @@ async function procesarJornada(c, integ, dia, motivo) {
       `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, pos_cobro_id) VALUES ($1,$2,'cobro',$3,$4,$5,$6)`,
       [dia, g.cuenta_id, sale ? 0 : g.importe, sale ? g.importe.slice(1) : 0, `Cobros ${integ.nombre} ${dia} · ${g.medios}`, co.id]);
   }
+  // Los costos que el procesador informa por pago (PedidosYa) salen de la misma cuenta, sumados por concepto: así queda el
+  // neto que va a depositar, y el costo, devengado el día de la venta. Anular el cobro los revierte con él.
+  const { rows: costos } = await c.query(
+    `SELECT m.cuenta_id, x->>'gasto' AS gasto, x->>'concepto' AS concepto, COUNT(*)::int AS pedidos,
+            SUM((x->>'importe')::numeric)::numeric(16,2)::text AS importe
+       FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id CROSS JOIN LATERAL jsonb_array_elements(p.costos) x
+      WHERE p.id = ANY($1::uuid[]) AND p.costos IS NOT NULL GROUP BY 1, 2, 3 ORDER BY 3`, [ids]);
+  for (const k of costos) {
+    if (esCero(k.importe)) continue;
+    const cuesta = !k.importe.startsWith('-'), abs = cuesta ? k.importe : k.importe.slice(1);
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, gasto, pos_cobro_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [dia, k.cuenta_id, cuesta ? 'egreso' : 'ingreso', cuesta ? 0 : abs, cuesta ? abs : 0,
+       `${k.concepto} · ${integ.nombre} ${dia} (${k.pedidos} pedido${k.pedidos === 1 ? '' : 's'})`, k.gasto, co.id]);
+  }
   await c.query('UPDATE pos.ticket_pago SET cobro_id = $1 WHERE id = ANY($2::uuid[])', [co.id, ids]);
-  return { cobro_id: co.id, pagos: ids.length, movimientos: grupos.length, diferencia: j.estado === 'diferencia' ? j.diferencia : null };
+  return { cobro_id: co.id, pagos: ids.length, movimientos: grupos.length + costos.length, diferencia: j.estado === 'diferencia' ? j.diferencia : null };
 }
 
 r.post('/pos/jornadas/:integracion/:dia/cobros', h(async (req, res) => {

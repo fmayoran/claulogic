@@ -43,7 +43,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
 r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta, i.sede_id,
-            COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe, to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde,
+            COUNT(*)::int AS pagos, SUM(CASE WHEN p.costos IS NOT NULL THEN p.neto ELSE p.importe END)::text AS importe, to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde,
             COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
