@@ -39,11 +39,12 @@
 <main class="ancho">
   <div class="t-cab">
     <h1>Estado de resultados</h1>
-    <p class="sub">El resultado de cada filial: lo vendido (por el total, con IVA), menos el costo de la mercadería vendida (de los platos), los costos
+    <p class="sub">El resultado del grupo (consolidado), de cada sociedad o de cada store: lo vendido (por el total, con IVA), menos el costo de la mercadería vendida (de los platos), los costos
       de cobro de los procesadores, impuestos, gastos bancarios y demás gastos. Devengado: la venta y sus costos de cobro caen en el día de la
       venta; lo demás, en el día del movimiento. Nada se carga a mano: sale de las ventas, del costeo y de lo conciliado. Tocá una línea para
-      ver sus rubros y un rubro para ver qué tiene (y reclasificarlo si hace falta).</p>
-    <div class="t-filtros"><select id="sede" aria-label="Filial"></select><select id="comercio" aria-label="Store" hidden></select></div>
+      ver sus rubros y un rubro para ver qué tiene (y reclasificarlo si hace falta). Los gastos de una cuenta de la sociedad (bancos, cuentas
+      de cobro) se reparten entre sus stores por las ventas del mes.</p>
+    <div class="t-filtros"><select id="soc" aria-label="Sociedad"></select><select id="comercio" aria-label="Store" hidden></select></div>
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
@@ -121,8 +122,8 @@ function anterior() {
   return [iso(x), iso(y)];
 }
 const params = ([desde, hasta] = [$('#desde').value, $('#hasta').value], extra = {}) => {
-  const p = new URLSearchParams({ desde, hasta, ...extra }); if ($('#sede').value) p.set('sede', $('#sede').value);
-  if ($('#sede').value && $('#comercio').value) p.set('comercio', $('#comercio').value); return p;
+  const p = new URLSearchParams({ desde, hasta, ...extra }); if ($('#soc').value) p.set('sociedad', $('#soc').value);
+  if (!$('#comercio').hidden && $('#comercio').value) p.set('comercio', $('#comercio').value); return p;
 };
 
 // ── El estado ──
@@ -177,9 +178,6 @@ function pintar() {
   const sin = act.rubros.find(r => r.rubro_id == null);
   if (sin) av.push(aviso(`${sin.n} movimiento(s) sin clasificar por ${pesos(sin.importe)}: no suman en el estado hasta que tengan rubro.`,
     el('button', { type: 'button', className: 'prim', textContent: 'Clasificar', onclick: () => detalle('sin', 'Sin clasificar') })));
-  if (act.sin_filial.n) av.push(aviso(`${act.sin_filial.n} movimiento(s) por ${pesos(act.sin_filial.importe)} son de cuentas sin filial` + ($('#sede').value ? ' y no aparecen acá' : '')
-    + '. Asigná la filial de la cuenta en Operaciones de tesorería (Editar) o clasificalos con su filial.',
-    el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle('todos', 'Sin filial', true) })));
   const fuera = act.rubros.filter(r => r.linea === 'fuera');
   if (fuera.length) av.push(aviso(`No es resultado (aportes, retiros, préstamos): ${pC(sumaC(fuera))}.`,
     el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle(fuera[0].rubro_id, fuera[0].rubro) })));
@@ -193,10 +191,9 @@ const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' },
 
 // ── Detalle de un rubro: cada hecho; los movimientos se reclasifican ahí mismo ──
 let detActual = null;
-async function detalle(rubro, nombre, sinFilial = false) {
-  detActual = [rubro, nombre, sinFilial];
-  const extra = { rubro }; if (sinFilial) extra.sin_filial = '1';
-  const p = params(undefined, extra); if (sinFilial) p.delete('sede');
+async function detalle(rubro, nombre) {
+  detActual = [rubro, nombre];
+  const p = params(undefined, { rubro });
   $('#dTitulo').textContent = nombre; $('#dSub').textContent = ''; msg('', '', '#dMsg');
   if (!$('#dlgDet').open) $('#dlgDet').showModal();
   try {
@@ -215,44 +212,42 @@ async function detalle(rubro, nombre, sinFilial = false) {
     $('#dFilas').replaceChildren(...filas);
   } catch (e) { msg(e.message, 'mal', '#dMsg'); }
 }
-// De dónde sale la parte de un comercio en un hecho del local (fin.resultado_comercio).
-const REPARTO = { dia: 'según los artículos del día', mes: 'prorrateado por las ventas del mes', pedidos: 'según sus pedidos' };
-const comerciosDe = sede => comercios.filter(c => c.sede_id === sede && c.activo);
+// De dónde sale la parte de un store en un hecho (fin.resultado_comercio).
+const REPARTO = { dia: 'según los artículos del día', mes: 'prorrateado por las ventas del mes', pedidos: 'según sus pedidos',
+  sociedad: 'prorrateado entre los stores de la sociedad' };
+const sedeDe = id => sedes.find(s => s.id === id);
+// Los stores de una sociedad (los de sus locales).
+const storesDe = soc => comercios.filter(c => c.activo && (sedeDe(c.sede_id) || {}).sociedad_id === soc);
 async function clasificador(f) {
   const sel = el('select', { 'aria-label': 'Rubro' });
   await Conc.selectRubro(sel, null, f.importe.startsWith('-'));
   sel.firstChild.textContent = f.clasificado || detActual[0] !== 'sin' ? 'Reclasificar…' : 'Elegir rubro…';
-  const sedeSel = el('select', { 'aria-label': 'Filial' });
-  opciones(sedeSel, sedes.map(s => [s.id, s.nombre]), null, 'Filial de la cuenta');
-  // Un gasto de un local con comercios puede ser de uno solo; si no se elige, se prorratea por las ventas del mes.
-  const comSel = el('select', { 'aria-label': 'Comercio' });
-  const pintarCom = () => {
-    const cs = comerciosDe(sedeSel.value || ($('#sede').value || ''));
-    comSel.hidden = cs.length < 2; opciones(comSel, cs.map(c => [c.id, c.nombre]), f.comercio_id && cs.some(c => c.id === f.comercio_id) ? f.comercio_id : '', 'Todos los stores (prorrateo)');
-  };
-  pintarCom();
+  // A quién va: un store, el grupo (el centro) o, sin elegir, lo que dice la cuenta (una cuenta de la sociedad se prorratea entre sus stores).
+  const destSel = el('select', { 'aria-label': 'Store' });
+  const central = sedes.find(s => s.es_central);
+  opciones(destSel, [...comercios.filter(c => c.activo).map(c => [c.id, `${c.nombre} (store)`]), ...(central ? [['g:' + central.id, `${central.nombre} (grupo)`]] : [])],
+    f.comercio_id || (f.sede_id && central && f.sede_id === central.id ? 'g:' + central.id : ''), 'Según la cuenta (prorrateo en la sociedad)');
   const ok = el('button', { type: 'button', textContent: 'Guardar', hidden: true });
-  sedeSel.addEventListener('change', pintarCom);
-  sel.onchange = sedeSel.onchange = comSel.onchange = () => { ok.hidden = !sel.value; };
+  sel.onchange = destSel.onchange = () => { ok.hidden = !sel.value; };
   ok.onclick = async () => {
     ok.disabled = true;
+    const d = destSel.value, grupo = d.startsWith('g:');
     try {
-      await api('fin/resultados/clasificar', { method: 'POST', body: { movimiento_id: f.movimiento_id, rubro_id: sel.value, sede_id: sedeSel.value || null, comercio_id: comSel.hidden ? null : comSel.value || null } });
+      await api('fin/resultados/clasificar', { method: 'POST', body: { movimiento_id: f.movimiento_id, rubro_id: sel.value, sede_id: grupo ? d.slice(2) : null, comercio_id: !grupo && d ? d : null } });
       msg('Clasificado.', 'ok', '#dMsg'); await cargar(); await detalle(...detActual);
     } catch (e) { msg(e.message, 'mal', '#dMsg'); ok.disabled = false; }
   };
-  return el('div', { className: 'cl' }, sel, sedeSel, comSel, ok);
+  return el('div', { className: 'cl' }, sel, destSel, ok);
 }
 $('#dCerrar').onclick = () => $('#dlgDet').close();
 
 // ── Carga ──
-let sedes = [], comercios = [];
-// El combo de comercio aparece cuando la filial elegida tiene comercios (SORELLE BODEGON Y SUSHI: Wera Sushi y Lo de Titi).
+let sedes = [], comercios = [], sociedades = [];
+// El combo de store aparece con una sociedad de dos o más stores (SORELLE: Lo de Titi, Wera y Di Ciucio).
 function pintarComercios() {
-  const cs = comerciosDe($('#sede').value), ant = $('#comercio').value;
-  // Sólo con dos o más stores en el local: con uno, el local es el store.
+  const soc = $('#soc').value, cs = soc && soc !== 'grupo' ? storesDe(soc) : [], ant = $('#comercio').value;
   $('#comercio').hidden = cs.length < 2;
-  opciones($('#comercio'), [...cs.map(c => [c.id, c.nombre]), ['sin', 'Sin repartir']], cs.some(c => c.id === ant) || ant === 'sin' ? ant : '', 'Todo el local');
+  opciones($('#comercio'), [...cs.map(c => [c.id, c.nombre]), ['sin', 'Sin repartir']], cs.some(c => c.id === ant) || ant === 'sin' ? ant : '', 'Toda la sociedad');
 }
 async function cargar() {
   const [a, b] = await Promise.all([api('fin/resultados?' + params()), api('fin/resultados?' + params(anterior()))]);
@@ -267,13 +262,14 @@ async function todo() {
 }
 $$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); todo(); });
 $('#desde').onchange = $('#hasta').onchange = $('#comercio').onchange = todo;
-$('#sede').onchange = () => { pintarComercios(); todo(); };
+$('#soc').onchange = () => { pintarComercios(); todo(); };
 (async () => {
   try {
-    ({ sedes } = await api('sedes')); sedes = sedes.filter(s => s.activa);
-    ({ comercios } = await api('comercios'));
-    const locales = sedes.filter(s => s.tipo === 'local');
-    opciones($('#sede'), [...locales, ...sedes.filter(s => s.tipo !== 'local')].map(s => [s.id, s.nombre]), locales.length === 1 ? locales[0].id : '', 'Todas las filiales');
+    [{ sedes }, { comercios }, { sociedades }] = await Promise.all([api('sedes'), api('comercios'), api('sociedades')]);
+    sedes = sedes.filter(s => s.activa);
+    const central = sedes.find(s => s.es_central);
+    opciones($('#soc'), [...sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), ['grupo', `${central ? central.nombre : 'Grupo'} (sólo el grupo)`]], '',
+      `${central ? central.nombre : 'Grupo'} consolidado`);
     pintarComercios(); elegirPeriodo('mes'); await todo();
   } catch (e) { msg(e.message, 'mal'); }
 })();

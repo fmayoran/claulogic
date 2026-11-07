@@ -78,7 +78,7 @@
         del disponible en el período (una transferencia entre dos cuentas disponibles no cuenta). Por acreditar: lo cobrado con los
         procesadores que todavía no depositaron, y por qué. Efectivo a rendir: lo que juntaron los puntos de venta. Los saldos salen de los
         movimientos; la plata se mueve desde Operaciones de tesorería.</p>
-      <div class="t-filtros"><select id="filial" aria-label="Filial"></select></div>
+      <div class="t-filtros"><select id="filial" aria-label="Sociedad"></select></div>
     </div>
     <div class="t-cab" style="margin-top:-8px">
       <div class="segm" id="periodo" role="group" aria-label="Período">
@@ -209,24 +209,16 @@ const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card
   el('div', { className: 'cab-t' }, el('h2', { textContent: titulo }), total != null ? el('span', { className: 'tot', textContent: total }) : ''),
   cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
 
-// Por filial (pedido de Fer, 01/11/2026: con dos empresas todo junto se mezclaba). "Todas" muestra el resumen de cada filial; elegir
-// una muestra sus cuentas. La filial de una cuenta es su sede (la caja, la del punto de venta, la que se le asignó en la ficha); las
-// que no tienen, en "Sin filial". Se recuerda la última elegida. Los gráficos del período son de la filial elegida (o de todas).
+// Por sociedad (pedido de Fer, 01/11/2026: con dos empresas todo junto se mezclaba; desde el 07/11 la "filial" es la sociedad de la
+// cuenta). "Todo el grupo" muestra el resumen de cada sociedad y del grupo; elegir una muestra sus cuentas. Se recuerda la última
+// elegida (en la variable `filial`, por historia). Los gráficos del período son de la elegida (o de todo el grupo).
 let filial = (() => { try { return localStorage.getItem('tesoreria-filial') || ''; } catch { return ''; } })();
 let datos = null, flujo = null;
 const SIN = 'sin';
-const filialDe = c => c.sede_id || SIN;
-// Lo por acreditar va a la filial del punto de venta que cobró, no a la de la cuenta: una cuenta de cobro compartida (la de
-// Mercado Pago de SORELLE la usan el bodegón y la cafetería) se reparte. Lo que la cuenta tiene sin cobro pendiente que lo
-// explique queda en su propia filial, así la suma de las filiales es el saldo de la cuenta.
-function parteDe(c, id) {
-  const xs = datos.pa.filter(x => x.cuenta_id === c.id);
-  let t = suma(xs.filter(x => (x.sede_id || SIN) === id), 'importe');
-  if (filialDe(c) === id) t += centavos(c.saldo) - suma(xs, 'importe');
-  return deCentavos(t);
-}
-const acreditarDe = (todas, id) => todas.filter(c => c.tipo === 'cobranza' && (filialDe(c) === id || datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) === id)))
-  .map(c => ({ ...c, saldo: parteDe(c, id), compartida: datos.pa.some(x => x.cuenta_id === c.id && (x.sede_id || SIN) !== id) }));
+// La "filial" del tablero es la sociedad de la cuenta (decisión de Fer, 07/11/2026); SIN = las del grupo (la caja mayor).
+const filialDe = c => c.sociedad_id || SIN;
+// Lo por acreditar de una sociedad: sus cuentas de cobro (las usan los stores de la sociedad).
+const acreditarDe = (todas, id) => todas.filter(c => c.tipo === 'cobranza' && filialDe(c) === id);
 const disponiblesDe = cs => cs.filter(c => ['banco', 'caja'].includes(c.tipo) && !c.punto_venta);
 
 // ── Período ──
@@ -291,10 +283,10 @@ const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vista) card.c
 function pintarTablero() {
   const f = flujo, a = f.anterior;
   const todas = cuentas.filter(c => c.activa);
-  // Las filiales que tienen alguna cuenta, con su nombre; "Sin filial" al final si hace falta.
-  const fs = [...new Map(todas.map(c => [filialDe(c), c.sede || 'Sin filial'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
+  // Las sociedades que tienen alguna cuenta, con su nombre; las del grupo (sin sociedad) al final.
+  const fs = [...new Map(todas.map(c => [filialDe(c), c.sociedad || 'Grupo'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
   if (filial && !fs.some(([id]) => id === filial)) { filial = ''; return cargarFlujo(); }
-  opciones($('#filial'), fs, filial, 'Todas las filiales');
+  opciones($('#filial'), fs, filial, 'Todo el grupo');
   const desde = $('#tDesde').value, hasta = $('#tHasta').value;
   $('#rango').textContent = `Del ${fecha(desde)} al ${fecha(hasta)} · comparado con ${fecha(a.desde)} al ${fecha(a.hasta)}`;
 
@@ -394,7 +386,7 @@ async function pintarAcreditar() {
   if (!datos.pc) { msg('Cargando lo por acreditar…', '', '#msgT0'); datos.pc = await api('fin/tesoreria/por-cobrar?por_sede=1&detalle=1'); msg('', '', '#msgT0'); }
   if (vista !== 'acreditar') return;
   const pc = datos.pc, { aAcreditar } = ctx;
-  const det = detAcr = pc.detalle.filter(d => !filial || (d.sede_id || SIN) === filial);
+  const det = detAcr = pc.detalle.filter(d => !filial || (d.sociedad_id || SIN) === filial);
   const total = suma(aAcreditar);
   $('#tAcr').textContent = `Por acreditar: ${pesosC(total)}`;
   const estados = ESTADOS_ACR.filter(([k]) => det.some(d => d.estado === k));
@@ -474,9 +466,9 @@ function pintarEfectivo() {
 // "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.
 function resumenFiliales(todas, fs) {
   const de = id => todas.filter(c => filialDe(c) === id), ef = cs => cs.filter(c => c.punto_venta);
-  $('#grupos').replaceChildren(grupo('Por filial', null, 'Hoy. Tocá una filial para ver sus cuentas.',
+  $('#grupos').replaceChildren(grupo('Por sociedad', null, 'Hoy. Tocá una para ver sus cuentas.',
     el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' },
-      el('thead', {}, el('tr', {}, el('th', { textContent: 'Filial' }), el('th', { className: 'num', textContent: 'Disponible' }),
+      el('thead', {}, el('tr', {}, el('th', { textContent: 'Sociedad' }), el('th', { className: 'num', textContent: 'Disponible' }),
         el('th', { className: 'num', textContent: 'Por acreditar' }), el('th', { className: 'num', textContent: 'Efectivo a rendir' }), el('th', { textContent: 'Sin conciliar' }))),
       el('tbody', {}, ...fs.map(([id, nm]) => {
         const cs = de(id), sc = cs.reduce((t, c) => t + (c.lineas_sin_conciliar || 0), 0);
@@ -489,7 +481,7 @@ function resumenFiliales(todas, fs) {
 }
 // Lo que entra de los cobros de la filial, por el punto de venta que cobró (los totales se recalculan con lo filtrado).
 function soloDe(pc, id) {
-  const de = d => (d.sede_id || SIN) === id;
+  const de = d => (d.sociedad_id || SIN) === id;
   const dias = pc.dias.filter(de), atrasado = pc.atrasado.filter(de);
   const xs = [...dias, ...atrasado], procs = new Set(xs.map(x => x.procesador));
   return { ...pc, dias, atrasado, estimaciones: pc.estimaciones.filter(e => procs.has(e.procesador)), pagos: xs.reduce((t, x) => t + x.pagos, 0),
@@ -569,7 +561,7 @@ async function verCuenta(id) {
   const c = cuentas.find(x => x.id === id); if (!c) return ruta('');
   actual = c;
   $('#cTitulo').textContent = c.nombre;
-  $('#cSub').textContent = [TIPO[c.tipo], c.sede, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
+  $('#cSub').textContent = [TIPO[c.tipo], c.sociedad || 'Grupo', c.tipo === 'caja' ? c.sede : null, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
     'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
   $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
   $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#editarCuenta').href = 'cuentas.html#editar=' + c.id; $('#notaCartera').hidden = c.tipo !== 'cartera';

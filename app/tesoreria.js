@@ -43,6 +43,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
 r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta, i.sede_id,
+            (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id,
             COUNT(*)::int AS pagos, SUM(CASE WHEN p.costos IS NOT NULL THEN p.neto ELSE p.importe END)::text AS importe, to_char(MIN(t.dia), 'YYYY-MM-DD') AS desde,
             COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
@@ -64,7 +65,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
   const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }, { rows: exts }] = await Promise.all([
     pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
     pool.query(
-      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
+      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
+              (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
               p.costos IS NOT NULL AS con_costos
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
@@ -132,7 +134,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
         : !ext || !ext.hasta || fecha > ext.hasta ? 'falta_extracto' : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
       const g = det.get(k) || { procesador_id: p.procesador_id, procesador: p.procesador, deposita: ext ? ext.nombre : null, extracto_hasta: ext ? ext.hasta : null,
-        punto_venta: p.punto_venta, sede_id: p.sede_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha };
+        punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha };
       // `saldo`: lo que el cobro pesa en la cuenta "a acreditar" (PedidosYa asienta sus costos al cobrar: queda el neto).
       g.pagos++; g.bruto += bruto; g.neto += neto; g.saldo += p.con_costos ? centavos(p.neto) : bruto;
       if (p.dia < g.ventas_desde) g.ventas_desde = p.dia; if (p.dia > g.ventas_hasta) g.ventas_hasta = p.dia;
@@ -142,7 +144,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
     // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
     const destino = fecha < hoy ? atrasado : dias, clave = (fecha < hoy ? '' : fecha) + '|' + p.procesador + '|' + fuente + (porSede ? '|' + p.sede_id : '');
     const g = destino.get(clave) || { fecha: fecha < hoy ? null : fecha, desde: fecha, procesador: p.procesador, fuente, pagos: 0, bruto: 0n, neto: 0n, en_lote: 0,
-      ...(porSede ? { sede_id: p.sede_id } : {}) };
+      ...(porSede ? { sede_id: p.sede_id, sociedad_id: p.sociedad_id } : {}) };
     g.pagos++; g.bruto += bruto; g.neto += neto; if (p.en_lote) g.en_lote++; if (fecha < g.desde) g.desde = fecha;
     destino.set(clave, g);
   }
@@ -170,7 +172,7 @@ const CATEGORIA_TES = `
   WITH esc AS (
     SELECT c.id FROM fin.cuenta c
      WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
-       AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1)),
+       AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1)),
   -- MATERIALIZED: sin eso Postgres repite la búsqueda de la otra pata en cada lugar donde se nombra "otra" (14 s con octubre).
   m AS MATERIALIZED (
     SELECT m.id, m.fecha, m.cuenta_id, m.concepto, m.anula_a IS NOT NULL AS anulacion, b.tipo, b.gasto, b.entrada > 0 AS es_entrada,
@@ -218,7 +220,7 @@ async function flujoTes(filial, desde, hasta) {
     pool.query(
       `SELECT COALESCE(SUM(m.entrada - m.salida), 0)::text AS saldo FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id
         WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
-          AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1) AND m.fecha < $2::date`, [filial, desde]),
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1) AND m.fecha < $2::date`, [filial, desde]),
     pool.query(`${CATEGORIA_TES}
       SELECT to_char(fecha, 'YYYY-MM-DD') AS dia,
              COALESCE(SUM(valor) FILTER (WHERE es_entrada AND cat NOT IN ('interna', 'apertura')), 0)::text AS entradas,
@@ -245,10 +247,10 @@ r.get('/fin/tesoreria/tablero', h(async (req, res) => {
   const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)),
     // Dónde está el disponible al cierre del período (pedido de Fer, 03/11/2026): el saldo de cada banco y caja a esa fecha.
     pool.query(
-      `SELECT c.id, c.nombre, c.tipo, s.nombre AS sede, SUM(m.entrada - m.salida)::text AS saldo
-         FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id LEFT JOIN org.sede s ON s.id = c.sede_id
+      `SELECT c.id, c.nombre, c.tipo, COALESCE(s.nombre, 'Grupo') AS sede, SUM(m.entrada - m.salida)::text AS saldo
+         FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id LEFT JOIN org.sociedad s ON s.id = c.sociedad_id
         WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
-          AND ($1::text = '' OR ($1 = 'sin' AND c.sede_id IS NULL) OR c.sede_id::text = $1) AND m.fecha <= $2::date
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1) AND m.fecha <= $2::date
         GROUP BY c.id, s.nombre HAVING SUM(m.entrada - m.salida) <> 0 ORDER BY SUM(m.entrada - m.salida) DESC`, [filial, hasta])]);
   res.json({ ok: true, ...actual, anterior, donde });
 }));

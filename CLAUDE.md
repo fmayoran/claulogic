@@ -57,8 +57,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - Pantalla **Organización** (`organizacion.html`, Configuración, administrador): el árbol con los sistemas de venta de cada local y las
   cuentas de cada sociedad; alta y edición de sociedades (`/sociedades`, del administrador). "Sedes y puntos de venta" pasó a llamarse
   **Locales y centro** y pide la sociedad del local. En Cuentas y Medios de pago se elige la sociedad (vacía = del grupo).
-- Siguen: los tableros y el estado de resultados por sociedad y store (hoy la "filial" sigue siendo la sede: `fin.cuenta.sede_id` de los
-  bancos se conserva para el resultado), y las facturas de compra a nombre de cada sociedad.
+- **Resultado y tesorería por sociedad** (migración 20261130): cada hecho de `fin.resultado` lleva su `sociedad_id` (la del local; si no
+  tiene local, la de la cuenta). Un movimiento de una cuenta de una sociedad (banco, cuenta de cobro) sin venta ni local elegido **no va a
+  ningún local**: es de la sociedad y `fin.resultado_comercio` lo reparte entre sus stores por las ventas del mes (regla `sociedad`).
+  El estado de resultados se mira del **grupo consolidado**, de una sociedad, "sólo el grupo" (el centro y la caja mayor) o de un store
+  (`/fin/resultados?sociedad=&comercio=`); al reclasificar un gasto se elige el store, el grupo o "según la cuenta". El tablero de
+  tesorería filtra por la sociedad de la cuenta ("Todo el grupo", cada sociedad, y "Grupo" para las cuentas sin sociedad).
+- Sigue: las facturas de compra a nombre de cada sociedad.
 
 ### Las cuatro decisiones del modelo (no las deshagas sin entender por qué están)
 
