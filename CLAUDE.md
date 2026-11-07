@@ -676,6 +676,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   se la queda solo); se importa desde cualquier local de PedidosYa. Cuenta de cobro **PEDIDOSYA SORELLE** (su "a acreditar" en la sede
   del bodegón); la cafetería la toma por ser del mismo archivo (si un local no tiene cuenta PedidosYa en su sede, usa la de los otros
   locales del archivo). CORTAFUEGO: tienda 643855.
+  **El archivo viene en el idioma de la cuenta del portal** (07/11/2026): el de SORELLE baja en inglés ("Order ID", "Subtotal",
+  "Estimated earnings", "Delivered", importes "20,000.00"); el de CORTAFUEGO en castellano ("20.000,00"). `COLUMNAS_PEYA` tiene los
+  dos nombres de cada columna y el separador decimal se deduce de los importes. Tiendas de SORELLE: Wera Sushi 528403 y Lo De Titi
+  Bodegón 547527 (SORELLE BODEGON Y SUSHI), Di Ciucio Pasticceria E Caffe 542301 (SORELLE CAFETERIA). Los reembolsos por reclamo
+  ("Operational charges", hasta el pedido entero) entran en "Otros cargos".
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también

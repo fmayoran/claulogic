@@ -209,7 +209,8 @@ function pintarTiendas() {
   let pend = [];
   caja.hidden = true; caja.replaceChildren();
   if (!peya || !peya.pedidos.length) return listo();
-  const claves = Object.keys(peya.pedidos[0]), cId = claves.find(c => normCol(c) === 'id de tienda'), cNom = claves.find(c => normCol(c) === 'nombre del local');
+  const claves = Object.keys(peya.pedidos[0]), cId = claves.find(c => ['id de tienda', 'store id'].includes(normCol(c))),
+    cNom = claves.find(c => ['nombre del local', 'restaurant name'].includes(normCol(c)));
   if (!cId) return listo();
   const tiendas = new Map();
   for (const f of peya.pedidos) { const id = String(f[cId] || '').trim(); const t = tiendas.get(id) || { id, nombre: String(f[cNom] || '').trim() || 'sin nombre', pedidos: 0 }; t.pedidos++; tiendas.set(id, t); }

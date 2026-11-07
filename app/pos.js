@@ -494,11 +494,17 @@ r.post('/pos/integraciones/:id/importar', h(async (req, res) => {
 //   · Entregado = venta cerrada; cancelado o rechazado = anulada; lo demás (en curso) no se importa todavía. El día en curso
 //     no se importa: esos pedidos se dejan afuera y se avisa.
 const sinTildes = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-const COLUMNAS_PEYA = { nro: 'nro de pedido', estado: 'estado del pedido', fecha: 'fecha del pedido', entregado: 'entregado el', cancelado: 'cancelado el',
-  entrega: 'tipo de entrega', forma: 'forma de pago', subtotal: 'total parcial', desc: 'descuento financiado por usted', vale: 'vale financiado por usted',
-  ingreso: 'ingreso estimado', efectivo: 'monto en efectivo ya cobrado por el local', adeudado: 'monto adeudado a pedidosya', articulos: 'articulos del pedido',
-  comision: 'comision', comision_online: 'comision por pago en linea', impuesto: 'impuesto', marketing: 'total de costes de marketing',
-  tienda: 'id de tienda', local: 'nombre del local' };
+// Cada columna con su nombre en castellano y en inglés: el portal exporta en el idioma de la cuenta (SORELLE lo baja en inglés,
+// con "20,000.00"; CORTAFUEGO en castellano, con "20.000,00").
+const COLUMNAS_PEYA = {
+  nro: ['nro de pedido', 'order id'], estado: ['estado del pedido', 'order status'], fecha: ['fecha del pedido', 'order received at'],
+  entregado: ['entregado el', 'delivered at'], cancelado: ['cancelado el', 'cancelled at'], entrega: ['tipo de entrega', 'delivery type'],
+  forma: ['forma de pago', 'payment type'], subtotal: ['total parcial', 'subtotal'], desc: ['descuento financiado por usted', 'discount funded by you'],
+  vale: ['vale financiado por usted', 'voucher funded by you'], ingreso: ['ingreso estimado', 'estimated earnings'],
+  efectivo: ['monto en efectivo ya cobrado por el local', 'cash amount already collected by you'],
+  adeudado: ['monto adeudado a pedidosya', 'amount owed back to pedidosya'], articulos: ['articulos del pedido', 'order items'],
+  comision: ['comision', 'commission'], comision_online: ['comision por pago en linea', 'online payment fee'], impuesto: ['impuesto', 'tax charge'],
+  marketing: ['total de costes de marketing', 'marketing fees total'], tienda: ['id de tienda', 'store id'], local: ['nombre del local', 'restaurant name'] };
 const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
 const MEDIO_COMISION_EFECTIVO = 'Pedidos en efectivo · liquidación PedidosYa';
 function articulosPeYa(txt) {
@@ -518,19 +524,22 @@ async function importarPedidosYa(req, res) {
   if (filas.length > 20000) throw new ErrorUsuario('Demasiados pedidos: importá de a un mes.');
   // Las columnas se buscan por nombre, sin tildes ni mayúsculas (el portal puede cambiar el orden).
   const claves = Object.keys(filas[0] || {}), col = {};
-  for (const [k, nombre] of Object.entries(COLUMNAS_PEYA)) col[k] = claves.find(c => sinTildes(c) === nombre);
-  const faltan = OBLIGATORIAS_PEYA.filter(k => !col[k]).map(k => `"${COLUMNAS_PEYA[k]}"`);
+  for (const [k, nombres] of Object.entries(COLUMNAS_PEYA)) col[k] = claves.find(c => nombres.includes(sinTildes(c)));
+  const faltan = OBLIGATORIAS_PEYA.filter(k => !col[k]).map(k => `"${COLUMNAS_PEYA[k][0]}"`);
   if (faltan.length) throw new ErrorUsuario(`No es el archivo de pedidos de PedidosYa (orderDetails): faltan las columnas ${faltan.join(', ')}.`);
   const { rows: [hoyDb] } = await pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS d`);
   const tickets = [], omitidos = { hoy: 0, en_curso: 0 };
-  const imp = (f, k, n) => col[k] ? importeArchivo(f[col[k]], ',', `Pedido de la fila ${n}, ${COLUMNAS_PEYA[k]}`) || '0' : '0';
+  // El separador decimal se deduce de los importes: con dos decimales detrás de un punto ("20,000.00") es punto; si no, coma.
+  const muestras = filas.flatMap(f => ['subtotal', 'ingreso'].map(k => String(f[col[k]] ?? '').trim()));
+  const decimal = muestras.some(v => /\d\.\d{2}$/.test(v)) && !muestras.some(v => /\d,\d{2}$/.test(v)) ? '.' : ',';
+  const imp = (f, k, n) => col[k] ? importeArchivo(f[col[k]], decimal, `Pedido de la fila ${n}, ${col[k]}`) || '0' : '0';
   const resta = (...xs) => deCentavos(xs.slice(1).reduce((a, x) => a - centavos(x), centavos(xs[0])));
   filas.forEach((f, i) => {
     const n = i + 2, nro = String(f[col.nro] ?? '').trim();
     if (!nro) throw new ErrorUsuario(`Fila ${n}: falta el número de pedido.`);
     const estado = sinTildes(f[col.estado]);
-    const anulado = /cancel|rechaz/.test(estado);
-    if (!anulado && !/entregad/.test(estado)) { omitidos.en_curso++; return; }
+    const anulado = /cancel|rechaz|reject/.test(estado);
+    if (!anulado && !/entregad|delivered/.test(estado)) { omitidos.en_curso++; return; }
     const abierto = fechaHoraArchivo(f[col.fecha], `Fila ${n}, fecha del pedido`);
     if (abierto.slice(0, 10) >= hoyDb.d) { omitidos.hoy++; return; }
     const cierre = [col.entregado, col.cancelado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
@@ -538,7 +547,7 @@ async function importarPedidosYa(req, res) {
     // Opción B de Fer: la venta es el total parcial; el descuento y el vale que financia el local son costos.
     const venta = imp(f, 'subtotal', n), descLocal = deCentavos(centavos(imp(f, 'desc', n)) + centavos(imp(f, 'vale', n)));
     const ingreso = imp(f, 'ingreso', n), forma = String(f[col.forma] ?? '').trim() || 'Sin forma de pago';
-    const enEfectivo = /efectivo/i.test(forma);
+    const enEfectivo = /efectivo|cash/i.test(forma);
     // Lo que el local cobró en mano (pedidos en efectivo); el resto de la venta se liquida con PedidosYa, por su neto.
     const efectivo = !enEfectivo ? '0' : (col.efectivo && !esCero(imp(f, 'efectivo', n)) ? imp(f, 'efectivo', n) : resta(venta, descLocal));
     const importe = resta(venta, efectivo), neto = resta(ingreso, efectivo);
@@ -612,7 +621,7 @@ async function importarPedidosYa(req, res) {
       const p = propios(x), medio = p.length === 1 ? p[0] : p.length === 0 && delArchivo.length === 1 ? delArchivo[0] : null;
       await c.query(
         `WITH ef AS (SELECT id FROM fin.medio_pago WHERE tipo_operacion = 'efectivo' AND procesador_id IS NULL AND activo LIMIT 1)
-         UPDATE pos.medio m SET medio_pago_id = CASE WHEN m.codigo_externo ~* 'efectivo' AND m.codigo_externo <> $3 THEN (SELECT id FROM ef) ELSE $2::uuid END
+         UPDATE pos.medio m SET medio_pago_id = CASE WHEN m.codigo_externo ~* 'efectivo|cash' AND m.codigo_externo <> $3 THEN (SELECT id FROM ef) ELSE $2::uuid END
           WHERE m.integracion_id = $1 AND m.medio_pago_id IS NULL`, [x.id, medio, MEDIO_COMISION_EFECTIVO]);
       out.push({ integ: x, ...o, desde: fechas[0], hasta: fechas.at(-1) });
     }
