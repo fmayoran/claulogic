@@ -319,14 +319,15 @@ r.get('/fin/cuenta-corriente', h(async (req, res) => {
                        json_agg(json_build_object('sociedad_id', x.sociedad_id, 'sociedad', so.nombre, 'saldo', x.saldo::text) ORDER BY so.nombre) AS sociedades
                   FROM fin.saldo_proveedor_sociedad x JOIN org.sociedad so ON so.id = x.sociedad_id
                  WHERE $1::uuid IS NULL OR x.sociedad_id = $1 GROUP BY proveedor_id)
-     SELECT pv.id, pv.nombre, pv.cuit, s.saldo::text, s.ultimo_movimiento, s.sociedades,
-            COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento < current_date), 0)::text AS vencido,
-            COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento BETWEEN current_date AND current_date + 7), 0)::text AS vence_7,
-            MIN(cp.vencimiento) FILTER (WHERE cp.vencimiento >= current_date AND cp.pendiente > 0) AS proximo_vencimiento
+     SELECT pv.id, pv.nombre, pv.cuit, s.saldo::text, s.ultimo_movimiento, s.sociedades, v.vencido, v.vence_7, v.proximo_vencimiento
        FROM s
        JOIN logic.proveedor pv ON pv.id = s.proveedor_id
-       LEFT JOIN fin.comprobante_pendiente cp ON cp.proveedor_id = s.proveedor_id AND cp.pendiente > 0 AND ($1::uuid IS NULL OR cp.sociedad_id = $1)
-      GROUP BY pv.id, s.saldo, s.ultimo_movimiento, s.sociedades::text
+       CROSS JOIN LATERAL (
+         SELECT COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento < current_date), 0)::text AS vencido,
+                COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento BETWEEN current_date AND current_date + 7), 0)::text AS vence_7,
+                MIN(cp.vencimiento) FILTER (WHERE cp.vencimiento >= current_date) AS proximo_vencimiento
+           FROM fin.comprobante_pendiente cp
+          WHERE cp.proveedor_id = s.proveedor_id AND cp.pendiente > 0 AND ($1::uuid IS NULL OR cp.sociedad_id = $1)) v
       ORDER BY s.saldo DESC, pv.nombre`, [soc]);
   const { rows: [tot] } = await pool.query(
     `SELECT COALESCE(SUM(saldo), 0)::text AS saldo FROM fin.saldo_proveedor_sociedad WHERE $1::uuid IS NULL OR sociedad_id = $1`, [soc]);
