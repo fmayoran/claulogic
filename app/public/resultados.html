@@ -86,8 +86,8 @@ const ESTRUCTURA = [
   { linea: 'otros', nombre: 'Otros ingresos y gastos' },
   { total: 'Resultado', de: ['ventas', 'cmv', 'cobro', 'impuestos', 'bancarios', 'operativos', 'diferencias', 'otros'], final: true },
 ];
-// Como los llama Fudo: lo que el sistema guarda "para llevar" es el Mostrador.
-const TIPO_VENTA = { 'salón': 'Salón', 'para llevar': 'Mostrador', delivery: 'Delivery', pedidosya: 'PedidosYa', 'sin tipo': 'Sin tipo' };
+// Los canales con el nombre que usa el tablero de ventas (pedido de Fer, 07/11/2026: "para llevar" es Take Away).
+const TIPO_VENTA = { 'salón': 'Salón', 'para llevar': 'Take Away', delivery: 'Delivery propio', pedidosya: 'PedidosYa', 'sin tipo': 'Sin tipo' };
 const iso = d => d.toISOString().slice(0, 10);
 const cero = v => /^-?0+(\.0+)?$/.test(String(v || '0'));
 const sumaC = (xs, k = 'importe') => xs.reduce((s, x) => s + centavos(x[k] || '0'), 0n);

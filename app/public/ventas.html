@@ -7,9 +7,6 @@
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <style>
-  /* Las cifras de arriba abren su vista; la abierta queda marcada. */
-  .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
-  .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
   .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
   #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
   .medios-pie{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;color:var(--mut);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
@@ -61,44 +58,49 @@
 
   <div class="kpis" id="kpis"></div>
 
-  <!-- Cada cifra abre su vista (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). -->
-  <div class="vista" id="vEvolucion">
-    <div class="t-grid t-g2">
-      <section class="card">
-        <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Anterior</span></div></div>
-        <p class="cap" id="capPrincipal">Tocá un día para ver sus ventas.</p>
-        <div id="gPrincipal"></div>
-      </section>
-      <section class="card">
-        <h2 id="tRank">Por mozo</h2>
-        <p class="cap" id="capRank"></p>
-        <div id="gRank"></div>
-      </section>
-    </div>
+  <!-- Un panel para ver la venta de un vistazo (pedido de Fer, 07/11/2026): cómo viene por día y por día de la semana, de dónde
+       viene (store, canal, medio de pago) y qué se vende. Tocar cualquier parte abre esas ventas en el detalle. -->
+  <div class="t-grid t-g2">
+    <section class="card">
+      <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Mismo día de la semana, antes</span></div></div>
+      <p class="cap" id="capPrincipal">Cada día contra el mismo día de la semana del período anterior. Tocá un día para ver sus ventas.</p>
+      <div id="gPrincipal"></div>
+    </section>
+    <section class="card" id="cSemana">
+      <h2>Por día de la semana</h2>
+      <p class="cap" id="capSemana">Lo vendido en promedio cada día de la semana, contra el período anterior.</p>
+      <div id="gSemana"></div>
+    </section>
   </div>
-  <div class="vista" id="vComposicion" hidden>
-    <div class="t-grid t-g2">
-      <section class="card" id="cHoras">
-        <h2>Por hora de apertura</h2>
-        <p class="cap">Cuándo se abren las mesas. Tocá una hora para ver sus ventas.</p>
-        <div id="gHoras"></div>
-      </section>
-      <section class="card">
-        <h2>Tipo de venta</h2>
-        <p class="cap" id="capTipos"></p>
-        <div id="gTipos"></div>
-      </section>
-    </div>
+  <div class="t-grid t-g3">
+    <section class="card">
+      <h2 id="tRank">Por store</h2>
+      <p class="cap" id="capRank"></p>
+      <div id="gRank"></div>
+    </section>
+    <section class="card">
+      <h2>Por canal</h2>
+      <p class="cap" id="capTipos"></p>
+      <div id="gTipos"></div>
+    </section>
+    <section class="card">
+      <h2>Por medio de pago</h2>
+      <p class="cap">Tocá uno para abrirlo y otra vez para ver esas ventas.</p>
+      <div id="gMedios"></div>
+      <div class="medios-pie" id="cobrado"></div>
+    </section>
   </div>
-  <div class="vista" id="vMedios" hidden>
-    <div class="t-grid t-g2">
-      <section class="card">
-        <h2>Medios de pago</h2>
-        <p class="cap">Lo cobrado, por medio. Tocá uno para abrirlo y otra vez para ver esas ventas.</p>
-        <div id="gMedios"></div>
-        <div class="medios-pie" id="cobrado"></div>
-      </section>
-    </div>
+  <div class="t-grid t-g2">
+    <section class="card">
+      <h2>Lo más vendido</h2>
+      <p class="cap" id="capTop">Los 10 productos que más facturaron en el período.</p>
+      <div id="gTop"></div>
+    </section>
+    <section class="card" id="cHoras">
+      <h2>Por hora de apertura</h2>
+      <p class="cap">Cuándo se abren las mesas. Tocá una hora para ver sus ventas.</p>
+      <div id="gHoras"></div>
+    </section>
   </div>
 
   <section class="card" id="cDetalle">
@@ -128,6 +130,9 @@
 <script src="graficos.js"></script>
 <script>
 const n = v => v == null || v === '' ? 0 : Number(v);
+// Los canales de venta con su nombre en pantalla (pedido de Fer, 07/11/2026: "para llevar" es Take Away).
+const CANAL = { 'salón': 'Salón', 'para llevar': 'Take Away', delivery: 'Delivery propio', pedidosya: 'PedidosYa', 'sin dato': 'Sin dato' };
+const nombreCanal = t => CANAL[t] || t;
 const etiquetaM = m => m.sin_asignar ? m.nombres : etiquetaMedio(m);
 // La dona de medios agrupa por marca (Efectivo, Mercado Pago, Pago24…: no por la cuenta de cobro de cada empresa) y, con una
 // marca elegida, abre por tipo de operación (QR, débito, crédito…). Lo que todavía no tiene medio asignado va con su nombre.
@@ -227,28 +232,16 @@ function pintar() {
   };
   const tk = prom(t.vendido, t.ventas), tkA = prom(a.vendido, a.ventas), pc = prom(t.vendido_con_personas, t.personas), pcA = prom(a.vendido_con_personas, a.personas);
   $('#kpis').replaceChildren(
-    kpiB(kpi('Vendido', pesos(t.vendido), t.vendido, a.vendido, vend), 'evolucion'),
-    kpiB(kpi('Ventas', num(String(t.ventas)), t.ventas, a.ventas, cant), 'composicion'),
-    kpiB(kpi('Ticket promedio', tk && pesos(tk), tk, tkA, dias.map((_, i) => cant[i] ? vend[i] / cant[i] : 0)), 'composicion'),
-    kpiB(kpi('Por cubierto', pc && pesos(pc), pc, pcA, dias.map((_, i) => pers[i] ? vcp[i] / pers[i] : 0)), 'composicion'),
-    kpiB(kpi('Cobrado', pesos(t.cobrado), t.cobrado, a.cobrado, null), 'medios'));
+    kpi('Vendido', pesos(t.vendido), t.vendido, a.vendido, vend),
+    kpi('Ventas', num(String(t.ventas)), t.ventas, a.ventas, cant),
+    kpi('Ticket promedio', tk && pesos(tk), tk, tkA, dias.map((_, i) => cant[i] ? vend[i] / cant[i] : 0)),
+    kpi('Por cubierto', pc && pesos(pc), pc, pcA, dias.map((_, i) => pers[i] ? vcp[i] / pers[i] : 0)),
+    kpi('Cobrado', pesos(t.cobrado), t.cobrado, a.cobrado, null));
 
   ctxV = { dias, vend, cant, diasAnt, porDiaAnt, unDia };
-  mostrarVista();
+  pintarEvolucion(); pintarSemana(); pintarRanking(); pintarComposicion(); pintarMedios(); pintarTop();
 }
-// La vista abierta: la cifra que se tocó. Se recuerda.
-const VISTAS_V = { evolucion: '#vEvolucion', composicion: '#vComposicion', medios: '#vMedios' };
-let vistaV = (() => { try { const v = localStorage.getItem('ventas-vista'); return VISTAS_V[v] ? v : 'evolucion'; } catch { return 'evolucion'; } })();
 let ctxV = null;
-const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vistaV) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
-  card.dataset.v = v; card.onclick = () => abrirVista(v); card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirVista(v); } }; return card; };
-function abrirVista(v) { vistaV = v; try { localStorage.setItem('ventas-vista', v); } catch {} mostrarVista(); }
-function mostrarVista() {
-  for (const [v, sel] of Object.entries(VISTAS_V)) $(sel).hidden = v !== vistaV;
-  $$('#kpis .kpi-b').forEach(k => k.classList.toggle('act', k.dataset.v === vistaV));
-  if (!ctxV) return;
-  if (vistaV === 'evolucion') pintarEvolucion(); else if (vistaV === 'medios') pintarMedios(); else pintarComposicion();
-}
 function pintarEvolucion() {
   const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;
   // Principal: por día; si el período es un solo día, por hora.
@@ -257,18 +250,42 @@ function pintarEvolucion() {
     $('#tPrincipal').textContent = 'Ventas por hora'; $('#capPrincipal').textContent = 'Por hora de apertura. Tocá una hora para ver sus ventas.';
     pintarHoras($('#gPrincipal'), matchMedia('(max-width:899px)').matches ? 220 : 330);
   } else {
-    $('#tPrincipal').textContent = 'Ventas por día'; $('#capPrincipal').textContent = 'Tocá un día para ver sus ventas.';
+    $('#tPrincipal').textContent = 'Ventas por día'; $('#capPrincipal').textContent = 'Cada día contra el mismo día de la semana del período anterior. Tocá un día para ver sus ventas.';
     const vAnt = d => n((porDiaAnt.get(d) || {}).vendido);
     Graf.area($('#gPrincipal'), {
       etiquetas: dias, ejeX: diaCorto, titulo: d => diaLargo(d),
       serie: { nombre: 'Vendido', valores: vend, texto: i => `${pesos(String(vend[i]))} · ${cant[i]} venta(s)` },
-      anterior: { nombre: 'Anterior', valores: diasAnt.map(vAnt), texto: i => `${pesos(String(vAnt(diasAnt[i])))} (${diaLargo(diasAnt[i])})` },
+      anterior: { nombre: 'Mismo día de la semana, antes', valores: diasAnt.map(vAnt), texto: i => `${pesos(String(vAnt(diasAnt[i])))} el ${diaLargo(diasAnt[i])}` },
       alElegir: i => alternar('dia', dias[i]), elegido: filtros.dia ? dias.indexOf(filtros.dia) : null,
-      alto: matchMedia('(max-width:899px)').matches ? 220 : 330,
+      alto: matchMedia('(max-width:899px)').matches ? 220 : 280,
     });
   }
-
-  pintarRanking();
+}
+// Por día de la semana: el promedio de lo vendido cada lunes, martes… del período, contra el del período anterior (que empieza el
+// mismo día de la semana). Dice qué días tiran y si cada día viene mejor o peor, sin mezclar un martes con un sábado.
+const SEMANA = [1, 2, 3, 4, 5, 6, 0], NOMBRE_DIA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+function pintarSemana() {
+  const { dias, vend, diasAnt, porDiaAnt, unDia } = ctxV;
+  $('#cSemana').hidden = unDia;
+  if (unDia) return;
+  const prom = (ds, valor) => SEMANA.map(w => {
+    const xs = ds.map((d, i) => [d, i]).filter(([d]) => new Date(d + 'T12:00:00').getDay() === w);
+    return xs.length ? Math.round(xs.reduce((s, [d, i]) => s + valor(d, i), 0) / xs.length) : 0;
+  });
+  const act = prom(dias, (d, i) => vend[i]), ant = prom(diasAnt, d => n((porDiaAnt.get(d) || {}).vendido));
+  Graf.columnasSeries($('#gSemana'), { etiquetas: SEMANA, ejeX: w => NOMBRE_DIA[w].slice(0, 3), titulo: w => 'Los ' + NOMBRE_DIA[w] + (w === 6 || w === 0 ? 's' : ''),
+    series: [{ nombre: 'Promedio este período', valores: act }, { nombre: 'Promedio anterior', valores: ant }], alto: matchMedia('(max-width:899px)').matches ? 220 : 280 });
+  const mejor = SEMANA[act.indexOf(Math.max(...act))];
+  $('#capSemana').textContent = `Lo vendido en promedio cada día de la semana, contra el período anterior. El que más vende: ${NOMBRE_DIA[mejor]}.`;
+}
+// Lo más vendido: los 10 productos que más facturaron (Fudo por venta; Maxirest por su informe de artículos del día).
+function pintarTop() {
+  const top = resumen.top || [], hayFiltro = ['medio', 'tipo', 'hora', 'mozo'].some(k => filtros[k] != null);
+  Graf.ranking($('#gTop'), { items: top.map((x, i) => ({ clave: String(i), etiqueta: x.nombre, valor: x.vendido, x })),
+    nota: it => `${num(it.x.unidades)} u` + (!$('#integ').value && it.x.locales ? ` · ${it.x.locales}` : '') });
+  if (!top.length) $('#gTop').replaceChildren(el('p', { className: 'g-vacio', textContent: 'Sin artículos en el período.' }));
+  $('#capTop').textContent = 'Los 10 productos que más facturaron en el período.'
+    + (hayFiltro ? ' Con un filtro de medio, canal, hora o mozo, sólo los sistemas que traen los artículos de cada venta (Fudo).' : ' PedidosYa no informa los artículos.');
 }
 function pintarMedios() {
   const r = resumen, t = r.totales;
@@ -287,10 +304,10 @@ function pintarMedios() {
 function pintarComposicion() {
   const r = resumen;
   const conPers = r.tipos.filter(x => x.personas);
-  const tipoV = t => t === 'pedidosya' ? 'PedidosYa' : t;
+  const tipoV = nombreCanal;
   $('#capTipos').textContent = conPers.length
     ? conPers.map(x => `${tipoV(x.tipo)}: ${num(String(x.personas))} cubiertos, ${pesos(prom(x.vendido_con_personas, x.personas))} por cubierto`).join(' · ')
-    : 'Salón, para llevar, delivery propio y PedidosYa.';
+    : 'Salón, Take Away, Delivery propio y PedidosYa. Tocá uno para ver esas ventas.';
   Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${tipoV(x.tipo)} (${x.ventas})`, valor: x.vendido })),
     sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
 
@@ -357,7 +374,7 @@ const NOMBRE_FILTRO = { dia: v => diaLargo(v), medio: v => {
     if (v.startsWith('marca:')) return nombreMarca(v);
     if (v.startsWith('mt:')) { const [, mk, tp] = v.split(':'); return `${nombreMarca('marca:' + mk)} · ${TIPO_OP[tp]}`; }
     const m = resumen.medios.find(x => x.clave === v); return m ? etiquetaM(m) : 'medio'; },
-  hora: v => `de ${v} a ${v + 1} h`, tipo: v => v === 'pedidosya' ? 'PedidosYa' : v, mozo: v => v };
+  hora: v => `de ${v} a ${v + 1} h`, tipo: v => nombreCanal(v), mozo: v => v };
 function alternar(k, v) {
   if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
   pintar(); abrirDetalle(true); cargarVentas();
@@ -395,7 +412,7 @@ function pintarVentas() {
   $('#masWrap').hidden = lista.length <= mostrar;
   $('#ventas').replaceChildren(...(lista.length ? lista.slice(0, mostrar).map(v => {
     const medios = v.pagos.map(p => p.procesador || p.tipo_operacion ? etiquetaMedio(p) : p.medio).join(' + ');
-    const lugar = v.mesa ? `mesa ${v.mesa}` : v.tipo === 'pedidosya' ? 'PedidosYa' : v.tipo && v.tipo !== 'salón' ? v.tipo : '';
+    const lugar = v.mesa ? `mesa ${v.mesa}` : v.tipo && v.tipo !== 'salón' ? nombreCanal(v.tipo) : '';
     const b = el('button', { type: 'button', className: 'venta' + (v.estado === 'anulado' ? ' anulada' : '') },
       el('span', { className: 'dato' }, el('span', { className: 'num', textContent: '#' + v.id_externo }), el('span', { className: 'hora', textContent: diaHora(v.abierto_en || v.cerrado_en) })),
       el('span', { className: 'dato' }, el('span', { textContent: [lugar, v.mozo, v.personas ? `${v.personas} cub.` : ''].filter(Boolean).join(' · ') || v.tipo || '' }),
@@ -410,7 +427,7 @@ async function abrirVenta(id) {
     const { venta: v } = await api('pos/ventas/' + id);
     const mismoDia = v.abierto_en && v.cerrado_en && diaHora(v.abierto_en).slice(0, 5) === diaHora(v.cerrado_en).slice(0, 5);
     $('#vTitulo').textContent = `Venta #${v.id_externo}` + (v.estado === 'anulado' ? ' · anulada' : '');
-    $('#vDatos').textContent = [v.punto_venta, v.tipo === 'pedidosya' ? 'PedidosYa' : v.tipo, v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + (v.personas === 1 ? ' cubierto' : ' cubiertos') : '',
+    $('#vDatos').textContent = [v.punto_venta, nombreCanal(v.tipo), v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + (v.personas === 1 ? ' cubierto' : ' cubiertos') : '',
       v.abierto_en ? 'abierta ' + diaHora(v.abierto_en) : '', v.cerrado_en ? 'cerrada ' + (mismoDia ? hora(v.cerrado_en) : diaHora(v.cerrado_en)) : '']
       .filter(Boolean).join(' · ');
     const totalItems = v.items.filter(i => !i.anulado).reduce((s, i) => s + n(i.importe), 0);

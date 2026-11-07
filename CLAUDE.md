@@ -504,11 +504,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Buenos Aires. `procesar-ventas.html` tiene importar, días y cobros, importaciones y consumo; **primero los totales y el
   detalle a pedido** (pedido de Fer, 27/10/2026): al traer, "Lo que se trajo" en cifras y qué pasó con cada día plegado; en
   Días, las cifras, sólo los días para revisar y los cobrados plegados; el detalle de una importación, plegado.
-- **Tableros por vistas** (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega; como el de tesorería).
-  Arriba sólo las cifras; tocar una abre su vista y se recuerda (`ventas-vista`, `tablero-vista`). **Ventas**: Vendido (la vista de
-  entrada) muestra las ventas por día y **lo vendido por store** (o canal, o mozo; Fer: es fundamental), Ventas / Ticket promedio /
-  Por cubierto abren la composición (por hora y tipo de venta) y
-  **Cobrado** los medios de pago; la lista de ventas (pesada) se pide recién al abrir el detalle. **Tablero**: Ventas netas, Food cost y
+- **Tablero de ventas: un panel de un vistazo** (pedido de Fer, 07/11/2026). Las cinco cifras y, debajo, todo junto: ventas por día
+  contra el **mismo día de la semana** del período anterior y el **promedio por día de la semana** (el período anterior se corre en
+  semanas enteras: ayer contra el mismo día de la semana pasada, un mes contra los mismos días cinco semanas antes; un martes no se
+  compara con un sábado); **por store**, **por canal** (Salón, Take Away, Delivery propio, PedidosYa: "para llevar" se muestra Take Away,
+  también en el estado de resultados) y **por medio de pago**; **lo más vendido** (top 10: los artículos de cada venta de Fudo más el
+  informe de artículos del día de Maxirest; PedidosYa no los informa) y por hora. La lista de ventas se pide al abrir el detalle.
+- **Tablero por vistas** (como el de tesorería): arriba sólo las cifras; tocar una abre su vista y se recuerda (`tablero-vista`).
+  **Tablero**: Ventas netas, Food cost y
   Stock abren el food cost por local; Consumo real (con el desvío en la nota) la composición y los productos; **Platos con receta** la
   rentabilidad por plato; los productos se piden al abrir su vista. Las ventas del Tablero son el total de cada venta (antes la suma de
   sus artículos: Maxirest y PedidosYa, que no los traen, daban cero).
