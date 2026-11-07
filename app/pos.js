@@ -270,6 +270,13 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
       await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo, neto, costos) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null, p.neto ?? null, p.costos ? JSON.stringify(p.costos) : null]);
   }
+  // Un archivo cubre su rango: los días del medio sin ventas no hubo ventas (el local cerró), no faltan (07/11/2026: el 02/11
+  // de CORTAFUEGO en PedidosYa figuraba como "falta importar"). Lo traído por API ya lo registra la sincronización.
+  if (origen === 'archivo' && desde && hasta)
+    await c.query(
+      `INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas)
+       SELECT $1, d::date, 0 FROM generate_series($2::date, $3::date, interval '1 day') d
+       ON CONFLICT (integracion_id, dia) DO NOTHING`, [integ.id, desde, hasta]);
   // Si no había nada nuevo (el mismo día importado dos veces), no queda una importación vacía.
   if (!nuevos) {
     await c.query('DELETE FROM pos.importacion WHERE id = $1', [imp.id]);
@@ -291,6 +298,17 @@ async function guardarArticulosDia(c, integracionId, desde, hasta, articulos) {
         unidades = pos.articulo_dia.unidades + EXCLUDED.unidades, venta = pos.articulo_dia.venta + EXCLUDED.venta`,
     [integracionId, JSON.stringify(articulos)]);
 }
+
+// Un día sin ventas (el local cerró): queda como traído y deja de figurar como "falta importar" (decisión de Fer, 07/11/2026).
+r.post('/pos/integraciones/:id/sin-ventas', h(async (req, res) => {
+  const dia = fecha(req.body.dia, { campo: 'El día', requerido: true });
+  const integ = await integracion(pool, req, req.params.id);
+  exigirOperarEn(req, integ.sede_id, integ.sede);
+  const { rows: [v] } = await pool.query(`SELECT COUNT(*)::int AS n FROM pos.ticket WHERE integracion_id = $1 AND dia = $2`, [integ.id, dia]);
+  if (v.n) throw new ErrorUsuario(`Ese día tiene ${v.n} venta(s) importada(s).`);
+  await pool.query(`INSERT INTO pos.sincronizacion_dia (integracion_id, dia, abiertas) VALUES ($1, $2, 0) ON CONFLICT (integracion_id, dia) DO NOTHING`, [integ.id, dia]);
+  res.status(201).json({ ok: true });
+}));
 
 // Fudo por API: el rango va en días del local y se pasa a UTC para la consulta.
 r.post('/pos/integraciones/:id/sincronizar', h(async (req, res) => {

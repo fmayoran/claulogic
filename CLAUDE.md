@@ -424,6 +424,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`pos.integracion.mapeo`). La exportación de "Ventas detalladas" de Maxirest no trae la forma de pago aunque se vea en pantalla.
 - **Recepción idempotente**: `pos.ticket` único por (integración, id del POS); reimportar no duplica y
   una importación sin tickets nuevos no se guarda.
+- **Días sin ventas** (07/11/2026: el 02/11 CORTAFUEGO cerró y PedidosYa decía "falta importar"): un archivo importado cubre su rango,
+  así que los días del medio sin ventas quedan como traídos (`pos.sincronizacion_dia`, también al reimportar el mismo archivo). Un día
+  suelto se marca con "No hubo ventas" en el paso 1 de Ingresos (`POST /pos/integraciones/:id/sin-ventas`; con ventas importadas, no).
 - **Plato de carta** (`logic.plato`): la receta de venta, lo que consume una porción (insumos o
   elaborados, con merma). `pos.articulo` lo vincula con el artículo del POS, o lo marca sin consumo.
 - **Procesar es aparte y en dos partes**: el **consumo** (operación, permiso en la sede) descuenta del

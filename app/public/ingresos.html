@@ -287,7 +287,16 @@ async function tareaVenta(p, t) {
   caja.append(titulo);
   const acc = el('div', { className: 'acc' });
   if (t.tipo === 'corrida') acc.append(boton(t.nivel === 'mal' ? 'Volver a intentar' : 'Traer ahora', () => traer(p), true));
-  else if (t.tipo === 'importar') acc.append(ir('procesar-ventas.html#' + p.id, 'Importar archivo', true));
+  else if (t.tipo === 'importar') {
+    acc.append(ir('procesar-ventas.html#' + p.id, 'Importar archivo', true));
+    // Un día que el local estuvo cerrado no tiene nada que importar: se marca y deja de faltar (decisión de Fer, 07/11/2026).
+    for (const dia of t.dias || []) caja.append(el('div', { className: 'renglon' }, el('b', { textContent: fecha(dia) }),
+      boton('No hubo ventas', async () => {
+        if (!confirm(`¿El ${fecha(dia)} no hubo ventas en ${p.nombre}? Queda como traído, sin ventas.`)) return;
+        try { await api(`pos/integraciones/${p.id}/sin-ventas`, { method: 'POST', body: { dia } }); msg(`${fecha(dia)}: sin ventas.`, 'ok'); await refrescar(); }
+        catch (e) { msg(e.message, 'mal'); }
+      })));
+  }
   else if (t.clase === 'listos') acc.append(boton('Cobrar esos días', async () => {
     try { const d = await api(`pos/jornadas/${p.id}/procesar`, { method: 'POST' }); msg(`${d.procesados.length} día(s) cobrados.`, 'ok'); await refrescar(); } catch (e) { msg(e.message, 'mal'); }
   }, true));
