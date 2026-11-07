@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <style>
+  /* Las cifras de arriba abren su vista; la abierta queda marcada. */
+  .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
+  .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
   .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
   #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
   .t-filtros .iva{font-size:.85rem;padding:7px 12px;}
@@ -46,7 +49,8 @@
 
   <section id="tCostos">
     <div class="kpis" id="kpis"></div>
-    <div class="t-grid t-g2">
+    <!-- Cada cifra abre su vista (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). -->
+    <div class="vista" id="vLocales">
       <section class="card">
         <h2>Food cost por local</h2>
         <p class="cap">La barra es el real; la marca, el teórico. Tocá un local para ver sus productos.</p>
@@ -58,23 +62,27 @@
             <tbody id="tSedes"></tbody></table></div></details>
         <p class="aviso-costo" id="avisoCosto"></p>
       </section>
-      <section class="card">
-        <h2>Composición del consumo real</h2>
-        <p class="cap">Tocá una parte para ordenar los productos por ella.</p>
-        <div id="gComp"></div>
-      </section>
     </div>
-    <div class="t-grid t-g2">
-      <section class="card" id="cProd">
-        <div class="card-cab"><h2>Dónde está la diferencia</h2><select id="sedeProd" aria-label="Sede"></select></div>
-        <p class="cap" id="capProd">Los productos que más se apartan del teórico.</p>
-        <div class="chips" id="chipsProd"></div>
-        <div id="gProd"></div>
-        <details class="tabla"><summary>Ver como tabla</summary>
-          <div class="tabla-wrap"><table class="datos">
-            <thead><tr><th>Producto</th><th class="num">Teórico</th><th class="num">Mermas</th><th class="num">Dif. de conteo</th><th class="num">Otros</th><th class="num">Desvío</th></tr></thead>
-            <tbody id="tProd"></tbody></table></div></details>
-      </section>
+    <div class="vista" id="vConsumo" hidden>
+      <div class="t-grid t-g2">
+        <section class="card">
+          <h2>Composición del consumo real</h2>
+          <p class="cap">Tocá una parte para ordenar los productos por ella.</p>
+          <div id="gComp"></div>
+        </section>
+        <section class="card" id="cProd">
+          <div class="card-cab"><h2>Dónde está la diferencia</h2><select id="sedeProd" aria-label="Sede"></select></div>
+          <p class="cap" id="capProd">Los productos que más se apartan del teórico.</p>
+          <div class="chips" id="chipsProd"></div>
+          <div id="gProd"></div>
+          <details class="tabla"><summary>Ver como tabla</summary>
+            <div class="tabla-wrap"><table class="datos">
+              <thead><tr><th>Producto</th><th class="num">Teórico</th><th class="num">Mermas</th><th class="num">Dif. de conteo</th><th class="num">Otros</th><th class="num">Desvío</th></tr></thead>
+              <tbody id="tProd"></tbody></table></div></details>
+        </section>
+      </div>
+    </div>
+    <div class="vista" id="vPlatos" hidden>
       <section class="card">
         <h2>Rentabilidad por plato</h2>
         <p class="cap">Food cost de cada plato con el costo vigente de hoy de sus ingredientes; marcados los que pasan el 35%.</p>
@@ -158,6 +166,22 @@ $$('#pestanas button').forEach(b => b.onclick = () => {
   else if (operativoAct) pintarOperativo();   // los gráficos se dibujan al ancho de su caja, que oculta era 0
 });
 
+// La vista abierta del food cost: la cifra que se tocó. Se recuerda.
+const VISTAS_T = { locales: '#vLocales', consumo: '#vConsumo', platos: '#vPlatos' };
+let vistaT = (() => { try { const v = localStorage.getItem('tablero-vista'); return VISTAS_T[v] ? v : 'locales'; } catch { return 'locales'; } })();
+const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vistaT) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
+  card.dataset.v = v; card.onclick = () => abrirVista(v); card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirVista(v); } }; return card; };
+function abrirVista(v) { vistaT = v; try { localStorage.setItem('tablero-vista', v); } catch {} mostrarVista(); }
+// Productos y platos se piden recién al abrir su vista (y se recuerdan para el mismo período).
+let prodDe = null, platosDe = null, platosAct = [];
+function mostrarVista() {
+  for (const [v, sel] of Object.entries(VISTAS_T)) $(sel).hidden = v !== vistaT;
+  $$('#kpis .kpi-b').forEach(k => k.classList.toggle('act', k.dataset.v === vistaT));
+  if (!operativoAct) return;
+  if (vistaT === 'locales') pintarLocales();
+  else if (vistaT === 'consumo') { pintarComposicion(); productos().catch(e => msg(e.message, 'mal')); }
+  else pintarPlatos();
+}
 const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
   el('span', { className: 'va', textContent: valor ?? '—' }), el('span', { className: 'pie' }, variacion || '', nota ? el('span', { textContent: nota }) : ''));
 const vs = v => [v, v && v.textContent && !/sin datos/.test(v.textContent) ? 'vs. anterior' : ''];
@@ -186,40 +210,48 @@ function pintarOperativo() {
   const [v1, n1] = vs(Graf.variacion(t.netas, a.netas)), [v2, n2] = vs(Graf.variacion(t.real, a.real, { malo: true }));
   const [v3] = vs(Graf.variacion(t.fcReal, a.fcReal, { malo: true, puntos: true })), [v4, n4] = vs(Graf.variacion(t.desvio, a.desvio, { malo: true }));
   const sinCosto = sedes.reduce((s, x) => s + x.movimientos_sin_costo + x.stock_sin_costo, 0);
+  const altos = platosAct.filter(p => p.food_cost && n(p.food_cost) > 35).length;
   $('#kpis').replaceChildren(
-    kpi('Ventas netas', pesos(t.netas), v1, `${n1 ? n1 + ' · ' : ''}${num(String(t.tickets))} ventas`),
-    kpi('Consumo real', pesos(t.real), v2, n2),
-    kpi('Food cost real', t.fcReal && pct(t.fcReal), v3, `teórico ${pct(t.fcTeo)}`),
-    kpi('Desvío sobre el teórico', pesos(t.desvio), v4, n4 || 'mermas, conteos e internos'),
-    kpi('Stock valorizado', pesos(t.stock), null, sinCosto ? `${sinCosto} sin costo` : 'al costo de cada lote'));
+    kpiB(kpi('Ventas netas', pesos(t.netas), v1, `${n1 ? n1 + ' · ' : ''}${num(String(t.tickets))} ventas`), 'locales'),
+    kpiB(kpi('Food cost real', t.fcReal && pct(t.fcReal), v3, `teórico ${pct(t.fcTeo)}`), 'locales'),
+    // El desvío sobre el teórico va en la nota del consumo real: cinco cifras entran en una fila.
+    kpiB(kpi('Consumo real', pesos(t.real), v2, `desvío sobre el teórico ${pesos(t.desvio)}`), 'consumo'),
+    kpiB(kpi('Platos con receta', platosAct.length ? num(String(platosAct.length)) : null, null, platosAct.length ? (altos ? `${altos} pasan el 35%` : 'ninguno pasa el 35%') : 'sin ventas de platos con receta'), 'platos'),
+    kpiB(kpi('Stock valorizado', pesos(t.stock), null, sinCosto ? `${sinCosto} sin costo` : 'al costo de cada lote'), 'locales'));
+  mostrarVista();
+}
+function pintarLocales() {
+  const { sedes } = operativoAct, t = totales(sedes);
+  const sinCosto = sedes.reduce((s, x) => s + x.movimientos_sin_costo + x.stock_sin_costo, 0);
 
   Graf.referencia($('#gFood'), {
     items: t.locales.map(s => ({ clave: s.sede_id, etiqueta: s.sede, valor: s.fc_real, ref: s.fc_teorico,
       alerta: s.fc_real && s.fc_teorico && n(s.fc_real) - n(s.fc_teorico) > 3 ? 'alto' : '',
       nota: `Ventas netas ${pesos(s.ventas_netas)} · teórico ${pct(s.fc_teorico)}` })),
-    alElegir: id => { $('#sedeProd').value = id; productos().catch(e => msg(e.message, 'mal')); $('#cProd').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+    alElegir: id => { $('#sedeProd').value = id; abrirVista('consumo'); },
     elegido: $('#sedeProd').value || null });
   filas($('#tSedes'), sedes, s => el('tr', {}, td(s.sede), td(pesos(s.ventas_netas), 'num'), td(pesos(s.teorico), 'num'), td(pesos(s.perdida), 'num'),
     td(pesos(s.diferencia), 'num'), td(pesos(deCentavos(centavos(s.consumo_interno) + centavos(s.venta_manual))), 'num'), td(pesos(s.real), 'num'),
     td(pct(s.fc_teorico), 'num'), td(pct(s.fc_real), 'num' + (s.fc_real && s.fc_teorico && n(s.fc_real) - n(s.fc_teorico) > 3 ? ' alto' : '')),
     td(pesos(s.stock_valorizado), 'num')), 'Sin sedes.', 10);
   $('#avisoCosto').textContent = sinCosto ? `Hay ${sinCosto} movimiento(s) o saldo(s) de productos sin costo cargado: no suman.` : '';
-
-  const L = t.locales;
+}
+function pintarComposicion() {
+  const t = totales(operativoAct.sedes), L = t.locales;
   Graf.dona($('#gComp'), { items: [
       { clave: 'teorico', etiqueta: 'Teórico (lo vendido)', valor: sumar(L, 'teorico') },
       { clave: 'perdida', etiqueta: 'Mermas y vencimientos', valor: sumar(L, 'perdida') },
       { clave: 'diferencia', etiqueta: 'Diferencias de conteo', valor: sumar(L, 'diferencia') },
       { clave: 'otros', etiqueta: 'Consumos internos y otros', valor: deCentavos(centavos(sumar(L, 'consumo_interno')) + centavos(sumar(L, 'venta_manual'))) }],
-    centro: Graf.compacto(n(t.real)), sub: 'consumo real', alElegir: c => { ordenProd = ordenProd === c ? null : c; pintarDona(); pintarProductos(); }, elegido: ordenProd });
+    centro: Graf.compacto(n(t.real)), sub: 'consumo real', alElegir: c => { ordenProd = ordenProd === c ? null : c; pintarComposicion(); pintarProductos(); }, elegido: ordenProd });
 }
-const pintarDona = () => pintarOperativo();
 
 let prodActuales = [];
 const ETQ_ORDEN = { teorico: 'teórico', perdida: 'mermas y vencimientos', diferencia: 'diferencias de conteo', otros: 'consumos internos y otros' };
 async function productos() {
   if (!$('#sedeProd').value) return;
-  ({ productos: prodActuales } = await api('tablero/productos?' + params({ sede: $('#sedeProd').value })));
+  const p = params({ sede: $('#sedeProd').value });
+  if (prodDe !== String(p)) { ({ productos: prodActuales } = await api('tablero/productos?' + p)); prodDe = String(p); }
   pintarProductos();
 }
 function pintarProductos() {
@@ -227,7 +259,7 @@ function pintarProductos() {
   const lista = [...prodActuales].sort((x, y) => Math.abs(n(y[k])) - Math.abs(n(x[k]))).filter(p => !cero(p[k]));
   $('#capProd').textContent = ordenProd ? `Ordenados por ${ETQ_ORDEN[ordenProd]}.` : 'Los productos que más se apartan del teórico.';
   $('#chipsProd').replaceChildren(...(ordenProd ? [el('span', { className: 'chip' }, ETQ_ORDEN[ordenProd],
-    el('button', { type: 'button', textContent: '×', title: 'Quitar', onclick: () => { ordenProd = null; pintarOperativo(); pintarProductos(); } }))] : []));
+    el('button', { type: 'button', textContent: '×', title: 'Quitar', onclick: () => { ordenProd = null; pintarComposicion(); pintarProductos(); } }))] : []));
   Graf.ranking($('#gProd'), { items: lista.slice(0, 10).map(p => ({ clave: p.producto_id, etiqueta: p.nombre + (p.sin_costo ? ' (sin costo)' : ''), valor: p[k], p })),
     nota: x => [`teórico ${pesos(x.p.teorico)}`, !cero(x.p.perdida) && `mermas ${pesos(x.p.perdida)}`, !cero(x.p.diferencia) && `conteo ${pesos(x.p.diferencia)}`,
       !cero(x.p.otros) && `otros ${pesos(x.p.otros)}`, x.p.desvio_cant && !cero(x.p.desvio_cant) && cant(x.p.desvio_cant, x.p.unidad_base)].filter(Boolean).join(' · ') });
@@ -236,8 +268,13 @@ function pintarProductos() {
     td(pesos(p.diferencia), 'num'), td(pesos(p.otros), 'num'),
     td(`${pesos(p.desvio)}` + (p.desvio_cant && !cero(p.desvio_cant) ? ` (${cant(p.desvio_cant, p.unidad_base)})` : ''), 'num')), 'Sin consumos en el período.', 6);
 }
+// Los platos se piden con el período (son pocos y la cifra de arriba los cuenta); el gráfico se dibuja al abrir su vista.
 async function platos() {
-  const { platos } = await api('tablero/platos?' + params());
+  const p = params();
+  if (platosDe !== String(p)) { ({ platos: platosAct } = await api('tablero/platos?' + p)); platosDe = String(p); }
+}
+function pintarPlatos() {
+  const platos = platosAct;
   Graf.referencia($('#gPlatos'), {
     items: platos.slice(0, 12).map(p => ({ clave: p.id, etiqueta: p.nombre, valor: p.incompleto ? null : p.food_cost, ref: null,
       alerta: p.food_cost && n(p.food_cost) > 35 ? 'alto' : p.incompleto ? 'falta costo' : '',
@@ -281,12 +318,13 @@ async function todo() {
     + ` · comparado con ${fecha(a0).slice(0, 5)} al ${fecha(a1)}`;
   msg('Cargando…');
   try {
+    await platos();
     await operativo();
-    await Promise.all([productos(), platos(), !$('#tCaja').hidden ? flujo() : null]);
+    if (!$('#tCaja').hidden) await flujo();
     msg('');
   } catch (e) { msg(e.message, 'mal'); }
 }
-$('#sedeProd').onchange = () => { productos().catch(e => msg(e.message, 'mal')); if (operativoAct) pintarOperativo(); };
+$('#sedeProd').onchange = () => { productos().catch(e => msg(e.message, 'mal')); if (operativoAct) pintarLocales(); };
 (async () => {
   yo = (await cargarSesion()).usuario;
   const caja = $('#pestanas [data-t=caja]');

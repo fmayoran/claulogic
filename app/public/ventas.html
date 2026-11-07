@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <style>
+  /* Las cifras de arriba abren su vista; la abierta queda marcada. */
+  .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
+  .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
   .t-cab p.desc{flex-basis:100%;order:9;margin:0;}
   #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
   .medios-pie{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;color:var(--mut);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
@@ -58,36 +61,44 @@
 
   <div class="kpis" id="kpis"></div>
 
-  <div class="t-grid t-g2">
-    <section class="card">
-      <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Anterior</span></div></div>
-      <p class="cap" id="capPrincipal">Tocá un día para ver sus ventas.</p>
-      <div id="gPrincipal"></div>
-    </section>
-    <section class="card">
-      <h2>Medios de pago</h2>
-      <p class="cap">Lo cobrado, por medio. Tocá uno para ver esas ventas.</p>
-      <div id="gMedios"></div>
-      <div class="medios-pie" id="cobrado"></div>
-    </section>
+  <!-- Cada cifra abre su vista (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). -->
+  <div class="vista" id="vEvolucion">
+    <div class="t-grid t-g2">
+      <section class="card">
+        <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Anterior</span></div></div>
+        <p class="cap" id="capPrincipal">Tocá un día para ver sus ventas.</p>
+        <div id="gPrincipal"></div>
+      </section>
+      <section class="card" id="cHoras">
+        <h2>Por hora de apertura</h2>
+        <p class="cap">Cuándo se abren las mesas. Tocá una hora para ver sus ventas.</p>
+        <div id="gHoras"></div>
+      </section>
+    </div>
   </div>
-
-  <div class="t-grid t-g3">
-    <section class="card" id="cHoras">
-      <h2>Por hora de apertura</h2>
-      <p class="cap">Cuándo se abren las mesas.</p>
-      <div id="gHoras"></div>
-    </section>
-    <section class="card">
-      <h2>Tipo de venta</h2>
-      <p class="cap" id="capTipos"></p>
-      <div id="gTipos"></div>
-    </section>
-    <section class="card">
-      <h2 id="tRank">Por mozo</h2>
-      <p class="cap" id="capRank"></p>
-      <div id="gRank"></div>
-    </section>
+  <div class="vista" id="vComposicion" hidden>
+    <div class="t-grid t-g2">
+      <section class="card">
+        <h2 id="tRank">Por mozo</h2>
+        <p class="cap" id="capRank"></p>
+        <div id="gRank"></div>
+      </section>
+      <section class="card">
+        <h2>Tipo de venta</h2>
+        <p class="cap" id="capTipos"></p>
+        <div id="gTipos"></div>
+      </section>
+    </div>
+  </div>
+  <div class="vista" id="vMedios" hidden>
+    <div class="t-grid t-g2">
+      <section class="card">
+        <h2>Medios de pago</h2>
+        <p class="cap">Lo cobrado, por medio. Tocá uno para abrirlo y otra vez para ver esas ventas.</p>
+        <div id="gMedios"></div>
+        <div class="medios-pie" id="cobrado"></div>
+      </section>
+    </div>
   </div>
 
   <section class="card" id="cDetalle">
@@ -184,7 +195,14 @@ async function cargar() {
   msg('Cargando…');
   try {
     resumen = await api('pos/ventas/resumen?' + p);
-    msg(''); pintar(); await cargarVentas();
+    msg(''); pintar();
+    // La lista de ventas (pesada) se pide recién al abrir el detalle.
+    ventas = []; ventasDe = null;
+    const t = resumen.totales;
+    $('#tDetalle').textContent = 'Ventas del período';
+    $('#cuenta').textContent = `${num(String(t.ventas))} ventas · ${pesos(t.vendido)}`;
+    $('#abrirDet').textContent = `Ver las ${num(String(t.ventas))} ventas`;
+    if (!$('#detalle').hidden) await cargarVentas();
   } catch (e) { msg(e.message, 'mal'); }
 }
 
@@ -209,12 +227,30 @@ function pintar() {
   };
   const tk = prom(t.vendido, t.ventas), tkA = prom(a.vendido, a.ventas), pc = prom(t.vendido_con_personas, t.personas), pcA = prom(a.vendido_con_personas, a.personas);
   $('#kpis').replaceChildren(
-    kpi('Vendido', pesos(t.vendido), t.vendido, a.vendido, vend),
-    kpi('Ventas', num(String(t.ventas)), t.ventas, a.ventas, cant),
-    kpi('Ticket promedio', tk && pesos(tk), tk, tkA, dias.map((_, i) => cant[i] ? vend[i] / cant[i] : 0)),
-    kpi('Cubiertos', t.personas ? num(String(t.personas)) : null, t.personas || null, a.personas, pers),
-    kpi('Por cubierto', pc && pesos(pc), pc, pcA, dias.map((_, i) => pers[i] ? vcp[i] / pers[i] : 0)));
+    kpiB(kpi('Vendido', pesos(t.vendido), t.vendido, a.vendido, vend), 'evolucion'),
+    kpiB(kpi('Ventas', num(String(t.ventas)), t.ventas, a.ventas, cant), 'composicion'),
+    kpiB(kpi('Ticket promedio', tk && pesos(tk), tk, tkA, dias.map((_, i) => cant[i] ? vend[i] / cant[i] : 0)), 'composicion'),
+    kpiB(kpi('Por cubierto', pc && pesos(pc), pc, pcA, dias.map((_, i) => pers[i] ? vcp[i] / pers[i] : 0)), 'composicion'),
+    kpiB(kpi('Cobrado', pesos(t.cobrado), t.cobrado, a.cobrado, null), 'medios'));
 
+  ctxV = { dias, vend, cant, diasAnt, porDiaAnt, unDia };
+  mostrarVista();
+}
+// La vista abierta: la cifra que se tocó. Se recuerda.
+const VISTAS_V = { evolucion: '#vEvolucion', composicion: '#vComposicion', medios: '#vMedios' };
+let vistaV = (() => { try { const v = localStorage.getItem('ventas-vista'); return VISTAS_V[v] ? v : 'evolucion'; } catch { return 'evolucion'; } })();
+let ctxV = null;
+const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vistaV) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
+  card.dataset.v = v; card.onclick = () => abrirVista(v); card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirVista(v); } }; return card; };
+function abrirVista(v) { vistaV = v; try { localStorage.setItem('ventas-vista', v); } catch {} mostrarVista(); }
+function mostrarVista() {
+  for (const [v, sel] of Object.entries(VISTAS_V)) $(sel).hidden = v !== vistaV;
+  $$('#kpis .kpi-b').forEach(k => k.classList.toggle('act', k.dataset.v === vistaV));
+  if (!ctxV) return;
+  if (vistaV === 'evolucion') pintarEvolucion(); else if (vistaV === 'medios') pintarMedios(); else pintarComposicion();
+}
+function pintarEvolucion() {
+  const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;
   // Principal: por día; si el período es un solo día, por hora.
   $('#cHoras').hidden = unDia;
   $('#leyPrincipal').hidden = unDia;
@@ -234,6 +270,9 @@ function pintar() {
     pintarHoras($('#gHoras'), 190);
   }
 
+}
+function pintarMedios() {
+  const r = resumen, t = r.totales;
   // Con una marca elegida, tocar un tipo lo elige (y tocarlo de nuevo vuelve a la marca); sin marca, tocar una la abre.
   const selM = marcaElegida();
   const itemsM = itemsMedios(r.medios);
@@ -245,6 +284,9 @@ function pintar() {
     Math.abs(dif) >= 1 ? el('span', { className: 'difiere' }, 'Difiere de lo vendido en ', el('b', { textContent: pesos(String(dif)) }))
       : el('span', { textContent: 'Coincide con lo vendido' }));
 
+}
+function pintarComposicion() {
+  const r = resumen;
   const conPers = r.tipos.filter(x => x.personas);
   const tipoV = t => t === 'pedidosya' ? 'PedidosYa' : t;
   $('#capTipos').textContent = conPers.length
@@ -318,9 +360,9 @@ function abrirDetalle(desplazar) {
   $('#detalle').hidden = false; $('#abrirDet').hidden = true;
   if (desplazar && matchMedia('(max-width:899px)').matches) $('#cDetalle').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-$('#abrirDet').onclick = () => abrirDetalle(false);
+$('#abrirDet').onclick = () => { abrirDetalle(false); cargarVentas(); };
 const DE_A = 50;
-let mostrar = DE_A;
+let mostrar = DE_A, ventasDe = null;   // ventasDe: los filtros de la lista ya bajada
 $('#mas').onclick = () => { mostrar += DE_A; pintarVentas(); };
 $('#buscar').oninput = () => { mostrar = DE_A; pintarVentas(); };
 async function cargarVentas() {
@@ -329,8 +371,9 @@ async function cargarVentas() {
   for (const k of ['medio', 'tipo', 'hora', 'mozo']) if (filtros[k] != null) p.set(k, filtros[k]);
   $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
     el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  if (ventasDe === String(p)) return pintarVentas();
   try {
-    const v = await api('pos/ventas?' + p);
+    const v = await api('pos/ventas?' + p); ventasDe = String(p);
     ventas = v.ventas; mostrar = DE_A; $('#recorte').hidden = !v.recortado;
     const cerradas = ventas.filter(x => x.estado === 'cerrado'), mas = v.recortado ? '+' : '';
     $('#tDetalle').textContent = Object.keys(filtros).length ? 'Ventas elegidas' : 'Ventas del período';

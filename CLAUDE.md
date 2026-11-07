@@ -497,6 +497,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Buenos Aires. `procesar-ventas.html` tiene importar, días y cobros, importaciones y consumo; **primero los totales y el
   detalle a pedido** (pedido de Fer, 27/10/2026): al traer, "Lo que se trajo" en cifras y qué pasó con cada día plegado; en
   Días, las cifras, sólo los días para revisar y los cobrados plegados; el detalle de una importación, plegado.
+- **Tableros por vistas** (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega; como el de tesorería).
+  Arriba sólo las cifras; tocar una abre su vista y se recuerda (`ventas-vista`, `tablero-vista`). **Ventas**: Vendido abre la evolución
+  (por día y por hora), Ventas / Ticket promedio / Por cubierto abren la composición (por store, canal o mozo, y tipo de venta) y
+  **Cobrado** los medios de pago; la lista de ventas (pesada) se pide recién al abrir el detalle. **Tablero**: Ventas netas, Food cost y
+  Stock abren el food cost por local; Consumo real (con el desvío en la nota) la composición y los productos; **Platos con receta** la
+  rentabilidad por plato; los productos se piden al abrir su vista. Las ventas del Tablero son el total de cada venta (antes la suma de
+  sus artículos: Maxirest y PedidosYa, que no los traen, daban cero).
 - **Gráficos de los tableros**: `graficos.js` (`Graf.area`, `columnas`, `dona`, `mini`, `ranking`, `variacion`) y
   `graficos.css` (tarjetas, cifras, botones de período, chips, panel lateral `dialog.panel-lado`; ojo: la clase
   `lateral` es la barra del menú). Paleta categórica de 6 en orden fijo validada para claro y oscuro contra los

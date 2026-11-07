@@ -49,10 +49,13 @@ r.get('/tablero/operativo', h(async (req, res) => {
          FROM logic.kardex_concepto kc, rango
         WHERE kc.dia BETWEEN rango.desde AND rango.hasta AND ($1::uuid[] IS NULL OR kc.sede_id = ANY($1))
         GROUP BY kc.sede_id, kc.concepto),
+     -- Lo vendido: el total de cada venta, como el tablero de ventas y el estado de resultados (07/11/2026: por los artículos,
+     -- Maxirest y PedidosYa, que no los traen, quedaban en cero). Sin total, la suma de sus artículos.
      v AS (
-       SELECT i.sede_id, SUM(COALESCE(it.importe, it.cantidad * it.precio)) AS bruto, COUNT(DISTINCT t.id) AS tickets
+       SELECT i.sede_id, SUM(COALESCE(t.total, it.vendido, 0)) AS bruto, COUNT(*) AS tickets
          FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
-         JOIN pos.ticket_item it ON it.ticket_id = t.id AND NOT it.anulado, rango
+         LEFT JOIN LATERAL (SELECT SUM(COALESCE(x.importe, x.cantidad * x.precio)) AS vendido FROM pos.ticket_item x
+                             WHERE x.ticket_id = t.id AND NOT x.anulado) it ON true, rango
         WHERE t.estado = 'cerrado' AND t.dia BETWEEN rango.desde AND rango.hasta
           AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
         GROUP BY i.sede_id),
