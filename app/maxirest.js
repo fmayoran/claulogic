@@ -126,4 +126,19 @@ async function ventas(integracionId, cred, desde, hasta) {
   return { tickets, abiertas: {}, abiertasDetalle: {} };
 }
 
-module.exports = { ventas, probar, olvidarToken, ErrorMaxirest };
+// Lo vendido por artículo cada día, con su rubro ("Totales por artículo"): Maxirest no da los artículos de cada comprobante, y
+// el rubro es lo que separa los comercios que comparten el sistema (SORELLE: Wera Sushi y Lo de Titi). Un pedido por día.
+async function articulos(integracionId, cred, desde, hasta) {
+  const tk = await token(integracionId, cred), out = [];
+  for (let dia = desde; dia <= hasta; dia = sumarDia(dia)) {
+    const q = new URLSearchParams({ from: String(msDia(dia)), to: String(msDia(dia)), fechaComp: 'false' });
+    const filas = await pedir(`${INFORMES_URL}/totales/articulos?${q}`, { headers: { Authorization: `Bearer ${tk}` } });
+    if (!Array.isArray(filas)) throw new ErrorMaxirest('Maxirest devolvió los artículos en un formato inesperado.');
+    for (const f of filas) if (f && f.codigo != null)
+      out.push({ dia, codigo: String(f.codigo), nombre: String(f.nombre || f.codigo).trim(), rubro: f.rubro ? String(f.rubro).trim() : null,
+                 unidades: String(f.unidades ?? 0), venta: String(f.venta ?? 0) });
+  }
+  return out;
+}
+
+module.exports = { ventas, articulos, probar, olvidarToken, ErrorMaxirest };

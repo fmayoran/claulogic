@@ -61,6 +61,7 @@ function fecha(v, { campo, requerido = false } = {}) {
 
 // Mensajes por restricción, para los errores de unicidad que el usuario puede provocar.
 const UNICOS = {
+  comercio_nombre_ux: 'Ya hay un comercio con ese nombre en este local.',
   producto_codigo_key: 'Ya existe un producto con ese código.',
   categoria_nombre_ux: 'Ya existe una categoría con ese nombre.',
   categoria_prefijo_ux: 'Ese prefijo ya lo usa otra categoría.',

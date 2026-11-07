@@ -260,10 +260,19 @@ function pintar() {
     const g = porLocal.get(x.sede_id) || { clave: x.sede_id, etiqueta: (locales.find(l => l[0] === x.sede_id) || [, x.nombre])[1], valor: 0n, ventas: 0 };
     g.valor += centavos(x.vendido); g.ventas += x.ventas; porLocal.set(x.sede_id, g);
   }
-  const varios = !$('#integ').value && porLocal.size > 1, canales = !varios && r.puntos.length > 1;
-  $('#tRank').textContent = varios ? 'Por local' : canales ? 'Por canal' : 'Por mozo';
-  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' : canales ? 'Lo vendido en el salón y por PedidosYa.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
-  if (varios) Graf.ranking($('#gRank'), { items: [...porLocal.values()].sort((a, b) => (b.valor > a.valor) - (b.valor < a.valor)).map(x => ({ ...x, valor: deCentavos(x.valor) })),
+  const varios = !$('#integ').value && porLocal.size > 1, coms = !varios && (r.comercios || []).length > 0, canales = !varios && !coms && r.puntos.length > 1;
+  $('#tRank').textContent = varios ? 'Por local' : coms ? 'Por comercio' : canales ? 'Por canal' : 'Por mozo';
+  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.'
+    : coms ? 'Estimado: el salón y el delivery propio se reparten por los artículos vendidos cada día; PedidosYa, por tienda.'
+    : canales ? 'Lo vendido en el salón y por PedidosYa.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
+  if (coms) {
+    // Lo que no se pudo repartir (días sin artículos traídos, tiendas sin comercio) va aparte.
+    const items = r.comercios.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas }));
+    const resto = centavos(r.totales.vendido) - items.reduce((s, x) => s + centavos(x.valor), 0n);
+    if (resto > 100n) items.push({ clave: 'sin', etiqueta: 'Sin repartir', valor: deCentavos(resto), ventas: 0 });
+    Graf.ranking($('#gRank'), { items, nota: x => x.ventas ? `≈ ${x.ventas} ventas` : 'días sin artículos traídos', alElegir: () => {} });
+  }
+  else if (varios) Graf.ranking($('#gRank'), { items: [...porLocal.values()].sort((a, b) => (b.valor > a.valor) - (b.valor < a.valor)).map(x => ({ ...x, valor: deCentavos(x.valor) })),
     nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: id => { $('#integ').value = id; limpiarFiltros(); cargar(); } });
   else if (canales) Graf.ranking($('#gRank'), { items: r.puntos.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas })),
     nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: () => {} });

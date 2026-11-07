@@ -717,6 +717,19 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   procesador sólo pasa por las reglas; importar siempre concilia): asienta el movimiento, lo clasifica y lo concilia. En la
   conciliación manual, "Registrar movimiento" pide rubro y ofrece "Aplicar a las próximas que digan…" (crea la regla y la aplica a
   lo pendiente). Deshacer una línea anula también lo que asentó una regla. Pantalla `rubros.html` (Configuración, "Rubros y reglas").
+- **Comercios dentro de un local** (pedido de Fer, 07/11/2026; migración 20261126). SORELLE BODEGON Y SUSHI es un punto de venta (un
+  Maxirest, una caja, una cuenta de Mercado Pago) con dos comercios que se miran por separado: **Wera Sushi** y **Lo de Titi Bodegón**
+  (`org.comercio`: rubros propios del sistema de venta y tiendas de PedidosYa; se configuran en la ficha de la sede). Maxirest no dice de
+  qué carta es cada comprobante (mismos mozos y mesas, y una mesa pide de las dos), así que **se reparte por día**: al traer las ventas
+  se guarda el informe de artículos del día con su rubro (`pos.articulo_dia`, `maxirest.articulos`), y el peso de un comercio en un día
+  es lo vendido de sus rubros propios sobre lo propio de todos (`pos.comercio_peso_dia`): los rubros compartidos (bebidas, postres,
+  guarniciones) quedan en proporción (decisión de Fer). PedidosYa va pedido por pedido por su tienda (`pos.ticket.tienda`; los
+  importados antes la reciben al volver a importar el archivo). `fin.resultado_comercio` reparte cada hecho de `fin.resultado`: el
+  comercio elegido al clasificar (`fin.clasificacion.comercio_id`), la tienda de la venta atada, los costos de PedidosYa de un cobro
+  por lo que costó cada pedido, el peso del día de su sistema de venta, y si no, **prorrateado por las ventas del mes** (decisión de
+  Fer). Lo financiero (caja, cuentas, rendición, conciliación) sigue siendo del local. En el estado de resultados, con la filial elegida
+  aparece el combo de comercio (y "Sin repartir"); en el tablero de ventas, "Por comercio" (estimado). La cafetería es otra sede.
+  Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)

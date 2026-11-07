@@ -71,6 +71,15 @@
       </div>
     </form>
 
+    <section id="secCom" hidden>
+      <h2 style="margin-top:22px">Comercios</h2>
+      <p class="ayuda">Si en este local funcionan varios comercios con el mismo sistema de venta, la misma caja y las mismas cuentas (como Wera Sushi y
+        Lo de Titi), se separan en el tablero de ventas y en el estado de resultados. Cada comercio dice qué rubros del sistema de venta son
+        suyos y qué tiendas de PedidosYa. Las ventas de cada día se reparten por los artículos vendidos de esos rubros; los rubros que no son de
+        ninguno (bebidas, postres) se reparten en proporción. Lo financiero (caja, cuentas, rendición) sigue siendo del local.</p>
+      <div id="comercios"></div>
+      <div class="acciones"><button type="button" id="nuevoCom">Agregar comercio</button><span class="msg" id="msgCom"></span></div>
+    </section>
     <section id="secArt" hidden>
       <h2 style="margin-top:22px">Artículos del sistema</h2>
       <p class="ayuda">Cada artículo que se vende tiene que decir qué plato es (su receta de venta) o que no consume stock (servicio de mesa, propinas).
@@ -142,7 +151,7 @@ f.tipo.onchange = f.sistema.onchange = f.modo.onchange = aplicarTipo;
 function nueva() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva sede';
   $('#activaWrap').hidden = true; $('#ayudaActiva').hidden = true; $('#irVentas').hidden = true;
-  $('#secArt').hidden = $('#secMed').hidden = true; $('#efectivoInfo').textContent = '';
+  $('#secArt').hidden = $('#secMed').hidden = $('#secCom').hidden = true; $('#efectivoInfo').textContent = '';
   f.modo.value = 'archivo'; f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = '';
   aplicarTipo(); $$('.item.sel').forEach(i => i.classList.remove('sel'));
 }
@@ -161,8 +170,8 @@ async function abrir(id) {
   $('#efectivoInfo').textContent = i && i.cuenta_efectivo ? `Su efectivo entra en "${i.cuenta_efectivo}" (a rendir a la central: ${pesos(i.efectivo_a_rendir || '0')}). Rendirlo es una transferencia desde Tesorería.` : '';
   $('#irVentas').hidden = !i; if (i) $('#irVentas').href = 'procesar-ventas.html#' + i.id;
   aplicarTipo(); sinCambios(f);
-  $('#secArt').hidden = $('#secMed').hidden = true;
-  if (s.tipo === 'local' && i) await Promise.all([cargarArticulos([i, py]), cargarMedios([i, py])]);
+  $('#secArt').hidden = $('#secMed').hidden = $('#secCom').hidden = true;
+  if (s.tipo === 'local' && i) await Promise.all([cargarArticulos([i, py]), cargarMedios([i, py]), cargarComercios(id)]);
   await cargar();
 }
 f.onsubmit = async e => {
@@ -232,6 +241,48 @@ async function cargarMedios(lista) {
   }, 'Los medios aparecen con la primera importación.', 4);
   etiquetarTabla($('#tMed'));
 }
+// ── Comercios del local ──
+// Cada comercio con sus rubros propios (de los que informó el sistema de venta en los últimos 90 días) y sus tiendas de PedidosYa.
+let comData = null;
+async function cargarComercios(sede) {
+  comData = await api('comercios?sede=' + sede);
+  $('#secCom').hidden = false; msg('', '', '#msgCom');
+  $('#comercios').replaceChildren(...comData.comercios.map(c => fichaComercio(sede, c)));
+  if (!comData.comercios.length) $('#comercios').append(el('p', { className: 'ayuda', textContent: 'Este local es un solo comercio.' }));
+  $('#nuevoCom').onclick = () => { $('#comercios').querySelector('p.ayuda')?.remove(); $('#comercios').append(fichaComercio(sede, null)); };
+}
+function fichaComercio(sede, c) {
+  const otros = (campo, v) => comData.comercios.filter(x => x.activo && (!c || x.id !== c.id) && x[campo].some(y => y.toLowerCase() === v.toLowerCase()));
+  const nombre = el('input', { value: c ? c.nombre : '', placeholder: 'Nombre del comercio', 'aria-label': 'Nombre del comercio' });
+  const activo = el('input', { type: 'checkbox', checked: c ? c.activo : true });
+  const rubros = [...comData.rubros.map(r => ({ rubro: r.rubro, nota: `${pesos(r.venta)} en 90 días` }))];
+  for (const r of c ? c.rubros : []) if (!rubros.some(x => x.rubro.toLowerCase() === r.toLowerCase())) rubros.push({ rubro: r, nota: 'sin ventas recientes' });
+  const marca = (lista, campo, actual, nota) => lista.map(v => {
+    const ya = otros(campo, v), cb = el('input', { type: 'checkbox', value: v, checked: actual.some(x => x.toLowerCase() === v.toLowerCase()), disabled: !!ya.length });
+    return el('label', { className: 'check' }, cb, ` ${v}`, el('small', { className: 'mut', textContent: ya.length ? ` · de ${ya[0].nombre}` : nota ? ' · ' + nota(v) : '' }));
+  });
+  const cajaR = el('div', {}, ...marca(rubros.map(r => r.rubro), 'rubros', c ? c.rubros : [], v => rubros.find(r => r.rubro === v).nota));
+  const cajaT = el('div', {}, ...marca(comData.tiendas, 'tiendas', c ? c.tiendas : []));
+  const est = el('span', { className: 'msg' });
+  const guardar = el('button', { type: 'button', className: 'prim', textContent: c ? 'Guardar comercio' : 'Crear comercio' });
+  guardar.onclick = async () => {
+    const elegidos = caja => [...caja.querySelectorAll('input:checked')].map(x => x.value);
+    guardar.disabled = true;
+    try {
+      const body = { nombre: nombre.value, rubros: elegidos(cajaR), tiendas: elegidos(cajaT), activo: activo.checked };
+      await api(c ? 'sedes/comercios/' + c.id : `sedes/${sede}/comercios`, { method: c ? 'PUT' : 'POST', body });
+      await cargarComercios(sede); msg('Comercio guardado.', 'ok', '#msgCom');
+    } catch (e) { est.textContent = e.message; est.className = 'msg mal'; guardar.disabled = false; }
+  };
+  return el('fieldset', { className: 'comercio' },
+    el('label', {}, 'Nombre', nombre),
+    el('p', { className: 'ayuda', textContent: 'Rubros propios en el sistema de venta' }),
+    rubros.length ? cajaR : el('p', { className: 'ayuda', textContent: 'Todavía no hay artículos traídos del sistema de venta: los rubros aparecen al traer las ventas.' }),
+    comData.tiendas.length ? el('p', { className: 'ayuda', textContent: 'Tiendas de PedidosYa' }) : '', comData.tiendas.length ? cajaT : '',
+    c ? el('label', { className: 'check' }, activo, ' Activo') : '',
+    el('div', { className: 'acciones' }, guardar, est));
+}
+
 $('#nueva').onclick = nueva;
 (async () => {
   try {

@@ -253,11 +253,14 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
     // El id del POS hace idempotente la importación: un ticket que ya está, no se toca.
     const { rows: [nt] } = await c.query(
       // El día de la venta: el de su apertura si el POS la trae (Fudo), si no el de su fecha (archivos).
-      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas, abierto_en, dia)
+      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas, abierto_en, dia, tienda)
        VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11::timestamptz,
-               (COALESCE($11::timestamptz, $4::timestamptz) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date)
+               (COALESCE($11::timestamptz, $4::timestamptz) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date, $12)
        ON CONFLICT (integracion_id, id_externo) DO NOTHING RETURNING id`,
-      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas, t.abierto_en || null]);
+      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas, t.abierto_en || null, t.tienda || null]);
+    // Un ticket que ya estaba no se toca, salvo para completarle la tienda (PedidosYa importado antes de guardarla).
+    if (!nt && t.tienda)
+      await c.query('UPDATE pos.ticket SET tienda = $3 WHERE integracion_id = $1 AND id_externo = $2 AND tienda IS NULL', [integ.id, t.id, t.tienda]);
     if (!nt) continue;
     nuevos++;
     for (const it of t.items)
@@ -274,6 +277,19 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
   }
   await c.query('UPDATE pos.importacion SET tickets_nuevos = $1, tickets_repetidos = $2 WHERE id = $3', [nuevos, tickets.length - nuevos, imp.id]);
   return { id: imp.id, nuevos, repetidos: tickets.length - nuevos };
+}
+
+// Lo vendido por artículo cada día (Maxirest): se reemplaza entero el rango traído.
+async function guardarArticulosDia(c, integracionId, desde, hasta, articulos) {
+  await c.query('DELETE FROM pos.articulo_dia WHERE integracion_id = $1 AND dia BETWEEN $2 AND $3', [integracionId, desde, hasta]);
+  if (!articulos.length) return;
+  await c.query(
+    `INSERT INTO pos.articulo_dia (integracion_id, dia, codigo, nombre, rubro, unidades, venta)
+     SELECT $1, x.dia, x.codigo, x.nombre, x.rubro, x.unidades, x.venta
+       FROM jsonb_to_recordset($2::jsonb) AS x(dia date, codigo text, nombre text, rubro text, unidades numeric, venta numeric)
+     ON CONFLICT (integracion_id, dia, codigo) DO UPDATE SET nombre = EXCLUDED.nombre, rubro = EXCLUDED.rubro,
+        unidades = pos.articulo_dia.unidades + EXCLUDED.unidades, venta = pos.articulo_dia.venta + EXCLUDED.venta`,
+    [integracionId, JSON.stringify(articulos)]);
 }
 
 // Fudo por API: el rango va en días del local y se pasa a UTC para la consulta.
@@ -301,8 +317,12 @@ async function sincronizarRango(req, integ, desde, hasta) {
   let datos, liq = new Map(), avisoLiquidacion = null;
   try {
     const cred = JSON.parse(crypto.decrypt(integ.credenciales));
-    if (integ.sistema === 'maxirest') datos = await maxirest.ventas(integ.id, cred, desde, hasta);   // por días del local
-    else {
+    if (integ.sistema === 'maxirest') {
+      datos = await maxirest.ventas(integ.id, cred, desde, hasta);   // por días del local
+      // Los artículos del día (con su rubro) reparten las ventas entre los comercios del local. Si fallan, las ventas entran igual.
+      try { datos.articulos = await maxirest.articulos(integ.id, cred, desde, hasta); }
+      catch (e) { if (!(e instanceof maxirest.ErrorMaxirest)) throw e; avisoLiquidacion = 'Artículos: ' + e.message; console.error(`Maxirest, artículos (${integ.nombre}):`, e.message); }
+    } else {
       datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
       // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual.
       try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, rango.h); }
@@ -318,6 +338,7 @@ async function sincronizarRango(req, integ, desde, hasta) {
   const out = await enTransaccion(async c => {
     const o = await recibir(c, integ, 'api', { desde, hasta, tickets: datos.tickets });
     await c.query('UPDATE pos.integracion SET ultima_sincronizacion = now() WHERE id = $1', [integ.id]);
+    if (datos.articulos) await guardarArticulosDia(c, integ.id, desde, hasta, datos.articulos);
     // Cada pago queda con su número del POS y, si el procesador la informó, su liquidación (fecha y neto). También
     // los de ventas que ya estaban: los anteriores a esto no tenían el número, y se reconocen por medio e importe.
     // Un pago ya liquidado en un lote no cambia.
@@ -783,7 +804,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                        COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas,
                        COALESCE(SUM(vendido) FILTER (WHERE personas > 0), 0)::numeric(16,2)::text AS vendido_con_personas
                   FROM t WHERE estado = 'cerrado' GROUP BY dia ORDER BY dia`;
-  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos] = await Promise.all([
+  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios] = await Promise.all([
     q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
     // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
     q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, pr.marca, m.medio_pago_id IS NULL AS sin_asignar,
@@ -806,8 +827,20 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
     q(`SELECT COALESCE(mozo, 'sin mozo') AS mozo, count(*)::int AS ventas, SUM(vendido)::numeric(16,2)::text AS vendido,
               COALESCE(SUM(personas) FILTER (WHERE personas > 0), 0)::int AS personas
          FROM t WHERE estado = 'cerrado' GROUP BY 1 ORDER BY SUM(vendido) DESC`),
+    // Los comercios de los locales del filtro (org.comercio): los pedidos de sus tiendas enteros y el resto (salón, delivery
+    // propio) por el peso del día de cada comercio, según los artículos vendidos. Estimado: no se sabe venta por venta.
+    q(`, co AS (SELECT c.id, c.nombre, c.sede_id, c.tiendas FROM org.comercio c WHERE c.activo AND c.sede_id IN (SELECT sede_id FROM t)),
+          w AS (SELECT co.id, co.nombre, t.vendido,
+                       CASE WHEN EXISTS (SELECT 1 FROM co c2 WHERE c2.sede_id = t.sede_id AND t.tienda = ANY (c2.tiendas))
+                            THEN CASE WHEN t.tienda = ANY (co.tiendas) THEN 1 ELSE 0 END
+                            ELSE COALESCE(pd.peso, 0) END::numeric AS peso
+                  FROM t JOIN co ON co.sede_id = t.sede_id
+                  LEFT JOIN pos.comercio_peso_dia pd ON pd.integracion_id = t.integracion_id AND pd.dia = t.dia AND pd.comercio_id = co.id
+                 WHERE t.estado = 'cerrado')
+       SELECT id, nombre, ROUND(SUM(peso))::int AS ventas, SUM(vendido * peso)::numeric(16,2)::text AS vendido
+         FROM w GROUP BY 1, 2 ORDER BY SUM(vendido * peso) DESC`),
   ]);
-  res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos,
+  res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos, comercios,
     anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt } });
 }));
 

@@ -43,7 +43,7 @@
       de cobro de los procesadores, impuestos, gastos bancarios y demás gastos. Devengado: la venta y sus costos de cobro caen en el día de la
       venta; lo demás, en el día del movimiento. Nada se carga a mano: sale de las ventas, del costeo y de lo conciliado. Tocá una línea para
       ver sus rubros y un rubro para ver qué tiene (y reclasificarlo si hace falta).</p>
-    <div class="t-filtros"><select id="sede" aria-label="Filial"></select></div>
+    <div class="t-filtros"><select id="sede" aria-label="Filial"></select><select id="comercio" aria-label="Comercio" hidden></select></div>
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
@@ -121,7 +121,8 @@ function anterior() {
   return [iso(x), iso(y)];
 }
 const params = ([desde, hasta] = [$('#desde').value, $('#hasta').value], extra = {}) => {
-  const p = new URLSearchParams({ desde, hasta, ...extra }); if ($('#sede').value) p.set('sede', $('#sede').value); return p;
+  const p = new URLSearchParams({ desde, hasta, ...extra }); if ($('#sede').value) p.set('sede', $('#sede').value);
+  if ($('#sede').value && $('#comercio').value) p.set('comercio', $('#comercio').value); return p;
 };
 
 // ── El estado ──
@@ -205,7 +206,8 @@ async function detalle(rubro, nombre, sinFilial = false) {
     for (const f of fs) {
       const det = el('div', { className: 'det' },
         el('div', { className: 'q' }, el('b', { textContent: f.concepto || '—' }),
-          el('small', { textContent: [fecha(f.dia), f.cuenta, f.sede, f.regla && `regla "${f.regla}"`].filter(Boolean).join(' · ') })),
+          el('small', { textContent: [fecha(f.dia), f.cuenta, f.sede, f.comercio, f.regla && `regla "${f.regla}"`,
+            f.peso != null && f.peso < 0.9999 ? `${(f.peso * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })}% ${REPARTO[f.reparto] || ''}`.trim() : ''].filter(Boolean).join(' · ') })),
         el('span', { className: 'm' + (f.importe.startsWith('-') ? ' neg' : ''), textContent: pesos(f.importe) }));
       if (f.origen === 'movimiento') det.append(await clasificador(f));
       filas.push(det);
@@ -213,27 +215,44 @@ async function detalle(rubro, nombre, sinFilial = false) {
     $('#dFilas').replaceChildren(...filas);
   } catch (e) { msg(e.message, 'mal', '#dMsg'); }
 }
+// De dónde sale la parte de un comercio en un hecho del local (fin.resultado_comercio).
+const REPARTO = { dia: 'según los artículos del día', mes: 'prorrateado por las ventas del mes', pedidos: 'según sus pedidos' };
+const comerciosDe = sede => comercios.filter(c => c.sede_id === sede && c.activo);
 async function clasificador(f) {
   const sel = el('select', { 'aria-label': 'Rubro' });
   await Conc.selectRubro(sel, null, f.importe.startsWith('-'));
   sel.firstChild.textContent = f.clasificado || detActual[0] !== 'sin' ? 'Reclasificar…' : 'Elegir rubro…';
   const sedeSel = el('select', { 'aria-label': 'Filial' });
   opciones(sedeSel, sedes.map(s => [s.id, s.nombre]), null, 'Filial de la cuenta');
+  // Un gasto de un local con comercios puede ser de uno solo; si no se elige, se prorratea por las ventas del mes.
+  const comSel = el('select', { 'aria-label': 'Comercio' });
+  const pintarCom = () => {
+    const cs = comerciosDe(sedeSel.value || ($('#sede').value || ''));
+    comSel.hidden = !cs.length; opciones(comSel, cs.map(c => [c.id, c.nombre]), f.comercio_id && cs.some(c => c.id === f.comercio_id) ? f.comercio_id : '', 'Todos los comercios (prorrateo)');
+  };
+  pintarCom();
   const ok = el('button', { type: 'button', textContent: 'Guardar', hidden: true });
-  sel.onchange = sedeSel.onchange = () => { ok.hidden = !sel.value; };
+  sedeSel.addEventListener('change', pintarCom);
+  sel.onchange = sedeSel.onchange = comSel.onchange = () => { ok.hidden = !sel.value; };
   ok.onclick = async () => {
     ok.disabled = true;
     try {
-      await api('fin/resultados/clasificar', { method: 'POST', body: { movimiento_id: f.movimiento_id, rubro_id: sel.value, sede_id: sedeSel.value || null } });
+      await api('fin/resultados/clasificar', { method: 'POST', body: { movimiento_id: f.movimiento_id, rubro_id: sel.value, sede_id: sedeSel.value || null, comercio_id: comSel.hidden ? null : comSel.value || null } });
       msg('Clasificado.', 'ok', '#dMsg'); await cargar(); await detalle(...detActual);
     } catch (e) { msg(e.message, 'mal', '#dMsg'); ok.disabled = false; }
   };
-  return el('div', { className: 'cl' }, sel, sedeSel, ok);
+  return el('div', { className: 'cl' }, sel, sedeSel, comSel, ok);
 }
 $('#dCerrar').onclick = () => $('#dlgDet').close();
 
 // ── Carga ──
-let sedes = [];
+let sedes = [], comercios = [];
+// El combo de comercio aparece cuando la filial elegida tiene comercios (SORELLE BODEGON Y SUSHI: Wera Sushi y Lo de Titi).
+function pintarComercios() {
+  const cs = comerciosDe($('#sede').value), ant = $('#comercio').value;
+  $('#comercio').hidden = !cs.length;
+  opciones($('#comercio'), [...cs.map(c => [c.id, c.nombre]), ['sin', 'Sin repartir']], cs.some(c => c.id === ant) || ant === 'sin' ? ant : '', 'Todo el local');
+}
 async function cargar() {
   const [a, b] = await Promise.all([api('fin/resultados?' + params()), api('fin/resultados?' + params(anterior()))]);
   act = a; ant = b; pintar();
@@ -246,13 +265,15 @@ async function todo() {
   try { await cargar(); msg(''); } catch (e) { msg(e.message, 'mal'); }
 }
 $$('#periodo button').forEach(b => b.onclick = () => { elegirPeriodo(b.dataset.p); todo(); });
-$('#desde').onchange = $('#hasta').onchange = $('#sede').onchange = todo;
+$('#desde').onchange = $('#hasta').onchange = $('#comercio').onchange = todo;
+$('#sede').onchange = () => { pintarComercios(); todo(); };
 (async () => {
   try {
     ({ sedes } = await api('sedes')); sedes = sedes.filter(s => s.activa);
+    ({ comercios } = await api('comercios'));
     const locales = sedes.filter(s => s.tipo === 'local');
     opciones($('#sede'), [...locales, ...sedes.filter(s => s.tipo !== 'local')].map(s => [s.id, s.nombre]), locales.length === 1 ? locales[0].id : '', 'Todas las filiales');
-    elegirPeriodo('mes'); await todo();
+    pintarComercios(); elegirPeriodo('mes'); await todo();
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>

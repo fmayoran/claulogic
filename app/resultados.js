@@ -139,10 +139,20 @@ r.post('/fin/resultados/clasificar', h(async (req, res) => {
     const { rows: [m] } = await c.query(`SELECT tipo FROM fin.movimiento_tes WHERE id = $1`, [b.movimiento_id]);
     if (!m) throw new ErrorUsuario('No existe ese movimiento.', 404);
     if (!['ingreso', 'egreso'].includes(m.tipo)) throw new ErrorUsuario('Sólo se clasifican ingresos y egresos.');
+    // El comercio, si el gasto es de uno solo (si no, se prorratea por las ventas del mes); con comercio, la filial es la suya.
+    let sede = texto(b.sede_id);
+    const comercio = texto(b.comercio_id);
+    if (comercio) {
+      const { rows: [cm] } = await c.query('SELECT sede_id, nombre FROM org.comercio WHERE id = $1::uuid AND activo', [comercio]);
+      if (!cm) throw new ErrorUsuario('Ese comercio no existe o está inactivo.');
+      if (sede && sede !== cm.sede_id) throw new ErrorUsuario(`${cm.nombre} es de otra filial.`);
+      sede = cm.sede_id;
+    }
     await c.query(
-      `INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1,$2,$3)
-       ON CONFLICT (movimiento_id) DO UPDATE SET rubro_id = EXCLUDED.rubro_id, sede_id = EXCLUDED.sede_id, regla_id = NULL, por = org.usuario_actual(), en = now()`,
-      [b.movimiento_id, await rubroValido(c, b.rubro_id), texto(b.sede_id)]);
+      `INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id, comercio_id) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (movimiento_id) DO UPDATE SET rubro_id = EXCLUDED.rubro_id, sede_id = EXCLUDED.sede_id, comercio_id = EXCLUDED.comercio_id,
+              regla_id = NULL, por = org.usuario_actual(), en = now()`,
+      [b.movimiento_id, await rubroValido(c, b.rubro_id), sede, comercio]);
   });
   res.json({ ok: true });
 }));
@@ -153,20 +163,38 @@ r.post('/fin/resultados/clasificar', h(async (req, res) => {
 function periodo(req) {
   const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
   if (desde > hasta) throw new ErrorUsuario('El período está al revés.');
-  return { desde, hasta, sede: texto(req.query.sede) };
+  const comercio = texto(req.query.comercio);
+  if (comercio && !texto(req.query.sede)) throw new ErrorUsuario('Elegí el local del comercio.');
+  return { desde, hasta, sede: texto(req.query.sede), comercio };
 }
+// Con un comercio elegido, el estado sale de fin.resultado_comercio (cada hecho con la parte de ese comercio); "sin" es lo
+// del local que no se pudo repartir. Sin comercio, de fin.resultado como siempre.
+const origen = p => !p.comercio ? { tabla: 'fin.resultado', filtro: 'true' }
+  : { tabla: 'fin.resultado_comercio', filtro: p.comercio === 'sin' ? 'x.comercio_id IS NULL' : `x.comercio_id = '${p.comercio.replace(/[^0-9a-f-]/gi, '')}'::uuid` };
 r.get('/fin/resultados', h(async (req, res) => {
-  const p = periodo(req);
+  const p = periodo(req), o = origen(p);
   const [{ rows }, { rows: [sinFilial] }, { rows: ventasPorTipo }] = await Promise.all([
     pool.query(
       `SELECT ru.id AS rubro_id, ru.nombre AS rubro, ru.linea, ru.orden, COUNT(*)::int AS n, SUM(x.importe)::numeric(16,2)::text AS importe
-         FROM fin.resultado x LEFT JOIN fin.rubro ru ON ru.id = x.rubro_id
-        WHERE x.dia BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR x.sede_id = $3::uuid)
+         FROM ${o.tabla} x LEFT JOIN fin.rubro ru ON ru.id = x.rubro_id
+        WHERE x.dia BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR x.sede_id = $3::uuid) AND ${o.filtro}
         GROUP BY ru.id, ru.nombre, ru.linea, ru.orden ORDER BY ru.orden NULLS LAST, ru.nombre`, [p.desde, p.hasta, p.sede]),
     pool.query(
       `SELECT COUNT(*)::int AS n, COALESCE(SUM(importe), 0)::numeric(16,2)::text AS importe FROM fin.resultado
         WHERE dia BETWEEN $1 AND $2 AND sede_id IS NULL`, [p.desde, p.hasta]),
     // Las ventas abiertas por tipo (salón, para llevar, delivery), con la misma regla que la vista: por el total del día.
+    // Con un comercio: los pedidos de sus tiendas enteros y el resto por el peso del día de ese comercio (cantidades aproximadas).
+    p.comercio === 'sin' ? { rows: [] } : p.comercio ? pool.query(
+      `WITH pd AS MATERIALIZED (SELECT integracion_id, dia, peso FROM pos.comercio_peso_dia WHERE comercio_id = $4::uuid),
+            co AS (SELECT c.id, c.sede_id, c.tiendas FROM org.comercio c WHERE c.activo)
+       SELECT COALESCE(t.tipo, 'sin tipo') AS tipo, ROUND(SUM(w.peso))::int AS ventas, SUM(COALESCE(t.total, 0) * w.peso)::numeric(16,2)::text AS importe
+         FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
+         LEFT JOIN pd ON pd.integracion_id = t.integracion_id AND pd.dia = t.dia
+         CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM co WHERE co.sede_id = i.sede_id AND t.tienda = ANY (co.tiendas))
+                                         THEN CASE WHEN EXISTS (SELECT 1 FROM co WHERE co.id = $4::uuid AND t.tienda = ANY (co.tiendas)) THEN 1 ELSE 0 END
+                                         ELSE COALESCE(pd.peso, 0) END::numeric AS peso) w
+        WHERE t.estado = 'cerrado' AND t.dia BETWEEN $1 AND $2 AND i.sede_id = $3::uuid AND w.peso > 0
+        GROUP BY 1 ORDER BY SUM(COALESCE(t.total, 0) * w.peso) DESC`, [p.desde, p.hasta, p.sede, p.comercio]) :
     pool.query(
       `SELECT COALESCE(t.tipo, 'sin tipo') AS tipo, COUNT(*)::int AS ventas, SUM(COALESCE(t.total, it.vendido, 0))::numeric(16,2)::text AS importe
          FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
@@ -179,15 +207,17 @@ r.get('/fin/resultados', h(async (req, res) => {
 }));
 // El detalle de un rubro (o "sin" = sin clasificar): cada hecho con su día, concepto, importe y cuenta.
 r.get('/fin/resultados/detalle', h(async (req, res) => {
-  const p = periodo(req), rubro = texto(req.query.rubro, { campo: 'el rubro', requerido: true });
+  const p = periodo(req), rubro = texto(req.query.rubro, { campo: 'el rubro', requerido: true }), o = origen(p);
   const sinFilial = req.query.sin_filial === '1';
   const { rows } = await pool.query(
     `SELECT to_char(x.dia, 'YYYY-MM-DD') AS dia, x.origen, x.movimiento_id, x.concepto, x.importe::text, cu.nombre AS cuenta, s.nombre AS sede,
-            k.rubro_id IS NOT NULL AS clasificado, g.patron AS regla
-       FROM fin.resultado x LEFT JOIN fin.movimiento_tes m ON m.id = x.movimiento_id AND x.origen = 'movimiento'
+            k.rubro_id IS NOT NULL AS clasificado, g.patron AS regla, k.comercio_id, cm.nombre AS comercio,
+            ${p.comercio ? 'x.peso::float AS peso, x.regla AS reparto' : 'NULL::float AS peso, NULL AS reparto'}
+       FROM ${o.tabla} x LEFT JOIN fin.movimiento_tes m ON m.id = x.movimiento_id AND x.origen = 'movimiento'
        LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id LEFT JOIN org.sede s ON s.id = x.sede_id
        LEFT JOIN fin.clasificacion k ON k.movimiento_id = m.id LEFT JOIN fin.regla g ON g.id = k.regla_id
-      WHERE x.dia BETWEEN $1 AND $2
+       LEFT JOIN org.comercio cm ON cm.id = k.comercio_id
+      WHERE x.dia BETWEEN $1 AND $2 AND ${o.filtro}
         AND (CASE WHEN $4 THEN x.sede_id IS NULL ELSE ($3::uuid IS NULL OR x.sede_id = $3::uuid) END)
         AND (CASE WHEN $5 = 'sin' THEN x.rubro_id IS NULL WHEN $5 = 'todos' THEN true ELSE x.rubro_id = $5::uuid END)
       ORDER BY x.dia, x.movimiento_id NULLS FIRST LIMIT 1001`, [p.desde, p.hasta, p.sede, sinFilial, rubro === 'sin' || rubro === 'todos' ? rubro : rubro]);
