@@ -69,19 +69,19 @@
         <p class="cap" id="capPrincipal">Tocá un día para ver sus ventas.</p>
         <div id="gPrincipal"></div>
       </section>
-      <section class="card" id="cHoras">
-        <h2>Por hora de apertura</h2>
-        <p class="cap">Cuándo se abren las mesas. Tocá una hora para ver sus ventas.</p>
-        <div id="gHoras"></div>
+      <section class="card">
+        <h2 id="tRank">Por mozo</h2>
+        <p class="cap" id="capRank"></p>
+        <div id="gRank"></div>
       </section>
     </div>
   </div>
   <div class="vista" id="vComposicion" hidden>
     <div class="t-grid t-g2">
-      <section class="card">
-        <h2 id="tRank">Por mozo</h2>
-        <p class="cap" id="capRank"></p>
-        <div id="gRank"></div>
+      <section class="card" id="cHoras">
+        <h2>Por hora de apertura</h2>
+        <p class="cap">Cuándo se abren las mesas. Tocá una hora para ver sus ventas.</p>
+        <div id="gHoras"></div>
       </section>
       <section class="card">
         <h2>Tipo de venta</h2>
@@ -252,7 +252,6 @@ function mostrarVista() {
 function pintarEvolucion() {
   const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;
   // Principal: por día; si el período es un solo día, por hora.
-  $('#cHoras').hidden = unDia;
   $('#leyPrincipal').hidden = unDia;
   if (unDia) {
     $('#tPrincipal').textContent = 'Ventas por hora'; $('#capPrincipal').textContent = 'Por hora de apertura. Tocá una hora para ver sus ventas.';
@@ -267,9 +266,9 @@ function pintarEvolucion() {
       alElegir: i => alternar('dia', dias[i]), elegido: filtros.dia ? dias.indexOf(filtros.dia) : null,
       alto: matchMedia('(max-width:899px)').matches ? 220 : 330,
     });
-    pintarHoras($('#gHoras'), 190);
   }
 
+  pintarRanking();
 }
 function pintarMedios() {
   const r = resumen, t = r.totales;
@@ -295,6 +294,13 @@ function pintarComposicion() {
   Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${tipoV(x.tipo)} (${x.ventas})`, valor: x.vendido })),
     sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
 
+  // Por hora (con un solo día, las horas ya son el gráfico principal).
+  $('#cHoras').hidden = ctxV.unDia;
+  if (!ctxV.unDia) pintarHoras($('#gHoras'), 220);
+}
+// Lo vendido por store (o canal, o mozo): va en la vista principal, junto a las ventas por día (pedido de Fer, 07/11/2026).
+function pintarRanking() {
+  const r = resumen;
   // Varios locales: el ranking es por local (tocar uno lo elige arriba), y un local con comercios (SORELLE: Wera Sushi y Lo
   // de Titi Bodegón) va abierto en sus comercios; un local con PedidosYa: por canal (su sistema y PedidosYa); si no, por mozo.
   const porLocal = new Map();
