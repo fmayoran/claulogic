@@ -268,6 +268,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   es flujo; desde "a acreditar" es "Acreditaciones <marca>", desde el efectivo de un punto de venta "Rendiciones de efectivo"; si no,
   el rubro clasificado, el tipo de gasto, pagos a proveedores, cobros o "sin clasificar". Una anulación resta en la categoría de lo que
   anula, así saldo inicial + entradas − salidas = final. El saldo de apertura de un extracto no es flujo (se avisa).
+- **Tablero de tesorería por vistas** (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). Arriba
+  sólo las cifras (Disponible, Entradas, Salidas, Por acreditar, Efectivo a rendir); tocar una abre su vista y se recuerda: Disponible
+  (dónde está, disponible por día, por filial o las cuentas), Entradas y salidas (por día y donas), **Por acreditar** y Efectivo. Los
+  movimientos del período van con Disponible y Entradas y salidas. Por acreditar (`/fin/tesoreria/por-cobrar?detalle=1`, se pide al
+  abrirla) dice de dónde tiene que venir lo que falta y por qué no llegó: **para revisar** (el extracto ya cubre la fecha esperada y no
+  apareció), **falta el extracto**, **falta indicar dónde deposita**, **liquidado esperando el banco** (lote) y **todavía no es la
+  fecha**; por procesador y punto de venta, sumando como el saldo de la cuenta (PedidosYa por el neto). La consulta del flujo
+  (`CATEGORIA_TES`) va materializada y con índice en `movimiento_tes.transferencia_id` (migración 20261128): octubre tardaba 14 s.
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
   `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:
   lo que da el procesador (Fudo Pagos: `liquida_el` y `neto` por cobro; un lote esperado entra en su fecha). **Estimado**: la
@@ -729,6 +737,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   por lo que costó cada pedido, el peso del día de su sistema de venta, y si no, **prorrateado por las ventas del mes** (decisión de
   Fer). Lo financiero (caja, cuentas, rendición, conciliación) sigue siendo del local. En el estado de resultados, con la filial elegida
   aparece el combo de comercio (y "Sin repartir"); en el tablero de ventas, "Por comercio" (estimado), y con todos los locales el ranking "Por local" muestra un local con comercios abierto en ellos. La cafetería es otra sede.
+  **En la ficha de la sede** (07/11/2026: con casillas por comercio no se veía si un rubro quedaba en dos o en ninguno): cada rubro del
+  sistema de venta es un renglón que va a un comercio o queda "Compartido", con sus artículos de 90 días a pedido, lo mismo cada tienda
+  de PedidosYa, y arriba cuánto de lo vendido termina en cada comercio con lo elegido. Se guarda todo junto
+  (`PUT /sedes/:id/comercios/asignacion`, en una transacción). Comercios, artículos y medios de cobro van en bloques plegables con su
+  estado en el título (los medios se abren solos si falta asignar alguno).
   Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
@@ -788,7 +801,8 @@ corriente, Cheques), Stock, Producción (con Platos de carta), Control; las pant
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
 y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Cuentas, Rubros y reglas, Almacenes, Unidades productivas, Usuarios)
 al final. **Cuentas** (`cuentas.html`, decisión de Fer, 07/11/2026: crear o editar una cuenta es configuración, no operación): alta y
-edición de bancos, cajas y cobranza, con para qué es cada una (a acreditar, deposita, efectivo de un punto de venta); `#nueva` y
+edición, en pestañas por tipo (Bancos, Cajas, Efectivo de puntos de venta, A acreditar), cada una con sus columnas y sin saldos (los
+saldos, en el Tablero de tesorería); `#nueva` y
 `#editar=<cuenta>` (los enlaces viejos a Operaciones de tesorería redirigen). En Medios de pago, "Deposita en" termina en "+ Nueva cuenta
 bancaria…" (`nuevaCuentaBanco` en `comun.js`).
 Barra lateral agrupada desde

@@ -91,7 +91,7 @@ r.put('/sedes/:id', h(async (req, res) => {
 // tiendas de PedidosYa. Lo financiero sigue siendo del local. La consulta la usan la ficha de la sede y los tableros.
 r.get('/comercios', h(async (req, res) => {
   const sede = texto(req.query.sede);
-  const [{ rows: comercios }, { rows: rubros }, { rows: tiendas }] = await Promise.all([
+  const [{ rows: comercios }, { rows: rubros }, { rows: tiendas }, { rows: articulos }] = await Promise.all([
     pool.query(`SELECT c.id, c.sede_id, s.nombre AS sede, c.nombre, c.rubros, c.tiendas, c.activo FROM org.comercio c JOIN org.sede s ON s.id = c.sede_id
                  WHERE ($1::uuid IS NULL OR c.sede_id = $1::uuid) ORDER BY s.nombre, c.nombre`, [sede]),
     // Los rubros que el sistema de venta del local informó en los últimos 90 días, con lo vendido, para elegir los propios.
@@ -99,9 +99,19 @@ r.get('/comercios', h(async (req, res) => {
                          FROM pos.articulo_dia a JOIN pos.integracion i ON i.id = a.integracion_id
                         WHERE i.sede_id = $1::uuid AND a.dia >= current_date - 90 AND a.rubro IS NOT NULL
                         GROUP BY a.rubro ORDER BY SUM(a.venta) DESC`, [sede]) : { rows: [] },
-    sede ? pool.query(`SELECT unnest(tiendas) AS tienda FROM pos.integracion WHERE sede_id = $1::uuid AND sistema = 'pedidosya'`, [sede]) : { rows: [] },
+    // Las tiendas de PedidosYa con lo vendido en 90 días, para ver qué es cada una.
+    sede ? pool.query(`SELECT x.tienda, COALESCE(SUM(t.total) FILTER (WHERE t.estado = 'cerrado' AND t.dia >= current_date - 90), 0)::numeric(16,2)::text AS venta,
+                              COUNT(t.id) FILTER (WHERE t.estado = 'cerrado' AND t.dia >= current_date - 90)::int AS pedidos
+                         FROM (SELECT i.id, unnest(i.tiendas) AS tienda FROM pos.integracion i WHERE i.sede_id = $1::uuid AND i.sistema = 'pedidosya') x
+                         LEFT JOIN pos.ticket t ON t.integracion_id = x.id AND t.tienda = x.tienda
+                        GROUP BY x.tienda ORDER BY 2 DESC`, [sede]) : { rows: [] },
+    // Los artículos de cada rubro (pedido de Fer, 07/11/2026: ver qué productos suma cada comercio), a pedido en la pantalla.
+    sede ? pool.query(`SELECT a.rubro, a.codigo, MAX(a.nombre) AS nombre, SUM(a.unidades)::numeric(14,3)::text AS unidades, SUM(a.venta)::numeric(16,2)::text AS venta
+                         FROM pos.articulo_dia a JOIN pos.integracion i ON i.id = a.integracion_id
+                        WHERE i.sede_id = $1::uuid AND a.dia >= current_date - 90 AND a.rubro IS NOT NULL
+                        GROUP BY a.rubro, a.codigo ORDER BY a.rubro, SUM(a.venta) DESC`, [sede]) : { rows: [] },
   ]);
-  res.json({ ok: true, comercios, rubros, tiendas: tiendas.map(t => t.tienda) });
+  res.json({ ok: true, comercios, rubros, tiendas: tiendas.map(t => t.tienda), tiendas_venta: tiendas, articulos });
 }));
 function leerComercio(b) {
   const lista = v => [...new Set((Array.isArray(v) ? v : []).map(x => String(x ?? '').trim()).filter(Boolean))];
@@ -138,6 +148,28 @@ r.put('/sedes/comercios/:id', h(async (req, res) => {
     if (!ant) throw new ErrorUsuario('No existe ese comercio.', 404);
     await controlarComercio(c, ant.sede_id, req.params.id, x);
     await c.query('UPDATE org.comercio SET nombre = $1, rubros = $2, tiendas = $3, activo = $4 WHERE id = $5', [x.nombre, x.rubros, x.tiendas, x.activo, req.params.id]);
+  });
+  res.json({ ok: true });
+}));
+
+// Toda la asignación de rubros y tiendas de los comercios de un local de una vez (la pantalla la arma como una tabla: cada rubro
+// va a un comercio o queda compartido). En una transacción y controlada al final, así mover un rubro de un comercio a otro no
+// choca con el control de que un rubro sea de uno solo.
+r.put('/sedes/:id/comercios/asignacion', h(async (req, res) => {
+  const lista = v => [...new Set((Array.isArray(v) ? v : []).map(x => String(x ?? '').trim()).filter(Boolean))];
+  const pedidos = Array.isArray(req.body.comercios) ? req.body.comercios : [];
+  await enTransaccion(async c => {
+    const { rows: actuales } = await c.query('SELECT id FROM org.comercio WHERE sede_id = $1::uuid FOR UPDATE', [req.params.id]);
+    for (const x of pedidos) {
+      if (!actuales.some(a => a.id === x.id)) throw new ErrorUsuario('Un comercio no es de este local.');
+      await c.query('UPDATE org.comercio SET rubros = $1, tiendas = $2 WHERE id = $3', [lista(x.rubros), lista(x.tiendas), x.id]);
+    }
+    const { rows: [dup] } = await c.query(
+      `SELECT v AS valor, string_agg(nombre, ' y ' ORDER BY nombre) AS comercios FROM (
+         SELECT nombre, lower(unnest(rubros)) AS v FROM org.comercio WHERE sede_id = $1::uuid AND activo
+         UNION ALL SELECT nombre, unnest(tiendas) FROM org.comercio WHERE sede_id = $1::uuid AND activo) z
+        GROUP BY v HAVING COUNT(*) > 1 LIMIT 1`, [req.params.id]);
+    if (dup) throw new ErrorUsuario(`${dup.valor} quedó en ${dup.comercios}: un rubro o una tienda va en un solo comercio.`);
   });
   res.json({ ok: true });
 }));

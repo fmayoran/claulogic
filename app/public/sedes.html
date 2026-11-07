@@ -5,6 +5,33 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Sedes · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
+<style>
+  /* Lo de un punto de venta (comercios, artículos, medios) en bloques que se abren a pedido, con su estado en el título
+     (pedido de Fer, 07/11/2026: estaba todo desplegado). */
+  details.sec{margin-top:18px;border:1px solid var(--borde);border-radius:12px;background:var(--panel);}
+  details.sec > summary{cursor:pointer;padding:14px 16px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;list-style:none;}
+  details.sec > summary::-webkit-details-marker{display:none;}
+  details.sec > summary::before{content:'▸';color:var(--mut);transition:transform .15s;}
+  details.sec[open] > summary::before{transform:rotate(90deg);}
+  details.sec > summary h2{margin:0;font-size:1.05rem;} details.sec > summary .est{color:var(--mut);font-size:.88rem;}
+  details.sec > .cuerpo{padding:0 16px 16px;}
+  /* Comercios: cómo quedan repartidas las ventas, y cada rubro con a qué comercio va. */
+  .reparto{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:8px 0 14px;}
+  .reparto .r{border:1px solid var(--borde);border-radius:10px;padding:10px 12px;}
+  .reparto .r b{display:block;} .reparto .r .v{display:block;font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums;}
+  .reparto .r .m{display:block;}
+  .reparto .r .m{color:var(--mut);font-size:.84rem;}
+  .coms{display:grid;gap:8px;margin:8px 0 14px;}
+  .com{display:flex;gap:10px;align-items:center;flex-wrap:wrap;} .com input[type=text]{flex:1;min-width:180px;}
+  tr.arts td{background:var(--sel);font-size:.86rem;color:var(--mut);white-space:normal;}
+  tr.arts ul{margin:4px 0;padding-left:18px;columns:2 260px;column-gap:28px;} tr.arts li{break-inside:avoid;overflow-wrap:anywhere;}
+  #rub select,#tie select{width:100%;}
+  @media (min-width:700px){ #tRub,#tTie{table-layout:fixed;width:100%;} #tRub th:nth-child(1){width:32%;} #tRub th:nth-child(2){width:20%;}
+    #tRub th:nth-child(3){width:20%;} #tTie th:nth-child(1){width:25%;} }
+  tr.arts .lst{max-height:340px;overflow:auto;}
+  #tRub td,#tTie td{white-space:normal;overflow-wrap:anywhere;}
+  button.link{all:unset;cursor:pointer;color:var(--acento);font-weight:600;} button.link:focus-visible{outline:2px solid var(--acento);}
+</style>
 </head>
 <body>
 <div class="grid">
@@ -71,31 +98,53 @@
       </div>
     </form>
 
-    <section id="secCom" hidden>
-      <h2 style="margin-top:22px">Comercios</h2>
-      <p class="ayuda">Si en este local funcionan varios comercios con el mismo sistema de venta, la misma caja y las mismas cuentas (como Wera Sushi y
-        Lo de Titi), se separan en el tablero de ventas y en el estado de resultados. Cada comercio dice qué rubros del sistema de venta son
-        suyos y qué tiendas de PedidosYa. Las ventas de cada día se reparten por los artículos vendidos de esos rubros; los rubros que no son de
-        ninguno (bebidas, postres) se reparten en proporción. Lo financiero (caja, cuentas, rendición) sigue siendo del local.</p>
-      <div id="comercios"></div>
-      <div class="acciones"><button type="button" id="nuevoCom">Agregar comercio</button><span class="msg" id="msgCom"></span></div>
-    </section>
-    <section id="secArt" hidden>
-      <h2 style="margin-top:22px">Artículos del sistema</h2>
-      <p class="ayuda">Cada artículo que se vende tiene que decir qué plato es (su receta de venta) o que no consume stock (servicio de mesa, propinas).
-        Los que faltan aparecen primero, con lo vendido que todavía no se descontó. <a href="platos.html">Platos de carta</a></p>
-      <div class="tabla-wrap"><table class="datos movil" id="tArt">
-        <thead><tr><th>Artículo</th><th>Código</th><th>Vendido sin descontar</th><th>Plato</th><th>No consume stock</th><th></th></tr></thead>
-        <tbody id="art"></tbody></table></div>
-    </section>
-    <section id="secMed" hidden>
-      <h2 style="margin-top:22px">Medios de cobro</h2>
+    <details class="sec" id="secMed" hidden>
+      <summary><h2>Medios de cobro</h2><span class="est" id="estMed"></span></summary>
+      <div class="cuerpo">
       <p class="ayuda">Cómo nombra este sistema cada pago, y qué medio de pago del grupo es (procesador y tipo de operación). La cuenta sale del
         medio: lo de cada procesador, a su cuenta a acreditar; el efectivo, a la cuenta de efectivo de esta sede. <a href="medios-pago.html">Medios de pago del grupo</a></p>
       <div class="tabla-wrap"><table class="datos movil" id="tMed">
         <thead><tr><th>Medio en el sistema</th><th>Medio de pago</th><th>Va a la cuenta</th><th></th></tr></thead>
         <tbody id="med"></tbody></table></div>
-    </section>
+      </div>
+    </details>
+    <details class="sec" id="secCom" hidden>
+      <summary><h2>Comercios</h2><span class="est" id="estCom"></span></summary>
+      <div class="cuerpo">
+      <p class="ayuda">Si en este local funcionan varios comercios con el mismo sistema de venta, la misma caja y las mismas cuentas (como Wera Sushi y
+        Lo de Titi), se separan en el tablero de ventas y en el estado de resultados. Cada rubro del sistema de venta va a un comercio o queda
+        compartido (bebidas, postres): las ventas de cada día se reparten por lo vendido de los rubros propios, y lo compartido en proporción.
+        Lo financiero (caja, cuentas, rendición) sigue siendo del local.</p>
+      <div class="coms" id="coms"></div>
+      <div class="acciones"><button type="button" id="nuevoCom">Agregar comercio</button><span class="msg" id="msgCom"></span></div>
+      <form id="fAsig" novalidate hidden>
+        <h3 style="margin:14px 0 2px">Cómo se reparten las ventas</h3>
+        <p class="ayuda" style="margin:0">Últimos 90 días, con la asignación de abajo (se actualiza al cambiarla).</p>
+        <div class="reparto" id="reparto"></div>
+        <h3 style="margin:14px 0 6px">Rubros del sistema de venta</h3>
+        <div class="tabla-wrap"><table class="datos movil" id="tRub">
+          <thead><tr><th>Rubro</th><th>Artículos</th><th class="num">Vendido 90 días</th><th>Va a</th></tr></thead>
+          <tbody id="rub"></tbody></table></div>
+        <div id="tiendasWrap" hidden>
+          <h3 style="margin:14px 0 6px">Tiendas de PedidosYa</h3>
+          <div class="tabla-wrap"><table class="datos movil" id="tTie">
+            <thead><tr><th>Tienda</th><th class="num">Pedidos 90 días</th><th class="num">Vendido</th><th>Va a</th></tr></thead>
+            <tbody id="tie"></tbody></table></div>
+        </div>
+        <div class="acciones"><button type="submit" class="prim">Guardar asignación</button><span class="msg" id="msgAsig"></span></div>
+      </form>
+      </div>
+    </details>
+    <details class="sec" id="secArt" hidden>
+      <summary><h2>Artículos del sistema</h2><span class="est" id="estArt"></span></summary>
+      <div class="cuerpo">
+      <p class="ayuda">Cada artículo que se vende tiene que decir qué plato es (su receta de venta) o que no consume stock (servicio de mesa, propinas).
+        Los que faltan aparecen primero, con lo vendido que todavía no se descontó. <a href="platos.html">Platos de carta</a></p>
+      <div class="tabla-wrap"><table class="datos movil" id="tArt">
+        <thead><tr><th>Artículo</th><th>Código</th><th>Vendido sin descontar</th><th>Plato</th><th>No consume stock</th><th></th></tr></thead>
+        <tbody id="art"></tbody></table></div>
+      </div>
+    </details>
   </main>
 </div>
 <script src="comun.js"></script>
@@ -205,6 +254,8 @@ const conSistema = (x, a) => x.sistema === 'pedidosya' ? { ...a, nombre: 'Pedido
 async function cargarArticulos(lista) {
   const articulos = (await Promise.all(lista.filter(Boolean).map(x => api(`pos/integraciones/${x.id}/articulos`).then(r => r.articulos.map(a => conSistema(x, a)))))).flat();
   $('#secArt').hidden = false;
+  const sinPlato = articulos.filter(a => !a.plato_id && !a.sin_consumo).length;
+  $('#estArt').textContent = !articulos.length ? 'todavía sin artículos' : sinPlato ? `${articulos.length} artículos · ${sinPlato} sin receta` : `${articulos.length} artículos, todos con receta`;
   filas($('#art'), articulos, a => {
     const pl = el('select', { disabled: a.sin_consumo }); opciones(pl, platos.map(p => [p.id, p.nombre]), a.plato_id, 'Sin receta');
     const sc = el('input', { type: 'checkbox', checked: a.sin_consumo });
@@ -227,6 +278,10 @@ async function cargarMedios(lista) {
     api('pos/medios-pago')]);
   mediosPago = mp.medios;
   $('#secMed').hidden = false;
+  const sinMedio = medios.filter(m => !m.medio_pago_id).length;
+  $('#estMed').textContent = !medios.length ? 'todavía sin medios' : sinMedio ? `${medios.length} medios · ${sinMedio} sin asignar` : `${medios.length} medios, todos asignados`;
+  // Abierto sólo si falta asignar alguno: es lo único que bloquea el cobro de un día.
+  $('#secMed').open = sinMedio > 0;
   filas($('#med'), medios, m => {
     const s = el('select'), cuenta = td(m.cuenta || '—'), est = el('span', { className: 'msg' });
     opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: async () => { const r = await nuevoMedioPago(); if (r) ({ medios: mediosPago } = await api('pos/medios-pago')); return r; } });
@@ -242,46 +297,95 @@ async function cargarMedios(lista) {
   etiquetarTabla($('#tMed'));
 }
 // ── Comercios del local ──
-// Cada comercio con sus rubros propios (de los que informó el sistema de venta en los últimos 90 días) y sus tiendas de PedidosYa.
-let comData = null;
+// Pedido de Fer (07/11/2026): con un comercio por ficha y casillas de rubros no se veía si algo quedaba en dos o en ninguno. Ahora
+// cada rubro es un renglón que va a un comercio o queda compartido (no puede quedar en dos), con sus artículos a pedido, y arriba
+// cuánto de lo vendido termina en cada comercio. Se guarda todo junto (PUT /sedes/:id/comercios/asignacion).
+let comData = null, comSede = null;
+const igual = (a, b) => a.toLowerCase() === b.toLowerCase();
 async function cargarComercios(sede) {
-  comData = await api('comercios?sede=' + sede);
-  $('#secCom').hidden = false; msg('', '', '#msgCom');
-  $('#comercios').replaceChildren(...comData.comercios.map(c => fichaComercio(sede, c)));
-  if (!comData.comercios.length) $('#comercios').append(el('p', { className: 'ayuda', textContent: 'Este local es un solo comercio.' }));
-  $('#nuevoCom').onclick = () => { $('#comercios').querySelector('p.ayuda')?.remove(); $('#comercios').append(fichaComercio(sede, null)); };
+  comData = await api('comercios?sede=' + sede); comSede = sede;
+  $('#secCom').hidden = false; msg('', '', '#msgCom'); msg('', '', '#msgAsig');
+  pintarComercios();
 }
-function fichaComercio(sede, c) {
-  const otros = (campo, v) => comData.comercios.filter(x => x.activo && (!c || x.id !== c.id) && x[campo].some(y => y.toLowerCase() === v.toLowerCase()));
-  const nombre = el('input', { value: c ? c.nombre : '', placeholder: 'Nombre del comercio', 'aria-label': 'Nombre del comercio' });
-  const activo = el('input', { type: 'checkbox', checked: c ? c.activo : true });
-  const rubros = [...comData.rubros.map(r => ({ rubro: r.rubro, nota: `${pesos(r.venta)} en 90 días` }))];
-  for (const r of c ? c.rubros : []) if (!rubros.some(x => x.rubro.toLowerCase() === r.toLowerCase())) rubros.push({ rubro: r, nota: 'sin ventas recientes' });
-  const marca = (lista, campo, actual, nota) => lista.map(v => {
-    const ya = otros(campo, v), cb = el('input', { type: 'checkbox', value: v, checked: actual.some(x => x.toLowerCase() === v.toLowerCase()), disabled: !!ya.length });
-    return el('label', { className: 'check' }, cb, ` ${v}`, el('small', { className: 'mut', textContent: ya.length ? ` · de ${ya[0].nombre}` : nota ? ' · ' + nota(v) : '' }));
-  });
-  const cajaR = el('div', {}, ...marca(rubros.map(r => r.rubro), 'rubros', c ? c.rubros : [], v => rubros.find(r => r.rubro === v).nota));
-  const cajaT = el('div', {}, ...marca(comData.tiendas, 'tiendas', c ? c.tiendas : []));
-  const est = el('span', { className: 'msg' });
-  const guardar = el('button', { type: 'button', className: 'prim', textContent: c ? 'Guardar comercio' : 'Crear comercio' });
-  guardar.onclick = async () => {
-    const elegidos = caja => [...caja.querySelectorAll('input:checked')].map(x => x.value);
-    guardar.disabled = true;
-    try {
-      const body = { nombre: nombre.value, rubros: elegidos(cajaR), tiendas: elegidos(cajaT), activo: activo.checked };
-      await api(c ? 'sedes/comercios/' + c.id : `sedes/${sede}/comercios`, { method: c ? 'PUT' : 'POST', body });
-      await cargarComercios(sede); msg('Comercio guardado.', 'ok', '#msgCom');
-    } catch (e) { est.textContent = e.message; est.className = 'msg mal'; guardar.disabled = false; }
+function pintarComercios() {
+  const cs = comData.comercios, activos = cs.filter(c => c.activo);
+  // La lista de comercios: nombre y activo, cada uno con su guardar.
+  $('#coms').replaceChildren(...cs.map(c => {
+    const nombre = el('input', { type: 'text', value: c.nombre, 'aria-label': 'Nombre del comercio' });
+    const activo = el('input', { type: 'checkbox', checked: c.activo });
+    const est = el('span', { className: 'msg' }), b = el('button', { type: 'button', className: 'chico', textContent: 'Guardar' });
+    b.onclick = async () => {
+      try { await api('sedes/comercios/' + c.id, { method: 'PUT', body: { nombre: nombre.value, rubros: c.rubros, tiendas: c.tiendas, activo: activo.checked } });
+            await cargarComercios(comSede); msg('Comercio guardado.', 'ok', '#msgCom'); }
+      catch (e) { est.textContent = e.message; est.className = 'msg mal'; }
+    };
+    return el('div', { className: 'com' }, nombre, el('label', { className: 'check' }, activo, ' Activo'), b, est);
+  }), ...(cs.length ? [] : [el('p', { className: 'ayuda', textContent: 'Este local es un solo comercio.' })]));
+  $('#nuevoCom').onclick = async () => {
+    const nombre = prompt('Nombre del comercio nuevo:'); if (!nombre) return;
+    try { await api(`sedes/${comSede}/comercios`, { method: 'POST', body: { nombre, rubros: [], tiendas: [] } }); await cargarComercios(comSede); msg('Comercio creado: ahora asignale sus rubros.', 'ok', '#msgCom'); }
+    catch (e) { msg(e.message, 'mal', '#msgCom'); }
   };
-  return el('fieldset', { className: 'comercio' },
-    el('label', {}, 'Nombre', nombre),
-    el('p', { className: 'ayuda', textContent: 'Rubros propios en el sistema de venta' }),
-    rubros.length ? cajaR : el('p', { className: 'ayuda', textContent: 'Todavía no hay artículos traídos del sistema de venta: los rubros aparecen al traer las ventas.' }),
-    comData.tiendas.length ? el('p', { className: 'ayuda', textContent: 'Tiendas de PedidosYa' }) : '', comData.tiendas.length ? cajaT : '',
-    c ? el('label', { className: 'check' }, activo, ' Activo') : '',
-    el('div', { className: 'acciones' }, guardar, est));
+  $('#estCom').textContent = activos.length ? `${activos.map(c => c.nombre).join(' y ')}` : 'un solo comercio';
+  $('#fAsig').hidden = !activos.length;
+  if (!activos.length) return;
+
+  // Los rubros informados en 90 días y los de algún comercio aunque no hayan vendido.
+  const rubros = comData.rubros.map(r => ({ ...r }));
+  for (const c of activos) for (const r of c.rubros) if (!rubros.some(x => igual(x.rubro, r))) rubros.push({ rubro: r, venta: '0', articulos: 0 });
+  const dueno = r => (activos.find(c => c.rubros.some(x => igual(x, r))) || {}).id || '';
+  const opcs = (sel, valor, vacio) => opciones(sel, activos.map(c => [c.id, c.nombre]), valor, vacio);
+  const arts = r => comData.articulos.filter(a => igual(a.rubro, r));
+  $('#rub').replaceChildren(...rubros.flatMap(r => {
+    const sel = el('select', { 'aria-label': 'Va a' }); sel.dataset.rubro = r.rubro; opcs(sel, dueno(r.rubro), 'Compartido');
+    sel.onchange = resumenReparto;
+    const as = arts(r.rubro), det = el('tr', { className: 'arts', hidden: true }, el('td', { colSpan: 4 }, el('div', { className: 'lst' }, el('ul', {}, ...as.map(a =>
+      el('li', { textContent: `${a.nombre} · ${num(a.unidades)} u · ${pesos(a.venta)}` }))))));
+    const ver = as.length ? el('button', { type: 'button', className: 'link', textContent: `${as.length} artículo${as.length === 1 ? '' : 's'}`,
+      onclick: () => { det.hidden = !det.hidden; } }) : el('span', { className: 'mut', textContent: 'sin ventas en 90 días' });
+    return [el('tr', {}, td(r.rubro), el('td', {}, ver), td(pesos(r.venta), 'num'), el('td', {}, sel)), det];
+  }));
+  etiquetarTabla($('#tRub'));
+  const tv = comData.tiendas_venta || [];
+  $('#tiendasWrap').hidden = !tv.length;
+  $('#tie').replaceChildren(...tv.map(t => {
+    const sel = el('select', { 'aria-label': 'Va a' }); sel.dataset.tienda = t.tienda; opcs(sel, (activos.find(c => c.tiendas.includes(t.tienda)) || {}).id || '', 'Sin comercio');
+    sel.onchange = resumenReparto;
+    return el('tr', {}, td(t.tienda), td(String(t.pedidos), 'num'), td(pesos(t.venta), 'num'), el('td', {}, sel));
+  }));
+  if (tv.length) etiquetarTabla($('#tTie'));
+  resumenReparto(); sinCambios($('#fAsig'));
 }
+// Cuánto de lo vendido en 90 días va a cada comercio con lo elegido: lo propio, más lo compartido en proporción a lo propio.
+function resumenReparto() {
+  const activos = comData.comercios.filter(c => c.activo), venta = new Map(comData.rubros.map(r => [r.rubro.toLowerCase(), centavos(r.venta)]));
+  const propio = new Map(activos.map(c => [c.id, { rubros: 0, v: 0n }])), comp = { rubros: 0, v: 0n };
+  for (const s of $$('#rub select')) {
+    const v = venta.get(s.dataset.rubro.toLowerCase()) || 0n, g = s.value ? propio.get(s.value) : comp;
+    g.rubros++; g.v += v;
+  }
+  const totPropio = [...propio.values()].reduce((t, g) => t + g.v, 0n), tot = totPropio + comp.v;
+  const pct = (a, b) => b ? `${(Number(a * 1000n / b) / 10).toLocaleString('es-AR')}%` : '—';
+  const peya = new Map(activos.map(c => [c.id, 0n]));
+  for (const s of $$('#tie select')) if (s.value) peya.set(s.value, peya.get(s.value) + centavos((comData.tiendas_venta.find(t => t.tienda === s.dataset.tienda) || {}).venta || '0'));
+  $('#reparto').replaceChildren(...activos.map(c => {
+    const g = propio.get(c.id), conComp = g.v + (totPropio ? comp.v * g.v / totPropio : 0n);
+    return el('div', { className: 'r' }, el('b', { textContent: c.nombre }), el('span', { className: 'v', textContent: pesos(deCentavos(conComp)) }),
+      el('span', { className: 'm', textContent: `${pct(conComp, tot)} del salón · ${g.rubros} rubro${g.rubros === 1 ? '' : 's'} propio${g.rubros === 1 ? '' : 's'} (${pesos(deCentavos(g.v))})`
+        + (peya.get(c.id) ? ` · PedidosYa ${pesos(deCentavos(peya.get(c.id)))}` : '') }));
+  }), el('div', { className: 'r' }, el('b', { textContent: 'Compartido' }), el('span', { className: 'v', textContent: pesos(deCentavos(comp.v)) }),
+    el('span', { className: 'm', textContent: `${pct(comp.v, tot)} del salón · ${comp.rubros} rubro${comp.rubros === 1 ? '' : 's'}, se reparte en proporción` })));
+  if (activos.length && !totPropio && tot) $('#reparto').append(el('p', { className: 'ayuda', textContent: 'Ningún comercio tiene rubros propios: todo queda sin repartir.' }));
+}
+$('#fAsig').onsubmit = async e => {
+  e.preventDefault();
+  const activos = comData.comercios.filter(c => c.activo);
+  const body = { comercios: activos.map(c => ({ id: c.id,
+    rubros: $$('#rub select').filter(s => s.value === c.id).map(s => s.dataset.rubro),
+    tiendas: $$('#tie select').filter(s => s.value === c.id).map(s => s.dataset.tienda) })) };
+  try { await api(`sedes/${comSede}/comercios/asignacion`, { method: 'PUT', body }); await cargarComercios(comSede); $('#secCom').open = true; msg('Asignación guardada.', 'ok', '#msgAsig'); }
+  catch (e) { msg(e.message, 'mal', '#msgAsig'); }
+};
 
 $('#nueva').onclick = nueva;
 (async () => {

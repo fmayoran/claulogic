@@ -38,6 +38,24 @@
   .mov .c{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .mov .m{color:var(--mut);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .mov .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;} .mov .i.sal{color:var(--baja);} .mov.anul{opacity:.6;}
   #abrirDet{margin-top:6px;}
+  /* Las cifras de arriba abren su vista; la abierta queda marcada. */
+  .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
+  .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
+  /* Por acreditar: cuánto hay en cada estado, y cada procesador con sus estados y de qué punto de venta viene. */
+  .reparto{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:6px 0 14px;}
+  .reparto .r{border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
+  .reparto .r.hacer{border-color:var(--aviso, var(--borde));}
+  .reparto .r b{display:block;font-size:.9rem;} .reparto .r .v{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums;display:block;}
+  .reparto .r .m{color:var(--mut);font-size:.82rem;}
+  .acr-p{border-top:1px solid var(--g-grilla);padding:12px 0 6px;}
+  .acr-cab{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 14px;margin-bottom:6px;}
+  .acr-cab .n{font-weight:700;} .acr-cab .d{grid-column:1;color:var(--mut);font-size:.84rem;}
+  .acr-cab .s{grid-row:1 / span 2;grid-column:2;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;}
+  .acr-e{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 14px;padding:8px 10px;margin:6px 0 0 8px;border-left:3px solid var(--line);}
+  .acr-e.revisar,.acr-e.falta_extracto,.acr-e.sin_deposito{border-left-color:var(--mal);}
+  .acr-e .n{font-weight:600;} .acr-e .s{text-align:right;font-weight:650;font-variant-numeric:tabular-nums;}
+  .acr-e .d,.acr-e .pvs,.acr-e .acc{grid-column:1 / span 2;font-size:.84rem;} .acr-e .d{color:var(--mut);}
+  .acr-e .pvs{display:flex;gap:4px 14px;flex-wrap:wrap;} .acr-e .acc{font-weight:600;justify-self:start;}
 </style>
 </head>
 <body>
@@ -45,11 +63,10 @@
   <section id="vLista">
     <div class="t-cab">
       <h1>Tablero de tesorería</h1>
-      <p class="sub">Lo disponible en bancos y cajas, lo que entró y salió en el período y lo que todavía no llegó (lo cobrado con los
-        procesadores que falta acreditar y el efectivo que los puntos de venta tienen que rendir). Una transferencia entre dos cuentas
-        disponibles no es entrada ni salida. Tocá un día o una parte de un gráfico para ver esos movimientos, y una cuenta para ver los suyos.
-        Los saldos salen de los movimientos: ninguno se escribe a mano. Las transferencias, ingresos, egresos, arqueos y cuentas nuevas
-        se cargan en Operaciones de tesorería.</p>
+      <p class="sub">Primero las cifras; tocá una para ver su detalle. Disponible: bancos y cajas. Entradas y salidas: lo que entró y salió
+        del disponible en el período (una transferencia entre dos cuentas disponibles no cuenta). Por acreditar: lo cobrado con los
+        procesadores que todavía no depositaron, y por qué. Efectivo a rendir: lo que juntaron los puntos de venta. Los saldos salen de los
+        movimientos; la plata se mueve desde Operaciones de tesorería.</p>
       <div class="t-filtros"><select id="filial" aria-label="Filial"></select></div>
     </div>
     <div class="t-cab" style="margin-top:-8px">
@@ -63,35 +80,52 @@
     <span class="msg" id="msgT0"></span>
     <div class="kpis" id="kpis"></div>
 
-    <div class="t-grid t-g2">
+    <!-- Cada cifra abre su vista (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). -->
+    <div class="vista" id="vDisponible">
+      <div class="t-grid t-g2">
+        <section class="card">
+          <h2 id="tDonde">Dónde está el disponible</h2>
+          <p class="cap" id="capDonde"></p>
+          <div id="gDonde"></div>
+          <p class="ayuda" id="descubierto" hidden></p>
+        </section>
+        <section class="card">
+          <div class="card-cab"><h2>Disponible por día</h2><div class="leyenda-linea"><span>Este período</span><span class="ant">Anterior</span></div></div>
+          <p class="cap" id="capSaldo">Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.</p>
+          <div id="gSaldo"></div>
+        </section>
+      </div>
+      <div id="grupos"></div>
+    </div>
+    <div class="vista" id="vFlujo" hidden>
       <section class="card">
-        <h2 id="tDonde">Dónde está el disponible</h2>
-        <p class="cap" id="capDonde"></p>
-        <div id="gDonde"></div>
-        <p class="ayuda" id="descubierto" hidden></p>
+        <h2>Entradas y salidas por día</h2>
+        <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
+        <div id="gFlujo"></div>
       </section>
+      <div class="t-grid t-g2">
+        <section class="card"><h2>De dónde entró</h2><p class="cap">Tocá una parte para ver esos movimientos.</p><div id="gEntradas"></div></section>
+        <section class="card"><h2>En qué salió</h2><p class="cap">Por rubro si está clasificado; si no, por lo que es.</p><div id="gSalidas"></div></section>
+      </div>
+    </div>
+    <div class="vista" id="vAcreditar" hidden>
       <section class="card">
-        <div class="card-cab"><h2>Disponible por día</h2><div class="leyenda-linea"><span>Este período</span><span class="ant">Anterior</span></div></div>
-        <p class="cap" id="capSaldo">Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.</p>
-        <div id="gSaldo"></div>
+        <div class="card-cab"><h2 id="tAcr">Por acreditar</h2></div>
+        <p class="cap">Lo cobrado con cada procesador que todavía no llegó a la cuenta donde deposita, y por qué: lo que hay que revisar
+          primero, lo que espera un extracto y lo que todavía no es la fecha.</p>
+        <div class="reparto" id="acrEstados"></div>
+        <div id="acr"></div>
+      </section>
+      <section class="card" id="cCuando" hidden>
+        <div class="card-cab"><h2 id="tCuando">Cuándo entra lo por acreditar</h2></div>
+        <p class="cap">Lo que se espera que deposite cada procesador, por el neto de costos. Informado: la fecha y el neto que da el procesador;
+          estimado: con la demora y el costo de lo que ya se acreditó.</p>
+        <div id="gCuando"></div>
+        <div id="cuandoDet"></div>
       </section>
     </div>
-    <section class="card">
-      <h2>Entradas y salidas por día</h2>
-      <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
-      <div id="gFlujo"></div>
-    </section>
-    <div class="t-grid t-g2">
-      <section class="card"><h2>De dónde entró</h2><p class="cap">Tocá una parte para ver esos movimientos.</p><div id="gEntradas"></div></section>
-      <section class="card"><h2>En qué salió</h2><p class="cap">Por rubro si está clasificado; si no, por lo que es.</p><div id="gSalidas"></div></section>
-    </div>
-    <section class="card" id="cCuando" hidden>
-      <div class="card-cab"><h2 id="tCuando">Cuándo entra lo por acreditar</h2></div>
-      <p class="cap">Lo que se espera que deposite cada procesador, por el neto de costos. Informado: la fecha y el neto que da el procesador;
-        estimado: con la demora y el costo de lo que ya se acreditó.</p>
-      <div id="gCuando"></div>
-      <div id="cuandoDet"></div>
-    </section>
+    <div class="vista" id="vEfectivo" hidden><div id="efec"></div></div>
+
     <section class="card" id="cDetalle">
       <div class="card-cab"><h2 id="tDetalle">Movimientos del período</h2><span class="cap" id="cuentaDet" style="margin:0"></span></div>
       <div class="chips" id="chips"></div>
@@ -102,7 +136,6 @@
         <p class="ayuda" id="recorte" hidden>Se muestran los 1.000 movimientos más recientes: acotá el período o elegí un filtro.</p>
       </div>
     </section>
-    <div id="grupos"></div>
   </section>
 
   <section id="vCuenta" hidden>
@@ -208,8 +241,9 @@ $('#tDesde').onchange = $('#tHasta').onchange = () => { limpiarFiltros(); cargar
 const baseFlujo = () => new URLSearchParams({ desde: $('#tDesde').value, hasta: $('#tHasta').value, filial });
 
 async function cargar() {
-  const [{ cuentas: cs }, { por_acreditar: pa }, pc] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar'), api('fin/tesoreria/por-cobrar?por_sede=1')]);
-  cuentas = cs; datos = { pa, pc };
+  const [{ cuentas: cs }, { por_acreditar: pa }] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar')]);
+  // Lo que viene de por-cobrar (cuándo entra y por qué no entró) se pide recién al abrir "Por acreditar".
+  cuentas = cs; datos = { pa, pc: null };
   await cargarFlujo();
 }
 async function cargarFlujo() {
@@ -224,8 +258,21 @@ function elegirFilial(id) {
   limpiarFiltros(); cargarFlujo();
 }
 
+// La vista abierta: la cifra que se tocó. Se recuerda.
+const VISTAS = { disponible: '#vDisponible', flujo: '#vFlujo', acreditar: '#vAcreditar', efectivo: '#vEfectivo' };
+let vista = (() => { try { const v = localStorage.getItem('tesoreria-vista'); return VISTAS[v] ? v : 'disponible'; } catch { return 'disponible'; } })();
+let ctx = null;   // lo calculado para la filial y el período, que usan las vistas
+function abrirVista(v) {
+  vista = v; try { localStorage.setItem('tesoreria-vista', v); } catch {}
+  limpiarFiltros(); $('#detalle').hidden = true; $('#abrirDet').hidden = false; $('#chips').replaceChildren(); $('#cuentaDet').textContent = '';
+  mostrarVista();
+}
+// Una cifra que se toca: la de la vista abierta queda marcada.
+const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vista) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
+  card.dataset.v = v; card.onclick = () => abrirVista(v); card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirVista(v); } }; return card; };
+
 function pintarTablero() {
-  const { pa, pc } = datos, f = flujo, a = f.anterior;
+  const f = flujo, a = f.anterior;
   const todas = cuentas.filter(c => c.activa);
   // Las filiales que tienen alguna cuenta, con su nombre; "Sin filial" al final si hace falta.
   const fs = [...new Map(todas.map(c => [filialDe(c), c.sede || 'Sin filial'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
@@ -239,9 +286,7 @@ function pintarTablero() {
   const aAcreditar = filial ? acreditarDe(todas, filial) : todas.filter(c => c.tipo === 'cobranza');
   const efectivoPV = activas.filter(c => c.punto_venta);
   const disponibles = disponiblesDe(activas);
-  const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
   const cheques = suma(activas, 'cheques_pendientes');
-
   // Series por día del período (y del anterior, para comparar): saldo al cierre, entradas y salidas.
   const serieDe = r => {
     const ds = diasEntre(r.desde, r.hasta), por = new Map(r.dias.map(d => [d.dia, d]));
@@ -249,15 +294,31 @@ function pintarTablero() {
     return { dias: ds, saldo: ds.map(d => (s += n((por.get(d) || {}).neto))), ent: ds.map(d => n((por.get(d) || {}).entradas)), sal: ds.map(d => n((por.get(d) || {}).salidas)) };
   };
   const sa = serieDe(f), sp = serieDe(a), hastaHoy = hasta >= hoy();
+  ctx = { todas, fs, activas, aAcreditar, efectivoPV, disponibles, sa, sp, hasta, hastaHoy };
   $('#kpis').replaceChildren(
-    kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo),
-    kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent),
-    kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true),
-    kpiSimple('Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'),
-    kpiSimple('Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`),
-    cheques ? kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`) : '');
+    kpiB(kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
+    kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'flujo'),
+    kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'flujo'),
+    kpiB(kpiSimple('Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'), 'acreditar'),
+    kpiB(kpiSimple('Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
+    cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
+  mostrarVista();
+}
+function mostrarVista() {
+  for (const [v, sel] of Object.entries(VISTAS)) $(sel).hidden = v !== vista;
+  $$('#kpis .kpi-b').forEach(k => k.classList.toggle('act', k.dataset.v === vista));
+  // Los movimientos del período van con lo que se mira por día: el disponible y las entradas y salidas.
+  $('#cDetalle').hidden = !['disponible', 'flujo'].includes(vista);
+  if (!ctx) return;
+  if (vista === 'disponible') pintarDisponible();
+  else if (vista === 'flujo') pintarFlujo();
+  else if (vista === 'acreditar') pintarAcreditar().catch(e => msg(e.message, 'mal', '#msgT0'));
+  else pintarEfectivo();
+}
+const alto = () => matchMedia('(max-width:899px)').matches ? 220 : 280;
 
-  const alto = matchMedia('(max-width:899px)').matches ? 220 : 280;
+function pintarDisponible() {
+  const f = flujo, { todas, fs, disponibles, sa, sp, hasta, hastaHoy } = ctx;
   // Dónde está físicamente el disponible al cierre del período: cada banco y caja con su saldo a esa fecha (pedido de Fer, 03/11/2026).
   // Lo que está en descubierto no entra en la dona: se avisa debajo.
   const enBancos = f.donde.filter(c => c.tipo === 'banco').reduce((t, c) => t + n(c.saldo), 0), enCajas = f.donde.filter(c => c.tipo === 'caja').reduce((t, c) => t + n(c.saldo), 0);
@@ -274,15 +335,79 @@ function pintarTablero() {
     etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
     serie: { nombre: 'Disponible', valores: sa.saldo, texto: i => `${pesos(String(sa.saldo[i]))} · entró ${pesos(String(sa.ent[i]))}, salió ${pesos(String(sa.sal[i]))}` },
     anterior: { nombre: 'Anterior', valores: sp.saldo, texto: i => `${pesos(String(sp.saldo[i]))} (${diaLargo(sp.dias[i])})` },
-    alElegir: i => alternar('dia', sa.dias[i]), elegido: filtros.dia ? sa.dias.indexOf(filtros.dia) : null, alto,
+    alElegir: i => alternar('dia', sa.dias[i]), elegido: filtros.dia ? sa.dias.indexOf(filtros.dia) : null, alto: alto(),
   });
-  Graf.columnasSeries($('#gFlujo'), { etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d), alto,
+  if (!filial) return resumenFiliales(todas, fs);
+  const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
+  const g = [grupo('Cuentas', pesosC(suma(disponibles)), `Bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}. También las cuentas donde depositan los procesadores. Tocá una para ver sus movimientos.`,
+    ...disponibles.map(c => filaCuenta(c, [c.tipo === 'banco' ? 'Banco' : 'Caja', c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c),
+      !cero(c.cheques_pendientes) && el('span', { className: 'tag', textContent: `cheques a debitar ${pesos(c.cheques_pendientes)}` })],
+      !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null)))];
+  const inactivas = cuentas.filter(c => !c.activa && filialDe(c) === filial && ['banco', 'caja'].includes(c.tipo));
+  if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
+    ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo]]))));
+  $('#grupos').replaceChildren(...g);
+}
+
+function pintarFlujo() {
+  const f = flujo, { sa } = ctx;
+  Graf.columnasSeries($('#gFlujo'), { etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d), alto: alto(),
     series: [{ nombre: 'Entradas', valores: sa.ent }, { nombre: 'Salidas', valores: sa.sal }] });
   const items = lado => f.categorias.filter(c => c.lado === lado).map(c => ({ clave: `${lado}|${c.cat}`, etiqueta: `${c.nombre} (${c.movimientos})`, valor: c.importe }));
   Graf.dona($('#gEntradas'), { items: items('entrada'), sub: 'entró', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
   Graf.dona($('#gSalidas'), { items: items('salida'), sub: 'salió', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
+}
 
-  // Cuándo entra lo por acreditar: columnas por día (lo atrasado primero) y, a pedido, cada día con sus procesadores.
+// Por acreditar (pedido de Fer, 07/11/2026: ver de dónde tiene que venir lo que falta cobrar). Cada procesador con lo que falta,
+// separado por por qué no llegó, y de qué punto de venta viene. Lo que hay que hacer va primero.
+const ESTADOS_ACR = [
+  ['revisar', 'Para revisar', x => `El extracto llega hasta el ${fecha(x.extracto_hasta)} y estos cobros no aparecieron: se pagaron con otro importe, en partes o por otro medio.`, ['Revisar en la conciliación', 'ingresos.html#conciliar']],
+  ['falta_extracto', 'Falta el extracto', x => x.extracto_hasta ? `Debía entrar hasta el ${fecha(x.espera_hasta)} y el extracto llega hasta el ${fecha(x.extracto_hasta)}.` : 'Todavía no se importó ningún extracto de la cuenta donde deposita.', ['Traer el extracto', 'ingresos.html#extractos']],
+  ['sin_deposito', 'Falta indicar dónde deposita', () => 'Sin la cuenta donde deposita el procesador no se puede conciliar: se elige en Medios de pago.', ['Ir a Medios de pago', 'medios-pago.html']],
+  ['lote', 'Liquidado, esperando el banco', x => `El procesador ya lo liquidó (${rangoFechas(x.espera_desde, x.espera_hasta)}): falta que aparezca en el extracto del banco.`, null],
+  ['por_venir', 'Todavía no es la fecha', x => `Se espera ${rangoFechas(x.espera_desde, x.espera_hasta, true)}.`, null],
+];
+const cobros = n => `${n} cobro${n === 1 ? '' : 's'}`;
+const rangoFechas = (d, h, futuro) => d === h ? `${futuro ? 'el ' : ''}${fecha(d)}` : `${futuro ? 'del ' : 'del '}${fecha(d)} al ${fecha(h)}`;
+async function pintarAcreditar() {
+  if (!datos.pc) { msg('Cargando lo por acreditar…', '', '#msgT0'); datos.pc = await api('fin/tesoreria/por-cobrar?por_sede=1&detalle=1'); msg('', '', '#msgT0'); }
+  if (vista !== 'acreditar') return;
+  const pc = datos.pc, { aAcreditar } = ctx;
+  const det = pc.detalle.filter(d => !filial || (d.sede_id || SIN) === filial);
+  const total = suma(aAcreditar);
+  $('#tAcr').textContent = `Por acreditar: ${pesosC(total)}`;
+  // Arriba, cuánto hay en cada estado (los que tienen algo).
+  const porEstado = ESTADOS_ACR.map(([k, t]) => [k, t, det.filter(d => d.estado === k)]).filter(x => x[2].length);
+  $('#acrEstados').replaceChildren(...porEstado.map(([k, t, xs]) => el('div', { className: 'r' + (['revisar', 'falta_extracto', 'sin_deposito'].includes(k) ? ' hacer' : '') },
+    el('b', { textContent: t }), el('span', { className: 'v', textContent: pesosC(suma(xs, 'saldo')) }),
+    el('span', { className: 'm', textContent: cobros(xs.reduce((s, x) => s + x.pagos, 0)) }))));
+  // Cada procesador: lo que falta por estado y, debajo, de qué punto de venta viene.
+  const procs = [...new Map(det.map(d => [d.procesador_id, d.procesador])).entries()]
+    .map(([id, nombre]) => ({ id, nombre, xs: det.filter(d => d.procesador_id === id) }))
+    .sort((a, b) => Number(suma(b.xs, 'saldo') - suma(a.xs, 'saldo')));
+  const bloques = procs.map(p => {
+    const x0 = p.xs[0];
+    const cab = el('div', { className: 'acr-cab' }, el('span', { className: 'n', textContent: p.nombre }),
+      el('span', { className: 'd', textContent: x0.deposita ? `deposita en ${x0.deposita}` + (x0.extracto_hasta ? ` · extracto hasta el ${fecha(x0.extracto_hasta)}` : ' · sin extractos') : 'sin cuenta donde deposita' }),
+      el('span', { className: 's', textContent: pesosC(suma(p.xs, 'saldo')) }));
+    const filasE = ESTADOS_ACR.map(([k, t, desc, acc]) => {
+      const xs = p.xs.filter(d => d.estado === k); if (!xs.length) return null;
+      const m = { ...xs[0], espera_desde: xs.map(x => x.espera_desde).sort()[0], espera_hasta: xs.map(x => x.espera_hasta).sort().at(-1) };
+      return el('div', { className: 'acr-e ' + k },
+        el('span', { className: 'n', textContent: t }), el('span', { className: 's', textContent: pesosC(suma(xs, 'saldo')) }),
+        el('span', { className: 'd', textContent: `${cobros(xs.reduce((s, x) => s + x.pagos, 0))} de ventas ${rangoFechas(xs.map(x => x.ventas_desde).sort()[0], xs.map(x => x.ventas_hasta).sort().at(-1))}. ${desc(m)}` }),
+        el('span', { className: 'pvs' }, ...xs.map(x => el('span', { textContent: `${x.punto_venta} ${pesos(x.saldo)}` }))),
+        acc ? el('a', { className: 'acc', href: acc[1], textContent: acc[0] }) : '');
+    });
+    return el('div', { className: 'acr-p' }, cab, ...filasE.filter(Boolean));
+  });
+  // Lo que las cuentas "a acreditar" tienen sin un cobro pendiente que lo explique (movimientos a mano, ajustes).
+  const otro = total - suma(det, 'saldo');
+  $('#acr').replaceChildren(...bloques, ...(otro > 100n || otro < -100n ? [el('p', { className: 'ayuda', textContent:
+    `Además, ${pesosC(otro)} en las cuentas a acreditar sin un cobro pendiente que lo explique (movimientos cargados a mano o ajustes): se ve en los movimientos de cada cuenta.` })] : []),
+    ...(det.length ? [] : [el('p', { className: 'g-vacio', textContent: 'No hay nada por acreditar.' })]));
+
+  // Cuándo entra: columnas por día (lo atrasado primero) y, a pedido, cada día con sus procesadores.
   const pcF = filial ? soloDe(pc, filial) : pc;
   $('#cCuando').hidden = !pcF.pagos;
   if (pcF.pagos) {
@@ -294,37 +419,14 @@ function pintarTablero() {
       ejeX: d => d === 'atrasado' ? 'atras.' : fecha(d).slice(0, 5), titulo: d => d === 'atrasado' ? 'Atrasado' : diaLargo(d) });
     $('#cuandoDet').replaceChildren(el('details', { className: 'inact' }, el('summary', { textContent: 'Ver por día y procesador' }), cuandoEntra(pcF)));
   }
+}
 
-  if (!filial) return resumenFiliales(todas, fs);
-  const g = [];
-  g.push(grupo('Disponible', pesosC(suma(disponibles)), `Bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}. También las cuentas donde depositan los procesadores.`,
-    ...disponibles.map(c => filaCuenta(c, [c.tipo === 'banco' ? 'Banco' : 'Caja', c.sede, c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c),
-      !cero(c.cheques_pendientes) && el('span', { className: 'tag', textContent: `cheques a debitar ${pesos(c.cheques_pendientes)}` })],
-      !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null))));
-
-  // Por acreditar: cada procesador con su cuenta "a acreditar" y, debajo, de qué punto de venta viene lo que falta.
-  const porProc = aAcreditar.map(c => {
-    const pvs = pa.filter(x => x.cuenta_id === c.id && (x.sede_id || SIN) === filial);
-    const deposita = todas.find(x => x.procesador_deposita && c.procesador_pendiente && x.procesador_deposita.split(', ').includes(c.procesador_pendiente));
-    return el('div', {}, filaCuenta(c, [c.procesador_pendiente ? `Procesador ${c.procesador_pendiente}` : 'Cobranza', deposita ? `deposita en ${deposita.nombre}` : 'falta indicar dónde deposita',
-      c.compartida && el('span', { className: 'tag', title: 'La cuenta la usan también otros puntos de venta: acá va sólo lo cobrado en esta filial.', textContent: 'cuenta compartida: lo de esta filial' })]),
-      ...pvs.map(x => el('div', { className: 'pv' }, el('span', {}, el('b', { textContent: x.punto_venta }),
-        ` · ${x.pagos} cobro(s) desde el ${fecha(x.desde)}` + (x.en_lote ? ` · ${x.en_lote} en lotes esperando el depósito` : '')),
-        el('span', { className: 'i', textContent: pesos(x.importe) }))));
-  });
-  if (aAcreditar.length) g.push(grupo('Por acreditar', pesosC(suma(aAcreditar)),
-    'Lo cobrado con tarjetas, QR y transferencias que el procesador todavía no depositó. Se acredita al conciliar el extracto de la cuenta donde deposita.',
-    ...porProc, el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Conciliar extractos', onclick: () => { location.href = 'ingresos.html#extractos'; } }))));
-
-  if (efectivoPV.length) g.push(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
-    'Lo cobrado en efectivo que el punto de venta todavía no rindió. Se rinde cuando la plata entra a una caja o al banco de la empresa.',
-    ...efectivoPV.map(c => filaCuenta(c, [`Punto de venta ${c.punto_venta}`])),
+function pintarEfectivo() {
+  const { efectivoPV } = ctx;
+  $('#efec').replaceChildren(grupo('Efectivo en los puntos de venta', pesosC(suma(efectivoPV)),
+    'Lo cobrado en efectivo que el punto de venta todavía no rindió. Se rinde cuando la plata entra a una caja o al banco de la empresa. Tocá uno para ver sus movimientos.',
+    ...(efectivoPV.length ? efectivoPV.map(c => filaCuenta(c, [`Punto de venta ${c.punto_venta}`])) : [el('p', { className: 'g-vacio', textContent: 'No hay efectivo a rendir.' })]),
     el('div', { className: 'acc-t' }, el('button', { type: 'button', textContent: 'Rendir efectivo', onclick: () => { location.href = 'ingresos.html#efectivo'; } }))));
-
-  const inactivas = cuentas.filter(c => !c.activa && filialDe(c) === filial);
-  if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
-    ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo], c.tipo === 'cartera' ? 'desactivada: sin cheques de terceros por ahora' : null]))));
-  $('#grupos').replaceChildren(...g);
 }
 
 // "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.

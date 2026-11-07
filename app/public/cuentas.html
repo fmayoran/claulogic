@@ -5,11 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cuentas · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
 <style>
   /* Las cuentas de tesorería se configuran acá (pedido de Fer, 07/11/2026: estaban en Operaciones de tesorería, que queda para lo
      que mueve plata). Junto a Medios de pago, donde se elige en qué cuenta deposita cada procesador. */
-  .neg{color:var(--mal);}
-  .para{color:var(--mut);font-size:.88rem;}
+  /* Por tipo de cuenta, cada uno con lo que le importa, y sin saldos: los saldos se miran en el Tablero de tesorería (07/11/2026). */
+  .para{color:var(--mut);font-size:.88rem;white-space:normal;}
+  .tipo-ayuda{color:var(--mut);font-size:.88rem;margin:0 0 10px;}
   details.inact summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.9rem;margin-top:10px;}
   .barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px;}
   @media (max-width:600px){ .barra button{flex:1;} }
@@ -18,15 +20,17 @@
 <body>
 <main class="ancho">
   <h1>Cuentas</h1>
-  <p class="sub">Bancos, cajas y cuentas de cobranza con las que trabaja tesorería. Las de efectivo de los puntos de venta y las "a acreditar"
-    de los procesadores se crean solas; en qué banco deposita cada procesador se elige en Medios de pago. El saldo sale de los movimientos:
-    para mover plata, Operaciones de tesorería.</p>
-  <div class="barra"><button class="prim" id="nuevaCuenta">Nueva cuenta</button><span class="msg" id="msgOk"></span></div>
+  <p class="sub">Las cuentas con las que trabaja tesorería, por tipo. Las de efectivo de los puntos de venta y las "a acreditar" de los
+    procesadores se crean solas; en qué banco deposita cada procesador se elige en Medios de pago. Los saldos se miran en el Tablero de
+    tesorería y la plata se mueve desde Operaciones de tesorería.</p>
+  <div class="barra">
+    <div class="segm" id="tipos" role="group" aria-label="Tipo de cuenta"></div>
+    <button class="prim" id="nuevaCuenta">Nueva cuenta</button><span class="msg" id="msgOk"></span>
+  </div>
 
   <section class="card">
-    <div class="tabla-wrap"><table class="datos movil" id="tCuentas">
-      <thead><tr><th>Cuenta</th><th>Tipo</th><th>Para qué es</th><th>Filial</th><th class="num">Saldo</th><th></th></tr></thead>
-      <tbody id="cuentas"></tbody></table></div>
+    <p class="tipo-ayuda" id="tipoAyuda"></p>
+    <div class="tabla-wrap"><table class="datos movil" id="tCuentas"><thead id="cab"></thead><tbody id="cuentas"></tbody></table></div>
     <div id="inactivas"></div>
   </section>
 </main>
@@ -50,19 +54,48 @@ const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobr
 let cuentas = [], sedes = [];
 $$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
 const hecho = t => msg(t, 'ok', '#msgOk');
-// Para qué es: la "a acreditar" de un procesador, donde deposita uno, o el efectivo de un punto de venta.
-const para = c => [c.procesador_pendiente && `A acreditar de ${c.procesador_pendiente}`, c.procesador_deposita && `Deposita ${c.procesador_deposita}`,
-  c.punto_venta && `Efectivo de ${c.punto_venta}`, c.tipo === 'cartera' && 'Cheques de terceros (del sistema)'].filter(Boolean).join(' · ');
+// Cada grupo con sus columnas: lo que hace falta para reconocer la cuenta y para qué sirve.
+const TIPOS_CTA = [
+  { id: 'banco', nombre: 'Bancos', de: c => c.tipo === 'banco',
+    ayuda: 'Cuentas bancarias y billeteras: también donde depositan los procesadores.',
+    cols: ['Cuenta', 'Banco y número', 'Filial', 'Deposita'],
+    fila: c => [c.nombre, [c.banco, c.numero, c.cbu && 'CBU ' + c.cbu, c.alias && 'alias ' + c.alias].filter(Boolean).join(' · '), c.sede || 'Sin filial', c.procesador_deposita || ''] },
+  { id: 'caja', nombre: 'Cajas', de: c => c.tipo === 'caja' && !c.punto_venta,
+    ayuda: 'El efectivo de la empresa: la caja de cada sede, donde se rinde lo que juntan los puntos de venta.',
+    cols: ['Cuenta', 'Sede'], fila: c => [c.nombre, c.sede || ''] },
+  { id: 'efectivo', nombre: 'Efectivo de puntos de venta', de: c => c.tipo === 'caja' && !!c.punto_venta,
+    ayuda: 'Lo cobrado en efectivo que cada punto de venta todavía no rindió. Se crean solas con el punto de venta.',
+    cols: ['Cuenta', 'Punto de venta', 'Sede'], fila: c => [c.nombre, c.punto_venta, c.sede || ''] },
+  { id: 'cobranza', nombre: 'A acreditar', de: c => c.tipo === 'cobranza',
+    ayuda: 'Lo cobrado con cada procesador (tarjetas, QR, PedidosYa) hasta que lo deposita. Se crean solas con el procesador, en Medios de pago.',
+    cols: ['Cuenta', 'Procesador', 'Filial'], fila: c => [c.nombre, c.procesador_pendiente || '', c.sede || 'Sin filial'] },
+  { id: 'cartera', nombre: 'Cheques de terceros', de: c => c.tipo === 'cartera',
+    ayuda: 'Cuenta del sistema donde quedan los cheques de terceros recibidos.',
+    cols: ['Cuenta'], fila: c => [c.nombre] },
+];
+let grupo = (() => { try { return localStorage.getItem('cuentas-tipo') || 'banco'; } catch { return 'banco'; } })();
 
 async function cargar() {
   ({ cuentas } = await api('fin/cuentas'));
-  const fila = c => el('tr', {}, td(c.nombre), td(TIPO[c.tipo]), el('td', { className: 'para', textContent: para(c) }),
-    td(c.sede || ''), td(pesos(c.saldo), 'num' + (c.saldo.startsWith('-') ? ' neg' : '')),
+  pintar();
+}
+function pintar() {
+  // La cartera sólo aparece si está activa (hoy no se usan cheques de terceros).
+  const visibles = TIPOS_CTA.filter(g => g.id !== 'cartera' || cuentas.some(c => g.de(c) && c.activa));
+  if (!visibles.some(g => g.id === grupo)) grupo = 'banco';
+  $('#tipos').replaceChildren(...visibles.map(g => el('button', { type: 'button', className: g.id === grupo ? 'act' : '',
+    textContent: `${g.nombre} (${cuentas.filter(c => c.activa && g.de(c)).length})`,
+    onclick: () => { grupo = g.id; try { localStorage.setItem('cuentas-tipo', g.id); } catch {} pintar(); } })));
+  const g = TIPOS_CTA.find(x => x.id === grupo);
+  $('#tipoAyuda').textContent = g.ayuda;
+  $('#cab').replaceChildren(el('tr', {}, ...g.cols.map(t => el('th', { textContent: t })), el('th')));
+  const fila = c => el('tr', {}, ...g.fila(c).map((v, i) => td(v, i ? 'para' : '')),
     el('td', {}, c.tipo === 'cartera' ? '' : el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirCuenta(c) })));
-  filas($('#cuentas'), cuentas.filter(c => c.activa), fila, 'Sin cuentas cargadas.', 6);
+  const de = cuentas.filter(g.de);
+  filas($('#cuentas'), de.filter(c => c.activa), fila, 'No hay cuentas de este tipo.', g.cols.length + 1);
   etiquetarTabla($('#tCuentas'));
-  const inact = cuentas.filter(c => !c.activa);
-  $('#inactivas').replaceChildren(inact.length ? el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inact.length})` }),
+  const inact = de.filter(c => !c.activa);
+  $('#inactivas').replaceChildren(inact.length ? el('details', { className: 'inact' }, el('summary', { textContent: `Inactivas (${inact.length})` }),
     el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' }, el('tbody', {}, ...inact.map(fila))))) : '');
   const ti = $('#inactivas table'); if (ti) etiquetarTabla(ti);
 }
@@ -92,7 +125,8 @@ fc.onsubmit = async e => {
     $('#dCuenta').close(); hecho(fc.dataset.id ? 'Cuenta guardada.' : `Cuenta "${body.nombre}" creada.`); await cargar();
   } catch (e) { msg(e.message, 'mal', '#msgC'); }
 };
-$('#nuevaCuenta').onclick = () => abrirCuenta();
+// La cuenta nueva arranca con el tipo de la pestaña.
+$('#nuevaCuenta').onclick = () => { abrirCuenta(); fc.tipo.value = grupo === 'cobranza' ? 'cobranza' : grupo === 'banco' ? 'banco' : 'caja'; fc.tipo.onchange(); sinCambios(fc); };
 
 // Desde otras pantallas: #nueva o #editar=<cuenta>.
 function ruta() {
