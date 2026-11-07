@@ -42,20 +42,31 @@
   .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
   .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
   /* Por acreditar: cuánto hay en cada estado, y cada procesador con sus estados y de qué punto de venta viene. */
-  .reparto{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:6px 0 14px;}
+  .reparto{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:6px 0 14px;}
   .reparto .r{border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
   .reparto .r.hacer{border-color:var(--aviso, var(--borde));}
   .reparto .r b{display:block;font-size:.9rem;} .reparto .r .v{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums;display:block;}
   .reparto .r .m{color:var(--mut);font-size:.82rem;}
-  .acr-p{border-top:1px solid var(--g-grilla);padding:12px 0 6px;}
-  .acr-cab{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 14px;margin-bottom:6px;}
-  .acr-cab .n{font-weight:700;} .acr-cab .d{grid-column:1;color:var(--mut);font-size:.84rem;}
-  .acr-cab .s{grid-row:1 / span 2;grid-column:2;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;}
-  .acr-e{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 14px;padding:8px 10px;margin:6px 0 0 8px;border-left:3px solid var(--line);}
-  .acr-e.revisar,.acr-e.falta_extracto,.acr-e.sin_deposito{border-left-color:var(--mal);}
-  .acr-e .n{font-weight:600;} .acr-e .s{text-align:right;font-weight:650;font-variant-numeric:tabular-nums;}
-  .acr-e .d,.acr-e .pvs,.acr-e .acc{grid-column:1 / span 2;font-size:.84rem;} .acr-e .d{color:var(--mut);}
-  .acr-e .pvs{display:flex;gap:4px 14px;flex-wrap:wrap;} .acr-e .acc{font-weight:600;justify-self:start;}
+  .reparto button.r{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:10px;padding:10px 12px;}
+  .reparto button.r:hover{background:var(--sel);} .reparto button.r:focus-visible{outline:2px solid var(--acento);}
+  .reparto button.r.hacer{border-color:var(--mal);}
+  /* Grilla procesador por estado: sólo importes, cada uno abre su detalle. */
+  button.imp,button.link{all:unset;cursor:pointer;font-variant-numeric:tabular-nums;} button.imp{border-bottom:1px dotted var(--mut);}
+  button.imp.hacer{color:var(--mal);} button.imp.tot{font-weight:700;border-bottom:0;} button.link{font-weight:600;}
+  button.imp:hover,button.link:hover{color:var(--acento);} button.imp:focus-visible,button.link:focus-visible{outline:2px solid var(--acento);}
+  #tAcrG th{white-space:normal;vertical-align:bottom;} #tAcrG td.num{white-space:nowrap;}
+  @media (max-width:700px){ #tAcrG td.vacia{display:none !important;} }
+  /* Panel lateral de un importe por acreditar. */
+  #dlgAcr h2{margin:0 0 2px;font-size:1.2rem;padding-right:36px;} #dlgAcr .a-imp{font-size:1.7rem;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums;}
+  #dlgAcr .cap{color:var(--mut);font-size:.88rem;margin:0 0 12px;}
+  #dlgAcr .a-est{border-top:1px solid var(--g-grilla);padding:12px 0;}
+  #dlgAcr h3{display:flex;justify-content:space-between;gap:10px;font-size:.95rem;margin:0 0 4px;}
+  #dlgAcr .linea{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:7px 0;border-bottom:1px solid var(--g-grilla);}
+  #dlgAcr .linea .d{display:flex;flex-direction:column;} #dlgAcr .linea small{color:var(--mut);font-size:.82rem;}
+  #dlgAcr .linea .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
+  #dlgAcr .boton{display:inline-block;margin-top:10px;font-weight:600;}
+  .cerrar-x{all:unset;position:absolute;top:14px;right:16px;font-size:1.6rem;line-height:1;cursor:pointer;color:var(--mut);padding:4px 8px;border-radius:8px;}
+  .cerrar-x:hover{background:var(--sel);color:var(--fg);}
 </style>
 </head>
 <body>
@@ -111,15 +122,13 @@
     <div class="vista" id="vAcreditar" hidden>
       <section class="card">
         <div class="card-cab"><h2 id="tAcr">Por acreditar</h2></div>
-        <p class="cap">Lo cobrado con cada procesador que todavía no llegó a la cuenta donde deposita, y por qué: lo que hay que revisar
-          primero, lo que espera un extracto y lo que todavía no es la fecha.</p>
+        <p class="cap">Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.</p>
         <div class="reparto" id="acrEstados"></div>
         <div id="acr"></div>
       </section>
       <section class="card" id="cCuando" hidden>
         <div class="card-cab"><h2 id="tCuando">Cuándo entra lo por acreditar</h2></div>
-        <p class="cap">Lo que se espera que deposite cada procesador, por el neto de costos. Informado: la fecha y el neto que da el procesador;
-          estimado: con la demora y el costo de lo que ya se acreditó.</p>
+        <p class="cap">Lo que se espera que deposite cada procesador, por día y neto de costos.</p>
         <div id="gCuando"></div>
         <div id="cuandoDet"></div>
       </section>
@@ -155,6 +164,14 @@
       <tbody id="cMovs"></tbody></table></div>
   </section>
 </main>
+
+<dialog id="dlgAcr" class="panel-lado">
+  <button type="button" class="cerrar-x" id="aCerrar" aria-label="Cerrar">×</button>
+  <h2 id="aTitulo"></h2>
+  <p class="a-imp" id="aImporte"></p>
+  <p class="cap" id="aDatos"></p>
+  <div id="aCuerpo"></div>
+</dialog>
 
 <script src="comun.js"></script>
 <script src="graficos.js"></script>
@@ -299,8 +316,8 @@ function pintarTablero() {
     kpiB(kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
     kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'flujo'),
     kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'flujo'),
-    kpiB(kpiSimple('Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado con los procesadores, todavía no depositado'), 'acreditar'),
-    kpiB(kpiSimple('Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
+    kpiB(kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
+    kpiB(kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
     cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
   mostrarVista();
 }
@@ -358,60 +375,60 @@ function pintarFlujo() {
   Graf.dona($('#gSalidas'), { items: items('salida'), sub: 'salió', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
 }
 
-// Por acreditar (pedido de Fer, 07/11/2026: ver de dónde tiene que venir lo que falta cobrar). Cada procesador con lo que falta,
-// separado por por qué no llegó, y de qué punto de venta viene. Lo que hay que hacer va primero.
+// Por acreditar (pedido de Fer, 07/11/2026: ver de dónde tiene que venir lo que falta cobrar; y sin mezclar números con texto).
+// La vista es sólo números: cuánto hay en cada estado y una grilla procesador por estado. Tocar un importe abre un panel con la
+// explicación, de qué punto de venta viene y qué hacer.
 const ESTADOS_ACR = [
   ['revisar', 'Para revisar', x => `El extracto llega hasta el ${fecha(x.extracto_hasta)} y estos cobros no aparecieron: se pagaron con otro importe, en partes o por otro medio.`, ['Revisar en la conciliación', 'ingresos.html#conciliar']],
   ['falta_extracto', 'Falta el extracto', x => x.extracto_hasta ? `Debía entrar hasta el ${fecha(x.espera_hasta)} y el extracto llega hasta el ${fecha(x.extracto_hasta)}.` : 'Todavía no se importó ningún extracto de la cuenta donde deposita.', ['Traer el extracto', 'ingresos.html#extractos']],
-  ['sin_deposito', 'Falta indicar dónde deposita', () => 'Sin la cuenta donde deposita el procesador no se puede conciliar: se elige en Medios de pago.', ['Ir a Medios de pago', 'medios-pago.html']],
-  ['lote', 'Liquidado, esperando el banco', x => `El procesador ya lo liquidó (${rangoFechas(x.espera_desde, x.espera_hasta)}): falta que aparezca en el extracto del banco.`, null],
-  ['por_venir', 'Todavía no es la fecha', x => `Se espera ${rangoFechas(x.espera_desde, x.espera_hasta, true)}.`, null],
+  ['sin_deposito', 'Sin cuenta de depósito', () => 'Falta indicar en qué cuenta deposita el procesador: sin eso no se puede conciliar.', ['Ir a Medios de pago', 'medios-pago.html']],
+  ['lote', 'Esperando el banco', x => `El procesador ya lo liquidó (${rangoFechas(x.espera_desde, x.espera_hasta)}): falta que aparezca en el extracto del banco.`, null],
+  ['por_venir', 'Por venir', x => `Se espera ${rangoFechas(x.espera_desde, x.espera_hasta, true)}.`, null],
 ];
+const A_HACER = ['revisar', 'falta_extracto', 'sin_deposito'];
 const cobros = n => `${n} cobro${n === 1 ? '' : 's'}`;
-const rangoFechas = (d, h, futuro) => d === h ? `${futuro ? 'el ' : ''}${fecha(d)}` : `${futuro ? 'del ' : 'del '}${fecha(d)} al ${fecha(h)}`;
+const rangoFechas = (d, h, futuro) => d === h ? `${futuro ? 'el ' : ''}${fecha(d)}` : `del ${fecha(d)} al ${fecha(h)}`;
+const pagosDe = xs => xs.reduce((s, x) => s + x.pagos, 0);
+let detAcr = [];
 async function pintarAcreditar() {
   if (!datos.pc) { msg('Cargando lo por acreditar…', '', '#msgT0'); datos.pc = await api('fin/tesoreria/por-cobrar?por_sede=1&detalle=1'); msg('', '', '#msgT0'); }
   if (vista !== 'acreditar') return;
   const pc = datos.pc, { aAcreditar } = ctx;
-  const det = pc.detalle.filter(d => !filial || (d.sede_id || SIN) === filial);
+  const det = detAcr = pc.detalle.filter(d => !filial || (d.sede_id || SIN) === filial);
   const total = suma(aAcreditar);
   $('#tAcr').textContent = `Por acreditar: ${pesosC(total)}`;
-  // Arriba, cuánto hay en cada estado (los que tienen algo).
-  const porEstado = ESTADOS_ACR.map(([k, t]) => [k, t, det.filter(d => d.estado === k)]).filter(x => x[2].length);
-  $('#acrEstados').replaceChildren(...porEstado.map(([k, t, xs]) => el('div', { className: 'r' + (['revisar', 'falta_extracto', 'sin_deposito'].includes(k) ? ' hacer' : '') },
-    el('b', { textContent: t }), el('span', { className: 'v', textContent: pesosC(suma(xs, 'saldo')) }),
-    el('span', { className: 'm', textContent: cobros(xs.reduce((s, x) => s + x.pagos, 0)) }))));
-  // Cada procesador: lo que falta por estado y, debajo, de qué punto de venta viene.
+  const estados = ESTADOS_ACR.filter(([k]) => det.some(d => d.estado === k));
+  // Arriba, cuánto hay en cada estado; tocar uno abre su detalle.
+  $('#acrEstados').replaceChildren(...estados.map(([k, t]) => {
+    const xs = det.filter(d => d.estado === k);
+    const b = el('button', { type: 'button', className: 'r' + (A_HACER.includes(k) ? ' hacer' : '') },
+      el('b', { textContent: t }), el('span', { className: 'v', textContent: pesosC(suma(xs, 'saldo')) }), el('span', { className: 'm', textContent: cobros(pagosDe(xs)) }));
+    b.onclick = () => panelAcr(null, k);
+    return b;
+  }));
+  // La grilla: un procesador por renglón, un estado por columna. Cada importe abre su detalle.
   const procs = [...new Map(det.map(d => [d.procesador_id, d.procesador])).entries()]
     .map(([id, nombre]) => ({ id, nombre, xs: det.filter(d => d.procesador_id === id) }))
     .sort((a, b) => Number(suma(b.xs, 'saldo') - suma(a.xs, 'saldo')));
-  const bloques = procs.map(p => {
-    const x0 = p.xs[0];
-    const cab = el('div', { className: 'acr-cab' }, el('span', { className: 'n', textContent: p.nombre }),
-      el('span', { className: 'd', textContent: x0.deposita ? `deposita en ${x0.deposita}` + (x0.extracto_hasta ? ` · extracto hasta el ${fecha(x0.extracto_hasta)}` : ' · sin extractos') : 'sin cuenta donde deposita' }),
-      el('span', { className: 's', textContent: pesosC(suma(p.xs, 'saldo')) }));
-    const filasE = ESTADOS_ACR.map(([k, t, desc, acc]) => {
-      const xs = p.xs.filter(d => d.estado === k); if (!xs.length) return null;
-      const m = { ...xs[0], espera_desde: xs.map(x => x.espera_desde).sort()[0], espera_hasta: xs.map(x => x.espera_hasta).sort().at(-1) };
-      return el('div', { className: 'acr-e ' + k },
-        el('span', { className: 'n', textContent: t }), el('span', { className: 's', textContent: pesosC(suma(xs, 'saldo')) }),
-        el('span', { className: 'd', textContent: `${cobros(xs.reduce((s, x) => s + x.pagos, 0))} de ventas ${rangoFechas(xs.map(x => x.ventas_desde).sort()[0], xs.map(x => x.ventas_hasta).sort().at(-1))}. ${desc(m)}` }),
-        el('span', { className: 'pvs' }, ...xs.map(x => el('span', { textContent: `${x.punto_venta} ${pesos(x.saldo)}` }))),
-        acc ? el('a', { className: 'acc', href: acc[1], textContent: acc[0] }) : '');
-    });
-    return el('div', { className: 'acr-p' }, cab, ...filasE.filter(Boolean));
-  });
-  // Lo que las cuentas "a acreditar" tienen sin un cobro pendiente que lo explique (movimientos a mano, ajustes).
+  const celda = (p, k) => {
+    const xs = p.xs.filter(d => !k || d.estado === k);
+    if (!xs.length) return td('—', 'num mut vacia');
+    return el('td', { className: 'num' }, el('button', { type: 'button', className: 'imp' + (k && A_HACER.includes(k) ? ' hacer' : '') + (k ? '' : ' tot'),
+      textContent: pesosC(suma(xs, 'saldo')), onclick: () => panelAcr(p.id, k) }));
+  };
   const otro = total - suma(det, 'saldo');
-  $('#acr').replaceChildren(...bloques, ...(otro > 100n || otro < -100n ? [el('p', { className: 'ayuda', textContent:
-    `Además, ${pesosC(otro)} en las cuentas a acreditar sin un cobro pendiente que lo explique (movimientos cargados a mano o ajustes): se ve en los movimientos de cada cuenta.` })] : []),
-    ...(det.length ? [] : [el('p', { className: 'g-vacio', textContent: 'No hay nada por acreditar.' })]));
+  $('#acr').replaceChildren(det.length ? el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil', id: 'tAcrG' },
+    el('thead', {}, el('tr', {}, el('th', { textContent: 'Procesador' }), ...estados.map(([, t]) => el('th', { className: 'num', textContent: t })), el('th', { className: 'num', textContent: 'Total' }))),
+    el('tbody', {}, ...procs.map(p => el('tr', {}, el('td', {}, el('button', { type: 'button', className: 'link', textContent: p.nombre, onclick: () => panelAcr(p.id, null) })),
+      ...estados.map(([k]) => celda(p, k)), celda(p, null)))))) : el('p', { className: 'g-vacio', textContent: 'No hay nada por acreditar.' }),
+    ...(otro > 100n || otro < -100n ? [el('p', { className: 'ayuda', textContent: `Además, ${pesosC(otro)} en las cuentas a acreditar sin un cobro pendiente que lo explique.` })] : []));
+  if (det.length) etiquetarTabla($('#tAcrG'));
 
   // Cuándo entra: columnas por día (lo atrasado primero) y, a pedido, cada día con sus procesadores.
   const pcF = filial ? soloDe(pc, filial) : pc;
   $('#cCuando').hidden = !pcF.pagos;
   if (pcF.pagos) {
-    $('#tCuando').textContent = `Cuándo entra lo por acreditar: ${pesos(pcF.neto)} netos`;
+    $('#tCuando').textContent = `Cuándo entra: ${pesos(pcF.neto)} netos`;
     const porDia = new Map();
     for (const d of pcF.dias) porDia.set(d.fecha, (porDia.get(d.fecha) || 0) + n(d.neto));
     const cols = [...(pcF.atrasado.length ? [['atrasado', pcF.atrasado.reduce((t, x) => t + n(x.neto), 0)]] : []), ...porDia];
@@ -419,6 +436,31 @@ async function pintarAcreditar() {
       ejeX: d => d === 'atrasado' ? 'atras.' : fecha(d).slice(0, 5), titulo: d => d === 'atrasado' ? 'Atrasado' : diaLargo(d) });
     $('#cuandoDet').replaceChildren(el('details', { className: 'inact' }, el('summary', { textContent: 'Ver por día y procesador' }), cuandoEntra(pcF)));
   }
+}
+// El panel: un procesador (todos sus estados), un estado (todos los procesadores) o los dos. Primero el importe; después, por
+// estado, la explicación, de qué punto de venta viene y qué hacer.
+function panelAcr(proc, estado) {
+  const xs = detAcr.filter(d => (!proc || d.procesador_id === proc) && (!estado || d.estado === estado));
+  if (!xs.length) return;
+  const nombreE = k => ESTADOS_ACR.find(e => e[0] === k)[1];
+  $('#aTitulo').textContent = [proc ? xs[0].procesador : null, estado ? nombreE(estado) : null].filter(Boolean).join(' · ');
+  $('#aImporte').textContent = pesosC(suma(xs, 'saldo'));
+  $('#aDatos').textContent = proc ? (xs[0].deposita ? `Deposita en ${xs[0].deposita}` + (xs[0].extracto_hasta ? ` · extracto hasta el ${fecha(xs[0].extracto_hasta)}` : ' · sin extractos') : 'Sin cuenta donde deposita') : cobros(pagosDe(xs));
+  const bloques = ESTADOS_ACR.filter(([k]) => xs.some(d => d.estado === k)).map(([k, t, desc, acc]) => {
+    const ys = xs.filter(d => d.estado === k);
+    const m = { ...ys[0], espera_desde: ys.map(x => x.espera_desde).sort()[0], espera_hasta: ys.map(x => x.espera_hasta).sort().at(-1) };
+    return el('section', { className: 'a-est' },
+      estado ? '' : el('h3', {}, el('span', { textContent: t }), el('span', { textContent: pesosC(suma(ys, 'saldo')) })),
+      // Con todos los procesadores, la explicación depende de cada uno: se dice debajo de cada renglón.
+      proc ? el('p', { className: 'cap', textContent: desc(m) }) : '',
+      el('div', { className: 'lineas' }, ...ys.map(x => el('div', { className: 'linea' },
+        el('span', { className: 'd' }, el('b', { textContent: proc ? x.punto_venta : `${x.procesador} · ${x.punto_venta}` }),
+          el('small', { textContent: `${cobros(x.pagos)} · ventas ${rangoFechas(x.ventas_desde, x.ventas_hasta)}` + (proc ? '' : ` · ${desc(x)}`) })),
+        el('span', { className: 'i', textContent: pesos(x.saldo) })))),
+      acc ? el('a', { className: 'boton', href: acc[1], textContent: acc[0] }) : '');
+  });
+  $('#aCuerpo').replaceChildren(...bloques);
+  $('#dlgAcr').showModal();
 }
 
 function pintarEfectivo() {
@@ -557,6 +599,8 @@ function ruta() {
   if (!id) { actual = null; if (flujo) pintarTablero(); return; }
   verCuenta(id).catch(e => alert(e.message));
 }
+$('#aCerrar').onclick = () => $('#dlgAcr').close();
+$('#dlgAcr').addEventListener('click', e => { if (e.target === $('#dlgAcr')) $('#dlgAcr').close(); });
 addEventListener('hashchange', ruta);
 (async () => {
   const pg = (() => { try { return localStorage.getItem('tesoreria-periodo'); } catch { return null; } })();

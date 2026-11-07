@@ -274,7 +274,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   movimientos del período van con Disponible y Entradas y salidas. Por acreditar (`/fin/tesoreria/por-cobrar?detalle=1`, se pide al
   abrirla) dice de dónde tiene que venir lo que falta y por qué no llegó: **para revisar** (el extracto ya cubre la fecha esperada y no
   apareció), **falta el extracto**, **falta indicar dónde deposita**, **liquidado esperando el banco** (lote) y **todavía no es la
-  fecha**; por procesador y punto de venta, sumando como el saldo de la cuenta (PedidosYa por el neto). La consulta del flujo
+  fecha**; por procesador y punto de venta, sumando como el saldo de la cuenta (PedidosYa por el neto). La vista es sólo números
+  (cuánto hay en cada estado y una grilla procesador por estado); tocar un importe abre un panel lateral con la explicación, de qué
+  punto de venta viene y qué hacer (pedido de Fer: no mezclar números con texto). La cifra dice "Por acreditar", no "hoy": cuándo
+  entra lo dice el detalle. La consulta del flujo
   (`CATEGORIA_TES`) va materializada y con índice en `movimiento_tes.transferencia_id` (migración 20261128): octubre tardaba 14 s.
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
   `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:
@@ -801,8 +804,8 @@ corriente, Cheques), Stock, Producción (con Platos de carta), Control; las pant
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
 y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Cuentas, Rubros y reglas, Almacenes, Unidades productivas, Usuarios)
 al final. **Cuentas** (`cuentas.html`, decisión de Fer, 07/11/2026: crear o editar una cuenta es configuración, no operación): alta y
-edición, en pestañas por tipo (Bancos, Cajas, Efectivo de puntos de venta, A acreditar), cada una con sus columnas y sin saldos (los
-saldos, en el Tablero de tesorería); `#nueva` y
+edición, en pestañas por tipo (Bancos, Cajas, Efectivo de puntos de venta, A acreditar), cada una con pocas columnas y sin saldos (los
+saldos, en el Tablero de tesorería); los datos completos (número, CBU, alias) en un panel con "Ver", y desde ahí "Editar"; `#nueva` y
 `#editar=<cuenta>` (los enlaces viejos a Operaciones de tesorería redirigen). En Medios de pago, "Deposita en" termina en "+ Nueva cuenta
 bancaria…" (`nuevaCuentaBanco` en `comun.js`).
 Barra lateral agrupada desde
