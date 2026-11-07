@@ -104,6 +104,9 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
       // deliveries vacíos del 22/10 figuraban como abiertos).
       const anulada = a.saleState === 'CANCELED';
       if (!anulada && (a.saleState !== 'CLOSED' || !a.closedAt)) {
+        // Una abierta en $0 no cambia lo vendido ni lo cobrado: no frena el día (decisión de Fer, 07/11/2026). Si después se
+        // le carga algo, llega al volver a traer el día.
+        if (!Number(a.total || 0)) continue;
         if (a.createdAt) {
           const dia = diaLocal(a.createdAt), mesa = ids(rel.table)[0], mozo = ids(rel.waiter)[0];
           abiertas[dia] = (abiertas[dia] || 0) + 1;

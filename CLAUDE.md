@@ -391,7 +391,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     el unitario es price / cantidad.
   - Las **ventas vacías** (sin productos ni pagos) se ignoran. Una mesa todavía abierta llega al volver a
     sincronizar ese día. **Abierta = ni CLOSED ni CANCELED**: Fudo anula sin `closedAt` los deliveries
-    descartados (el 22/10 dos así figuraban como abiertos); una anulada sin cierre toma la apertura.
+    descartados (el 22/10 dos así figuraban como abiertos); una anulada sin cierre toma la apertura. Una abierta **en $0** no cuenta como
+    abierta ni frena el día (decisión de Fer, 07/11/2026: un "para llevar" del 06/11 quedó abierto sin nada cargado).
   - `saleType`: `EAT-IN` salón, `TAKEAWAY` para llevar, `DELIVERY` delivery (antes del 25/10 el delivery se
     guardaba como salón; los tickets ya importados no se reescriben).
   Las ventas traen además `discounts`, `tips` y `shippingCosts`, que todavía no se leen. Los errores de Fudo
