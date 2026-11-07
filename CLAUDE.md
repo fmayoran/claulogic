@@ -782,11 +782,15 @@ no se toma. **Panel** (`index.html`, pedido de Fer, 01/11/2026): atajos arriba y
 acción; el detalle, a pedido ("Ver"); lo que está en orden, en una línea "Al día". **El menú va por proceso** (decisión de Fer,
 27/10/2026; reordenado el 03/11/2026): Inicio con los tableros (Panel, Tablero de ventas, Tablero de tesorería, Tablero, Estado de
 resultados), Operaciones con los asistentes (Proceso de ingresos, de abastecimiento y de egresos) y **Operaciones de tesorería**
-(`operaciones-tesoreria.html`: transferir, ingreso o egreso, arqueo, nueva cuenta y editar cuentas; se abre cada una con `#transferir`,
-`#movimiento`, `#arqueo`, `#nueva` o `#editar=<cuenta>`; el tablero sólo muestra), Compras (Proveedores, Cuenta
+(`operaciones-tesoreria.html`: transferir, ingreso o egreso y arqueo, lo que mueve plata; se abre cada una con `#transferir`,
+`#movimiento` o `#arqueo`; el tablero sólo muestra), Compras (Proveedores, Cuenta
 corriente, Cheques), Stock, Producción (con Platos de carta), Control; las pantallas de detalle
 de cada registro juntas en **Registros** (Compras, Facturas de proveedor, Órdenes de pago, Procesar ventas, Conciliación),
-y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Almacenes, Unidades productivas, Usuarios) al final.
+y Catálogo y Configuración (Sedes y puntos de venta, Medios de pago, Cuentas, Rubros y reglas, Almacenes, Unidades productivas, Usuarios)
+al final. **Cuentas** (`cuentas.html`, decisión de Fer, 07/11/2026: crear o editar una cuenta es configuración, no operación): alta y
+edición de bancos, cajas y cobranza, con para qué es cada una (a acreditar, deposita, efectivo de un punto de venta); `#nueva` y
+`#editar=<cuenta>` (los enlaces viejos a Operaciones de tesorería redirigen). En Medios de pago, "Deposita en" termina en "+ Nueva cuenta
+bancaria…" (`nuevaCuentaBanco` en `comun.js`).
 Barra lateral agrupada desde
 900 px; en el celular, barra inferior (Panel, Stock, Escanear, Productos, Más). **Escanear** es
 global: producto abre su ficha, lote su trazabilidad, código desconocido va al alta

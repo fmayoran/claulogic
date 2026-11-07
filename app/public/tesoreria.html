@@ -428,7 +428,7 @@ async function verCuenta(id) {
   $('#cSub').textContent = [TIPO[c.tipo], c.sede, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
     'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
   $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
-  $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#editarCuenta').href = 'operaciones-tesoreria.html#editar=' + c.id; $('#notaCartera').hidden = c.tipo !== 'cartera';
+  $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#editarCuenta').href = 'cuentas.html#editar=' + c.id; $('#notaCartera').hidden = c.tipo !== 'cartera';
   const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
   const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
   filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },

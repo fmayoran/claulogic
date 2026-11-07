@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cuentas · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  /* Las cuentas de tesorería se configuran acá (pedido de Fer, 07/11/2026: estaban en Operaciones de tesorería, que queda para lo
+     que mueve plata). Junto a Medios de pago, donde se elige en qué cuenta deposita cada procesador. */
+  .neg{color:var(--mal);}
+  .para{color:var(--mut);font-size:.88rem;}
+  details.inact summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.9rem;margin-top:10px;}
+  .barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px;}
+  @media (max-width:600px){ .barra button{flex:1;} }
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Cuentas</h1>
+  <p class="sub">Bancos, cajas y cuentas de cobranza con las que trabaja tesorería. Las de efectivo de los puntos de venta y las "a acreditar"
+    de los procesadores se crean solas; en qué banco deposita cada procesador se elige en Medios de pago. El saldo sale de los movimientos:
+    para mover plata, Operaciones de tesorería.</p>
+  <div class="barra"><button class="prim" id="nuevaCuenta">Nueva cuenta</button><span class="msg" id="msgOk"></span></div>
+
+  <section class="card">
+    <div class="tabla-wrap"><table class="datos movil" id="tCuentas">
+      <thead><tr><th>Cuenta</th><th>Tipo</th><th>Para qué es</th><th>Filial</th><th class="num">Saldo</th><th></th></tr></thead>
+      <tbody id="cuentas"></tbody></table></div>
+    <div id="inactivas"></div>
+  </section>
+</main>
+
+<dialog id="dCuenta"><form id="fc" novalidate>
+  <h2 id="dcTitulo">Nueva cuenta</h2>
+  <div class="fila"><label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label>
+    <label id="fcSede"><span id="fcSedeEt">Sede *</span><select name="sede_id"></select></label></div>
+  <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label></div>
+  <p class="ayuda">Las cuentas de efectivo de los puntos de venta y las de los procesadores (Mercado Pago, Getnet…) se crean solas, desde
+    Sedes y puntos de venta y Medios de pago.</p>
+  <div class="fila" id="fcBanco"><label>Banco<input name="banco"></label><label>Número de cuenta<input name="numero"></label></div>
+  <div class="fila" id="fcCbu"><label>CBU<input name="cbu" inputmode="numeric" maxlength="22"></label><label>Alias<input name="alias"></label></div>
+  <label class="check" id="fcActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>
+  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgC"></span></div>
+</form></dialog>
+
+<script src="comun.js"></script>
+<script>
+const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobranza: 'Cobranza a acreditar' };
+let cuentas = [], sedes = [];
+$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+const hecho = t => msg(t, 'ok', '#msgOk');
+// Para qué es: la "a acreditar" de un procesador, donde deposita uno, o el efectivo de un punto de venta.
+const para = c => [c.procesador_pendiente && `A acreditar de ${c.procesador_pendiente}`, c.procesador_deposita && `Deposita ${c.procesador_deposita}`,
+  c.punto_venta && `Efectivo de ${c.punto_venta}`, c.tipo === 'cartera' && 'Cheques de terceros (del sistema)'].filter(Boolean).join(' · ');
+
+async function cargar() {
+  ({ cuentas } = await api('fin/cuentas'));
+  const fila = c => el('tr', {}, td(c.nombre), td(TIPO[c.tipo]), el('td', { className: 'para', textContent: para(c) }),
+    td(c.sede || ''), td(pesos(c.saldo), 'num' + (c.saldo.startsWith('-') ? ' neg' : '')),
+    el('td', {}, c.tipo === 'cartera' ? '' : el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirCuenta(c) })));
+  filas($('#cuentas'), cuentas.filter(c => c.activa), fila, 'Sin cuentas cargadas.', 6);
+  etiquetarTabla($('#tCuentas'));
+  const inact = cuentas.filter(c => !c.activa);
+  $('#inactivas').replaceChildren(inact.length ? el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inact.length})` }),
+    el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' }, el('tbody', {}, ...inact.map(fila))))) : '');
+  const ti = $('#inactivas table'); if (ti) etiquetarTabla(ti);
+}
+
+const fc = $('#fc');
+function abrirCuenta(c = null) {
+  fc.reset(); msg('', '', '#msgC'); $('#dcTitulo').textContent = c ? 'Editar cuenta' : 'Nueva cuenta';
+  opciones(fc.sede_id, sedes.map(s => [s.id, s.nombre]), c && c.sede_id, 'Elegir…');
+  if (c) for (const k of ['nombre', 'tipo', 'banco', 'numero', 'cbu', 'alias']) fc[k].value = c[k] || '';
+  fc.activa.checked = c ? c.activa : true; $('#fcActiva').hidden = !c;
+  fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
+  sinCambios(fc);
+  $('#dCuenta').showModal();
+}
+// La caja es de una sede; las demás cuentas pueden tener filial: sus gastos sin venta van a esa filial en el estado de resultados.
+fc.tipo.onchange = () => {
+  const banco = fc.tipo.value === 'banco', caja = fc.tipo.value === 'caja';
+  $('#fcSedeEt').textContent = caja ? 'Sede *' : 'Filial (estado de resultados)'; fc.sede_id.firstChild.textContent = caja ? 'Elegir…' : 'Sin filial';
+  $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco;
+};
+fc.onsubmit = async e => {
+  e.preventDefault();
+  const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));
+  body.activa = fc.activa.checked;
+  try {
+    await api(fc.dataset.id ? 'fin/cuentas/' + fc.dataset.id : 'fin/cuentas', { method: fc.dataset.id ? 'PUT' : 'POST', body });
+    $('#dCuenta').close(); hecho(fc.dataset.id ? 'Cuenta guardada.' : `Cuenta "${body.nombre}" creada.`); await cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgC'); }
+};
+$('#nuevaCuenta').onclick = () => abrirCuenta();
+
+// Desde otras pantallas: #nueva o #editar=<cuenta>.
+function ruta() {
+  const h = location.hash.slice(1);
+  if (!h) return;
+  history.replaceState(null, '', location.pathname);
+  if (h === 'nueva') abrirCuenta();
+  else if (h.startsWith('editar=')) { const c = cuentas.find(x => x.id === h.slice(7)); if (c && c.tipo !== 'cartera') abrirCuenta(c); }
+}
+addEventListener('hashchange', ruta);
+(async () => {
+  try { [, { sedes }] = await Promise.all([cargar(), api('sedes')]); sedes = sedes.filter(s => s.activa); ruta(); }
+  catch (e) { alert(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -84,7 +84,8 @@ function llenarCuentas(valor) {
     : 'Lo habitual es una cuenta propia del procesador "a acreditar": lo vendido que todavía no depositó.';
 }
 function llenarDeposita(valor) {
-  opciones(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar');
+  opcionesConAlta(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar',
+    { texto: '+ Nueva cuenta bancaria…', alta: async () => { const c = await nuevaCuentaBanco(); if (!c) return null; cuentas.push(c); return [c.id, c.nombre]; } });
 }
 // La conexión con el portal es sólo de Pago24 (el único sin API que se trae entrando a su página).
 const mostrarPortal = () => { $('#portal').hidden = f.marca.value !== 'pago24'; };

@@ -140,7 +140,7 @@ const GRUPOS = [
   ['Registros', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'],
                  ['procesar-ventas.html', 'Procesar ventas'], ['conciliacion.html', 'Conciliación']]],
   ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
-  ['Configuración', [['sedes.html', 'Sedes y puntos de venta'], ['medios-pago.html', 'Medios de pago'], ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'],
+  ['Configuración', [['sedes.html', 'Sedes y puntos de venta'], ['medios-pago.html', 'Medios de pago'], ['cuentas.html', 'Cuentas'], ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'],
                      ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
@@ -148,7 +148,7 @@ const GRUPOS = [
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
-  'tesoreria.html': 'finanzas', 'operaciones-tesoreria.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
+  'tesoreria.html': 'finanzas', 'operaciones-tesoreria.html': 'finanzas', 'cuentas.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
   stock: '<path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
@@ -503,7 +503,7 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
   const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
   const completa = `ordenes-pago.html?proveedor=${proveedor_id}&comprobante=${comprobante_id}`;
   if (!usables.length) {
-    if (confirm('No hay bancos ni cajas cargados en Tesorería para pagar. ¿Ir a cargar uno?')) location.href = 'operaciones-tesoreria.html#nueva';
+    if (confirm('No hay bancos ni cajas cargados en Tesorería para pagar. ¿Ir a cargar uno?')) location.href = 'cuentas.html#nueva';
     return;
   }
   const f = el('form', { novalidate: true });
@@ -561,6 +561,40 @@ function nuevoProveedor() {
       finally { btn.disabled = false; }
     };
     dlg.addEventListener('close', () => { dlg.remove(); resolve(creado); });
+    document.body.append(dlg); dlg.showModal(); nombre.focus();
+  });
+}
+
+// Cuenta bancaria nueva sin salir de la pantalla (Medios de pago, "Deposita en"): lo mínimo; el resto se edita en Cuentas.
+// Devuelve la cuenta creada ({ id, nombre, tipo, sede_id, activa }) o null.
+function nuevaCuentaBanco() {
+  return new Promise(async resolve => {
+    let sedes = [];
+    try { ({ sedes } = await api('sedes')); } catch { /* sin sedes, la cuenta va sin filial */ }
+    const f = el('form', { novalidate: true });
+    const nombre = el('input', { name: 'nombre', placeholder: 'Santander SORELLE' }), sede = el('select', { name: 'sede_id' });
+    const banco = el('input', { name: 'banco' }), numero = el('input', { name: 'numero' });
+    const cbu = el('input', { name: 'cbu', inputMode: 'numeric', maxLength: 22 }), alias = el('input', { name: 'alias' });
+    opciones(sede, sedes.filter(x => x.activa).map(x => [x.id, x.nombre]), null, 'Sin filial');
+    const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Crear cuenta' });
+    let creada = null;
+    const dlg = el('dialog', {}, el('h2', { textContent: 'Nueva cuenta bancaria' }), f);
+    f.append(el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre), el('label', {}, 'Filial (estado de resultados)', sede)),
+      el('div', { className: 'fila' }, el('label', {}, 'Banco', banco), el('label', {}, 'Número de cuenta', numero)),
+      el('div', { className: 'fila' }, el('label', {}, 'CBU', cbu), el('label', {}, 'Alias', alias)),
+      el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
+      el('p', { className: 'ayuda', textContent: 'Se edita después en Configuración, Cuentas.' }));
+    f.onsubmit = async e => {
+      e.preventDefault(); btn.disabled = true;
+      try {
+        const body = { nombre: nombre.value, tipo: 'banco', sede_id: sede.value, banco: banco.value, numero: numero.value, cbu: cbu.value, alias: alias.value, activa: true };
+        const { id } = await api('fin/cuentas', { method: 'POST', body });
+        creada = { id, nombre: body.nombre.trim(), tipo: 'banco', sede_id: sede.value || null, activa: true };
+        dlg.close();
+      } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+      finally { btn.disabled = false; }
+    };
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(creada); });
     document.body.append(dlg); dlg.showModal(); nombre.focus();
   });
 }
