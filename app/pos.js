@@ -1189,10 +1189,17 @@ r.get('/pos/integraciones/:id/medios', h(async (req, res) => {
 }));
 
 // El catálogo global de medios de pago, para asignarlos (procesador + tipo de operación, y el efectivo).
+// Con ?integracion=, sólo los que puede usar ese sistema de venta: el efectivo y las cuentas de cobro de la sociedad de su local
+// (o del grupo). Las cuentas de cobro son de cada sociedad (07/11/2026): un local de SORELLE no cobra con las de CORTAFUEGO.
 r.get('/pos/medios-pago', h(async (req, res) => {
+  const integ = texto(req.query.integracion);
+  const { rows: [so] } = integ ? await pool.query(
+    'SELECT s.sociedad_id FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id WHERE i.id = $1::uuid', [integ]) : { rows: [] };
+  if (integ && !so) throw new ErrorUsuario('No existe ese sistema de venta.', 404);
   const { rows } = await pool.query(`${MEDIOS_SQL} WHERE mp.activo AND (pr.id IS NULL OR pr.activo)
-                                      ORDER BY pr.nombre NULLS FIRST, mp.tipo_operacion`);
-  res.json({ ok: true, medios: rows });
+                                       AND ($1::boolean OR pr.sociedad_id IS NULL OR pr.sociedad_id = $2::uuid)
+                                      ORDER BY pr.nombre NULLS FIRST, mp.tipo_operacion`, [!integ, so ? so.sociedad_id : null]);
+  res.json({ ok: true, medios: rows, sociedad_id: so ? so.sociedad_id : null });
 }));
 
 // Asignar a un medio del sistema su medio de pago global: la cuenta sale de ahí (la del procesador, o la de
@@ -1202,6 +1209,12 @@ r.put('/pos/medios/:id', h(async (req, res) => {
   if (medioPago) {
     const { rows: [mp] } = await pool.query('SELECT 1 FROM fin.medio_pago WHERE id = $1::uuid AND activo', [medioPago]);
     if (!mp) throw new ErrorUsuario('Ese medio de pago no existe o está inactivo.');
+    // La cuenta de cobro tiene que ser de la sociedad del local (o del grupo).
+    const { rows: [otra] } = await pool.query(
+      `SELECT pr.nombre, so.nombre AS sociedad FROM fin.medio_pago mp JOIN fin.procesador pr ON pr.id = mp.procesador_id
+         JOIN org.sociedad so ON so.id = pr.sociedad_id, pos.medio m JOIN pos.integracion i ON i.id = m.integracion_id JOIN org.sede s ON s.id = i.sede_id
+        WHERE mp.id = $1::uuid AND m.id = $2::uuid AND pr.sociedad_id IS DISTINCT FROM s.sociedad_id`, [medioPago, req.params.id]);
+    if (otra) throw new ErrorUsuario(`${otra.nombre} es una cuenta de cobro de ${otra.sociedad}: este local es de otra sociedad.`);
     const { rowCount } = await pool.query('UPDATE pos.medio SET medio_pago_id = $1 WHERE id = $2::uuid', [medioPago, req.params.id]);
     if (!rowCount) throw new ErrorUsuario('No existe ese medio.', 404);
     return res.json({ ok: true });

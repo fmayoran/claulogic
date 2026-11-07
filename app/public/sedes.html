@@ -281,8 +281,9 @@ async function cargarArticulos(lista) {
 async function cargarMedios(lista) {
   const [medios, mp] = await Promise.all([
     Promise.all(lista.filter(Boolean).map(x => api(`pos/integraciones/${x.id}/medios`).then(r => r.medios.map(m => conSistema(x, m))))).then(v => v.flat()),
-    api('pos/medios-pago')]);
-  mediosPago = mp.medios;
+    api('pos/medios-pago?integracion=' + lista.find(Boolean).id)]);
+  // Sólo los de la sociedad del local (los dos sistemas del local son del mismo local).
+  mediosPago = mp.medios; const socMp = mp.sociedad_id;
   $('#secMed').hidden = false;
   const sinMedio = medios.filter(m => !m.medio_pago_id).length;
   $('#estMed').textContent = !medios.length ? 'todavía sin medios' : sinMedio ? `${medios.length} medios · ${sinMedio} sin asignar` : `${medios.length} medios, todos asignados`;
@@ -290,7 +291,7 @@ async function cargarMedios(lista) {
   $('#secMed').open = sinMedio > 0;
   filas($('#med'), medios, m => {
     const s = el('select'), cuenta = td(m.cuenta || '—'), est = el('span', { className: 'msg' });
-    opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: async () => { const r = await nuevoMedioPago(); if (r) ({ medios: mediosPago } = await api('pos/medios-pago')); return r; } });
+    opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Sin asignar', { texto: '+ Agregar medio de pago…', alta: async () => { const r = await nuevoMedioPago(socMp); if (r) ({ medios: mediosPago } = await api('pos/medios-pago?integracion=' + m.integ.id)); return r; } });
     s.addEventListener('change', async () => {
       if (!s.value) return;
       try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: s.value } });

@@ -693,9 +693,11 @@ const etiquetaMedio = (m, conCuenta) => {
 };
 // Alta rápida de un medio de pago: un procesador existente con un tipo nuevo, o un procesador nuevo
 // (su cuenta a acreditar se crea sola). Devuelve [id, etiqueta] del medio.
-function nuevoMedioPago() {
+// Con `sociedad` (la del local), sólo ofrece sus cuentas de cobro y la nueva nace en esa sociedad.
+function nuevoMedioPago(sociedad = null) {
   return new Promise(async resolve => {
-    const { procesadores } = await api('fin/procesadores');
+    const { procesadores: todos } = await api('fin/procesadores');
+    const procesadores = sociedad ? todos.filter(p => !p.sociedad_id || p.sociedad_id === sociedad) : todos;
     const f2 = el('form', { novalidate: true }), proc = el('select'), nombre = el('input', { placeholder: 'Mercado Pago SORELLE' });
     const marca = el('select'); opciones(marca, Object.entries(MARCA), 'mercadopago');
     const tipo = el('select'); opciones(tipo, Object.entries(TIPO_OP).filter(([k]) => k !== 'efectivo'), 'qr');
@@ -714,7 +716,7 @@ function nuevoMedioPago() {
         const p = procesadores.find(x => x.id === proc.value);
         if (p) await api('fin/procesadores/' + p.id, { method: 'PUT', body: { nombre: p.nombre, marca: p.marca, cuenta_id: p.cuenta_id, cuenta_acredita_id: p.cuenta_acredita_id,
           activo: true, tipos: [...new Set([...p.tipos, tipo.value])] } });
-        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, marca: marca.value, tipos: [tipo.value] } });
+        else await api('fin/procesadores', { method: 'POST', body: { nombre: nombre.value, marca: marca.value, tipos: [tipo.value], sociedad_id: sociedad } });
         const { medios: mediosPago } = await api('pos/medios-pago');
         const n = mediosPago.find(x => x.tipo_operacion === tipo.value && (p ? x.procesador_id === p.id : (x.procesador || '').toLowerCase() === nombre.value.trim().toLowerCase()));
         hecho = n ? [n.id, etiquetaMedio(n, true)] : null; dlg.close();

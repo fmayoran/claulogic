@@ -1492,7 +1492,7 @@ const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'pedidosya', 'otro'];
 const marcaDe = nombre => /mercado\s*pago/i.test(nombre || '') ? 'mercadopago' : /pago\s*24/i.test(nombre || '') ? 'pago24' : /fudo/i.test(nombre || '') ? 'fudo'
   : /getnet/i.test(nombre || '') ? 'getnet' : /pedidos\s*ya/i.test(nombre || '') ? 'pedidosya' : 'otro';
 const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, mp.activo,
-                           pr.cuenta_id, cu.nombre AS cuenta
+                           pr.cuenta_id, cu.nombre AS cuenta, pr.sociedad_id
                       FROM fin.medio_pago mp LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
                       LEFT JOIN fin.cuenta cu ON cu.id = pr.cuenta_id`;
 r.get('/fin/procesadores', h(async (req, res) => {

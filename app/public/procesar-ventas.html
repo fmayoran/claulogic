@@ -403,12 +403,12 @@ async function abrirDia(dia) {
   // Mientras el día no esté cobrado, quien procesa (finanzas o el administrador) corrige acá el medio de pago que
   // falta asignar, sin salir del día; la última opción da de alta uno nuevo.
   const corrige = (j.puede.cobros || (sesion && sesion.puede.admin)) && j.estado !== 'cobrado';
-  const mediosPago = corrige ? (await api('pos/medios-pago')).medios : [];
+  const mp = corrige ? await api('pos/medios-pago?integracion=' + integ.id) : { medios: [] }, mediosPago = mp.medios;
   filas($('#jMed'), j.medios, m => {
     let celda;
     if (corrige && (!m.medio_pago_id || (m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente)))) {
       celda = el('select');
-      opcionesConAlta(celda, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Falta asignar', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      opcionesConAlta(celda, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), m.medio_pago_id, 'Falta asignar', { texto: '+ Agregar medio de pago…', alta: () => nuevoMedioPago(mp.sociedad_id) });
       celda.addEventListener('change', async () => {
         if (!celda.value) return;
         try { await api('pos/medios/' + m.id, { method: 'PUT', body: { medio_pago_id: celda.value } }); await abrirDia(diaActual); msg('Medio asignado.', 'ok', '#msgJ'); }

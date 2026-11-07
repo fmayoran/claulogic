@@ -309,10 +309,11 @@ async function tareaVenta(p, t) {
       }, true), ir('procesar-ventas.html#' + p.id, 'Ver el día')));
   } else if (t.clase === 'medios') {
     // Los medios del sistema que no tienen su medio de pago: se asignan acá y los días se cobran solos al terminar.
-    const [{ medios }, { medios: mediosPago }] = await Promise.all([api(`pos/integraciones/${p.id}/medios`), api('pos/medios-pago')]);
+    // Sólo los medios de la sociedad del local (y el efectivo).
+    const [{ medios }, { medios: mediosPago, sociedad_id: socMp }] = await Promise.all([api(`pos/integraciones/${p.id}/medios`), api('pos/medios-pago?integracion=' + p.id)]);
     for (const m of medios.filter(m => !m.medio_pago_id && !m.cuenta_id)) {
       const s = el('select', { 'aria-label': 'Medio de pago' });
-      opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), '', 'Elegí el medio de pago', { texto: '+ Agregar medio de pago…', alta: nuevoMedioPago });
+      opcionesConAlta(s, mediosPago.map(x => [x.id, etiquetaMedio(x, true)]), '', 'Elegí el medio de pago', { texto: '+ Agregar medio de pago…', alta: () => nuevoMedioPago(socMp) });
       s.addEventListener('change', async () => {
         if (!s.value) return;
         try {

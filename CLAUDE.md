@@ -51,7 +51,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Local** (`org.sede` tipo local, `sociedad_id` obligatorio): el lugar físico, con su depósito, su caja de efectivo (de la sociedad del
   local) y sus sistemas de venta. El centro (`tipo = 'centro'`) no tiene sociedad.
 - **Store** ("Store" en pantalla; la tabla sigue siendo `org.comercio`): lo que se vende con una marca. Cada local tiene uno o más
-  (CORTAFUEGO PARRILLA; Lo de Titi Bodegón y Wera Sushi en SORELLE BODEGON Y SUSHI; Di Ciucio Caffe en SORELLE CAFETERIA). Con un solo
+  (CORTAFUEGO PARRILLA; Lo de Titi Bodegón y Wera Sushi en SORELLE BODEGON Y SUSHI; Di Ciucio Caffe en SORELLE CAFETERIA).
+  Un medio del sistema de venta se asigna sólo a una cuenta de cobro de la sociedad de su local (o del grupo): los combos piden
+  `/pos/medios-pago?integracion=` y `PUT /pos/medios/:id` lo vuelve a controlar; el alta rápida (`nuevoMedioPago(sociedad)`) crea
+  la cuenta de cobro en la sociedad del local. Con un solo
   store activo, todo lo del local es suyo (`pos.comercio_peso_dia` da peso 1); con varios, se reparte por rubros y tiendas de PedidosYa.
   Un local nuevo nace con un store con su nombre.
 - Pantalla **Organización** (`organizacion.html`, Configuración, administrador): el árbol con los sistemas de venta de cada local y las
