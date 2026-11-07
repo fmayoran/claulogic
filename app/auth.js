@@ -255,7 +255,7 @@ function filtroSedes(req) {
 // Permiso por ruta, para lo que modifica. Lo que no está en la lista exige `catalogo`: una ruta
 // nueva arranca cerrada, no abierta.
 const POLITICA = [
-  [/^\/(usuarios|sedes|dispositivos)(\/|$)/, 'admin'],
+  [/^\/(usuarios|sedes|dispositivos|sociedades)(\/|$)/, 'admin'],
   [/^\/(ajustes|movimientos|lecturas|producciones)$/, 'operar'],
   [/^\/compras\/[^/]+\/recibir$/, 'operar'],
   [/^\/movimientos\/\d+\/anular$/, 'gestionar'],

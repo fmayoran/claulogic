@@ -50,7 +50,8 @@
 <dialog id="dCuenta"><form id="fc" novalidate>
   <h2 id="dcTitulo">Nueva cuenta</h2>
   <div class="fila"><label>Tipo *<select name="tipo"><option value="banco">Banco</option><option value="caja">Caja</option><option value="cobranza">Cobranza a acreditar (tarjetas, QR)</option></select></label>
-    <label id="fcSede"><span id="fcSedeEt">Sede *</span><select name="sede_id"></select></label></div>
+    <label id="fcSede"><span id="fcSedeEt">Sede *</span><select name="sede_id"></select></label>
+    <label id="fcSoc">Sociedad<select name="sociedad_id"></select></label></div>
   <div class="fila"><label>Nombre *<input name="nombre" placeholder="Galicia cuenta corriente"></label></div>
   <p class="ayuda">Las cuentas de efectivo de los puntos de venta y las de los procesadores (Mercado Pago, Getnet…) se crean solas, desde
     Sedes y puntos de venta y Medios de pago.</p>
@@ -63,24 +64,24 @@
 <script src="comun.js"></script>
 <script>
 const TIPO = { banco: 'Banco', caja: 'Caja', cartera: 'Cartera de cheques', cobranza: 'Cobranza a acreditar' };
-let cuentas = [], sedes = [];
+let cuentas = [], sedes = [], sociedades = [];
 $$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
 const hecho = t => msg(t, 'ok', '#msgOk');
 // Cada grupo con sus columnas: lo que hace falta para reconocer la cuenta y para qué sirve.
 const TIPOS_CTA = [
   { id: 'banco', nombre: 'Bancos', uno: 'Banco', de: c => c.tipo === 'banco',
     ayuda: 'Cuentas bancarias y billeteras: también donde depositan los procesadores.',
-    cols: ['Cuenta', 'Banco', 'Filial', 'Deposita'],
-    fila: c => [c.nombre, c.banco || '', c.sede || 'Sin filial', c.procesador_deposita || ''] },
+    cols: ['Cuenta', 'Banco', 'Sociedad', 'Deposita'],
+    fila: c => [c.nombre, c.banco || '', c.sociedad || 'Grupo', c.procesador_deposita || ''] },
   { id: 'caja', nombre: 'Cajas', uno: 'Caja', de: c => c.tipo === 'caja' && !c.punto_venta,
     ayuda: 'El efectivo de la empresa: la caja de cada sede, donde se rinde lo que juntan los puntos de venta.',
-    cols: ['Cuenta', 'Sede'], fila: c => [c.nombre, c.sede || ''] },
+    cols: ['Cuenta', 'Local o centro', 'Sociedad'], fila: c => [c.nombre, c.sede || '', c.sociedad || 'Grupo'] },
   { id: 'efectivo', nombre: 'Efectivo de puntos de venta', uno: 'Efectivo de punto de venta', de: c => c.tipo === 'caja' && !!c.punto_venta,
     ayuda: 'Lo cobrado en efectivo que cada punto de venta todavía no rindió. Se crean solas con el punto de venta.',
-    cols: ['Cuenta', 'Punto de venta', 'Sede'], fila: c => [c.nombre, c.punto_venta, c.sede || ''] },
+    cols: ['Cuenta', 'Local', 'Sociedad'], fila: c => [c.nombre, c.sede || '', c.sociedad || ''] },
   { id: 'cobranza', nombre: 'A acreditar', uno: 'A acreditar', de: c => c.tipo === 'cobranza',
     ayuda: 'Lo cobrado con cada procesador (tarjetas, QR, PedidosYa) hasta que lo deposita. Se crean solas con el procesador, en Medios de pago.',
-    cols: ['Cuenta', 'Procesador', 'Filial'], fila: c => [c.nombre, c.procesador_pendiente || '', c.sede || 'Sin filial'] },
+    cols: ['Cuenta', 'Procesador', 'Sociedad'], fila: c => [c.nombre, c.procesador_pendiente || '', c.sociedad || 'Grupo'] },
   { id: 'cartera', nombre: 'Cheques de terceros', uno: 'Cartera de cheques', de: c => c.tipo === 'cartera',
     ayuda: 'Cuenta del sistema donde quedan los cheques de terceros recibidos.',
     cols: ['Cuenta'], fila: c => [c.nombre] },
@@ -116,10 +117,10 @@ function pintar() {
 function verCuenta(c) {
   const g = TIPOS_CTA.find(x => x.de(c));
   $('#vTitulo').textContent = c.nombre;
-  const datos = [['Tipo', g ? g.uno : TIPO[c.tipo]], [c.tipo === 'caja' && !c.punto_venta ? 'Sede' : 'Filial', c.sede || 'Sin filial'],
+  const datos = [['Tipo', g ? g.uno : TIPO[c.tipo]], ['Sociedad', c.sociedad || 'Grupo'], [c.tipo === 'caja' ? 'Local o centro' : null, c.sede],
     ['Banco', c.banco], ['Número de cuenta', c.numero], ['CBU', c.cbu], ['Alias', c.alias],
     ['Deposita', c.procesador_deposita], ['A acreditar de', c.procesador_pendiente], ['Efectivo de', c.punto_venta],
-    ['Estado', c.activa ? 'Activa' : 'Inactiva']].filter(([, v]) => v);
+    ['Estado', c.activa ? 'Activa' : 'Inactiva']].filter(([k, v]) => k && v);
   $('#vDatos').replaceChildren(...datos.flatMap(([k, v]) => [el('dt', { textContent: k }), el('dd', { textContent: v })]));
   $('#vEditar').hidden = c.tipo === 'cartera';
   $('#vEditar').onclick = () => { $('#dVer').close(); abrirCuenta(c); };
@@ -130,21 +131,25 @@ const fc = $('#fc');
 function abrirCuenta(c = null) {
   fc.reset(); msg('', '', '#msgC'); $('#dcTitulo').textContent = c ? 'Editar cuenta' : 'Nueva cuenta';
   opciones(fc.sede_id, sedes.map(s => [s.id, s.nombre]), c && c.sede_id, 'Elegir…');
+  opciones(fc.sociedad_id, sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), c && c.sociedad_id, 'Grupo (sin sociedad)');
   if (c) for (const k of ['nombre', 'tipo', 'banco', 'numero', 'cbu', 'alias']) fc[k].value = c[k] || '';
   fc.activa.checked = c ? c.activa : true; $('#fcActiva').hidden = !c;
   fc.tipo.onchange(); fc.dataset.id = c ? c.id : '';
   sinCambios(fc);
   $('#dCuenta').showModal();
 }
-// La caja es de una sede; las demás cuentas pueden tener filial: sus gastos sin venta van a esa filial en el estado de resultados.
+// La caja es de un local o del centro (y su sociedad, la del local); un banco o una cuenta de cobro, de una sociedad o del grupo.
 fc.tipo.onchange = () => {
   const banco = fc.tipo.value === 'banco', caja = fc.tipo.value === 'caja';
-  $('#fcSedeEt').textContent = caja ? 'Sede *' : 'Filial (estado de resultados)'; fc.sede_id.firstChild.textContent = caja ? 'Elegir…' : 'Sin filial';
+  $('#fcSedeEt').textContent = 'Local o centro *'; fc.sede_id.firstChild.textContent = 'Elegir…';
+  $('#fcSede').hidden = !caja; $('#fcSoc').hidden = caja;
   $('#fcBanco').hidden = !banco; $('#fcCbu').hidden = !banco;
 };
 fc.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(['nombre', 'tipo', 'sede_id', 'banco', 'numero', 'cbu', 'alias'].map(k => [k, fc[k].value]));
+  // La sociedad de una caja sale de su local; la de un banco o una cuenta de cobro se elige (vacía = del grupo).
+  if (fc.tipo.value !== 'caja') body.sociedad_id = fc.sociedad_id.value;
   body.activa = fc.activa.checked;
   try {
     await api(fc.dataset.id ? 'fin/cuentas/' + fc.dataset.id : 'fin/cuentas', { method: fc.dataset.id ? 'PUT' : 'POST', body });
@@ -165,7 +170,7 @@ function ruta() {
 $('#dVer').addEventListener('click', e => { if (e.target === $('#dVer')) $('#dVer').close(); });
 addEventListener('hashchange', ruta);
 (async () => {
-  try { [, { sedes }] = await Promise.all([cargar(), api('sedes')]); sedes = sedes.filter(s => s.activa); ruta(); }
+  try { [, { sedes }, { sociedades }] = await Promise.all([cargar(), api('sedes'), api('sociedades')]); sedes = sedes.filter(s => s.activa); ruta(); }
   catch (e) { alert(e.message); }
 })();
 </script>

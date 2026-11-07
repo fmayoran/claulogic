@@ -42,6 +42,24 @@ Fases: 0 autenticación y permisos por sede → 1 sedes, almacenes por sede, uni
 traslados → 2 facturas de proveedor y cuenta corriente → 3 tesorería (pagos, retenciones,
 conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs. real, flujo de caja).
 
+### Organización del grupo (decisiones de Fer, 07/11/2026; migración 20261129)
+- **Grupo** CF CENTRAL (la sede central): el holding que consolida, sin CUIT ni sociedad. Es dueño del **centro de producción** y de la
+  **caja mayor**.
+- **Sociedad** (`org.sociedad`: razón social, CUIT validado): CORTAFUEGO SRL y SORELLE CIUCIO S.A. Son dueñas de las **cuentas
+  bancarias** y de las **cuentas de cobro** (`fin.cuenta.sociedad_id`, `fin.procesador.sociedad_id`); una cuenta de cobro la usan los
+  stores de la sociedad que la tengan en sus medios (la de Mercado Pago de SORELLE: Lo de Titi, Wera y Di Ciucio).
+- **Local** (`org.sede` tipo local, `sociedad_id` obligatorio): el lugar físico, con su depósito, su caja de efectivo (de la sociedad del
+  local) y sus sistemas de venta. El centro (`tipo = 'centro'`) no tiene sociedad.
+- **Store** ("Store" en pantalla; la tabla sigue siendo `org.comercio`): lo que se vende con una marca. Cada local tiene uno o más
+  (CORTAFUEGO PARRILLA; Lo de Titi Bodegón y Wera Sushi en SORELLE BODEGON Y SUSHI; Di Ciucio Caffe en SORELLE CAFETERIA). Con un solo
+  store activo, todo lo del local es suyo (`pos.comercio_peso_dia` da peso 1); con varios, se reparte por rubros y tiendas de PedidosYa.
+  Un local nuevo nace con un store con su nombre.
+- Pantalla **Organización** (`organizacion.html`, Configuración, administrador): el árbol con los sistemas de venta de cada local y las
+  cuentas de cada sociedad; alta y edición de sociedades (`/sociedades`, del administrador). "Sedes y puntos de venta" pasó a llamarse
+  **Locales y centro** y pide la sociedad del local. En Cuentas y Medios de pago se elige la sociedad (vacía = del grupo).
+- Siguen: los tableros y el estado de resultados por sociedad y store (hoy la "filial" sigue siendo la sede: `fin.cuenta.sede_id` de los
+  bancos se conserva para el resultado), y las facturas de compra a nombre de cada sociedad.
+
 ### Las cuatro decisiones del modelo (no las deshagas sin entender por qué están)
 
 1. **El stock NO se guarda: se deriva.** No hay ninguna columna `cantidad_actual`. El stock sale

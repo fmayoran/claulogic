@@ -15,7 +15,11 @@ function leerSede(b) {
     direccion: texto(b.direccion),
     activa: b.activa === undefined ? true : !!b.activa,
     es_central: !!b.es_central,
+    sociedad_id: texto(b.sociedad_id),
   };
+  // Un local es de una sociedad (sus cuentas y su resultado); el centro es del grupo.
+  if (s.tipo === 'local' && !s.sociedad_id) throw new ErrorUsuario('Un local es de una sociedad: elegila.');
+  if (s.tipo === 'centro') s.sociedad_id = null;
   if (s.es_central && !s.activa) throw new ErrorUsuario('La sede central tiene que estar activa.');
   if (s.es_central && s.tipo === 'local') throw new ErrorUsuario('Un punto de venta no puede ser la sede central: la central consolida, no vende.');
   if (!['centro', 'local'].includes(s.tipo)) throw new ErrorUsuario('El tipo es centro o local.');
@@ -30,8 +34,10 @@ r.post('/sedes', h(async (req, res) => {
     // La central es una sola: marcar otra le saca la marca a la anterior.
     if (s.es_central) await c.query('UPDATE org.sede SET es_central = false WHERE es_central');
     const { rows: [n] } = await c.query(
-      'INSERT INTO org.sede (nombre, tipo, direccion, activa, es_central) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central]);
+      'INSERT INTO org.sede (nombre, tipo, direccion, activa, es_central, sociedad_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, s.sociedad_id]);
+    // Un local nace con un store con su nombre (si tiene más de uno, se agregan en su ficha).
+    if (s.tipo === 'local') await c.query('INSERT INTO org.comercio (sede_id, nombre) VALUES ($1, $2)', [n.id, s.nombre]);
     // Un punto de venta siempre lo tiene: es el único lugar por donde pasa su mercadería.
     if (s.tipo === 'local' || req.body.crear_almacen !== false) {
       const { rows: [a] } = await c.query(
@@ -71,8 +77,10 @@ r.put('/sedes/:id', h(async (req, res) => {
     }
     // El tipo no cambia: un local tiene un solo almacén y una sola ubicación, un centro no tiene sistema de venta.
     if (ant.tipo !== s.tipo) throw new ErrorUsuario('El tipo de una sede no cambia: creá una sede nueva.');
-    await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4, es_central=$5 WHERE id=$6',
-      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, req.params.id]);
+    await c.query('UPDATE org.sede SET nombre=$1, tipo=$2, direccion=$3, activa=$4, es_central=$5, sociedad_id=$6 WHERE id=$7',
+      [s.nombre, s.tipo, s.direccion, s.activa, s.es_central, s.sociedad_id, req.params.id]);
+    // La caja de efectivo del local es de su sociedad.
+    await c.query(`UPDATE fin.cuenta SET sociedad_id = $1 WHERE sede_id = $2 AND tipo = 'caja' AND sociedad_id IS DISTINCT FROM $1`, [s.sociedad_id, req.params.id]);
     // El sistema de venta y su cuenta de efectivo llevan el nombre de la sede.
     const { rows: [pv] } = await c.query(`SELECT id, nombre, cuenta_efectivo_id FROM pos.integracion WHERE sede_id = $1 AND sistema <> 'pedidosya'`, [req.params.id]);
     if (pv && pv.nombre !== s.nombre) {
@@ -83,6 +91,45 @@ r.put('/sedes/:id', h(async (req, res) => {
     await c.query(`UPDATE pos.integracion SET nombre = $1 WHERE sede_id = $2 AND sistema = 'pedidosya' AND nombre <> $1`, ['PedidosYa · ' + s.nombre, req.params.id]);
   });
   res.json({ ok: true, id: req.params.id });
+}));
+
+// ── Sociedades ───────────────────────────────────────────────────────────────────────────────
+// Las razones sociales del grupo (decisión de Fer, 07/11/2026): dueñas de las cuentas bancarias y de cobro y de sus locales. El
+// grupo (la sede central) no es una sociedad. Con lo que cuelga de cada una, para la pantalla de Organización.
+r.get('/sociedades', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT so.id, so.nombre, so.cuit, so.activa,
+            (SELECT COUNT(*)::int FROM org.sede s WHERE s.sociedad_id = so.id AND s.activa) AS locales,
+            (SELECT COUNT(*)::int FROM fin.cuenta c WHERE c.sociedad_id = so.id AND c.activa AND c.tipo = 'banco') AS bancos,
+            (SELECT COUNT(*)::int FROM fin.procesador p WHERE p.sociedad_id = so.id AND p.activo) AS procesadores
+       FROM org.sociedad so ORDER BY so.activa DESC, so.nombre`);
+  res.json({ ok: true, sociedades: rows });
+}));
+function leerSociedad(b) {
+  const x = { nombre: texto(b.nombre, { campo: 'la razón social', requerido: true }), cuit: (texto(b.cuit) || '').replace(/\D/g, '') || null,
+              activa: b.activa === undefined ? true : !!b.activa };
+  if (x.cuit && x.cuit.length !== 11) throw new ErrorUsuario('El CUIT tiene 11 dígitos.');
+  return x;
+}
+const errSociedad = e => {
+  if (e.code === '23505') throw new ErrorUsuario('Ya hay una sociedad con ese nombre o ese CUIT.');
+  if (e.code === '23514') throw new ErrorUsuario('El CUIT no es válido (dígito verificador).');
+  throw e;
+};
+r.post('/sociedades', h(async (req, res) => {
+  const x = leerSociedad(req.body);
+  const { rows: [n] } = await pool.query('INSERT INTO org.sociedad (nombre, cuit, activa) VALUES ($1,$2,$3) RETURNING id', [x.nombre, x.cuit, x.activa]).catch(errSociedad);
+  res.status(201).json({ ok: true, id: n.id });
+}));
+r.put('/sociedades/:id', h(async (req, res) => {
+  const x = leerSociedad(req.body);
+  if (!x.activa) {
+    const { rows: [l] } = await pool.query('SELECT nombre FROM org.sede WHERE sociedad_id = $1::uuid AND activa LIMIT 1', [req.params.id]);
+    if (l) throw new ErrorUsuario(`La sociedad tiene locales activos (${l.nombre}).`);
+  }
+  const { rowCount } = await pool.query('UPDATE org.sociedad SET nombre = $1, cuit = $2, activa = $3 WHERE id = $4::uuid', [x.nombre, x.cuit, x.activa, req.params.id]).catch(errSociedad);
+  if (!rowCount) throw new ErrorUsuario('No existe esa sociedad.', 404);
+  res.json({ ok: true });
 }));
 
 // ── Comercios de un local ────────────────────────────────────────────────────────────────────

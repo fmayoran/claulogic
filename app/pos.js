@@ -194,7 +194,7 @@ r.post('/pos/integraciones', h(async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
       [i.nombre, i.codigo, i.sede_id, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, i.modo === 'api' ? cifrar(i) : null, i.sincroniza_auto]);
     const { rows: [cu] } = i.efectivo ? { rows: [{ id: i.efectivo }] }
-      : await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id) VALUES ($1, 'caja', $2) RETURNING id`, ['Efectivo · ' + i.nombre, i.sede_id]);
+      : await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sede_id, sociedad_id) VALUES ($1, 'caja', $2, (SELECT sociedad_id FROM org.sede WHERE id = $2::uuid)) RETURNING id`, ['Efectivo · ' + i.nombre, i.sede_id]);
     await c.query('UPDATE pos.integracion SET cuenta_efectivo_id = $1 WHERE id = $2', [cu.id, n.id]);
     return n.id;
   });

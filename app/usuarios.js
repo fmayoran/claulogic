@@ -10,7 +10,9 @@ const r = express.Router();
 const ROLES = ['encargado', 'operador', 'consulta'];
 
 r.get('/sedes', h(async (req, res) => {
-  const { rows } = await pool.query('SELECT id, nombre, tipo, direccion, activa, es_central FROM org.sede ORDER BY es_central DESC, tipo, nombre');
+  const { rows } = await pool.query(
+    `SELECT s.id, s.nombre, s.tipo, s.direccion, s.activa, s.es_central, s.sociedad_id, so.nombre AS sociedad
+       FROM org.sede s LEFT JOIN org.sociedad so ON so.id = s.sociedad_id ORDER BY s.es_central DESC, s.tipo, s.nombre`);
   res.json({ ok: true, sedes: rows });
 }));
 

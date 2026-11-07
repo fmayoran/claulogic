@@ -25,7 +25,8 @@
       <fieldset>
         <legend>Procesador</legend>
         <div class="fila"><label>Procesador *<select name="marca"></select></label>
-          <label>Cuenta de cobro *<input name="nombre" maxlength="60" placeholder="Mercado Pago SORELLE"></label></div>
+          <label>Cuenta de cobro *<input name="nombre" maxlength="60" placeholder="Mercado Pago SORELLE"></label>
+          <label>Sociedad<select name="sociedad_id"></select></label></div>
         <p class="ayuda">El procesador es uno solo aunque cada empresa tenga su cuenta: los reportes agrupan por procesador ("Mercado Pago ·
           QR") y la conciliación, por cuenta de cobro (cada una con su extracto).</p>
         <div>Tipos de operación *</div>
@@ -57,20 +58,20 @@
 <script>
 const TIPOS = [['qr', 'Pago QR'], ['transferencia', 'Transferencia'], ['debito', 'Tarjeta de débito'], ['credito', 'Tarjeta de crédito'], ['online', 'Pago online'], ['otro', 'Otro']];
 const NOMBRE_TIPO = Object.fromEntries(TIPOS);
-let procesadores = [], cuentas = [], actual = null;
+let procesadores = [], cuentas = [], sociedades = [], actual = null;
 const f = $('#f');
 opciones(f.marca, Object.entries(MARCA), 'mercadopago');
 $('#tipos').replaceChildren(...TIPOS.map(([v, t]) => el('label', {}, el('input', { type: 'checkbox', value: v }), t)));
 const tiposElegidos = () => $$('#tipos input:checked').map(x => x.value);
 
 async function cargar() {
-  [{ procesadores }, { cuentas }] = await Promise.all([api('fin/procesadores'), api('fin/cuentas')]);
+  [{ procesadores }, { cuentas }, { sociedades }] = await Promise.all([api('fin/procesadores'), api('fin/cuentas'), api('sociedades')]);
   $('#lista').replaceChildren(
     el('div', { className: 'item', style: 'cursor:default' }, el('div', { className: 'n', textContent: 'Efectivo' }),
       el('div', { className: 'm', textContent: 'a la cuenta de efectivo de cada punto de venta' })),
     ...procesadores.map(p => {
       const b = el('button', { type: 'button', className: 'item' + (p.id === actual ? ' sel' : '') + (p.activo ? '' : ' inactivo') },
-        el('div', { className: 'n', textContent: p.nombre }), el('div', { className: 'm', textContent: MARCA[p.marca] || '' }),
+        el('div', { className: 'n', textContent: p.nombre }), el('div', { className: 'm', textContent: [MARCA[p.marca], p.sociedad].filter(Boolean).join(' · ') }),
         el('div', { className: 'm', textContent: `${p.tipos.map(t => NOMBRE_TIPO[t]).join(', ') || 'sin tipos'} · a acreditar ${pesos(p.saldo)}` }));
       b.onclick = () => abrir(p.id);
       return b;
@@ -83,6 +84,8 @@ function llenarCuentas(valor) {
   $('#ayudaCuenta').textContent = actual ? 'Lo vendido que el procesador todavía no depositó. Si cambiás la cuenta, los puntos de venta que usan este procesador pasan a la nueva.'
     : 'Lo habitual es una cuenta propia del procesador "a acreditar": lo vendido que todavía no depositó.';
 }
+// La cuenta de cobro es de una sociedad (decisión de Fer, 07/11/2026): la usan los stores de esa sociedad que la tengan en sus medios.
+const llenarSociedad = valor => opciones(f.sociedad_id, sociedades.filter(s => s.activa || s.id === valor).map(s => [s.id, s.nombre]), valor, 'Grupo (sin sociedad)');
 function llenarDeposita(valor) {
   opcionesConAlta(f.cuenta_acredita_id, cuentas.filter(c => c.activa && c.tipo === 'banco').map(c => [c.id, c.nombre]), valor, 'Sin indicar',
     { texto: '+ Nueva cuenta bancaria…', alta: async () => { const c = await nuevaCuentaBanco(); if (!c) return null; cuentas.push(c); return [c.id, c.nombre]; } });
@@ -92,7 +95,7 @@ const mostrarPortal = () => { $('#portal').hidden = f.marca.value !== 'pago24'; 
 f.marca.addEventListener('change', mostrarPortal);
 function nuevo() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo procesador'; $('#activoWrap').hidden = true; f.marca.value = 'mercadopago';
-  llenarCuentas(null); llenarDeposita(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
+  llenarCuentas(null); llenarDeposita(null); llenarSociedad(null); $$('.item.sel').forEach(i => i.classList.remove('sel'));
   mostrarPortal(); msg('', '', '#msgP'); $('#probado').replaceChildren();
 }
 function abrir(id) {
@@ -109,11 +112,12 @@ function abrir(id) {
     + `${new Date(c.iniciada_en).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}, `
     + (c.ok ? `del ${fecha(c.desde)} al ${fecha(c.hasta)}, ${c.resultado.nuevas} línea(s) nueva(s).` : c.ok === false ? `falló: ${c.error}` : 'en curso.');
   mostrarPortal(); msg('', '', '#msgP'); $('#probado').replaceChildren();
-  llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); sinCambios(f); cargar();
+  llenarCuentas(p.cuenta_id); llenarDeposita(p.cuenta_acredita_id); llenarSociedad(p.sociedad_id); sinCambios(f); cargar();
 }
 f.onsubmit = async e => {
   e.preventDefault();
   const body = { nombre: f.nombre.value, marca: f.marca.value, tipos: tiposElegidos(), cuenta_id: f.cuenta_id.value || null, cuenta_acredita_id: f.cuenta_acredita_id.value || null,
+                 sociedad_id: f.sociedad_id.value || null,
                  activo: actual ? f.activo.checked : true,
                  portal_url: f.portal_url.value.trim() || null, portal_usuario: f.portal_usuario.value.trim() || null, portal_clave: f.portal_clave.value || null, portal_auto: f.portal_auto.checked };
   $('#guardar').disabled = true;

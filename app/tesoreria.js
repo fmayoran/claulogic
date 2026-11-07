@@ -20,7 +20,7 @@ const importe = (v, campo) => monto(v, { campo, requerido: true, positivo: true 
 // ── Cuentas ──────────────────────────────────────────────────────────────────────────────────
 r.get('/fin/cuentas', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT c.id, c.nombre, c.tipo, c.sede_id, s.nombre AS sede, c.banco, c.numero, c.cbu, c.alias, c.activa,
+    `SELECT c.id, c.nombre, c.tipo, c.sede_id, s.nombre AS sede, c.sociedad_id, so.nombre AS sociedad, c.banco, c.numero, c.cbu, c.alias, c.activa,
             sc.saldo::text, sc.ultimo_movimiento,
             COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0)::text AS cheques_pendientes,
             (sc.saldo - COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0))::text AS proyectado,
@@ -32,7 +32,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
             (SELECT i.nombre FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id ORDER BY i.sistema = 'pedidosya' LIMIT 1) AS punto_venta
        FROM fin.cuenta c
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id
-       LEFT JOIN org.sede s ON s.id = c.sede_id
+       LEFT JOIN org.sede s ON s.id = c.sede_id LEFT JOIN org.sociedad so ON so.id = c.sociedad_id
       ORDER BY c.activa DESC, CASE c.tipo WHEN 'banco' THEN 1 WHEN 'caja' THEN 2 ELSE 3 END, s.nombre NULLS FIRST, c.nombre`);
   res.json({ ok: true, cuentas: rows });
 }));
@@ -272,6 +272,8 @@ function leerCuenta(b) {
     nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
     tipo: texto(b.tipo, { campo: 'el tipo', requerido: true }),
     sede_id: texto(b.sede_id), banco: texto(b.banco), numero: texto(b.numero),
+    // Sin el campo se conserva la que tenía (o, al crearla, la de su sede).
+    sociedad_id: b.sociedad_id === undefined ? undefined : texto(b.sociedad_id),
     cbu: texto(b.cbu) && texto(b.cbu).replace(/\D/g, ''), alias: texto(b.alias),
     activa: b.activa === undefined ? true : !!b.activa,
   };
@@ -286,8 +288,9 @@ function leerCuenta(b) {
 r.post('/fin/cuentas', h(async (req, res) => {
   const c = leerCuenta(req.body);
   const { rows: [n] } = await pool.query(
-    `INSERT INTO fin.cuenta (nombre, tipo, sede_id, banco, numero, cbu, alias, activa) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [c.nombre, c.tipo, c.sede_id, c.banco, c.numero, c.cbu, c.alias, c.activa]);
+    `INSERT INTO fin.cuenta (nombre, tipo, sede_id, banco, numero, cbu, alias, activa, sociedad_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9::uuid, (SELECT sociedad_id FROM org.sede WHERE id = $3::uuid))) RETURNING id`,
+    [c.nombre, c.tipo, c.sede_id, c.banco, c.numero, c.cbu, c.alias, c.activa, c.sociedad_id ?? null]);
   res.status(201).json({ ok: true, id: n.id });
 }));
 
@@ -303,8 +306,9 @@ r.put('/fin/cuentas/:id', h(async (req, res) => {
     if (ant.tipo === 'cartera') throw new ErrorUsuario('La cartera de cheques no se edita.');
     if (ant.con_movs && ant.tipo !== c.tipo) throw new ErrorUsuario('La cuenta tiene movimientos: no cambia de tipo.');
     if (!c.activa && Number(ant.saldo) !== 0) throw new ErrorUsuario('La cuenta tiene saldo: transferilo antes de desactivarla.');
-    await cn.query('UPDATE fin.cuenta SET nombre=$1, tipo=$2, sede_id=$3, banco=$4, numero=$5, cbu=$6, alias=$7, activa=$8 WHERE id=$9',
-      [c.nombre, c.tipo, c.sede_id, c.banco, c.numero, c.cbu, c.alias, c.activa, req.params.id]);
+    await cn.query(`UPDATE fin.cuenta SET nombre=$1, tipo=$2, sede_id=$3, banco=$4, numero=$5, cbu=$6, alias=$7, activa=$8,
+                           sociedad_id = CASE WHEN $11 THEN sociedad_id ELSE COALESCE($10::uuid, (SELECT sociedad_id FROM org.sede WHERE id = $3::uuid)) END WHERE id=$9`,
+      [c.nombre, c.tipo, c.sede_id, c.banco, c.numero, c.cbu, c.alias, c.activa, req.params.id, c.sociedad_id ?? null, c.sociedad_id === undefined]);
   });
   res.json({ ok: true, id: req.params.id });
 }));
@@ -1469,7 +1473,7 @@ const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.
                       LEFT JOIN fin.cuenta cu ON cu.id = pr.cuenta_id`;
 r.get('/fin/procesadores', h(async (req, res) => {
   const { rows: procesadores } = await pool.query(
-    `SELECT pr.id, pr.nombre, pr.marca, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
+    `SELECT pr.id, pr.nombre, pr.marca, pr.sociedad_id, so.nombre AS sociedad, pr.cuenta_id, cu.nombre AS cuenta, pr.activo, sc.saldo::text AS saldo,
             pr.cuenta_acredita_id, ca.nombre AS cuenta_acredita, pr.portal_url, pr.portal_credenciales IS NOT NULL AS tiene_portal, pr.portal_auto,
             (SELECT json_build_object('automatica', c.automatica, 'desde', c.desde, 'hasta', c.hasta, 'iniciada_en', c.iniciada_en, 'ok', c.ok,
                                       'resultado', c.resultado, 'error', c.error)
@@ -1477,14 +1481,15 @@ r.get('/fin/procesadores', h(async (req, res) => {
             COALESCE((SELECT json_agg(mp.tipo_operacion ORDER BY mp.tipo_operacion) FROM fin.medio_pago mp
                        WHERE mp.procesador_id = pr.id AND mp.activo), '[]') AS tipos
        FROM fin.procesador pr JOIN fin.cuenta cu ON cu.id = pr.cuenta_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = cu.id
-       LEFT JOIN fin.cuenta ca ON ca.id = pr.cuenta_acredita_id
+       LEFT JOIN fin.cuenta ca ON ca.id = pr.cuenta_acredita_id LEFT JOIN org.sociedad so ON so.id = pr.sociedad_id
       ORDER BY pr.activo DESC, pr.nombre`);
   res.json({ ok: true, procesadores });
 }));
 function leerProcesador(b) {
   const p = { nombre: texto(b.nombre, { campo: 'el nombre del procesador', requerido: true }), cuenta_id: texto(b.cuenta_id),
               marca: texto(b.marca) || marcaDe(b.nombre),
-              cuenta_acredita_id: texto(b.cuenta_acredita_id),
+              // Sin el campo (una pantalla que no lo manda) se conserva la sociedad que tenía.
+              cuenta_acredita_id: texto(b.cuenta_acredita_id), sociedad_id: b.sociedad_id === undefined ? undefined : texto(b.sociedad_id),
               activo: b.activo === undefined ? true : !!b.activo,
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
               portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave),
@@ -1511,7 +1516,8 @@ async function cuentaProcesador(c, p) {
     if (!cu || !['cobranza', 'banco'].includes(cu.tipo)) throw new ErrorUsuario('La cuenta de un procesador es una cuenta de cobranza (o un banco).');
     return p.cuenta_id;
   }
-  const { rows: [n] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo) VALUES ($1, 'cobranza') RETURNING id`, [`${p.nombre} a acreditar`]);
+  // La "a acreditar" es de la sociedad del procesador.
+  const { rows: [n] } = await c.query(`INSERT INTO fin.cuenta (nombre, tipo, sociedad_id) VALUES ($1, 'cobranza', $2) RETURNING id`, [`${p.nombre} a acreditar`, p.sociedad_id]);
   return n.id;
 }
 // La cuenta donde el procesador deposita de verdad (su extracto se concilia contra los cobros): un banco, o una
@@ -1649,8 +1655,8 @@ r.post('/fin/procesadores', h(async (req, res) => {
   const id = await enTransaccion(async c => {
     const cuenta = await cuentaProcesador(c, p);
     const { rows: [n] } = await c.query(
-      'INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id, marca, portal_url, portal_credenciales) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), p.marca, p.portal_url, cifrarPortal(p)]);
+      'INSERT INTO fin.procesador (nombre, cuenta_id, activo, cuenta_acredita_id, marca, portal_url, portal_credenciales, sociedad_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), p.marca, p.portal_url, cifrarPortal(p), p.sociedad_id]);
     await guardarTipos(c, n.id, p.tipos);
     return n.id;
   });
@@ -1659,13 +1665,17 @@ r.post('/fin/procesadores', h(async (req, res) => {
 r.put('/fin/procesadores/:id', h(async (req, res) => {
   const p = leerProcesador(req.body);
   await enTransaccion(async c => {
-    const { rows: [ant] } = await c.query('SELECT cuenta_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
+    const { rows: [ant] } = await c.query('SELECT cuenta_id, sociedad_id FROM fin.procesador WHERE id = $1::uuid FOR UPDATE', [req.params.id]);
     if (!ant) throw new ErrorUsuario('No existe ese procesador.', 404);
+    if (p.sociedad_id === undefined) p.sociedad_id = ant.sociedad_id;
     const cuenta = await cuentaProcesador(c, { ...p, cuenta_id: p.cuenta_id || ant.cuenta_id });
     // Sin usuario y clave nuevos se conservan los guardados (no se muestran, así que no se reenvían); otra marca los borra.
     await c.query(`UPDATE fin.procesador SET nombre = $1, cuenta_id = $2, activo = $3, cuenta_acredita_id = $4, marca = $6, portal_url = $7,
-                          portal_credenciales = CASE WHEN $6 <> 'pago24' THEN NULL ELSE COALESCE($8, portal_credenciales) END, portal_auto = $9 WHERE id = $5`,
-      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca, p.portal_url, cifrarPortal(p), p.portal_auto]);
+                          portal_credenciales = CASE WHEN $6 <> 'pago24' THEN NULL ELSE COALESCE($8, portal_credenciales) END, portal_auto = $9,
+                          sociedad_id = $10 WHERE id = $5`,
+      [p.nombre, cuenta, p.activo, await cuentaAcredita(c, p, cuenta), req.params.id, p.marca, p.portal_url, cifrarPortal(p), p.portal_auto, p.sociedad_id]);
+    // Su cuenta "a acreditar" es de la misma sociedad.
+    await c.query(`UPDATE fin.cuenta SET sociedad_id = $1 WHERE id = $2 AND tipo = 'cobranza'`, [p.sociedad_id, cuenta]);
     await guardarTipos(c, req.params.id, p.tipos);
   });
   res.json({ ok: true });

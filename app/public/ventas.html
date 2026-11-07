@@ -260,10 +260,10 @@ function pintar() {
     const g = porLocal.get(x.sede_id) || { clave: x.sede_id, etiqueta: (locales.find(l => l[0] === x.sede_id) || [, x.nombre])[1], valor: 0n, ventas: 0 };
     g.valor += centavos(x.vendido); g.ventas += x.ventas; porLocal.set(x.sede_id, g);
   }
-  const varios = !$('#integ').value && porLocal.size > 1, coms = !varios && (r.comercios || []).length > 0, canales = !varios && !coms && r.puntos.length > 1;
-  $('#tRank').textContent = varios ? 'Por local' : coms ? 'Por comercio' : canales ? 'Por canal' : 'Por mozo';
-  const conComercios = varios && (r.comercios || []).length > 0;
-  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' + (conComercios ? ' Los comercios dentro de un local son estimados (por los artículos vendidos cada día y, PedidosYa, por tienda).' : '')
+  const varios = !$('#integ').value && porLocal.size > 1, coms = !varios && (r.comercios || []).length > 1, canales = !varios && !coms && r.puntos.length > 1;
+  $('#tRank').textContent = varios ? 'Por store' : coms ? 'Por store' : canales ? 'Por canal' : 'Por mozo';
+  const conComercios = varios && [...porLocal.keys()].some(id => (r.comercios || []).filter(c => c.sede_id === id).length > 1);
+  $('#capRank').textContent = varios ? 'Tocá un store para ver su local.' + (conComercios ? ' Los stores que comparten local son estimados (por los artículos vendidos cada día y, PedidosYa, por tienda).' : '')
     : coms ? 'Estimado: el salón y el delivery propio se reparten por los artículos vendidos cada día; PedidosYa, por tienda.'
     : canales ? 'Lo vendido en el salón y por PedidosYa.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
   if (coms) {
@@ -278,7 +278,8 @@ function pintar() {
     const items = [];
     for (const g of porLocal.values()) {
       const cs = r.comercios.filter(c => c.sede_id === g.clave);
-      if (!cs.length) { items.push(g); continue; }
+      // Un solo store: es todo el local, con su nombre (no es estimado).
+      if (cs.length < 2) { items.push(cs.length ? { ...g, etiqueta: cs[0].nombre } : g); continue; }
       let resto = g.valor;
       for (const c of cs) { const v = centavos(c.vendido); resto -= v; items.push({ clave: g.clave, etiqueta: c.nombre, valor: v, ventas: c.ventas, estimado: true }); }
       if (resto > 100n) items.push({ clave: g.clave, etiqueta: `${g.etiqueta} · sin repartir`, valor: resto, ventas: 0, estimado: true });

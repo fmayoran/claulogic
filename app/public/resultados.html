@@ -43,7 +43,7 @@
       de cobro de los procesadores, impuestos, gastos bancarios y demás gastos. Devengado: la venta y sus costos de cobro caen en el día de la
       venta; lo demás, en el día del movimiento. Nada se carga a mano: sale de las ventas, del costeo y de lo conciliado. Tocá una línea para
       ver sus rubros y un rubro para ver qué tiene (y reclasificarlo si hace falta).</p>
-    <div class="t-filtros"><select id="sede" aria-label="Filial"></select><select id="comercio" aria-label="Comercio" hidden></select></div>
+    <div class="t-filtros"><select id="sede" aria-label="Filial"></select><select id="comercio" aria-label="Store" hidden></select></div>
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
@@ -228,7 +228,7 @@ async function clasificador(f) {
   const comSel = el('select', { 'aria-label': 'Comercio' });
   const pintarCom = () => {
     const cs = comerciosDe(sedeSel.value || ($('#sede').value || ''));
-    comSel.hidden = !cs.length; opciones(comSel, cs.map(c => [c.id, c.nombre]), f.comercio_id && cs.some(c => c.id === f.comercio_id) ? f.comercio_id : '', 'Todos los comercios (prorrateo)');
+    comSel.hidden = cs.length < 2; opciones(comSel, cs.map(c => [c.id, c.nombre]), f.comercio_id && cs.some(c => c.id === f.comercio_id) ? f.comercio_id : '', 'Todos los stores (prorrateo)');
   };
   pintarCom();
   const ok = el('button', { type: 'button', textContent: 'Guardar', hidden: true });
@@ -250,7 +250,8 @@ let sedes = [], comercios = [];
 // El combo de comercio aparece cuando la filial elegida tiene comercios (SORELLE BODEGON Y SUSHI: Wera Sushi y Lo de Titi).
 function pintarComercios() {
   const cs = comerciosDe($('#sede').value), ant = $('#comercio').value;
-  $('#comercio').hidden = !cs.length;
+  // Sólo con dos o más stores en el local: con uno, el local es el store.
+  $('#comercio').hidden = cs.length < 2;
   opciones($('#comercio'), [...cs.map(c => [c.id, c.nombre]), ['sin', 'Sin repartir']], cs.some(c => c.id === ant) || ant === 'sin' ? ant : '', 'Todo el local');
 }
 async function cargar() {

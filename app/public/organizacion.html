@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Organización · ClauLogic</title>
+<link rel="stylesheet" href="comun.css">
+<style>
+  /* El grupo de un vistazo (decisión de Fer, 07/11/2026): el grupo, sus sociedades, los locales de cada una y los stores de cada
+     local, con sus sistemas de venta y las cuentas de cada sociedad. Lo de cada local se edita en su ficha. */
+  .arbol{display:grid;gap:16px;}
+  .soc{padding:18px 20px;}
+  .soc-cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .soc-cab h2{margin:0;font-size:1.15rem;} .soc-cab .m{color:var(--mut);font-size:.88rem;}
+  .grupo-tag{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  .locales{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:14px 0 6px;}
+  .local{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+  .local .n{font-weight:700;} .local .sis{color:var(--mut);font-size:.84rem;}
+  .stores{display:flex;gap:6px;flex-wrap:wrap;}
+  .store{background:var(--sel);border-radius:999px;padding:3px 10px;font-size:.86rem;font-weight:600;}
+  .local a{font-size:.86rem;font-weight:600;margin-top:auto;}
+  .ctas{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin-top:10px;font-size:.88rem;}
+  .ctas dt{color:var(--mut);} .ctas dd{margin:0;}
+  .vacio{color:var(--mut);font-size:.88rem;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Organización</h1>
+  <p class="sub">El grupo, sus sociedades, los locales de cada sociedad y los stores de cada local. Las cuentas bancarias y las de cobro
+    (Mercado Pago, Pago24, Fudo Pagos, PedidosYa) son de la sociedad; el depósito, la caja de efectivo y los sistemas de venta, del local;
+    un local con varios stores reparte sus ventas entre ellos. El centro de producción y la caja mayor son del grupo.</p>
+  <div class="barra"><button class="prim" id="nuevaSoc">Nueva sociedad</button><a href="sedes.html">Locales y centro</a><span class="msg" id="msg"></span></div>
+  <div class="arbol" id="arbol"></div>
+</main>
+
+<dialog id="dSoc"><form id="fs" novalidate>
+  <h2 id="dsTitulo">Nueva sociedad</h2>
+  <div class="fila"><label>Razón social *<input name="nombre" maxlength="120"></label><label>CUIT<input name="cuit" inputmode="numeric" placeholder="30-12345678-9"></label></div>
+  <label class="check" id="fsActiva" hidden><input type="checkbox" name="activa" checked> Activa</label>
+  <div class="acciones"><button type="submit" class="prim">Guardar</button><button type="button" data-cerrar>Cancelar</button><span class="msg" id="msgS"></span></div>
+</form></dialog>
+
+<script src="comun.js"></script>
+<script>
+const SISTEMA = { fudo: 'Fudo', maxirest: 'Maxirest', otro: 'Otro sistema', pedidosya: 'PedidosYa' };
+$$('[data-cerrar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+let d = {};
+const cuitTexto = c => c ? `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}` : 'sin CUIT';
+
+async function cargar() {
+  const [{ sociedades }, { sedes }, { integraciones }, { comercios }, cu, pr] = await Promise.all([
+    api('sociedades'), api('sedes'), api('pos/integraciones'), api('comercios'),
+    api('fin/cuentas').catch(() => ({ cuentas: [] })), api('fin/procesadores').catch(() => ({ procesadores: [] }))]);
+  d = { sociedades, sedes, integraciones, comercios, cuentas: cu.cuentas, procesadores: pr.procesadores };
+  pintar();
+}
+// Un local: sus sistemas de venta y sus stores; se abre su ficha.
+function local(s) {
+  const sis = d.integraciones.filter(i => i.sede_id === s.id && i.activa).map(i => SISTEMA[i.sistema] || i.sistema);
+  const st = d.comercios.filter(c => c.sede_id === s.id && c.activo);
+  return el('div', { className: 'local' }, el('span', { className: 'n', textContent: s.nombre + (s.activa ? '' : ' (inactivo)') }),
+    el('span', { className: 'sis', textContent: s.tipo === 'centro' ? 'Centro de producción y abastecimiento' : sis.length ? sis.join(' · ') : 'sin sistema de venta' }),
+    s.tipo === 'local' ? el('div', { className: 'stores' }, ...(st.length ? st.map(c => el('span', { className: 'store', textContent: c.nombre })) : [el('span', { className: 'vacio', textContent: 'sin stores' })])) : '',
+    el('a', { href: 'sedes.html#' + s.id, textContent: 'Abrir la ficha' }));
+}
+// Las cuentas de una sociedad (o del grupo): bancos, cuentas de cobro y cajas.
+function cuentasDe(soc) {
+  const de = c => c.activa && (c.sociedad_id || null) === soc;
+  const bancos = d.cuentas.filter(c => de(c) && c.tipo === 'banco').map(c => c.nombre);
+  const cajas = d.cuentas.filter(c => de(c) && c.tipo === 'caja' && !c.punto_venta).map(c => c.nombre);
+  const cobro = d.procesadores.filter(p => p.activo && (p.sociedad_id || null) === soc).map(p => p.nombre);
+  const filas = [['Bancos', bancos], ['Cuentas de cobro', cobro], ['Cajas', cajas]].filter(([, v]) => v.length);
+  return filas.length ? el('dl', { className: 'ctas' }, ...filas.flatMap(([k, v]) => [el('dt', { textContent: k }), el('dd', { textContent: v.join(' · ') })])) : '';
+}
+function pintar() {
+  const central = d.sedes.find(s => s.es_central);
+  const delGrupo = d.sedes.filter(s => !s.sociedad_id);
+  const grupo = el('section', { className: 'card soc' },
+    el('div', { className: 'soc-cab' }, el('div', {}, el('span', { className: 'grupo-tag', textContent: 'Grupo' }), el('h2', { textContent: central ? central.nombre : 'Grupo' })),
+      el('span', { className: 'm', textContent: 'Consolida las sociedades · sin CUIT' })),
+    el('div', { className: 'locales' }, ...delGrupo.map(local)), cuentasDe(null));
+  const socs = d.sociedades.map(so => {
+    const ls = d.sedes.filter(s => s.sociedad_id === so.id);
+    return el('section', { className: 'card soc' },
+      el('div', { className: 'soc-cab' }, el('div', {}, el('span', { className: 'grupo-tag', textContent: 'Sociedad' }), el('h2', { textContent: so.nombre + (so.activa ? '' : ' (inactiva)') })),
+        el('span', { className: 'm' }, so.cuit ? `CUIT ${cuitTexto(so.cuit)} · ` : 'Sin CUIT · ', el('button', { type: 'button', className: 'chico', textContent: 'Editar', onclick: () => abrir(so) }))),
+      ls.length ? el('div', { className: 'locales' }, ...ls.map(local)) : el('p', { className: 'vacio', textContent: 'Sin locales todavía: se crean en Locales y centro.' }),
+      cuentasDe(so.id));
+  });
+  $('#arbol').replaceChildren(grupo, ...socs);
+}
+
+const fs = $('#fs');
+function abrir(so = null) {
+  fs.reset(); msg('', '', '#msgS'); $('#dsTitulo').textContent = so ? 'Editar sociedad' : 'Nueva sociedad';
+  if (so) { fs.nombre.value = so.nombre; fs.cuit.value = so.cuit ? cuitTexto(so.cuit) : ''; fs.activa.checked = so.activa; }
+  $('#fsActiva').hidden = !so; fs.dataset.id = so ? so.id : ''; sinCambios(fs);
+  $('#dSoc').showModal();
+}
+fs.onsubmit = async e => {
+  e.preventDefault();
+  const body = { nombre: fs.nombre.value, cuit: fs.cuit.value, activa: fs.activa.checked };
+  try {
+    await api(fs.dataset.id ? 'sociedades/' + fs.dataset.id : 'sociedades', { method: fs.dataset.id ? 'PUT' : 'POST', body });
+    $('#dSoc').close(); msg('Sociedad guardada.', 'ok'); await cargar();
+  } catch (e) { msg(e.message, 'mal', '#msgS'); }
+};
+$('#nuevaSoc').onclick = () => abrir();
+cargar().catch(e => msg(e.message, 'mal'));
+</script>
+</body>
+</html>
