@@ -63,7 +63,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   El estado de resultados se mira del **grupo consolidado**, de una sociedad, "sólo el grupo" (el centro y la caja mayor) o de un store
   (`/fin/resultados?sociedad=&comercio=`); al reclasificar un gasto se elige el store, el grupo o "según la cuenta". El tablero de
   tesorería filtra por la sociedad de la cuenta ("Todo el grupo", cada sociedad, y "Grupo" para las cuentas sin sociedad).
-- Sigue: las facturas de compra a nombre de cada sociedad.
+- **Facturas y pagos por sociedad** (migración 20261131): cada comprobante de proveedor es de una **sociedad** (la que lo recibe:
+  `fin.comprobante.sociedad_id`, obligatoria; se propone la del último comprobante del proveedor, `GET /fin/sociedad-sugerida`). Una
+  **orden de pago** es de una sociedad (sin elegir, la de sus comprobantes): aplica sólo comprobantes de esa sociedad y paga desde
+  cuentas de esa sociedad o del grupo (la caja mayor); lo controlan triggers en la base. La cuenta corriente (`fin.movimiento_cc`)
+  toma la sociedad de lo que la mueve (trigger); `fin.saldo_proveedor_sociedad` da el saldo por proveedor y sociedad
+  (`fin.saldo_proveedor` sigue siendo el total con el grupo). **Libro IVA compras y retenciones practicadas, uno por sociedad** (su
+  CUIT): con "Todas las sociedades" se baja un archivo por cada una. Facturas, Órdenes de pago y Cuenta corriente filtran por sociedad;
+  el pago rápido y el asistente de abastecimiento ofrecen sólo las cuentas de la sociedad del comprobante y las del grupo.
 
 ### Las cuatro decisiones del modelo (no las deshagas sin entender por qué están)
 

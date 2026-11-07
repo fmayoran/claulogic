@@ -23,6 +23,7 @@
 <div class="grid">
   <aside>
     <div class="filtros">
+      <select id="fsoc" aria-label="Sociedad"></select>
       <select id="fest"><option value="">Todas</option><option value="borrador">Borradores</option><option value="registrada">Registradas</option><option value="anulada">Anuladas</option></select>
       <button class="prim" id="nueva">Nueva orden de pago</button>
       <div class="con-boton"><input id="mes" type="month"><a id="ret" class="chico" href="#">Retenciones</a></div>
@@ -36,7 +37,8 @@
       <form id="f" novalidate>
         <fieldset>
           <legend>Proveedor</legend>
-          <div class="fila"><label>Proveedor *<select name="proveedor_id"></select></label><label>Fecha<input name="fecha" type="date"></label></div>
+          <div class="fila"><label>Sociedad que paga *<select name="sociedad_id"></select></label><label>Proveedor *<select name="proveedor_id"></select></label><label>Fecha<input name="fecha" type="date"></label></div>
+          <p class="ayuda" style="margin-top:-4px">Una orden paga comprobantes de una sola sociedad, desde sus cuentas o las del grupo (la caja mayor).</p>
           <div class="fila"><label>Notas<input name="notas"></label></div>
           <p class="ayuda" id="saldoProv"></p>
         </fieldset>
@@ -99,19 +101,22 @@
 <script>
 const MEDIO = { transferencia: 'Transferencia', efectivo: 'Efectivo', cheque_propio: 'Cheque propio', cheque_tercero: 'Cheque de tercero' };
 const IMP = { ganancias: 'Ganancias', iva: 'IVA', iibb: 'Ingresos Brutos', suss: 'SUSS', otra: 'Otra' };
-let ordenes = [], proveedores = [], cuentas = [], cartera = [], actual = null, orden = null, conTerceros = false;
+let ordenes = [], proveedores = [], cuentas = [], cartera = [], sociedades = [], actual = null, orden = null, conTerceros = false;
+const llenarSociedad = valor => opciones(f.sociedad_id, sociedades.filter(s => s.activa || s.id === valor).map(s => [s.id, s.nombre]), valor, 'Elegir…');
+// Las cuentas desde las que paga la orden: las de su sociedad y las del grupo.
+const deLaOrden = c => !c.sociedad_id || c.sociedad_id === f.sociedad_id.value;
 const f = $('#f');
 const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
 const pesosC = c => pesos(deCentavos(c));
 
 async function cargarLista() {
-  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value);
+  const p = new URLSearchParams(); if ($('#fest').value) p.set('estado', $('#fest').value); if ($('#fsoc').value) p.set('sociedad', $('#fsoc').value);
   ({ ordenes } = await api('fin/ordenes-pago?' + p));
   if (!ordenes.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay órdenes de pago.' }));
   $('#lista').replaceChildren(...ordenes.map(o => {
     const b = el('button', { type: 'button', className: 'item' + (o.id === actual ? ' sel' : '') + (o.estado === 'anulada' ? ' inactivo' : '') },
       el('div', { className: 'n' }, `${o.nro} · ${o.proveedor}`, ' ', o.estado === 'borrador' ? el('span', { className: 'tag aviso', textContent: 'borrador' }) : ''),
-      el('div', { className: 'm', textContent: `${fecha(o.fecha)} · ${pesos(o.total)}` }));
+      el('div', { className: 'm', textContent: [fecha(o.fecha), pesos(o.total), $('#fsoc').value ? null : o.sociedad].filter(Boolean).join(' · ') }));
     b.onclick = () => abrir(o.id);
     return b;
   }));
@@ -119,10 +124,10 @@ async function cargarLista() {
 
 // ── Pendientes del proveedor ──
 async function cargarPendientes(aplicadas = []) {
-  const pv = f.proveedor_id.value;
-  if (!pv) { $('#deudas').replaceChildren(); $('#creditos').replaceChildren(); $('#saldoProv').textContent = ''; return resumen(); }
-  const { deudas, creditos, saldo } = await api('fin/pendientes?proveedor=' + pv);
-  $('#saldoProv').textContent = `Saldo en cuenta corriente: ${pesos(saldo)}` + (saldo.startsWith('-') ? ' (a favor nuestro)' : '');
+  const pv = f.proveedor_id.value, soc = f.sociedad_id.value;
+  if (!pv || !soc) { $('#deudas').replaceChildren(); $('#creditos').replaceChildren(); $('#saldoProv').textContent = pv ? 'Elegí la sociedad que paga.' : ''; return resumen(); }
+  const { deudas, creditos, saldo } = await api(`fin/pendientes?proveedor=${pv}&sociedad=${soc}`);
+  $('#saldoProv').textContent = `Saldo con esta sociedad: ${pesos(saldo)}` + (saldo.startsWith('-') ? ' (a favor nuestro)' : '');
   const fila = (c, disp, venc) => {
     const prev = aplicadas.find(a => a.comprobante_id === c.comprobante_id);
     const chk = el('input', { type: 'checkbox', checked: !!prev });
@@ -141,7 +146,16 @@ async function cargarPendientes(aplicadas = []) {
   filas($('#creditos'), creditos, c => fila(c, c.disponible, td(fecha(c.fecha))), '', 5);
   resumen();
 }
-f.proveedor_id.onchange = () => cargarPendientes();
+// Proveedor nuevo sin sociedad elegida: la que se propone (la de su último comprobante).
+f.proveedor_id.onchange = async () => {
+  if (f.proveedor_id.value && !f.sociedad_id.value) {
+    const d = await api('fin/sociedad-sugerida?proveedor=' + f.proveedor_id.value).catch(() => ({}));
+    if (d.sociedad_id) f.sociedad_id.value = d.sociedad_id;
+  }
+  cargarPendientes();
+};
+// Otra sociedad: otros comprobantes y otras cuentas.
+f.sociedad_id.onchange = () => { $$('#vals tbody tr').forEach(tr => tr.pintar && tr.pintar()); cargarPendientes(); };
 
 // ── Retenciones y valores ──
 function filaRet(x = {}) {
@@ -170,8 +184,9 @@ function filaVal(x = {}) {
     const m = medio.value;
     cuenta.hidden = m === 'cheque_tercero'; cheque.hidden = m !== 'cheque_tercero';
     const tipo = m === 'efectivo' ? 'caja' : 'banco';
-    opciones(cuenta, cuentas.filter(c => c.tipo === tipo).map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '') + ` · ${pesos(c.saldo)}`]),
-      cuentas.some(c => c.id === x.cuenta_id && c.tipo === tipo) ? x.cuenta_id : null, 'Elegir…');
+    const usables = cuentas.filter(c => c.tipo === tipo && deLaOrden(c)), ant = cuenta.value || x.cuenta_id;
+    opciones(cuenta, usables.map(c => [c.id, c.nombre + (c.sociedad ? '' : ' (grupo)') + ` · ${pesos(c.saldo)}`]),
+      usables.some(c => c.id === ant) ? ant : null, 'Elegir…');
     // Un cheque de tercero ya elegido en otro renglón no se ofrece de nuevo.
     const usados = new Set($$('#vals tbody tr').filter(t => t !== tr && t.leer).map(t => t.leer().cheque_id).filter(Boolean));
     opciones(cheque, cartera.filter(c => !usados.has(c.id) || c.id === x.cheque_id).map(c => [c.id, `${c.banco} Nº ${c.numero} · ${fecha(c.fecha_pago)} · ${pesos(c.importe)}`]),
@@ -187,6 +202,7 @@ function filaVal(x = {}) {
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); resumen(); } })));
   tr.leer = () => ({ medio: medio.value, cuenta_id: cuenta.value || null, cheque_id: medio.value === 'cheque_tercero' ? cheque.value || null : null,
     importe: monto.value, referencia: ref.value, cheque_numero: chNum.value, cheque_fecha_pago: chPago.value, cheque_formato: chFmt.value });
+  tr.pintar = pintar;
   $('#vals tbody').append(tr); pintar();
 }
 $('#agregarRet').onclick = () => filaRet();
@@ -210,6 +226,7 @@ function resumen() {
 async function nueva() {
   actual = null; orden = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva orden de pago';
   opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => proveedores.push(p));
+  llenarSociedad($('#fsoc').value || null);
   f.fecha.value = hoy();
   $('#rets tbody').replaceChildren(); $('#vals tbody').replaceChildren(); filaVal();
   $('#borrar').hidden = true; await cargarPendientes(); vista('editar'); history.replaceState(null, '', 'ordenes-pago.html');
@@ -222,6 +239,7 @@ async function abrir(id) {
     if (orden.estado === 'borrador') {
       $('#titulo').textContent = `${orden.nro} · ${orden.proveedor}`;
       opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo || p.id === orden.proveedor_id), orden.proveedor_id, undefined, p => proveedores.push(p));
+      llenarSociedad(orden.sociedad_id);
       f.fecha.value = orden.fecha; f.notas.value = orden.notas || '';
       $('#rets tbody').replaceChildren(); orden.retenciones.forEach(filaRet);
       $('#vals tbody').replaceChildren(); orden.valores.forEach(filaVal);
@@ -234,7 +252,7 @@ async function abrir(id) {
 function ver() {
   const o = orden;
   $('#vTitulo').textContent = `Orden de pago ${o.nro}`;
-  $('#vSub').textContent = [o.proveedor, o.cuit ? 'CUIT ' + o.cuit : null, 'fecha ' + fecha(o.fecha),
+  $('#vSub').textContent = [o.sociedad, o.proveedor, o.cuit ? 'CUIT ' + o.cuit : null, 'fecha ' + fecha(o.fecha),
     o.estado === 'registrada' ? `registrada por ${o.registrado_por || '—'} el ${fechaHora(o.registrado_en)}` : null,
     o.estado === 'anulada' ? `ANULADA por ${o.anulado_por || '—'}: ${o.motivo_anulacion}` : null, o.notas].filter(Boolean).join(' · ');
   filas($('#vAp'), o.aplicaciones, a => el('tr', {}, td(a.nro), td(fecha(a.fecha)), td(pesos(a.total), 'num'),
@@ -252,7 +270,7 @@ function ver() {
   vista('ver');
 }
 function leer() {
-  return { proveedor_id: f.proveedor_id.value, fecha: f.fecha.value, notas: f.notas.value,
+  return { proveedor_id: f.proveedor_id.value, sociedad_id: f.sociedad_id.value, fecha: f.fecha.value, notas: f.notas.value,
     aplicaciones: $$('#deudas tr, #creditos tr').map(tr => tr.leer && tr.leer()).filter(Boolean).map(({ nc, ...a }) => a),
     retenciones: $$('#rets tbody tr').map(tr => tr.leer()).filter(x => x.importe),
     valores: $$('#vals tbody tr').map(tr => tr.leer()).filter(x => x.importe || x.cheque_id) };
@@ -286,14 +304,23 @@ $('#anular').onclick = async () => {
   try { await api(`fin/ordenes-pago/${actual}/anular`, { method: 'POST', body: { motivo } }); await abrir(actual); }
   catch (e) { msg(e.message, 'mal', '#msgV'); }
 };
-$('#ret').onclick = e => { e.preventDefault(); if (!$('#mes').value) return alert('Elegí el mes.'); location.href = 'api/fin/retenciones?mes=' + $('#mes').value; };
+// Las retenciones son de cada sociedad (agente de retención): con todas, un archivo por cada una.
+$('#ret').onclick = e => {
+  e.preventDefault(); if (!$('#mes').value) return alert('Elegí el mes.');
+  const socs = $('#fsoc').value ? [$('#fsoc').value] : sociedades.filter(s => s.activa).map(s => s.id);
+  socs.forEach((s, i) => setTimeout(() => {
+    const a = el('a', { href: `api/fin/retenciones?mes=${$('#mes').value}&sociedad=${s}`, download: '' });
+    document.body.append(a); a.click(); a.parentNode.removeChild(a);
+  }, i * 600));
+};
 $('#nueva').onclick = nueva;
-$('#fest').onchange = cargarLista;
+$('#fest').onchange = $('#fsoc').onchange = cargarLista;
 (async () => {
   try {
     let c;
-    [{ proveedores }, c, { cheques: cartera }] = await Promise.all([api('proveedores?inactivos=1'), api('fin/cuentas'),
-      api('fin/cheques?tipo=tercero&estado=en_cartera')]);
+    [{ proveedores }, c, { cheques: cartera }, { sociedades }] = await Promise.all([api('proveedores?inactivos=1'), api('fin/cuentas'),
+      api('fin/cheques?tipo=tercero&estado=en_cartera'), api('sociedades')]);
+    opciones($('#fsoc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
     cuentas = c.cuentas.filter(x => x.activa && x.tipo !== 'cartera');
     conTerceros = c.cuentas.some(x => x.tipo === 'cartera' && x.activa);
     $('#mes').value = hoy().slice(0, 7);
@@ -304,7 +331,11 @@ $('#fest').onchange = cargarLista;
       await nueva();
       // Desde una compra o un comprobante ("Pagar"): proveedor elegido y el comprobante tildado por lo pendiente.
       if (q.get('proveedor')) {
-        f.proveedor_id.value = q.get('proveedor'); await cargarPendientes();
+        f.proveedor_id.value = q.get('proveedor');
+        // La sociedad, la del comprobante a pagar.
+        if (q.get('comprobante')) { const { comprobante: cp } = await api('fin/comprobantes/' + q.get('comprobante')); f.sociedad_id.value = cp.sociedad_id; }
+        $$('#vals tbody tr').forEach(tr => tr.pintar && tr.pintar());
+        await cargarPendientes();
         const tr = q.get('comprobante') && $(`#deudas tr[data-comprobante="${q.get('comprobante')}"]`);
         if (tr) tr.querySelector('input[type=checkbox]').click();
         marcarCambios(f);

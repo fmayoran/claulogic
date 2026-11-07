@@ -24,26 +24,28 @@ const nro = c => `${CORTO[c.tipo]} ${c.letra} ${String(c.punto_venta).padStart(5
 r.get('/fin/comprobantes', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.estado,
-            c.proveedor_id, pv.nombre AS proveedor,
+            c.proveedor_id, pv.nombre AS proveedor, c.sociedad_id, so.nombre AS sociedad,
             COALESCE(c.total, t.neto_gravado + t.iva + t.no_gravado + t.tributos)::text AS total
        FROM fin.comprobante c
        JOIN logic.proveedor pv ON pv.id = c.proveedor_id
        JOIN fin.comprobante_totales t ON t.comprobante_id = c.id
+       JOIN org.sociedad so ON so.id = c.sociedad_id
       WHERE ($1::uuid IS NULL OR c.proveedor_id = $1)
+        AND ($6::uuid IS NULL OR c.sociedad_id = $6)
         AND ($2::text IS NULL OR c.estado = $2)
         AND ($3::date IS NULL OR c.fecha >= $3)
         AND ($4::date IS NULL OR c.fecha <= $4)
         AND ($5::text IS NULL OR pv.nombre ILIKE '%' || $5 || '%' OR c.numero::text LIKE '%' || $5 || '%')
       ORDER BY c.fecha DESC, c.creado_en DESC LIMIT 500`,
     [texto(req.query.proveedor), texto(req.query.estado), fecha(req.query.desde, { campo: 'Desde' }),
-     fecha(req.query.hasta, { campo: 'Hasta' }), texto(req.query.q)]);
+     fecha(req.query.hasta, { campo: 'Hasta' }), texto(req.query.q), texto(req.query.sociedad)]);
   res.json({ ok: true, comprobantes: rows.map(c => ({ ...c, nro: nro(c) })) });
 }));
 
 r.get('/fin/comprobantes/:id', h(async (req, res) => {
   const { rows: [c] } = await pool.query(
     `SELECT c.*, c.total::text AS total, c.ajuste_redondeo::text AS ajuste_redondeo,
-            pv.nombre AS proveedor, pv.cuit, pv.condicion_iva, pv.plazo_pago_dias,
+            pv.nombre AS proveedor, pv.cuit, pv.condicion_iva, pv.plazo_pago_dias, so.nombre AS sociedad,
             a.tipo AS asociado_tipo, a.letra AS asociado_letra, a.punto_venta AS asociado_pv, a.numero AS asociado_numero,
             t.neto_gravado::text, t.iva::text, t.no_gravado::text, t.tributos::text,
             (t.neto_gravado + t.iva + t.no_gravado + t.tributos)::text AS calculado,
@@ -52,6 +54,7 @@ r.get('/fin/comprobantes/:id', h(async (req, res) => {
        JOIN logic.proveedor pv ON pv.id = c.proveedor_id
        JOIN fin.comprobante_totales t ON t.comprobante_id = c.id
        LEFT JOIN fin.comprobante a ON a.id = c.asociado_id
+       JOIN org.sociedad so ON so.id = c.sociedad_id
       WHERE c.id = $1::uuid`, [req.params.id]);
   if (!c) throw new ErrorUsuario('No existe ese comprobante.', 404);
   const [items, tributos, compras, iva, movs] = await Promise.all([
@@ -112,6 +115,8 @@ function leerComprobante(b) {
   const noFiscal = String(b.letra || '').toUpperCase() === 'X';
   const c = {
     proveedor_id: texto(b.proveedor_id, { campo: 'el proveedor', requerido: true }),
+    // La sociedad que recibe el comprobante (su libro IVA y su deuda).
+    sociedad_id: texto(b.sociedad_id, { campo: 'la sociedad que recibe el comprobante', requerido: true }),
     tipo: texto(b.tipo, { campo: 'el tipo', requerido: true }),
     letra: (texto(b.letra, { campo: 'la letra', requerido: true }) || '').toUpperCase(),
     // En uno no fiscal son opcionales: sin número, la base le pone uno interno.
@@ -164,9 +169,9 @@ const VENCIMIENTO = `COALESCE($7::date, $6::date + (SELECT plazo_pago_dias FROM 
 // estas rutas y el proceso de abastecimiento.
 async function insertarComprobante(cn, c) {
   const { rows: [n] } = await cn.query(
-    `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, punto_venta, numero, fecha, vencimiento, cae, asociado_id, notas)
-     VALUES ($1,$2,$3,$4,$5,$6,${VENCIMIENTO},$8,$9,$10) RETURNING id`,
-    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas]);
+    `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, punto_venta, numero, fecha, vencimiento, cae, asociado_id, notas, sociedad_id)
+     VALUES ($1,$2,$3,$4,$5,$6,${VENCIMIENTO},$8,$9,$10,$11) RETURNING id`,
+    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas, c.sociedad_id]);
   await guardarDetalle(cn, n.id, c);
   return n.id;
 }
@@ -179,8 +184,8 @@ async function actualizarComprobante(cn, id, c) {
   await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [id]);
   await cn.query(
     `UPDATE fin.comprobante SET proveedor_id=$1, tipo=$2, letra=$3, punto_venta=$4, numero=$5, fecha=$6,
-            vencimiento=${VENCIMIENTO}, cae=$8, asociado_id=$9, notas=$10 WHERE id=$11`,
-    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas, id]);
+            vencimiento=${VENCIMIENTO}, cae=$8, asociado_id=$9, notas=$10, sociedad_id=$12 WHERE id=$11`,
+    [c.proveedor_id, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.vencimiento, c.cae, c.asociado_id, c.notas, id, c.sociedad_id]);
   await guardarDetalle(cn, id, c);
 }
 
@@ -247,8 +252,9 @@ r.post('/fin/comprobantes/:id/anular', h(async (req, res) => {
 r.get('/fin/facturas', h(async (req, res) => {
   const proveedor = texto(req.query.proveedor, { campo: 'el proveedor', requerido: true });
   const { rows } = await pool.query(
-    `SELECT id, tipo, letra, punto_venta, numero, fecha, total::text FROM fin.comprobante
-      WHERE proveedor_id = $1::uuid AND tipo = 'factura' AND estado = 'registrado' ORDER BY fecha DESC LIMIT 200`, [proveedor]);
+    `SELECT id, tipo, letra, punto_venta, numero, fecha, total::text, sociedad_id FROM fin.comprobante
+      WHERE proveedor_id = $1::uuid AND tipo = 'factura' AND estado = 'registrado' AND ($2::uuid IS NULL OR sociedad_id = $2)
+      ORDER BY fecha DESC LIMIT 200`, [proveedor, texto(req.query.sociedad)]);
   res.json({ ok: true, facturas: rows.map(c => ({ ...c, nro: nro(c) })) });
 }));
 
@@ -305,19 +311,25 @@ r.get('/fin/compras/:id/comprobantes', h(async (req, res) => {
 }));
 
 // ── Cuenta corriente ─────────────────────────────────────────────────────────────────────────
+// Por proveedor, el saldo con todo el grupo o con una sociedad (?sociedad=), con lo que tiene con cada sociedad.
 r.get('/fin/cuenta-corriente', h(async (req, res) => {
+  const soc = texto(req.query.sociedad);
   const { rows } = await pool.query(
-    `SELECT pv.id, pv.nombre, pv.cuit, s.saldo::text, s.ultimo_movimiento,
+    `WITH s AS (SELECT proveedor_id, SUM(saldo) AS saldo, MAX(ultimo_movimiento) AS ultimo_movimiento,
+                       json_agg(json_build_object('sociedad_id', x.sociedad_id, 'sociedad', so.nombre, 'saldo', x.saldo::text) ORDER BY so.nombre) AS sociedades
+                  FROM fin.saldo_proveedor_sociedad x JOIN org.sociedad so ON so.id = x.sociedad_id
+                 WHERE $1::uuid IS NULL OR x.sociedad_id = $1 GROUP BY proveedor_id)
+     SELECT pv.id, pv.nombre, pv.cuit, s.saldo::text, s.ultimo_movimiento, s.sociedades,
             COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento < current_date), 0)::text AS vencido,
             COALESCE(SUM(cp.pendiente) FILTER (WHERE cp.vencimiento BETWEEN current_date AND current_date + 7), 0)::text AS vence_7,
             MIN(cp.vencimiento) FILTER (WHERE cp.vencimiento >= current_date AND cp.pendiente > 0) AS proximo_vencimiento
-       FROM fin.saldo_proveedor s
+       FROM s
        JOIN logic.proveedor pv ON pv.id = s.proveedor_id
-       LEFT JOIN fin.comprobante_pendiente cp ON cp.proveedor_id = s.proveedor_id AND cp.pendiente > 0
-      GROUP BY pv.id, s.saldo, s.ultimo_movimiento
-      ORDER BY s.saldo DESC, pv.nombre`);
+       LEFT JOIN fin.comprobante_pendiente cp ON cp.proveedor_id = s.proveedor_id AND cp.pendiente > 0 AND ($1::uuid IS NULL OR cp.sociedad_id = $1)
+      GROUP BY pv.id, s.saldo, s.ultimo_movimiento, s.sociedades::text
+      ORDER BY s.saldo DESC, pv.nombre`, [soc]);
   const { rows: [tot] } = await pool.query(
-    `SELECT COALESCE(SUM(saldo), 0)::text AS saldo FROM fin.saldo_proveedor`);
+    `SELECT COALESCE(SUM(saldo), 0)::text AS saldo FROM fin.saldo_proveedor_sociedad WHERE $1::uuid IS NULL OR sociedad_id = $1`, [soc]);
   res.json({ ok: true, proveedores: rows, total: tot.saldo });
 }));
 
@@ -327,12 +339,14 @@ r.get('/fin/cuenta-corriente/:proveedor', h(async (req, res) => {
   const [movs, pend] = await Promise.all([
     pool.query(
       `SELECT m.id, m.fecha, m.ocurrido_en, m.tipo, m.comprobante_id, m.debe::text, m.haber::text, m.detalle, m.registrado_por,
-              m.anula_a, SUM(m.haber - m.debe) OVER (ORDER BY m.fecha, m.id)::text AS saldo
-         FROM fin.movimiento_cc m WHERE m.proveedor_id = $1 ORDER BY m.fecha, m.id`, [pv.id]),
+              m.anula_a, so.nombre AS sociedad, SUM(m.haber - m.debe) OVER (ORDER BY m.fecha, m.id)::text AS saldo
+         FROM fin.movimiento_cc m JOIN org.sociedad so ON so.id = m.sociedad_id
+        WHERE m.proveedor_id = $1 AND ($2::uuid IS NULL OR m.sociedad_id = $2) ORDER BY m.fecha, m.id`, [pv.id, texto(req.query.sociedad)]),
     pool.query(
-      `SELECT comprobante_id, tipo, letra, punto_venta, numero, fecha, vencimiento, pendiente::text,
-              (vencimiento - current_date) AS dias
-         FROM fin.comprobante_pendiente WHERE proveedor_id = $1 AND pendiente > 0 ORDER BY vencimiento`, [pv.id]),
+      `SELECT cp.comprobante_id, cp.tipo, cp.letra, cp.punto_venta, cp.numero, cp.fecha, cp.vencimiento, cp.pendiente::text,
+              (cp.vencimiento - current_date) AS dias, cp.sociedad_id, so.nombre AS sociedad
+         FROM fin.comprobante_pendiente cp JOIN org.sociedad so ON so.id = cp.sociedad_id
+        WHERE cp.proveedor_id = $1 AND cp.pendiente > 0 AND ($2::uuid IS NULL OR cp.sociedad_id = $2) ORDER BY cp.vencimiento`, [pv.id, texto(req.query.sociedad)]),
   ]);
   res.json({ ok: true, proveedor: pv, movimientos: movs.rows, pendientes: pend.rows.map(c => ({ ...c, nro: nro(c) })) });
 }));
@@ -343,11 +357,15 @@ r.get('/fin/cuenta-corriente/:proveedor', h(async (req, res) => {
 r.get('/fin/libro-iva', h(async (req, res) => {
   const mes = texto(req.query.mes, { campo: 'el mes', requerido: true });
   if (!/^\d{4}-\d{2}$/.test(mes)) throw new ErrorUsuario('El mes va como AAAA-MM.');
+  // Es de una sociedad (su CUIT): cada una tiene su libro.
+  const { rows: [so] } = await pool.query('SELECT id, nombre FROM org.sociedad WHERE id = $1::uuid',
+    [texto(req.query.sociedad, { campo: 'la sociedad del libro IVA', requerido: true })]);
+  if (!so) throw new ErrorUsuario('No existe esa sociedad.');
   const { rows } = await pool.query(
     `WITH c AS (
        SELECT c.*, pv.nombre AS proveedor, pv.cuit, CASE WHEN c.tipo = 'nota_credito' THEN -1 ELSE 1 END AS signo
          FROM fin.comprobante c JOIN logic.proveedor pv ON pv.id = c.proveedor_id
-        WHERE c.estado = 'registrado' AND c.letra <> 'X' AND to_char(c.fecha, 'YYYY-MM') = $1)
+        WHERE c.estado = 'registrado' AND c.letra <> 'X' AND to_char(c.fecha, 'YYYY-MM') = $1 AND c.sociedad_id = $2)
      SELECT to_char(c.fecha, 'DD/MM/YYYY') AS fecha, c.tipo, c.letra, c.punto_venta, c.numero, c.cuit, c.proveedor, c.signo,
             ${['21', '10.5', '27', '5', '2.5', '0'].map(a =>
               `COALESCE((SELECT neto FROM fin.comprobante_iva v WHERE v.comprobante_id = c.id AND v.alicuota = ${a}), 0) * c.signo AS "neto_${a}",
@@ -357,7 +375,7 @@ r.get('/fin/libro-iva', h(async (req, res) => {
               `COALESCE((SELECT SUM(importe) FROM fin.comprobante_tributo tr WHERE tr.comprobante_id = c.id AND tr.tipo = '${x}'), 0) * c.signo AS "${x}"`).join(',\n')},
             c.ajuste_redondeo * c.signo AS redondeo, c.total * c.signo AS total
        FROM c JOIN fin.comprobante_totales t ON t.comprobante_id = c.id
-      ORDER BY c.fecha, c.proveedor, c.numero`, [mes]);
+      ORDER BY c.fecha, c.proveedor, c.numero`, [mes, so.id]);
   const columnas = [['fecha', 'Fecha'], ['tipo', 'Tipo'], ['letra', 'Letra'], ['punto_venta', 'Punto de venta'], ['numero', 'Número'],
     ['cuit', 'CUIT'], ['proveedor', 'Proveedor'],
     ...['21', '10.5', '27', '5', '2.5', '0'].flatMap(a => [[`neto_${a}`, `Neto ${a.replace('.', ',')}%`], [`iva_${a}`, `IVA ${a.replace('.', ',')}%`]]),
@@ -375,10 +393,22 @@ r.get('/fin/libro-iva', h(async (req, res) => {
   const csv = '﻿' + [columnas.map(c => c[1]).join(';'),
     ...rows.map(f => columnas.map(([k]) => celda(k, f[k])).join(';'))].join('\r\n') + '\r\n';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="libro-iva-compras-${mes}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="libro-iva-compras-${so.nombre.replace(/[^A-Za-z0-9]+/g, '-').replace(/-+$/, '')}-${mes}.csv"`);
   res.send(csv);
 }));
 
+// La sociedad que se propone para un comprobante nuevo del proveedor: la de su último comprobante; si no tiene y hay una sola
+// sociedad activa, ésa. Si no, se elige.
+async function sociedadSugerida(cn, proveedorId) {
+  const { rows: [x] } = await cn.query(
+    `SELECT COALESCE((SELECT sociedad_id FROM fin.comprobante WHERE proveedor_id = $1::uuid AND estado <> 'anulado' ORDER BY creado_en DESC LIMIT 1),
+                     (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(id::text)::uuid END FROM org.sociedad WHERE activa)) AS id`, [proveedorId]);
+  return x.id;
+}
+r.get('/fin/sociedad-sugerida', h(async (req, res) => {
+  res.json({ ok: true, sociedad_id: await sociedadSugerida(pool, texto(req.query.proveedor, { campo: 'el proveedor', requerido: true })) });
+}));
+
 // Para el proceso de abastecimiento (abastecimiento.js).
-Object.assign(r, { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones });
+Object.assign(r, { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones, sociedadSugerida });
 module.exports = r;

@@ -498,9 +498,11 @@ async function pagarComprobante({ proveedor_id, comprobante_id, cuenta, importe,
     throw err;
   }
 }
+// Se paga desde una cuenta de la sociedad del comprobante o del grupo (la caja mayor): lo controla también la base.
+const cuentasParaPagar = (cuentas, sociedad) => cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja') && (!c.sociedad_id || c.sociedad_id === sociedad));
 async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPagar }) {
-  const { cuentas } = await api('fin/cuentas');
-  const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
+  const [{ cuentas }, { comprobante: cp }] = await Promise.all([api('fin/cuentas'), api('fin/comprobantes/' + comprobante_id)]);
+  const usables = cuentasParaPagar(cuentas, cp.sociedad_id);
   const completa = `ordenes-pago.html?proveedor=${proveedor_id}&comprobante=${comprobante_id}`;
   if (!usables.length) {
     if (confirm('No hay bancos ni cajas cargados en Tesorería para pagar. ¿Ir a cargar uno?')) location.href = 'cuentas.html#nueva';

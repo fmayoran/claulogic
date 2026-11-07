@@ -18,6 +18,7 @@
   <aside>
     <div class="filtros">
       <input id="q" type="search" placeholder="Proveedor o número">
+      <select id="fsoc" aria-label="Sociedad"></select>
       <select id="fest"><option value="">Todos</option><option value="borrador">Borradores</option><option value="registrado">Registrados</option><option value="anulado">Anulados</option></select>
       <button class="prim" id="nuevo">Nuevo comprobante</button>
       <div class="con-boton"><input id="mes" type="month"><a id="libro" class="chico" href="#">Libro IVA</a></div>
@@ -33,6 +34,7 @@
           <legend>Comprobante</legend>
           <label class="check" style="margin-bottom:12px"><input type="checkbox" name="fiscal" checked> Comprobante fiscal (factura con CAE)</label>
           <p class="ayuda" id="ayudaFiscal" hidden style="margin-top:-6px">No fiscal (X): precio final sin IVA discriminado y número opcional. Se paga y entra en la cuenta corriente igual que una factura, pero no va al libro IVA.</p>
+          <div class="fila"><label>Sociedad que lo recibe *<select name="sociedad_id"></select></label></div>
           <div class="fila">
             <label>Proveedor *<select name="proveedor_id"></select></label>
             <label>Tipo *<select name="tipo"><option value="factura">Factura</option><option value="nota_credito">Nota de crédito</option><option value="nota_debito">Nota de débito</option></select></label>
@@ -120,7 +122,9 @@ const TIPO = { factura: 'Factura', nota_credito: 'Nota de crédito', nota_debito
 const TRIB = { percepcion_iibb: 'Percepción IIBB', percepcion_iva: 'Percepción IVA', percepcion_ganancias: 'Percepción Ganancias',
                impuesto_interno: 'Impuesto interno', otro: 'Otro' };
 const ALIC = [['21', '21%'], ['10.5', '10,5%'], ['27', '27%'], ['5', '5%'], ['2.5', '2,5%'], ['0', '0%'], ['', 'Exento']];
-let comprobantes = [], proveedores = [], productos = [], actual = null, comp = null, calc = null, yo = null;
+let comprobantes = [], proveedores = [], productos = [], sociedades = [], actual = null, comp = null, calc = null, yo = null;
+// La sociedad que recibe el comprobante (su libro IVA y su deuda; decisión de Fer, 07/11/2026).
+const llenarSociedad = valor => opciones(f.sociedad_id, sociedades.filter(s => s.activa || s.id === valor).map(s => [s.id, s.nombre]), valor, 'Elegir…');
 const f = $('#f');
 const vista = id => { $('#vEditar').hidden = id !== 'editar'; $('#vVer').hidden = id !== 'ver'; };
 const discrimina = () => ['A', 'M'].includes(f.letra.value);
@@ -131,12 +135,14 @@ async function cargarLista() {
   const p = new URLSearchParams();
   if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
   if ($('#fest').value) p.set('estado', $('#fest').value);
+  if ($('#fsoc').value) p.set('sociedad', $('#fsoc').value);
   ({ comprobantes } = await api('fin/comprobantes?' + p));
   if (!comprobantes.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay comprobantes.' }));
   $('#lista').replaceChildren(...comprobantes.map(c => {
     const b = el('button', { type: 'button', className: 'item' + (c.id === actual ? ' sel' : '') + (c.estado === 'anulado' ? ' inactivo' : '') },
       el('div', { className: 'n' }, c.nro, ' ', c.estado === 'borrador' ? el('span', { className: 'tag aviso', textContent: 'borrador' }) : ''),
-      el('div', { className: 'm', textContent: `${c.proveedor} · ${fecha(c.fecha)} · ${pesos(c.total)}` }));
+      el('div', { className: 'm', textContent: `${c.proveedor} · ${fecha(c.fecha)} · ${pesos(c.total)}` }),
+      $('#fsoc').value ? '' : el('div', { className: 'm', textContent: c.sociedad }));
     b.onclick = () => abrir(c.id);
     return b;
   }));
@@ -242,6 +248,8 @@ async function alCambiarProveedor(vinculadas = []) {
     p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días: ajustá el vencimiento si corresponde` : null].filter(Boolean).join(' · ') : '';
   proponerVencimiento();
   if (p && !actual && f.fiscal.checked) f.letra.value = letraSugerida();
+  // Comprobante nuevo sin sociedad elegida: la que se propone para el proveedor (la de su último comprobante).
+  if (p && !actual && !f.sociedad_id.value) api('fin/sociedad-sugerida?proveedor=' + p.id).then(d => { if (d.sociedad_id && !f.sociedad_id.value) { f.sociedad_id.value = d.sociedad_id; cargarAsociables(); } }).catch(() => {});
   f.letra.onchange();
   await Promise.all([cargarCompras(vinculadas), cargarAsociables()]);
 }
@@ -264,10 +272,11 @@ async function cargarCompras(vinculadas) {
 }
 async function cargarAsociables(valor) {
   if (f.tipo.value === 'factura' || !f.proveedor_id.value) return opciones(f.asociado_id, [], null, 'Ninguna');
-  const { facturas } = await api('fin/facturas?proveedor=' + f.proveedor_id.value);
+  const { facturas } = await api('fin/facturas?proveedor=' + f.proveedor_id.value + (f.sociedad_id.value ? '&sociedad=' + f.sociedad_id.value : ''));
   opciones(f.asociado_id, facturas.map(x => [x.id, `${x.nro} · ${fecha(x.fecha)} · ${pesos(x.total)}`]), valor ?? f.asociado_id.value, 'Ninguna');
 }
 f.proveedor_id.onchange = () => alCambiarProveedor();
+f.sociedad_id.addEventListener('change', () => cargarAsociables());
 
 // Vencimiento: arranca en la fecha del comprobante (hoy, al cargarlo) y la sigue mientras no se lo cambie
 // a mano. El plazo del proveedor se muestra como referencia (decisión de Fer).
@@ -283,6 +292,7 @@ f.vencimiento.addEventListener('input', () => { vencTocado = true; });
 async function nuevo() {
   actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante'; vencTocado = false;
   opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => proveedores.push(p));
+  llenarSociedad($('#fsoc').value || null);
   f.fecha.value = hoy();
   $('#items tbody').replaceChildren(); $('#tributos tbody').replaceChildren(); filaItem(); aplicarFiscal();
   // Se puede registrar directo, sin guardar antes el borrador: registrar guarda primero.
@@ -312,6 +322,7 @@ async function abrir(id) {
     if (comp.estado === 'borrador') {
       $('#titulo').textContent = comp.nro + ' · ' + comp.proveedor;
       opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo || p.id === comp.proveedor_id), comp.proveedor_id, undefined, p => proveedores.push(p));
+      llenarSociedad(comp.sociedad_id);
       for (const k of ['tipo', 'letra', 'punto_venta', 'numero', 'fecha', 'vencimiento', 'cae', 'notas']) f[k].value = comp[k] ?? '';
       f.fiscal.checked = comp.letra !== 'X'; aplicarFiscal(); vencTocado = true;
       $('#asocWrap').hidden = comp.tipo === 'factura';
@@ -329,7 +340,7 @@ async function abrir(id) {
 function ver() {
   const c = comp;
   $('#vTitulo').textContent = `${TIPO[c.tipo]} ${c.letra} ${String(c.punto_venta).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}`;
-  $('#vSub').textContent = [c.letra === 'X' ? 'no fiscal' : null, c.proveedor, c.cuit ? 'CUIT ' + c.cuit : null, 'fecha ' + fecha(c.fecha), c.vencimiento ? 'vence ' + fecha(c.vencimiento) : null,
+  $('#vSub').textContent = [c.sociedad, c.letra === 'X' ? 'no fiscal' : null, c.proveedor, c.cuit ? 'CUIT ' + c.cuit : null, 'fecha ' + fecha(c.fecha), c.vencimiento ? 'vence ' + fecha(c.vencimiento) : null,
     c.asociado ? 'corrige ' + c.asociado : null, c.compras.length ? 'compras ' + c.compras.map(x => x.numero || fecha(x.fecha)).join(', ') : null,
     c.estado === 'registrado' ? `registrado por ${c.registrado_por || '—'} el ${fechaHora(c.registrado_en)}` : null,
     c.estado === 'anulado' ? `ANULADO por ${c.anulado_por || '—'}: ${c.motivo_anulacion}` : null].filter(Boolean).join(' · ');
@@ -358,7 +369,7 @@ function ver() {
   vista('ver');
 }
 function leer() {
-  return { proveedor_id: f.proveedor_id.value, tipo: f.tipo.value, letra: f.letra.value, punto_venta: f.punto_venta.value,
+  return { proveedor_id: f.proveedor_id.value, sociedad_id: f.sociedad_id.value, tipo: f.tipo.value, letra: f.letra.value, punto_venta: f.punto_venta.value,
     numero: f.numero.value, fecha: f.fecha.value, vencimiento: f.vencimiento.value, cae: f.cae.value, notas: f.notas.value,
     asociado_id: f.tipo.value === 'factura' ? null : f.asociado_id.value || null,
     items: $$('#items tbody tr').map(tr => tr.leer()).filter(x => x.descripcion || x.cantidad || x.precio),
@@ -408,14 +419,19 @@ $('#anular').onclick = async () => {
 $('#libro').onclick = e => {
   e.preventDefault();
   if (!$('#mes').value) return alert('Elegí el mes.');
-  location.href = 'api/fin/libro-iva?mes=' + $('#mes').value;
+  // Cada sociedad tiene su libro (su CUIT): con todas, uno por cada una.
+  const socs = $('#fsoc').value ? [$('#fsoc').value] : sociedades.filter(s => s.activa).map(s => s.id);
+  socs.forEach((s, i) => setTimeout(() => {
+    const a = el('a', { href: `api/fin/libro-iva?mes=${$('#mes').value}&sociedad=${s}`, download: '' }); document.body.append(a); a.click(); a.remove();
+  }, i * 600));
 };
 $('#nuevo').onclick = nuevo;
 let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(cargarLista, 250); };
-$('#fest').onchange = cargarLista;
+$('#fest').onchange = $('#fsoc').onchange = cargarLista;
 (async () => {
   try {
-    [{ proveedores }, productos, { usuario: yo }] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos(), cargarSesion()]);
+    [{ proveedores }, productos, { usuario: yo }, { sociedades }] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos(), cargarSesion(), api('sociedades')]);
+    opciones($('#fsoc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
     $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
     $('#mes').value = hoy().slice(0, 7);
     await cargarLista();

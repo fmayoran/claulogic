@@ -439,26 +439,29 @@ r.post('/fin/cheques/:id/debitar', h(async (req, res) => {
 // ── Órdenes de pago ──────────────────────────────────────────────────────────────────────────
 r.get('/fin/ordenes-pago', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT o.id, o.numero, o.fecha, o.estado, o.proveedor_id, pv.nombre AS proveedor,
+    `SELECT o.id, o.numero, o.fecha, o.estado, o.proveedor_id, pv.nombre AS proveedor, o.sociedad_id, so.nombre AS sociedad,
             COALESCE(o.total_valores + o.total_retenciones,
                      (SELECT SUM(importe) FROM fin.orden_pago_valor v WHERE v.orden_pago_id = o.id), 0)::text AS total
-       FROM fin.orden_pago o JOIN logic.proveedor pv ON pv.id = o.proveedor_id
-      WHERE ($1::uuid IS NULL OR o.proveedor_id = $1) AND ($2::text IS NULL OR o.estado = $2)
-      ORDER BY o.fecha DESC, o.numero DESC LIMIT 300`, [texto(req.query.proveedor), texto(req.query.estado)]);
+       FROM fin.orden_pago o JOIN logic.proveedor pv ON pv.id = o.proveedor_id JOIN org.sociedad so ON so.id = o.sociedad_id
+      WHERE ($1::uuid IS NULL OR o.proveedor_id = $1) AND ($2::text IS NULL OR o.estado = $2) AND ($3::uuid IS NULL OR o.sociedad_id = $3)
+      ORDER BY o.fecha DESC, o.numero DESC LIMIT 300`, [texto(req.query.proveedor), texto(req.query.estado), texto(req.query.sociedad)]);
   res.json({ ok: true, ordenes: rows.map(o => ({ ...o, nro: nroOP(o.numero) })) });
 }));
 
 // Lo que se le puede pagar a un proveedor: facturas y notas de débito con pendiente, y notas de
-// crédito sin factura con crédito disponible.
+// crédito sin factura con crédito disponible. Con ?sociedad=, sólo los de esa sociedad (una orden paga los de una sola).
 r.get('/fin/pendientes', h(async (req, res) => {
-  const proveedor = texto(req.query.proveedor, { campo: 'el proveedor', requerido: true });
+  const proveedor = texto(req.query.proveedor, { campo: 'el proveedor', requerido: true }), soc = texto(req.query.sociedad);
   const [deudas, creditos, saldo] = await Promise.all([
-    pool.query(`SELECT comprobante_id, tipo, letra, punto_venta, numero, fecha, vencimiento, pendiente::text,
+    pool.query(`SELECT comprobante_id, tipo, letra, punto_venta, numero, fecha, vencimiento, pendiente::text, sociedad_id,
                        (vencimiento - current_date) AS dias
-                  FROM fin.comprobante_pendiente WHERE proveedor_id = $1::uuid AND pendiente > 0 ORDER BY vencimiento, fecha`, [proveedor]),
-    pool.query(`SELECT comprobante_id, 'nota_credito' AS tipo, letra, punto_venta, numero, fecha, disponible::text
-                  FROM fin.credito_pendiente WHERE proveedor_id = $1::uuid AND disponible > 0 ORDER BY fecha`, [proveedor]),
-    pool.query(`SELECT COALESCE(saldo, 0)::text AS saldo FROM fin.saldo_proveedor WHERE proveedor_id = $1::uuid`, [proveedor]),
+                  FROM fin.comprobante_pendiente WHERE proveedor_id = $1::uuid AND pendiente > 0 AND ($2::uuid IS NULL OR sociedad_id = $2)
+                 ORDER BY vencimiento, fecha`, [proveedor, soc]),
+    pool.query(`SELECT comprobante_id, 'nota_credito' AS tipo, letra, punto_venta, numero, fecha, disponible::text, sociedad_id
+                  FROM fin.credito_pendiente WHERE proveedor_id = $1::uuid AND disponible > 0 AND ($2::uuid IS NULL OR sociedad_id = $2)
+                 ORDER BY fecha`, [proveedor, soc]),
+    pool.query(`SELECT COALESCE(SUM(saldo), 0)::text AS saldo FROM fin.saldo_proveedor_sociedad
+                 WHERE proveedor_id = $1::uuid AND ($2::uuid IS NULL OR sociedad_id = $2)`, [proveedor, soc]),
   ]);
   res.json({ ok: true, deudas: deudas.rows.map(c => ({ ...c, nro: nroComp(c) })), creditos: creditos.rows.map(c => ({ ...c, nro: nroComp(c) })),
              saldo: saldo.rows[0] ? saldo.rows[0].saldo : '0' });
@@ -467,8 +470,9 @@ r.get('/fin/pendientes', h(async (req, res) => {
 r.get('/fin/ordenes-pago/:id', h(async (req, res) => {
   const { rows: [o] } = await pool.query(
     `SELECT o.*, o.total_valores::text, o.total_retenciones::text, o.total_aplicado::text, o.a_cuenta::text,
-            pv.nombre AS proveedor, pv.cuit
-       FROM fin.orden_pago o JOIN logic.proveedor pv ON pv.id = o.proveedor_id WHERE o.id = $1::uuid`, [req.params.id]);
+            pv.nombre AS proveedor, pv.cuit, so.nombre AS sociedad
+       FROM fin.orden_pago o JOIN logic.proveedor pv ON pv.id = o.proveedor_id JOIN org.sociedad so ON so.id = o.sociedad_id
+      WHERE o.id = $1::uuid`, [req.params.id]);
   if (!o) throw new ErrorUsuario('No existe esa orden de pago.', 404);
   const [ap, ret, val, tes] = await Promise.all([
     pool.query(`SELECT a.comprobante_id, a.importe::text, c.tipo, c.letra, c.punto_venta, c.numero, c.fecha, c.total::text
@@ -493,6 +497,8 @@ const MEDIOS = ['transferencia', 'efectivo', 'cheque_propio', 'cheque_tercero'];
 function leerOrden(b) {
   const o = {
     proveedor_id: texto(b.proveedor_id, { campo: 'el proveedor', requerido: true }),
+    // La sociedad que paga; sin elegir, la de los comprobantes que aplica (sociedadDeOrden).
+    sociedad_id: texto(b.sociedad_id),
     fecha: fecha(b.fecha, { campo: 'Fecha' }), notas: texto(b.notas),
   };
   o.aplicaciones = (Array.isArray(b.aplicaciones) ? b.aplicaciones : []).filter(a => a.importe).map((a, i) => ({
@@ -523,6 +529,15 @@ function leerOrden(b) {
   return o;
 }
 
+// La sociedad de la orden: la elegida o la de sus comprobantes (todos de la misma: lo controla la base).
+async function sociedadDeOrden(c, o) {
+  if (o.sociedad_id) return o.sociedad_id;
+  const ids = o.aplicaciones.map(a => a.comprobante_id);
+  const { rows } = ids.length ? await c.query('SELECT DISTINCT sociedad_id FROM fin.comprobante WHERE id = ANY($1::uuid[])', [ids]) : { rows: [] };
+  if (rows.length > 1) throw new ErrorUsuario('Los comprobantes elegidos son de sociedades distintas: una orden de pago paga los de una sola.');
+  if (!rows.length) throw new ErrorUsuario('Elegí la sociedad que paga.');
+  return rows[0].sociedad_id;
+}
 async function guardarDetalleOrden(c, id, o) {
   for (const t of ['orden_pago_aplicacion', 'orden_pago_retencion', 'orden_pago_valor'])
     await c.query(`DELETE FROM fin.${t} WHERE orden_pago_id = $1`, [id]);
@@ -541,8 +556,8 @@ async function guardarDetalleOrden(c, id, o) {
 r.post('/fin/ordenes-pago', h(async (req, res) => {
   const o = leerOrden(req.body);
   const id = await enTransaccion(async c => {
-    const { rows: [n] } = await c.query('INSERT INTO fin.orden_pago (proveedor_id, fecha, notas) VALUES ($1,COALESCE($2::date, current_date),$3) RETURNING id',
-      [o.proveedor_id, o.fecha, o.notas]);
+    const { rows: [n] } = await c.query('INSERT INTO fin.orden_pago (proveedor_id, fecha, notas, sociedad_id) VALUES ($1,COALESCE($2::date, current_date),$3,$4) RETURNING id',
+      [o.proveedor_id, o.fecha, o.notas, await sociedadDeOrden(c, o)]);
     await guardarDetalleOrden(c, n.id, o);
     return n.id;
   });
@@ -552,9 +567,12 @@ r.post('/fin/ordenes-pago', h(async (req, res) => {
 r.put('/fin/ordenes-pago/:id', h(async (req, res) => {
   const o = leerOrden(req.body);
   await enTransaccion(async c => {
+    // El detalle se borra antes de cambiar la cabecera: con renglones la orden no cambia de sociedad (lo controla la base).
+    for (const t of ['orden_pago_aplicacion', 'orden_pago_retencion', 'orden_pago_valor'])
+      await c.query(`DELETE FROM fin.${t} WHERE orden_pago_id = $1::uuid`, [req.params.id]);
     const { rowCount } = await c.query(
-      `UPDATE fin.orden_pago SET proveedor_id=$1, fecha=COALESCE($2::date, fecha), notas=$3 WHERE id=$4::uuid AND estado = 'borrador'`,
-      [o.proveedor_id, o.fecha, o.notas, req.params.id]);
+      `UPDATE fin.orden_pago SET proveedor_id=$1, fecha=COALESCE($2::date, fecha), notas=$3, sociedad_id=$5 WHERE id=$4::uuid AND estado = 'borrador'`,
+      [o.proveedor_id, o.fecha, o.notas, req.params.id, await sociedadDeOrden(c, o)]);
     if (!rowCount) throw new ErrorUsuario('La orden de pago no existe o ya no está en borrador.');
     await guardarDetalleOrden(c, req.params.id, o);
   });
@@ -581,20 +599,24 @@ r.post('/fin/ordenes-pago/:id/anular', h(async (req, res) => {
 r.get('/fin/retenciones', h(async (req, res) => {
   const mes = texto(req.query.mes, { campo: 'el mes', requerido: true });
   if (!/^\d{4}-\d{2}$/.test(mes)) throw new ErrorUsuario('El mes va como AAAA-MM.');
+  // De una sociedad (el agente de retención es la sociedad que paga).
+  const { rows: [so] } = await pool.query('SELECT id, nombre FROM org.sociedad WHERE id = $1::uuid',
+    [texto(req.query.sociedad, { campo: 'la sociedad', requerido: true })]);
+  if (!so) throw new ErrorUsuario('No existe esa sociedad.');
   const { rows } = await pool.query(
     `SELECT to_char(o.fecha, 'DD/MM/YYYY') AS fecha, o.numero, pv.nombre AS proveedor, pv.cuit, r.impuesto, r.jurisdiccion,
             r.regimen, r.certificado, r.importe::text,
             (SELECT SUM(a.importe) FILTER (WHERE c.tipo <> 'nota_credito') - COALESCE(SUM(a.importe) FILTER (WHERE c.tipo = 'nota_credito'), 0)
                FROM fin.orden_pago_aplicacion a JOIN fin.comprobante c ON c.id = a.comprobante_id WHERE a.orden_pago_id = o.id)::text AS base
        FROM fin.orden_pago_retencion r JOIN fin.orden_pago o ON o.id = r.orden_pago_id JOIN logic.proveedor pv ON pv.id = o.proveedor_id
-      WHERE o.estado = 'registrada' AND to_char(o.fecha, 'YYYY-MM') = $1 ORDER BY o.fecha, o.numero`, [mes]);
+      WHERE o.estado = 'registrada' AND to_char(o.fecha, 'YYYY-MM') = $1 AND o.sociedad_id = $2 ORDER BY o.fecha, o.numero`, [mes, so.id]);
   const IMP = { ganancias: 'Ganancias', iva: 'IVA', iibb: 'Ingresos Brutos', suss: 'SUSS', otra: 'Otra' };
   const esc = s => s == null ? '' : /[;"\n]/.test(String(s)) ? '"' + String(s).replace(/"/g, '""') + '"' : String(s);
   const csv = '﻿' + ['Fecha;Orden de pago;Proveedor;CUIT;Impuesto;Jurisdicción;Régimen;Certificado;Base (aplicado);Importe retenido',
     ...rows.map(x => [x.fecha, nroOP(x.numero), esc(x.proveedor), x.cuit || '', IMP[x.impuesto], esc(x.jurisdiccion), esc(x.regimen),
       esc(x.certificado), (x.base || '').replace('.', ','), x.importe.replace('.', ',')].join(';'))].join('\r\n') + '\r\n';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="retenciones-${mes}.csv"`);
+  res.setHeader('Content-Disposition', `attachment; filename="retenciones-${so.nombre.replace(/[^A-Za-z0-9]+/g, '-').replace(/-+$/, '')}-${mes}.csv"`);
   res.send(csv);
 }));
 

@@ -10,7 +10,7 @@ const { pool } = require('./db');
 const { ErrorUsuario, numero, texto, fecha, h, enTransaccion, aBase, UNIDAD_REF, enRef } = require('./util');
 const { puede, exigir } = require('./auth');
 const { leerCompra, guardarItems, recibirCompra } = require('./compras');
-const { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones } = require('./finanzas');
+const { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones, sociedadSugerida } = require('./finanzas');
 
 const r = express.Router();
 const veCompras = u => u.es_admin || u.finanzas || (u.roles || []).some(x => x.tipo === 'centro');
@@ -73,7 +73,7 @@ r.get('/abastecimiento/pendientes', h(async (req, res) => {
 // Cabecera del comprobante que viene del asistente (sin renglones: salen de la compra).
 function leerCabecera(b) {
   if (!b) return null;
-  return { letra: (texto(b.letra) || 'A').toUpperCase(), punto_venta: texto(b.punto_venta), numero: texto(b.numero),
+  return { letra: (texto(b.letra) || 'A').toUpperCase(), punto_venta: texto(b.punto_venta), numero: texto(b.numero), sociedad_id: texto(b.sociedad_id),
            fecha: fecha(b.fecha, { campo: 'La fecha del comprobante' }), vencimiento: fecha(b.vencimiento, { campo: 'Vencimiento' }) };
 }
 const nroDe = c => c && c.numero ? `${c.letra} ${String(c.punto_venta || 0).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}` : null;
@@ -83,7 +83,9 @@ const nroDe = c => c && c.numero ? `${c.letra} ${String(c.punto_venta || 0).padS
 async function guardarComprobante(cn, compraId, proveedorId, cab, fechaCompra) {
   const [compra] = await comprasConRenglones(cn, compraId, { porId: true });
   const discrimina = ['A', 'M'].includes(cab.letra);
-  const c = leerComprobante({ proveedor_id: proveedorId, tipo: 'factura', letra: cab.letra, punto_venta: cab.punto_venta,
+  // La sociedad: la elegida, o la que se propone para el proveedor (la de su último comprobante).
+  const sociedad = cab.sociedad_id || await sociedadSugerida(cn, proveedorId);
+  const c = leerComprobante({ proveedor_id: proveedorId, sociedad_id: sociedad, tipo: 'factura', letra: cab.letra, punto_venta: cab.punto_venta,
     numero: cab.numero, fecha: cab.fecha || fechaCompra, vencimiento: cab.vencimiento, compras: [compraId], tributos: [],
     items: compra.items.map(i => ({ ...i, alicuota: discrimina ? (i.alicuota ?? '') : '' })) });
   const { rows: [ya] } = await cn.query(
@@ -125,7 +127,7 @@ r.put('/abastecimiento/:id', h(async (req, res) => {
     if (borr && borr.estado !== 'borrador') throw new ErrorUsuario('La factura de esta compra ya está registrada: corregila desde Facturas.');
     if (borr || cab) exigir(req, 'finanzas');
     const cabAnt = borr ? (await cn.query(
-      `SELECT letra, punto_venta::text, numero::text, fecha::text, vencimiento::text FROM fin.comprobante WHERE id = $1`, [borr.id])).rows[0] : null;
+      `SELECT letra, punto_venta::text, numero::text, fecha::text, vencimiento::text, sociedad_id FROM fin.comprobante WHERE id = $1`, [borr.id])).rows[0] : null;
     // Los renglones de la factura apuntan a los de la compra: se sueltan antes de rehacerlos.
     if (borr) await cn.query('DELETE FROM fin.comprobante_item WHERE comprobante_id = $1', [borr.id]);
     await cn.query('UPDATE logic.compra SET proveedor_id = $1, numero = COALESCE($2, numero), fecha = COALESCE($3::date, fecha), notas = COALESCE($4, notas) WHERE id = $5',

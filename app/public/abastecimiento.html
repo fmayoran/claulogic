@@ -155,6 +155,7 @@
           <label><input type="radio" name="comp" value="fiscal" checked><span>Factura fiscal<small>Con CAE. Discrimina IVA según la letra.</small></span></label>
           <label><input type="radio" name="comp" value="X"><span>Comprobante no fiscal<small>Remito o ticket X: precio final, sin IVA ni percepciones.</small></span></label>
         </div>
+        <div class="fila"><label>Sociedad que lo recibe *<select name="sociedad_id"></select></label></div>
         <div class="fila">
           <label class="soloFiscal">Letra *<select name="letra"><option>A</option><option>B</option><option>C</option><option>M</option></select></label>
           <label><span class="lblPv">Punto de venta *</span><input name="punto_venta" inputmode="numeric" placeholder="0003"></label>
@@ -208,7 +209,7 @@ const PASOS = ['necesidad', 'proveedor', 'pedido', 'recepcion', 'comprobante', '
 const SECCION = { necesidad: '#pNecesidad', proveedor: '#pProveedor', pedido: '#pPedido', recepcion: '#pRecepcion', comprobante: '#pComprobante', pago: '#pPago' };
 const TRIB = { percepcion_iva: 'Percepción IVA', percepcion_iibb: 'Percepción IIBB', percepcion_ganancias: 'Percepción Ganancias', impuesto_interno: 'Impuesto interno', otro: 'Otro' };
 const ORIGEN = { manual: ['', ''], minimo: ['bajo el mínimo', 'aviso'], faltante: ['no lo entregaron', 'mal'], local: ['pedido de un local', 'ok'] };
-let yo, proveedores = [], productos = [], almacenes = [], unidades = [], cuentas = [], lista = [];
+let yo, proveedores = [], productos = [], almacenes = [], unidades = [], cuentas = [], lista = [], sociedades = [];
 // Contexto: 'lista' (pasos 1 y 2, la lista de compras), 'nueva' (llegó mercadería sin pedido) o una compra.
 let contexto = 'lista', compra = null, comp = null;
 const presCache = {};
@@ -585,8 +586,11 @@ function verComprobante(cambiarDatos = false) {
       el('div', { className: 'botonera' }, el('button', { type: 'button', className: 'prim', textContent: pagado() ? 'Ver el pago' : 'Siguiente: pago', onclick: () => ir('pago') }),
         el('a', { href: 'comprobantes.html#' + comp.id, textContent: 'Ver el comprobante' })));
   } else if (!comp || cambiarDatos) {
-    // Datos del comprobante. Fecha y vencimiento arrancan en el día de hoy.
+    // Datos del comprobante. Fecha y vencimiento arrancan en el día de hoy. La sociedad, la del comprobante o la que se
+    // propone para el proveedor (la de su último comprobante).
     f3a.reset(); delete f3a.dataset.vencTocado;
+    opciones(f3a.sociedad_id, sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), comp ? comp.sociedad_id : null, 'Elegir…');
+    if (!comp) api('fin/sociedad-sugerida?proveedor=' + compra.proveedor_id).then(d => { if (d.sociedad_id && !f3a.sociedad_id.value) f3a.sociedad_id.value = d.sociedad_id; }).catch(() => {});
     if (comp) {
       f3a.comp.value = comp.letra === 'X' ? 'X' : 'fiscal'; if (comp.letra !== 'X') f3a.letra.value = comp.letra;
       f3a.punto_venta.value = comp.punto_venta || ''; f3a.numero.value = comp.numero || '';
@@ -619,9 +623,10 @@ f3a.vencimiento.oninput = () => { f3a.dataset.vencTocado = '1'; };
 f3a.onsubmit = async e => {
   e.preventDefault();
   const x = f3a.comp.value === 'X';
+  if (!f3a.sociedad_id.value) return msg('Elegí la sociedad que recibe el comprobante.', 'mal', '#msg3a');
   if (!x && (!f3a.punto_venta.value || !f3a.numero.value)) return msg('Completá punto de venta y número de la factura.', 'mal', '#msg3a');
   try {
-    await api(`abastecimiento/${compra.id}/comprobante`, { method: 'POST', body: { letra: x ? 'X' : f3a.letra.value,
+    await api(`abastecimiento/${compra.id}/comprobante`, { method: 'POST', body: { letra: x ? 'X' : f3a.letra.value, sociedad_id: f3a.sociedad_id.value,
       punto_venta: f3a.punto_venta.value, numero: f3a.numero.value, fecha: f3a.fecha_comp.value, vencimiento: f3a.vencimiento.value } });
     await cargarCompra(compra.id); verComprobante();
   } catch (err) { msg(err.message, 'mal', '#msg3a'); }
@@ -659,7 +664,7 @@ f3b.onsubmit = async e => {
     const trib = tributos(), clave = ts => JSON.stringify(ts.map(t => [t.tipo, t.jurisdiccion || null, String(alPeso(t.importe))]));
     if (clave(trib) !== clave(comp.tributos)) {
       const c = comp;
-      await api('fin/comprobantes/' + c.id, { method: 'PUT', body: { proveedor_id: c.proveedor_id, tipo: c.tipo, letra: c.letra,
+      await api('fin/comprobantes/' + c.id, { method: 'PUT', body: { proveedor_id: c.proveedor_id, sociedad_id: c.sociedad_id, tipo: c.tipo, letra: c.letra,
         punto_venta: c.punto_venta, numero: c.numero, fecha: c.fecha, vencimiento: c.vencimiento, cae: c.cae, notas: c.notas,
         asociado_id: c.asociado_id, compras: c.compras.map(x => x.id), tributos: trib,
         items: c.items.map(i => ({ producto_id: i.producto_id, compra_item_id: i.compra_item_id, descripcion: i.descripcion, unidad: i.unidad,
@@ -676,7 +681,7 @@ function verPago() {
   $('#sinFin4').hidden = yo.puede.finanzas; $('#faltaComp').hidden = !yo.puede.finanzas || registrado();
   if (!yo.puede.finanzas || !registrado()) return mostrarPaso('pago');
   if (!pagado()) {
-    const usables = cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja'));
+    const usables = cuentasParaPagar(cuentas, comp.sociedad_id);
     $('#leyC').textContent = `Pagar ${comp.nro} · debe ${pesos(comp.pendiente)}`;
     opciones(f4.cuenta, usables.map(c => [c.id, `${c.nombre} · ${c.tipo === 'caja' ? 'efectivo' : 'transferencia'} · saldo ${pesos(c.saldo)}`]), null, usables.length ? undefined : 'No hay cajas ni bancos: cargalos en Tesorería');
     f4.importe.value = miles(comp.pendiente); f4.fecha.value = hoy(); f4.referencia.value = '';
@@ -715,7 +720,7 @@ addEventListener('hashchange', () => location.reload());
   try {
     ({ usuario: yo } = await cargarSesion());
     [{ proveedores }, productos, almacenes, unidades] = await Promise.all([api('proveedores'), catalogo.productos(), catalogo.almacenes(), catalogo.unidades()]);
-    if (yo.puede.finanzas) ({ cuentas } = await api('fin/cuentas'));
+    if (yo.puede.finanzas) [{ cuentas }, { sociedades }] = await Promise.all([api('fin/cuentas'), api('sociedades')]);
     llenarDatalist(); opciones(fn.en, [], null, '—');
     const [a, b] = location.hash.slice(1).split('/');
     if (!a || a === 'lista' || (a === 'nuevo' && b === 'pedido')) { contexto = 'lista'; return b === 'proveedor' ? verProveedores() : verNecesidad(); }

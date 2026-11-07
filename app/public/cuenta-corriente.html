@@ -5,22 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cuenta corriente · ClauLogic</title>
 <link rel="stylesheet" href="comun.css">
-<style>tr.anulacion td{color:var(--mut);} .saldo-neg{color:var(--acento);}</style>
+<style>tr.anulacion td{color:var(--mut);} .saldo-neg{color:var(--acento);} .socs{color:var(--mut);font-size:.84rem;}
+  .barra-cc{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px;}</style>
 </head>
 <body>
 <main class="ancho">
   <section id="vLista">
     <h1>Cuenta corriente de proveedores</h1>
-    <p class="sub">Lo que se les debe, derivado de los comprobantes registrados. Ningún saldo se escribe a mano: cada peso tiene su comprobante.</p>
+    <p class="sub">Lo que se les debe, derivado de los comprobantes registrados. Ningún saldo se escribe a mano: cada peso tiene su comprobante.
+      La deuda es de cada sociedad (la que recibió el comprobante): con todo el grupo, cada proveedor muestra cuánto le debe cada una.</p>
+    <div class="barra-cc"><select id="soc" aria-label="Sociedad"></select></div>
     <div class="tarjetas">
-      <div class="tarjeta"><div class="v" id="tTotal">–</div><div class="t">deuda total con proveedores</div></div>
+      <div class="tarjeta"><div class="v" id="tTotal">–</div><div class="t" id="tTotalT">deuda total con proveedores</div></div>
       <div class="tarjeta" id="tVenc"><div class="v">–</div><div class="t">vencido</div></div>
       <div class="tarjeta" id="t7"><div class="v">–</div><div class="t">vence en los próximos 7 días</div></div>
     </div>
     <div class="tabla-wrap"><table class="datos">
       <thead><tr><th>Proveedor</th><th class="num">Saldo</th><th class="num">Vencido</th><th class="num">Vence en 7 días</th><th>Próximo vencimiento</th></tr></thead>
       <tbody id="t"></tbody></table></div>
-    <p class="ayuda">Los pagos y su aplicación a cada factura llegan con la tesorería: hasta entonces, lo pendiente de cada factura es su total menos las notas de crédito asociadas.</p>
+
   </section>
 
   <section id="vDetalle" hidden>
@@ -29,17 +32,21 @@
     <p class="sub" id="dSub"></p>
     <h2>Pendiente de pago</h2>
     <div class="tabla-wrap"><table class="datos">
-      <thead><tr><th>Comprobante</th><th>Fecha</th><th>Vence</th><th class="num">Pendiente</th></tr></thead>
+      <thead><tr><th>Comprobante</th><th>Sociedad</th><th>Fecha</th><th>Vence</th><th class="num">Pendiente</th></tr></thead>
       <tbody id="dPend"></tbody></table></div>
     <h2 style="margin-top:22px">Movimientos</h2>
     <div class="tabla-wrap"><table class="datos">
-      <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th><th>Por</th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Movimiento</th><th>Sociedad</th><th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th><th>Por</th></tr></thead>
       <tbody id="dMovs"></tbody></table></div>
   </section>
 </main>
 <script src="comun.js"></script>
 <script>
 const signoCero = v => !v || /^0+(\.0+)?$/.test(v.replace('-', ''));
+// La sociedad elegida (vacía = todo el grupo); se recuerda.
+let soc = (() => { try { return localStorage.getItem('cc-sociedad') || ''; } catch { return ''; } })();
+const qSoc = () => soc ? 'sociedad=' + soc : '';
+$('#soc').onchange = () => { soc = $('#soc').value; try { localStorage.setItem('cc-sociedad', soc); } catch {} ruta(); };
 function tagDias(d) {
   if (d === null || d === undefined) return '';
   if (d < 0) return el('span', { className: 'tag mal', textContent: `vencido hace ${-d} d` });
@@ -50,8 +57,9 @@ function tagDias(d) {
 
 async function lista() {
   $('#vLista').hidden = false; $('#vDetalle').hidden = true;
-  const { proveedores, total } = await api('fin/cuenta-corriente');
+  const { proveedores, total } = await api('fin/cuenta-corriente?' + qSoc());
   $('#tTotal').textContent = pesos(total);
+  $('#tTotalT').textContent = soc ? 'deuda de la sociedad con proveedores' : 'deuda del grupo con proveedores';
   // Las sumas de vencido las hace la base; acá sólo se muestran.
   const sumar = k => proveedores.reduce((a, p) => a + centavos(p[k]), 0n);
   const fmt = c => pesos((c < 0n ? '-' : '') + String((c < 0n ? -c : c) / 100n) + '.' + String((c < 0n ? -c : c) % 100n).padStart(2, '0'));
@@ -59,7 +67,9 @@ async function lista() {
   $('#tVenc .v').textContent = fmt(venc); $('#tVenc').classList.toggle('mal', venc > 0n);
   $('#t7 .v').textContent = fmt(v7); $('#t7').classList.toggle('aviso', v7 > 0n);
   filas($('#t'), proveedores, p => {
-    const tr = el('tr', { className: 'clic' }, td(p.nombre), td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' saldo-neg' : '')),
+    // Con todo el grupo y deuda en más de una sociedad, debajo del nombre cuánto le debe cada una.
+    const socs = !soc && p.sociedades.length > 1 ? el('div', { className: 'socs', textContent: p.sociedades.map(x => `${x.sociedad} ${pesos(x.saldo)}`).join(' · ') }) : '';
+    const tr = el('tr', { className: 'clic' }, el('td', {}, p.nombre, socs), td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' saldo-neg' : '')),
       td(signoCero(p.vencido) ? '' : pesos(p.vencido), 'num'), td(signoCero(p.vence_7) ? '' : pesos(p.vence_7), 'num'),
       td(fecha(p.proximo_vencimiento)));
     tr.onclick = () => { location.hash = p.id; };
@@ -69,23 +79,28 @@ async function lista() {
 
 async function detalle(id) {
   $('#vLista').hidden = true; $('#vDetalle').hidden = false;
-  const { proveedor: p, movimientos, pendientes } = await api('fin/cuenta-corriente/' + id);
+  const { proveedor: p, movimientos, pendientes } = await api('fin/cuenta-corriente/' + id + '?' + qSoc());
   const saldo = movimientos.length ? movimientos.at(-1).saldo : '0';
   $('#dTitulo').textContent = p.nombre;
   $('#dSub').textContent = [p.cuit ? 'CUIT ' + p.cuit : null, p.plazo_pago_dias ? `plazo ${p.plazo_pago_dias} días` : null,
     'saldo ' + pesos(saldo)].filter(Boolean).join(' · ');
   filas($('#dPend'), pendientes, c => el('tr', {},
-    el('td', {}, el('a', { href: 'comprobantes.html#' + c.comprobante_id, textContent: c.nro })), td(fecha(c.fecha)),
-    el('td', {}, fecha(c.vencimiento), ' ', tagDias(c.dias)), td(pesos(c.pendiente), 'num')), 'No hay nada pendiente.', 4);
+    el('td', {}, el('a', { href: 'comprobantes.html#' + c.comprobante_id, textContent: c.nro })), td(c.sociedad), td(fecha(c.fecha)),
+    el('td', {}, fecha(c.vencimiento), ' ', tagDias(c.dias)), td(pesos(c.pendiente), 'num')), 'No hay nada pendiente.', 5);
   filas($('#dMovs'), movimientos, m => el('tr', { className: m.tipo === 'anulacion' ? 'anulacion' : '' },
     td(fecha(m.fecha)), el('td', { className: 'wrap' }, m.comprobante_id ? el('a', { href: 'comprobantes.html#' + m.comprobante_id, textContent: m.detalle }) : m.detalle),
-    td(signoCero(m.debe) ? '' : pesos(m.debe), 'num'), td(signoCero(m.haber) ? '' : pesos(m.haber), 'num'),
-    td(pesos(m.saldo), 'num'), td(m.registrado_por)), 'Sin movimientos.', 6);
+    td(m.sociedad), td(signoCero(m.debe) ? '' : pesos(m.debe), 'num'), td(signoCero(m.haber) ? '' : pesos(m.haber), 'num'),
+    td(pesos(m.saldo), 'num'), td(m.registrado_por)), 'Sin movimientos.', 7);
 }
 
 function ruta() { (location.hash.slice(1) ? detalle(location.hash.slice(1)) : lista()).catch(e => alert(e.message)); }
 addEventListener('hashchange', ruta);
-ruta();
+api('sociedades').then(({ sociedades }) => {
+  const act = sociedades.filter(s => s.activa);
+  if (soc && !act.some(s => s.id === soc)) soc = '';
+  opciones($('#soc'), act.map(s => [s.id, s.nombre]), soc, 'Todo el grupo');
+  ruta();
+}).catch(e => alert(e.message));
 </script>
 </body>
 </html>
