@@ -253,8 +253,8 @@ function pintar() {
   Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${tipoV(x.tipo)} (${x.ventas})`, valor: x.vendido })),
     sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
 
-  // Varios locales: el ranking es por local (tocar uno lo elige arriba); un local con PedidosYa: por canal (su sistema y
-  // PedidosYa); si no, por mozo.
+  // Varios locales: el ranking es por local (tocar uno lo elige arriba), y un local con comercios (SORELLE: Wera Sushi y Lo
+  // de Titi Bodegón) va abierto en sus comercios; un local con PedidosYa: por canal (su sistema y PedidosYa); si no, por mozo.
   const porLocal = new Map();
   for (const x of r.puntos) {
     const g = porLocal.get(x.sede_id) || { clave: x.sede_id, etiqueta: (locales.find(l => l[0] === x.sede_id) || [, x.nombre])[1], valor: 0n, ventas: 0 };
@@ -262,7 +262,8 @@ function pintar() {
   }
   const varios = !$('#integ').value && porLocal.size > 1, coms = !varios && (r.comercios || []).length > 0, canales = !varios && !coms && r.puntos.length > 1;
   $('#tRank').textContent = varios ? 'Por local' : coms ? 'Por comercio' : canales ? 'Por canal' : 'Por mozo';
-  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.'
+  const conComercios = varios && (r.comercios || []).length > 0;
+  $('#capRank').textContent = varios ? 'Tocá un local para verlo solo.' + (conComercios ? ' Los comercios dentro de un local son estimados (por los artículos vendidos cada día y, PedidosYa, por tienda).' : '')
     : coms ? 'Estimado: el salón y el delivery propio se reparten por los artículos vendidos cada día; PedidosYa, por tienda.'
     : canales ? 'Lo vendido en el salón y por PedidosYa.' : 'Lo vendido por cada mozo. Tocá uno para ver sus ventas.';
   if (coms) {
@@ -272,8 +273,21 @@ function pintar() {
     if (resto > 100n) items.push({ clave: 'sin', etiqueta: 'Sin repartir', valor: deCentavos(resto), ventas: 0 });
     Graf.ranking($('#gRank'), { items, nota: x => x.ventas ? `≈ ${x.ventas} ventas` : 'días sin artículos traídos', alElegir: () => {} });
   }
-  else if (varios) Graf.ranking($('#gRank'), { items: [...porLocal.values()].sort((a, b) => (b.valor > a.valor) - (b.valor < a.valor)).map(x => ({ ...x, valor: deCentavos(x.valor) })),
-    nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: id => { $('#integ').value = id; limpiarFiltros(); cargar(); } });
+  else if (varios) {
+    // Un local con comercios se abre en ellos (tocar uno elige el local); lo que no se pudo repartir queda aparte.
+    const items = [];
+    for (const g of porLocal.values()) {
+      const cs = r.comercios.filter(c => c.sede_id === g.clave);
+      if (!cs.length) { items.push(g); continue; }
+      let resto = g.valor;
+      for (const c of cs) { const v = centavos(c.vendido); resto -= v; items.push({ clave: g.clave, etiqueta: c.nombre, valor: v, ventas: c.ventas, estimado: true }); }
+      if (resto > 100n) items.push({ clave: g.clave, etiqueta: `${g.etiqueta} · sin repartir`, valor: resto, ventas: 0, estimado: true });
+    }
+    Graf.ranking($('#gRank'), { items: items.sort((a, b) => (b.valor > a.valor) - (b.valor < a.valor)).map(x => ({ ...x, valor: deCentavos(x.valor) })),
+      nota: x => x.estimado ? (x.ventas ? `≈ ${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio` : 'días sin artículos traídos')
+        : `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`,
+      alElegir: id => { $('#integ').value = id; limpiarFiltros(); cargar(); } });
+  }
   else if (canales) Graf.ranking($('#gRank'), { items: r.puntos.map(x => ({ clave: x.id, etiqueta: x.nombre, valor: x.vendido, ventas: x.ventas })),
     nota: x => `${x.ventas} ventas · ${pesos(prom(x.valor, x.ventas))} promedio`, alElegir: () => {} });
   else Graf.ranking($('#gRank'), { items: r.mozos.slice(0, 8).map(x => ({ clave: x.mozo, etiqueta: x.mozo, valor: x.vendido, ventas: x.ventas, personas: x.personas })),

@@ -830,15 +830,15 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
     // Los comercios de los locales del filtro (org.comercio): los pedidos de sus tiendas enteros y el resto (salón, delivery
     // propio) por el peso del día de cada comercio, según los artículos vendidos. Estimado: no se sabe venta por venta.
     q(`, co AS (SELECT c.id, c.nombre, c.sede_id, c.tiendas FROM org.comercio c WHERE c.activo AND c.sede_id IN (SELECT sede_id FROM t)),
-          w AS (SELECT co.id, co.nombre, t.vendido,
+          w AS (SELECT co.id, co.nombre, co.sede_id, t.vendido,
                        CASE WHEN EXISTS (SELECT 1 FROM co c2 WHERE c2.sede_id = t.sede_id AND t.tienda = ANY (c2.tiendas))
                             THEN CASE WHEN t.tienda = ANY (co.tiendas) THEN 1 ELSE 0 END
                             ELSE COALESCE(pd.peso, 0) END::numeric AS peso
                   FROM t JOIN co ON co.sede_id = t.sede_id
                   LEFT JOIN pos.comercio_peso_dia pd ON pd.integracion_id = t.integracion_id AND pd.dia = t.dia AND pd.comercio_id = co.id
                  WHERE t.estado = 'cerrado')
-       SELECT id, nombre, ROUND(SUM(peso))::int AS ventas, SUM(vendido * peso)::numeric(16,2)::text AS vendido
-         FROM w GROUP BY 1, 2 ORDER BY SUM(vendido * peso) DESC`),
+       SELECT id, nombre, sede_id, ROUND(SUM(peso))::int AS ventas, SUM(vendido * peso)::numeric(16,2)::text AS vendido
+         FROM w GROUP BY 1, 2, 3 ORDER BY SUM(vendido * peso) DESC`),
   ]);
   res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos, comercios,
     anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt } });

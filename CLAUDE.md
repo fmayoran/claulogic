@@ -728,7 +728,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   comercio elegido al clasificar (`fin.clasificacion.comercio_id`), la tienda de la venta atada, los costos de PedidosYa de un cobro
   por lo que costó cada pedido, el peso del día de su sistema de venta, y si no, **prorrateado por las ventas del mes** (decisión de
   Fer). Lo financiero (caja, cuentas, rendición, conciliación) sigue siendo del local. En el estado de resultados, con la filial elegida
-  aparece el combo de comercio (y "Sin repartir"); en el tablero de ventas, "Por comercio" (estimado). La cafetería es otra sede.
+  aparece el combo de comercio (y "Sin repartir"); en el tablero de ventas, "Por comercio" (estimado), y con todos los locales el ranking "Por local" muestra un local con comercios abierto en ellos. La cafetería es otra sede.
   Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
