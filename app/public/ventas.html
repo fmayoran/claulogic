@@ -246,10 +246,11 @@ function pintar() {
       : el('span', { textContent: 'Coincide con lo vendido' }));
 
   const conPers = r.tipos.filter(x => x.personas);
+  const tipoV = t => t === 'pedidosya' ? 'PedidosYa' : t;
   $('#capTipos').textContent = conPers.length
-    ? conPers.map(x => `${x.tipo}: ${num(String(x.personas))} cubiertos, ${pesos(prom(x.vendido_con_personas, x.personas))} por cubierto`).join(' · ')
-    : 'Salón, para llevar y delivery.';
-  Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${x.tipo} (${x.ventas})`, valor: x.vendido })),
+    ? conPers.map(x => `${tipoV(x.tipo)}: ${num(String(x.personas))} cubiertos, ${pesos(prom(x.vendido_con_personas, x.personas))} por cubierto`).join(' · ')
+    : 'Salón, para llevar, delivery propio y PedidosYa.';
+  Graf.dona($('#gTipos'), { items: r.tipos.map(x => ({ clave: x.tipo, etiqueta: `${tipoV(x.tipo)} (${x.ventas})`, valor: x.vendido })),
     sub: 'vendido', alElegir: c => alternar('tipo', c), elegido: filtros.tipo ?? null });
 
   // Varios locales: el ranking es por local (tocar uno lo elige arriba); un local con PedidosYa: por canal (su sistema y
@@ -284,7 +285,7 @@ const NOMBRE_FILTRO = { dia: v => diaLargo(v), medio: v => {
     if (v.startsWith('marca:')) return nombreMarca(v);
     if (v.startsWith('mt:')) { const [, mk, tp] = v.split(':'); return `${nombreMarca('marca:' + mk)} · ${TIPO_OP[tp]}`; }
     const m = resumen.medios.find(x => x.clave === v); return m ? etiquetaM(m) : 'medio'; },
-  hora: v => `de ${v} a ${v + 1} h`, tipo: v => v, mozo: v => v };
+  hora: v => `de ${v} a ${v + 1} h`, tipo: v => v === 'pedidosya' ? 'PedidosYa' : v, mozo: v => v };
 function alternar(k, v) {
   if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
   pintar(); abrirDetalle(true); cargarVentas();
@@ -321,7 +322,7 @@ function pintarVentas() {
   $('#masWrap').hidden = lista.length <= mostrar;
   $('#ventas').replaceChildren(...(lista.length ? lista.slice(0, mostrar).map(v => {
     const medios = v.pagos.map(p => p.procesador || p.tipo_operacion ? etiquetaMedio(p) : p.medio).join(' + ');
-    const lugar = v.mesa ? `mesa ${v.mesa}` : v.tipo && v.tipo !== 'salón' ? v.tipo : '';
+    const lugar = v.mesa ? `mesa ${v.mesa}` : v.tipo === 'pedidosya' ? 'PedidosYa' : v.tipo && v.tipo !== 'salón' ? v.tipo : '';
     const b = el('button', { type: 'button', className: 'venta' + (v.estado === 'anulado' ? ' anulada' : '') },
       el('span', { className: 'dato' }, el('span', { className: 'num', textContent: '#' + v.id_externo }), el('span', { className: 'hora', textContent: diaHora(v.abierto_en || v.cerrado_en) })),
       el('span', { className: 'dato' }, el('span', { textContent: [lugar, v.mozo, v.personas ? `${v.personas} cub.` : ''].filter(Boolean).join(' · ') || v.tipo || '' }),
@@ -336,7 +337,7 @@ async function abrirVenta(id) {
     const { venta: v } = await api('pos/ventas/' + id);
     const mismoDia = v.abierto_en && v.cerrado_en && diaHora(v.abierto_en).slice(0, 5) === diaHora(v.cerrado_en).slice(0, 5);
     $('#vTitulo').textContent = `Venta #${v.id_externo}` + (v.estado === 'anulado' ? ' · anulada' : '');
-    $('#vDatos').textContent = [v.punto_venta, v.tipo, v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + (v.personas === 1 ? ' cubierto' : ' cubiertos') : '',
+    $('#vDatos').textContent = [v.punto_venta, v.tipo === 'pedidosya' ? 'PedidosYa' : v.tipo, v.mesa ? 'mesa ' + v.mesa : '', v.mozo, v.personas ? v.personas + (v.personas === 1 ? ' cubierto' : ' cubiertos') : '',
       v.abierto_en ? 'abierta ' + diaHora(v.abierto_en) : '', v.cerrado_en ? 'cerrada ' + (mismoDia ? hora(v.cerrado_en) : diaHora(v.cerrado_en)) : '']
       .filter(Boolean).join(' · ');
     const totalItems = v.items.filter(i => !i.anulado).reduce((s, i) => s + n(i.importe), 0);

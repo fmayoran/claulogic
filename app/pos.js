@@ -570,7 +570,8 @@ async function importarPedidosYa(req, res) {
     tickets.push({
       tienda, local, id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
       estado: anulado ? 'anulado' : 'cerrado', total: venta,
-      tipo: /retiro|pick/i.test(String(f[col.entrega] ?? '')) ? 'para llevar' : 'delivery', mesa: null, mozo: null, personas: null,
+      // PedidosYa es su propio tipo de venta, aparte del delivery propio del local (pedido de Fer, 07/11/2026), retire o no el cliente.
+      tipo: 'pedidosya', mesa: null, mozo: null, personas: null,
       items: articulosPeYa(f[col.articulos]).map(a => ({ codigo: a.nombre, nombre: a.nombre, cantidad: a.cantidad, precio: null, importe: null })),
       pagos,
     });

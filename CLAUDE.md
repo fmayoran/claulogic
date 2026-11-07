@@ -657,7 +657,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`sistema = 'pedidosya'`, sólo modo archivo, "PedidosYa · <sede>"; `integracion_sede_ux` es ahora uno por sede sin contar PedidosYa,
   más `integracion_pedidosya_ux`), con la ubicación y la **cuenta de efectivo del sistema principal** (por eso el efectivo a rendir se
   muestra sólo en la principal). Se tilda en la ficha de la sede una vez guardado el sistema principal. Importar (`importarPedidosYa`
-  en `pos.js`, columnas por nombre): Entregado = cerrado, Cancelado/Rechazado = anulado, en curso y de hoy quedan afuera; tipo Delivery.
+  en `pos.js`, columnas por nombre): Entregado = cerrado, Cancelado/Rechazado = anulado, en curso y de hoy quedan afuera; tipo de venta **PedidosYa** (`pedidosya`), aparte del delivery propio, también si el cliente retira
+  (pedido de Fer, 07/11/2026; migración 20261125 pasó los ya importados).
   **Venta = Total parcial** (opción B de Fer, 05/11/2026): el descuento y el vale financiados por el local son un costo, rubro
   "Descuentos y promociones"; lo que financia PedidosYa no se registra. Lo que se liquida con PedidosYa va a "PEDIDOSYA <empresa> a
   acreditar" por la venta menos el efectivo que cobró el local, con `neto` = Ingreso estimado menos ese efectivo (negativo en un pedido
