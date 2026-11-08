@@ -68,7 +68,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
               (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
-              p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total, p.id AS pago_id, (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo
+              p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total, p.id AS pago_id, (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
+              (SELECT mo.nombre FROM pos.medio mo WHERE mo.id = p.medio_original_id) AS medio_original, m.nombre AS medio, i.sistema
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.lote l ON l.id = p.lote_id
@@ -146,7 +147,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       if (limite > g.limite) g.limite = limite;
       // Cada venta, para buscarla a mano en el sistema de venta (pedido de Fer, 08/11/2026: qué pasó con un cobro que no llegó).
       g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha,
-        pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote });
+        pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote,
+        medio: p.medio, medio_original: p.medio_original, sistema: p.sistema });
       det.set(k, g);
     }
     // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
@@ -1357,6 +1359,76 @@ r.get('/fin/conciliacion/ingresos-libres', h(async (req, res) => {
         AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
       ORDER BY l.fecha, l.id`, [cuenta]);
   res.json({ ok: true, lineas: rows });
+}));
+// Cambiar el medio de pago de un cobro procesado que no llegó (pedido de Fer, 08/11/2026: casi siempre es un medio mal cargado
+// en el sistema de venta). El nuevo es otro medio del mismo sistema de venta (con su medio de pago y su cuenta): la plata pasa
+// de la cuenta del medio anterior a la del nuevo en el día de la venta, y desde ahí el cobro espera el extracto del procesador
+// nuevo (o, si es efectivo, queda como efectivo a rendir de ese día). Se cambia una sola vez desde el medio original.
+r.get('/fin/conciliacion/medios-para/:pago', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.nombre, mp.tipo_operacion, pr.nombre AS procesador, pr.marca
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.integracion_id = t.integracion_id
+       JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+      WHERE p.id = $1::uuid AND m.id <> p.medio_id AND m.cuenta_id IS NOT NULL
+      ORDER BY mp.tipo_operacion = 'efectivo' DESC, pr.nombre NULLS FIRST, m.nombre`, [req.params.pago]);
+  res.json({ ok: true, medios: rows });
+}));
+r.post('/fin/conciliacion/cambiar-medio', h(async (req, res) => {
+  const b = req.body, pagoId = texto(b.ticket_pago_id, { campo: 'el cobro', requerido: true });
+  const medioId = texto(b.medio_id, { campo: 'el medio de pago', requerido: true });
+  const motivo = texto(b.motivo);
+  if (!motivo) throw new ErrorUsuario('Indicá el motivo.');
+  const out = await enTransaccion(async c => {
+    const { rows: [p] } = await c.query(
+      `SELECT p.id, p.importe::text, p.medio_id, p.medio_original_id, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.integracion_id,
+              m.cuenta_id, m.nombre AS medio, i.sistema
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+         JOIN pos.medio m ON m.id = p.medio_id
+        WHERE p.id = $1::uuid AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+          AND p.lote_id IS NULL
+        FOR UPDATE OF p`, [pagoId]);
+    if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar (o sus cobros no se procesaron).');
+    if (p.sistema === 'pedidosya') throw new ErrorUsuario('Los cobros de PedidosYa no cambian de medio: los liquida PedidosYa.');
+    if (p.medio_original_id) throw new ErrorUsuario('A ese cobro ya se le cambió el medio: deshacé el cambio primero.');
+    const { rows: [n] } = await c.query(
+      `SELECT m.id, m.nombre, m.cuenta_id, mp.tipo_operacion FROM pos.medio m JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+        WHERE m.id = $1::uuid AND m.integracion_id = $2`, [medioId, p.integracion_id]);
+    if (!n) throw new ErrorUsuario('Ese medio no es del sistema de venta de la venta.');
+    if (!n.cuenta_id) throw new ErrorUsuario(`El medio ${n.nombre} no tiene cuenta: asignale el medio de pago en la ficha de la sede.`);
+    if (n.id === p.medio_id) throw new ErrorUsuario('Es el mismo medio.');
+    if (n.cuenta_id === p.cuenta_id) throw new ErrorUsuario('Los dos medios van a la misma cuenta: no hay nada que mover.');
+    const concepto = `Venta ${p.id_externo} del ${p.dia}: cargada con ${p.medio}, se cobró con ${n.nombre} · ${motivo}`;
+    const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+    const { rows: [{ id: mov }] } = await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6) RETURNING id`,
+      [p.dia, p.cuenta_id, p.importe, concepto, tr, p.id]);
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6)`,
+      [p.dia, n.cuenta_id, p.importe, concepto, tr, p.id]);
+    await c.query('UPDATE pos.ticket_pago SET medio_original_id = medio_id, medio_id = $1, medio_cambio_mov_id = $2, liquida_el = NULL, neto = NULL WHERE id = $3',
+      [n.id, mov, p.id]);
+    return { venta: p.id_externo, medio: n.nombre };
+  });
+  res.status(201).json({ ok: true, ...out });
+}));
+r.delete('/fin/conciliacion/cambiar-medio/:pago', h(async (req, res) => {
+  await enTransaccion(async c => {
+    const { rows: [p] } = await c.query(
+      `SELECT p.id, p.medio_original_id, p.medio_cambio_mov_id AS mov, m.transferencia_id, p.acreditado_linea_id, p.resuelto_movimiento_id, p.lote_id
+         FROM pos.ticket_pago p JOIN fin.movimiento_tes m ON m.id = p.medio_cambio_mov_id WHERE p.id = $1::uuid FOR UPDATE OF p`, [req.params.pago]);
+    if (!p) throw new ErrorUsuario('A ese cobro no se le cambió el medio.');
+    if (p.acreditado_linea_id || p.resuelto_movimiento_id || p.lote_id)
+      throw new ErrorUsuario('El cobro ya se acreditó o se resolvió con el medio nuevo: deshacé eso primero en Conciliación.');
+    const { rows: patas } = await c.query(
+      `SELECT * FROM fin.movimiento_tes x WHERE x.transferencia_id = $1::uuid AND x.tipo <> 'anulacion'
+          AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`, [p.transferencia_id]);
+    for (const x of patas)
+      await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a) VALUES ($1,$2,'anulacion',$3,$4,$5,$6,$7)`,
+        [x.fecha, x.cuenta_id, x.salida, x.entrada, 'Anula (se deshizo el cambio de medio): ' + x.concepto, x.transferencia_id, x.id]);
+    await c.query('UPDATE pos.ticket_pago SET medio_id = medio_original_id, medio_original_id = NULL, medio_cambio_mov_id = NULL WHERE id = $1', [p.id]);
+  });
+  res.json({ ok: true });
 }));
 r.post('/fin/conciliacion/cobro-resuelto', h(async (req, res) => {
   const b = req.body, pagoId = texto(b.ticket_pago_id, { campo: 'el cobro', requerido: true });

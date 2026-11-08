@@ -493,7 +493,7 @@ function ventasAcr(vs, puntoVenta) {
             el('div', { textContent: [t.punto_venta, CANAL_AR[t.tipo] || t.tipo, t.mesa ? 'mesa ' + t.mesa : '', t.mozo, t.estado === 'anulado' ? 'anulada' : '',
               t.abierto_en ? 'abierta ' + diaHoraAR(t.abierto_en) : '', t.cerrado_en ? 'cerrada ' + diaHoraAR(t.cerrado_en) : ''].filter(Boolean).join(' · ') }),
             el('h4', { textContent: 'Pagos' }),
-            ...(t.pagos.length ? t.pagos.map(p => fila(p.tipo_operacion ? etiquetaMedio(p) : p.medio, pesos(p.importe), p.anulado ? 'anul' : '', p.anulado ? 'anulado' : p.medio))
+            ...(t.pagos.length ? t.pagos.map(p => fila(p.tipo_operacion ? etiquetaMedio(p) : p.medio, pesos(p.importe), p.anulado ? 'anul' : '', p.anulado ? 'anulado' : p.medio_original ? `${p.medio}, corregido (venía como ${p.medio_original})` : p.medio))
               : [el('div', { className: 'sub', textContent: 'Sin pagos.' })]),
             el('h4', { textContent: 'Artículos' }),
             ...(t.items.length ? t.items.map(i => fila(`${num(i.cantidad)} × ${i.articulo}`, pesos(i.importe), i.anulado ? 'anul' : ''))
@@ -559,9 +559,41 @@ function accionesCobro(v, puntoVenta) {
     acc.replaceChildren(sel, nota, motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: inicial }));
     sel.focus();
   };
+  // Cambiar el medio (pedido de Fer, 08/11/2026: casi siempre se cargó mal en el sistema de venta): otro medio del mismo sistema,
+  // también Efectivo; la plata pasa a la cuenta del medio nuevo en el día de la venta.
+  const cambiar = async () => {
+    acc.replaceChildren(el('small', { textContent: 'Buscando los medios del sistema de venta…' }));
+    let medios;
+    try { ({ medios } = await api('fin/conciliacion/medios-para/' + v.pago_id)); }
+    catch (e) { acc.replaceChildren(el('small', { textContent: e.message })); return; }
+    if (!medios.length) { acc.replaceChildren(el('small', { textContent: 'El sistema de venta no tiene otro medio con cuenta asignada.' }),
+      el('button', { type: 'button', textContent: 'Volver', onclick: inicial })); return; }
+    const sel = el('select', { 'aria-label': 'Medio de pago correcto' }, ...medios.map(m => el('option', { value: m.id,
+      textContent: (e => e + (m.nombre && m.nombre !== e ? ` (${m.nombre})` : ''))(m.tipo_operacion ? etiquetaMedio(m) : m.nombre) })));
+    const motivo = el('input', { placeholder: 'Motivo: cómo se confirmó', 'aria-label': 'Motivo' });
+    const ok = el('button', { type: 'button', className: 'prim', textContent: 'Cambiar el medio' });
+    ok.onclick = async () => {
+      if (!motivo.value.trim()) return motivo.focus();
+      ok.disabled = true;
+      try {
+        const r = await api('fin/conciliacion/cambiar-medio', { method: 'POST', body: { ticket_pago_id: v.pago_id, medio_id: sel.value, motivo: motivo.value.trim() } });
+        await listo(`La venta #${v.numero} pasó a ${r.medio}.`);
+      } catch (e) { alert(e.message); ok.disabled = false; }
+    };
+    acc.replaceChildren(el('small', { textContent: `Cargada como ${v.medio}. ¿Con qué se cobró?` }), sel, motivo, ok,
+      el('button', { type: 'button', textContent: 'Cancelar', onclick: inicial }));
+    sel.focus();
+  };
+  const deshacer = async () => {
+    if (!confirm(`¿Volver la venta #${v.numero} a ${v.medio_original}?`)) return;
+    try { await api('fin/conciliacion/cambiar-medio/' + v.pago_id, { method: 'DELETE', body: {} }); await listo(`La venta #${v.numero} volvió a ${v.medio_original}.`); }
+    catch (e) { alert(e.message); }
+  };
   const inicial = () => acc.replaceChildren(
+    ...(v.medio_original ? [el('small', { textContent: `Medio corregido: venía como ${v.medio_original}.` })] : []),
     ...(v.cuenta_id ? [el('button', { type: 'button', textContent: 'Es un ingreso del extracto…', onclick: parear })] : []),
-    ...(v.con_efectivo ? [el('button', { type: 'button', textContent: 'Se cobró en efectivo', onclick: () => resolver('efectivo') })] : []),
+    ...(v.sistema === 'pedidosya' ? [] : v.medio_original ? [el('button', { type: 'button', textContent: 'Deshacer el cambio de medio', onclick: deshacer })]
+      : [el('button', { type: 'button', textContent: 'Cambiar el medio de pago…', onclick: cambiar })]),
     el('button', { type: 'button', textContent: 'No va a llegar', onclick: () => resolver('no_llega') }));
   inicial();
   return acc;

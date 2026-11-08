@@ -922,7 +922,8 @@ r.get('/pos/ventas/:id', h(async (req, res) => {
                        COALESCE(i.importe, i.cantidad * i.precio)::numeric(16,2)::text AS importe, i.anulado
                   FROM pos.ticket_item i JOIN pos.articulo a ON a.id = i.articulo_id WHERE i.ticket_id = $1 ORDER BY a.nombre`, [t.id]),
     pool.query(`SELECT m.nombre AS medio, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, p.importe::text, p.anulado,
-                       p.cobro_id IS NOT NULL AS procesado, cu.nombre AS cuenta
+                       p.cobro_id IS NOT NULL AS procesado, cu.nombre AS cuenta,
+                       (SELECT mo.nombre FROM pos.medio mo WHERE mo.id = p.medio_original_id) AS medio_original
                   FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
                   LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
                   LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
@@ -1172,11 +1173,16 @@ r.post('/pos/importaciones/:id/anular', h(async (req, res) => {
     if (im.estado === 'anulada') throw new ErrorUsuario('La importación ya está anulada.');
     // Un cobro ya acreditado (conciliado con el extracto del procesador o liquidado en un lote) se deshace primero.
     const { rows: [ac] } = await c.query(
-      `SELECT COUNT(*) FILTER (WHERE p.acreditado_linea_id IS NOT NULL)::int AS conciliados, COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
+      `SELECT COUNT(*) FILTER (WHERE p.acreditado_linea_id IS NOT NULL)::int AS conciliados, COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote,
+              COUNT(*) FILTER (WHERE p.resuelto_movimiento_id IS NOT NULL OR p.medio_cambio_mov_id IS NOT NULL)::int AS corregidos
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id WHERE t.importacion_id = $1`, [im.id]);
     if (ac.conciliados || ac.en_lote)
       throw new ErrorUsuario(`La importación tiene cobros acreditados (${ac.conciliados} conciliados con el extracto, ${ac.en_lote} en lotes de liquidación): `
         + 'no se puede anular. Los conciliados se deshacen desde Conciliación.');
+    // Un cobro resuelto a mano (cobrado en efectivo, que no llega) o con el medio corregido tiene su movimiento: se deshace primero.
+    if (ac.corregidos)
+      throw new ErrorUsuario(`La importación tiene ${ac.corregidos} cobro(s) corregidos a mano (medio cambiado, cobrado en efectivo o que no llega): `
+        + 'deshacé esas correcciones antes de anularla.');
     // Los cobros que incluyen pagos de esta importación (por día o de la importación): se revierten enteros, y
     // los pagos de otras importaciones de ese día vuelven a quedar pendientes.
     const { rows: cobros } = await c.query(

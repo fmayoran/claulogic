@@ -312,7 +312,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   punto de venta viene y qué hacer (pedido de Fer: no mezclar números con texto). Cada renglón del panel tiene "Ver las ventas" (pedido de Fer, 08/11/2026: buscarlas a mano en el
   sistema de venta): número, día y hora, medio e importe, y cada una se despliega con sus pagos (también los anulados) y artículos, y se resuelve
   ahí con las rutas de la conciliación: "Es un ingreso del extracto…" (los ingresos sin conciliar de la cuenta donde deposita,
-  `GET /fin/conciliacion/ingresos-libres`, los de importe más parecido primero; con motivo si difiere), "Se cobró en efectivo" o "No va a llegar". La cifra dice "Por acreditar", no "hoy": cuándo
+  `GET /fin/conciliacion/ingresos-libres`, los de importe más parecido primero; con motivo si difiere), **"Cambiar el medio de pago…"**
+  o "No va a llegar". **Cambiar el medio** (pedido de Fer, 08/11/2026: casi siempre el cobro que no llega se cargó con otro medio en
+  el sistema de venta; migración 20261134): otro medio del mismo sistema de venta con cuenta, también Efectivo, con motivo
+  (`POST /fin/conciliacion/cambiar-medio`). La plata pasa con una transferencia de la cuenta del medio anterior a la del nuevo en el
+  día de la venta (el cobro del día no se reescribe), `ticket_pago.medio_id` queda con el nuevo y `medio_original_id` con el que vino;
+  desde ahí el cobro espera el extracto del procesador nuevo, o cuenta como efectivo de ese día. Volver a traer las ventas no lo pisa.
+  Se deshace (`DELETE …/cambiar-medio/:pago`) mientras no se haya acreditado con el medio nuevo. No va para PedidosYa. Una importación
+  con cobros corregidos a mano (medio cambiado, cobrado en efectivo o que no llega) no se anula sin deshacerlos. La cifra dice "Por acreditar", no "hoy": cuándo
   entra lo dice el detalle. La consulta del flujo
   (`CATEGORIA_TES`) va materializada y con índice en `movimiento_tes.transferencia_id` (migración 20261128): octubre tardaba 14 s.
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
