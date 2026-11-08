@@ -71,7 +71,7 @@ const Graf = (() => {
       cont.replaceChildren();
       if (!etiquetas.length) return cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
       const w = ancho(cont), izq = 52, der = 8, arriba = 10, abajo = 26, H = alto - arriba - abajo;
-      const vs = serie.valores.map(n), va = anterior ? anterior.valores.map(n) : [];
+      const vs = serie.valores.map(n), va = anterior ? anterior.valores.slice(0, etiquetas.length).map(n) : [];
       const [piso, tope, paso] = rangoEje(Math.min(...vs, ...va, 0), Math.max(...vs, ...va, 0));
       const uno = etiquetas.length === 1;
       const x = i => uno ? izq + (w - izq - der) / 2 : izq + (w - izq - der) * i / (etiquetas.length - 1);

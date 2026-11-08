@@ -11,6 +11,7 @@
   #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
   .medios-pie{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;color:var(--mut);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
   .medios-pie[hidden]{display:none;}
+  .leyenda-linea[hidden]{display:none;}
   .medios-pie b{color:var(--fg);font-variant-numeric:tabular-nums;}
   .medios-pie .difiere b{color:var(--baja);}
   /* Detalle de ventas: renglones livianos, sin grilla. */
@@ -59,20 +60,8 @@
 
   <div class="kpis" id="kpis"></div>
 
-  <!-- Un panel para ver la venta de un vistazo (pedido de Fer, 07/11/2026): cómo viene por día y por día de la semana, de dónde
-       viene (store, canal, medio de pago) y qué se vende. Tocar cualquier parte abre esas ventas en el detalle. -->
-  <div class="t-grid t-g2">
-    <section class="card">
-      <div class="card-cab"><h2 id="tPrincipal">Ventas por día</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant">Mismo día de la semana, antes</span></div></div>
-      <p class="cap" id="capPrincipal">Cada día contra el mismo día de la semana del período anterior. Tocá un día para ver sus ventas.</p>
-      <div id="gPrincipal"></div>
-    </section>
-    <section class="card" id="cSemana">
-      <h2>Por día de la semana</h2>
-      <p class="cap" id="capSemana">Lo vendido en promedio cada día de la semana, contra el período anterior.</p>
-      <div id="gSemana"></div>
-    </section>
-  </div>
+  <!-- Un panel para ver la venta de un vistazo (pedido de Fer, 07/11/2026): de dónde viene (store, canal, medio de pago), cómo se
+       acumula en el período y por día de la semana, y qué se vende (orden del 08/11/2026). Tocar cualquier parte abre esas ventas. -->
   <div class="t-grid t-g3">
     <section class="card">
       <h2 id="tRank">Por store</h2>
@@ -89,6 +78,18 @@
       <p class="cap">Tocá uno para abrirlo y otra vez para ver esas ventas.</p>
       <div id="gMedios"></div>
       <div class="medios-pie" id="cobrado"></div>
+    </section>
+  </div>
+  <div class="t-grid t-g2">
+    <section class="card">
+      <div class="card-cab"><h2 id="tPrincipal">Vendido acumulado</h2><div class="leyenda-linea" id="leyPrincipal"><span>Este período</span><span class="ant" id="leyAnt">Período anterior</span></div></div>
+      <p class="cap" id="capPrincipal"></p>
+      <div id="gPrincipal"></div>
+    </section>
+    <section class="card" id="cSemana">
+      <h2>Por día de la semana</h2>
+      <p class="cap" id="capSemana">Lo vendido en promedio cada día de la semana, contra el período anterior.</p>
+      <div id="gSemana"></div>
     </section>
   </div>
   <!-- Lo más vendido, por importe y por cantidad (pedido de Fer, 08/11/2026: ocupa el lugar de "por hora de apertura", que sigue
@@ -203,10 +204,10 @@ async function cargar() {
   history.replaceState(null, '', 'ventas.html#' + p);
   msg('Cargando…');
   try {
-    // Con "este mes", el gráfico por día muestra el mes entero (lo que falta, vacío) y el anterior completo.
-    const eje = new URLSearchParams(p);
-    if ($('#periodo button.act')?.dataset.p === 'mes') eje.set('eje_hasta', finDeMes($('#desde').value));
-    resumen = await api('pos/ventas/resumen?' + eje);
+    // Con "este mes", el acumulado muestra el mes entero (lo que falta, vacío) contra el mes anterior completo.
+    const conMes = new URLSearchParams(p);
+    if ($('#periodo button.act')?.dataset.p === 'mes') conMes.set('mes', '1');
+    resumen = await api('pos/ventas/resumen?' + conMes);
     msg(''); pintar();
     // La lista de ventas (pesada) se pide recién al abrir el detalle.
     ventas = []; ventasDe = null;
@@ -227,7 +228,7 @@ function pintar() {
   // Series por día (los días sin ventas en cero), para las mini curvas y el gráfico principal.
   const dias = diasEntre($('#desde').value, $('#hasta').value), porDia = new Map(r.dias.map(d => [d.dia, d]));
   const serie = campo => dias.map(d => n((porDia.get(d) || {})[campo]));
-  const diasAnt = diasEntre(r.anterior.desde, r.anterior.eje_hasta || r.anterior.hasta), porDiaAnt = new Map(r.anterior.dias.map(d => [d.dia, d]));
+  const diasAnt = diasEntre(r.anterior.desde, r.anterior.hasta), porDiaAnt = new Map(r.anterior.dias.map(d => [d.dia, d]));
   const vend = serie('vendido'), cant = serie('ventas'), pers = serie('personas'), vcp = serie('vendido_con_personas');
 
   const kpi = (et, valor, act, ant, curva) => {
@@ -257,14 +258,23 @@ function pintarEvolucion() {
     $('#tPrincipal').textContent = 'Ventas por hora'; $('#capPrincipal').textContent = 'Por hora de apertura. Tocá una hora para ver sus ventas.';
     pintarHoras($('#gPrincipal'), matchMedia('(max-width:899px)').matches ? 220 : 330);
   } else {
-    $('#tPrincipal').textContent = 'Ventas por día'; $('#capPrincipal').textContent = 'Cada día contra el mismo día de la semana del período anterior. Tocá un día para ver sus ventas.';
-    const vAnt = d => n((porDiaAnt.get(d) || {}).vendido);
-    // El eje puede seguir más allá del período (este mes entero): los días que faltan, sin serie, con el anterior.
-    const eje = diasAnt.length > dias.length ? diasEntre(dias[0], finDeMes(dias[0])).slice(0, diasAnt.length) : dias;
+    // Acumulado (pedido de Fer, 08/11/2026): cómo se va juntando lo vendido en el período contra el anterior. Con "este mes",
+    // el eje es el mes entero y la comparación, el mes calendario anterior día del mes contra día del mes.
+    const acum = xs => { let a = 0; return xs.map(v => a += v); };
+    const ma = r.mes_anterior, diasA = ma ? diasEntre(ma.desde, ma.hasta) : diasAnt;
+    const porA = ma ? new Map(ma.dias.map(d => [d.dia, d])) : porDiaAnt;
+    const dA = diasA.map(d => n((porA.get(d) || {}).vendido)), acA = acum(dA), ac = acum(vend);
+    const eje = ma ? diasEntre(dias[0], finDeMes(dias[0])) : dias;
+    const hayAnt = dA.some(v => v);
+    $('#tPrincipal').textContent = 'Vendido acumulado';
+    $('#leyAnt').textContent = ma ? 'Mes anterior' : 'Período anterior';
+    $('#leyAnt').hidden = !hayAnt;
+    $('#capPrincipal').textContent = (ma ? 'Lo vendido en el mes, día a día, contra el mismo día del mes anterior.' : 'Lo vendido en el período, día a día, contra el período anterior.')
+      + (hayAnt ? '' : ' No hay ventas traídas del período anterior para comparar.') + ' Tocá un día para ver sus ventas.';
     Graf.area($('#gPrincipal'), {
       etiquetas: eje, ejeX: diaCorto, titulo: d => diaLargo(d),
-      serie: { nombre: 'Vendido', valores: vend, texto: i => `${pesos(String(vend[i]))} · ${cant[i]} venta(s)` },
-      anterior: { nombre: 'Mismo día de la semana, antes', valores: diasAnt.map(vAnt), texto: i => `${pesos(String(vAnt(diasAnt[i])))} el ${diaLargo(diasAnt[i])}` },
+      serie: { nombre: 'Acumulado', valores: ac, texto: i => `${pesos(String(ac[i]))} (ese día ${pesos(String(vend[i]))}, ${cant[i]} venta(s))` },
+      anterior: hayAnt ? { nombre: ma ? 'Mes anterior' : 'Anterior', valores: acA, texto: i => `${pesos(String(acA[i]))} al ${diaLargo(diasA[i])}` } : null,
       alElegir: i => alternar('dia', dias[i]), elegido: filtros.dia ? dias.indexOf(filtros.dia) : null,
       alto: matchMedia('(max-width:899px)').matches ? 220 : 280,
     });
@@ -281,11 +291,12 @@ function pintarSemana() {
     const xs = ds.map((d, i) => [d, i]).filter(([d]) => new Date(d + 'T12:00:00').getDay() === w);
     return xs.length ? Math.round(xs.reduce((s, [d, i]) => s + valor(d, i), 0) / xs.length) : 0;
   });
-  const act = prom(dias, (d, i) => vend[i]), ant = prom(diasAnt.slice(0, dias.length), d => n((porDiaAnt.get(d) || {}).vendido));
+  const act = prom(dias, (d, i) => vend[i]), ant = prom(diasAnt, d => n((porDiaAnt.get(d) || {}).vendido)), hayAnt = ant.some(v => v);
   Graf.columnasSeries($('#gSemana'), { etiquetas: SEMANA, ejeX: w => NOMBRE_DIA[w].slice(0, 3), titulo: w => 'Los ' + NOMBRE_DIA[w] + (w === 6 || w === 0 ? 's' : ''),
-    series: [{ nombre: 'Promedio anterior', valores: ant, color: '--serie-2' }, { nombre: 'Promedio este período', valores: act, color: '--serie-1' }], alto: matchMedia('(max-width:899px)').matches ? 220 : 280 });
+    series: [...hayAnt ? [{ nombre: 'Promedio anterior', valores: ant, color: '--serie-2' }] : [], { nombre: 'Promedio este período', valores: act, color: '--serie-1' }], alto: matchMedia('(max-width:899px)').matches ? 220 : 280 });
   const mejor = SEMANA[act.indexOf(Math.max(...act))];
-  $('#capSemana').textContent = `Lo vendido en promedio cada día de la semana, contra el período anterior. El que más vende: ${NOMBRE_DIA[mejor]}.`;
+  $('#capSemana').textContent = `Lo vendido en promedio cada día de la semana, contra el período anterior (del ${fecha(resumen.anterior.desde)} al ${fecha(resumen.anterior.hasta)}). El que más vende: ${NOMBRE_DIA[mejor]}.`
+    + (hayAnt ? '' : ' No hay ventas traídas de ese período para comparar.');
 }
 // Lo más vendido: los 10 productos que más facturaron (Fudo por venta; Maxirest por su informe de artículos del día).
 function pintarTop() {

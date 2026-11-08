@@ -806,12 +806,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   // El período anterior de la misma duración, corrido en semanas enteras: cada día se compara con el mismo día de la semana
   // (pedido de Fer, 07/11/2026: un martes no se compara con un sábado). Ayer, contra el mismo día de la semana anterior; un
   // mes de 31 días, contra los 31 días que empiezan cinco semanas antes.
-  // Con `eje_hasta` (este mes, con el gráfico por día hasta fin de mes) se corre por el largo del mes entero: los primeros días
-  // de noviembre contra los mismos días de la semana cinco semanas antes, no contra la semana anterior (que es el mismo mes).
-  const largo = Math.round((new Date(f[3]) - new Date(f[2])) / 864e5) + 1;
-  const eje = /^\d{4}-\d{2}-\d{2}$/.test(req.query.eje_hasta || '') && req.query.eje_hasta > f[3]
-    ? Math.min(Math.round((new Date(req.query.eje_hasta) - new Date(f[2])) / 864e5) + 1, 62) : largo;
-  const corre = Math.ceil(eje / 7) * 7;
+  const largo = Math.round((new Date(f[3]) - new Date(f[2])) / 864e5) + 1, corre = Math.ceil(largo / 7) * 7;
   const corrido = (d, n) => new Date(new Date(d + 'T12:00:00Z').getTime() - n * 864e5).toISOString().slice(0, 10);
   const ant = [f[0], f[1], corrido(f[2], corre), corrido(f[3], corre), ...f.slice(4)];
   const TOTALES = `SELECT count(*) FILTER (WHERE estado = 'cerrado')::int AS ventas, count(*) FILTER (WHERE estado = 'anulado')::int AS anuladas,
@@ -832,7 +827,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   // Lo más vendido (top 10, por importe y por cantidad): los artículos de cada venta (Fudo) y, de los sistemas que no los traen
   // por venta (Maxirest), el informe de artículos del día, sólo sin filtros de medio, tipo, hora o mozo (ese informe no se puede
   // abrir así).
-  const TOP = orden => `, x AS (
+  const TOP = (orden, having = '') => `, x AS (
          SELECT a.nombre, t.sede_id, SUM(i.cantidad) AS cant, SUM(COALESCE(i.importe, i.cantidad * i.precio, 0)) AS venta
            FROM t JOIN pos.ticket_item i ON i.ticket_id = t.id AND NOT i.anulado JOIN pos.articulo a ON a.id = i.articulo_id
           WHERE t.estado = 'cerrado' GROUP BY a.nombre, t.sede_id
@@ -845,11 +840,17 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
        SELECT MIN(x.nombre) AS nombre, trim_scale(SUM(x.cant))::text AS unidades, SUM(x.venta)::numeric(16,2)::text AS vendido,
               string_agg(DISTINCT s.nombre, ', ') AS locales
          FROM x JOIN org.sede s ON s.id = x.sede_id
-        GROUP BY upper(btrim(x.nombre)) ORDER BY ${orden} DESC NULLS LAST LIMIT 10`;
-  // El anterior por día se trae hasta el largo del eje, para dibujarlo completo; los totales comparan sólo los días transcurridos.
-  const antEje = [...ant]; antEje[3] = corrido(ant[2], -(eje - 1));
-  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios, top, topCant] = await Promise.all([
-    q(TOTALES), q(TOTALES, ant), q(DIAS, antEje),
+        GROUP BY upper(btrim(x.nombre)) ${having} ORDER BY ${orden} DESC NULLS LAST LIMIT 10`;
+  // Con `mes=1` (este mes) el acumulado del gráfico por día se compara con el mes calendario anterior entero, día del mes
+  // contra día del mes (pedido de Fer, 08/11/2026); las cifras siguen contra el período anterior corrido en semanas.
+  let mesAnt = null;
+  if (req.query.mes === '1') {
+    const d = new Date(f[2].slice(0, 8) + '01T12:00:00Z'); d.setUTCDate(0);
+    const hasta = d.toISOString().slice(0, 10);
+    mesAnt = [f[0], f[1], hasta.slice(0, 8) + '01', hasta, ...f.slice(4)];
+  }
+  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios, top, topCant, diasMesAnt] = await Promise.all([
+    q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
     // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
     q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, pr.marca, m.medio_pago_id IS NULL AS sin_asignar,
               string_agg(DISTINCT m.nombre, ', ') AS nombres, SUM(p.importe)::numeric(16,2)::text AS importe,
@@ -884,10 +885,13 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
        SELECT id, nombre, sede_id, ROUND(SUM(peso))::int AS ventas, SUM(vendido * peso)::numeric(16,2)::text AS vendido
          FROM w GROUP BY 1, 2, 3 ORDER BY SUM(vendido * peso) DESC`),
     q(TOP('SUM(x.venta)')),
-    q(TOP('SUM(x.cant)')),
+    // Por cantidad, sin lo que no factura (el cubierto en $0 encabezaba la lista; pedido de Fer, 08/11/2026).
+    q(TOP('SUM(x.cant)', 'HAVING SUM(x.venta) > 0')),
+    mesAnt ? q(DIAS, mesAnt) : null,
   ]);
   res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos, comercios, top, top_cantidad: topCant,
-    anterior: { desde: ant[2], hasta: ant[3], eje_hasta: antEje[3], totales: totAnt, dias: diasAnt } });
+    anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt },
+    mes_anterior: mesAnt && { desde: mesAnt[2], hasta: mesAnt[3], dias: diasMesAnt } });
 }));
 
 r.get('/pos/ventas', h(async (req, res) => {
