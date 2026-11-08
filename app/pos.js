@@ -1297,7 +1297,9 @@ r.get('/pos/cierre', h(async (req, res) => {
             to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
-      WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1)) ORDER BY s.nombre`, [sedesPos(req)]);
+      WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
+      -- Por plataforma (pedido de Fer, 08/11/2026): los sistemas de venta primero y PedidosYa al final; dentro de cada una, por local.
+      ORDER BY i.sistema = 'pedidosya', array_position(ARRAY['fudo', 'maxirest'], i.sistema) NULLS LAST, s.nombre`, [sedesPos(req)]);
   const out = [];
   for (const i of integs) {
     const [{ rows: dias }, { rows: atrasos }, { rows: lotesSinBanco }] = await Promise.all([
