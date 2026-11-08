@@ -146,6 +146,20 @@ button.icono svg{width:20px;height:20px;}
 .acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:0;background:var(--bg);
   padding:12px 0;border-top:1px solid var(--line);margin-top:8px;z-index:5;}
 .msg{font-size:.9rem;} .msg.mal{color:var(--mal);} .msg.ok{color:var(--acento);}
+/* Trabajando: fijo arriba, mientras se guarda o procesa algo. */
+#trabajando{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:10px;
+  padding:10px 18px;border-radius:999px;background:var(--fg);color:var(--bg);font-weight:600;font-size:.95rem;box-shadow:0 6px 24px rgba(0,0,0,.25);}
+#trabajando[hidden]{display:none;}
+#trabajando .giro{width:16px;height:16px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:giro .8s linear infinite;}
+@keyframes giro{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){#trabajando .giro{animation-duration:2.4s;}}
+/* Resultado fuera de la vista: flotando abajo unos segundos. */
+#aviso-flotante{position:fixed;bottom:20px;left:50%;transform:translate(-50%,20px);z-index:1000;max-width:min(560px,calc(100vw - 32px));
+  padding:12px 18px;border-radius:12px;background:var(--panel);color:var(--fg);border:1.5px solid var(--line);box-shadow:0 6px 24px rgba(0,0,0,.2);
+  font-size:.94rem;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;}
+#aviso-flotante.visible{opacity:1;transform:translate(-50%,0);pointer-events:auto;}
+#aviso-flotante.ok{border-color:var(--acento);} #aviso-flotante.mal{border-color:var(--mal);color:var(--mal);}
+@media (max-width:899px){#aviso-flotante{bottom:80px;}}
 
 /* Tablas */
 .tabla-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);}

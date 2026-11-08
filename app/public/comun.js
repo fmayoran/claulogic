@@ -10,10 +10,16 @@ async function api(url, opt = {}) {
   // Toda modificación lleva cuerpo JSON, aunque sea vacío: el servidor exige JSON (es la defensa
   // contra CSRF), y un DELETE sin cuerpo no manda tipo de contenido.
   const modifica = opt.method && !['GET', 'HEAD'].includes(opt.method);
-  const r = await fetch('api/' + url, {
-    ...opt, headers: { 'content-type': 'application/json' },
-    body: opt.body ? JSON.stringify(opt.body) : modifica ? '{}' : undefined,
-  });
+  // Lo que guarda o procesa y tarda muestra un aviso fijo arriba (pedido de Fer, 08/11/2026: importar un archivo parecía no
+  // hacer nada); opt.trabajando cambia el texto.
+  const fin = modifica ? trabajando(opt.trabajando) : () => {};
+  let r;
+  try {
+    r = await fetch('api/' + url, {
+      ...opt, headers: { 'content-type': 'application/json' },
+      body: opt.body ? JSON.stringify(opt.body) : modifica ? '{}' : undefined,
+    });
+  } finally { fin(); }
   // Lo que no es JSON no lo contestó la app: el proxy (502/504: la app no respondió o se reinició) u otra cosa.
   const d = await r.json().catch(() => ({ ok: false, error: [502, 503, 504].includes(r.status)
     ? `El servidor no respondió (HTTP ${r.status}): puede estar reiniciándose. Probá de nuevo en un minuto.`
@@ -24,6 +30,23 @@ async function api(url, opt = {}) {
   if (!d.ok) { _guardando = null; throw new Error(d.error || 'Error del servidor.'); }
   if (modifica && _guardando) { sinCambios(_guardando); _guardando = null; }
   return d;
+}
+// Aviso fijo "Trabajando…" mientras haya algo en curso; aparece si tarda más de 300 ms. Devuelve la función que lo termina.
+let _enCurso = 0, _avisoT = null;
+function trabajando(texto = 'Procesando…') {
+  let caja = document.getElementById('trabajando');
+  if (!caja) { caja = el('div', { id: 'trabajando', role: 'status', hidden: true }, el('span', { className: 'giro' }), el('span', { className: 't' })); document.body.append(caja); }
+  _enCurso++;
+  const t = setTimeout(() => { caja.querySelector('.t').textContent = texto; caja.hidden = false; }, 300);
+  let hecho = false;
+  return () => { if (hecho) return; hecho = true; clearTimeout(t); if (--_enCurso <= 0) { _enCurso = 0; caja.hidden = true; } };
+}
+// Un resultado que queda fuera de la vista también se muestra flotando abajo unos segundos.
+function avisoFlotante(t, tipo) {
+  let caja = document.getElementById('aviso-flotante');
+  if (!caja) { caja = el('div', { id: 'aviso-flotante', role: 'status' }); document.body.append(caja); }
+  caja.textContent = t; caja.className = 'visible ' + (tipo || '');
+  clearTimeout(_avisoT); _avisoT = setTimeout(() => { caja.className = ''; }, 7000);
 }
 function irA(pagina) {
   const aca = location.pathname.split('/').pop() || 'index.html';
@@ -37,7 +60,13 @@ function el(tag, props = {}, ...hijos) {
   return e;
 }
 
-function msg(t, tipo = '', sel = '#msg') { const m = $(sel); if (!m) return; m.textContent = t; m.className = 'msg ' + tipo; }
+function msg(t, tipo = '', sel = '#msg') {
+  const m = $(sel); if (!m) return; m.textContent = t; m.className = 'msg ' + tipo;
+  if (t && ['ok', 'mal', 'aviso'].includes(tipo)) {
+    const r = m.getBoundingClientRect();
+    if (!r.height || r.bottom < 0 || r.top > innerHeight) avisoFlotante(t, tipo);
+  }
+}
 
 function opciones(select, items, valor, vacio) {
   select.replaceChildren(...(vacio !== undefined ? [el('option', { value: '', textContent: vacio })] : []),

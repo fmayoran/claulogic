@@ -30,7 +30,13 @@
   .bloque-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin:0 0 6px;}
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-  .imp-peya{margin:4px 0 6px;} .imp-peya .archivo-peya{display:flex;flex-direction:column;gap:4px;font-size:.86rem;color:var(--mut);flex:1 1 260px;}
+  .imp-peya{margin:4px 0 6px;}
+  .linea-arch{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;}
+  .linea-arch .oculto-arch{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+  .linea-arch .elegir-arch{cursor:pointer;padding:6px 12px;border:1.5px solid var(--borde);border-radius:10px;font-size:.88rem;font-weight:600;background:var(--panel);}
+  .linea-arch .elegir-arch:hover{background:var(--sel);} .linea-arch .elegir-arch:focus-within{outline:2px solid var(--acento);}
+  .linea-arch .nombre-arch{color:var(--mut);font-size:.88rem;flex:1 1 140px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .linea-arch button{font-size:.88rem;padding:6px 14px;}
   .res-peya{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;} .res-peya .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
   .ok-peya{margin:0;font-weight:600;color:var(--sube);}
   .local-peya{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:14px 0 4px;}
@@ -302,22 +308,27 @@ async function bloquePedidosYa(grupo) {
 const normCol = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 function importadorPeya(grupo, clave) {
   const peyas = puntos.filter(x => x.sistema === 'pedidosya'), de = id => peyas.find(x => (x.tiendas || []).includes(id));
-  const archivo = el('input', { type: 'file', accept: '.csv,.txt,text/csv', 'aria-label': 'Archivo de pedidos de PedidosYa' });
+  const archivo = el('input', { type: 'file', accept: '.csv,.txt,text/csv', 'aria-label': 'Archivo de pedidos de PedidosYa', className: 'oculto-arch' });
+  const nombreArch = el('span', { className: 'nombre-arch', textContent: 'Ningún archivo elegido' });
   const tiendas = el('div', { className: 'tiendas-peya', hidden: true }), resumen = el('div');
   let datos = null, pend = [];
   const listo = () => { btn.disabled = !datos || !datos.pedidos.length || pend.some(t => !datos.tiendas[t.id]); };
   const btn = boton('Importar', async () => {
-    msg('Importando…');
+    // El aviso fijo dura también lo que tarda repintar el paso (la importación cobra los días listos y puede tardar).
+    const fin = trabajando(`Importando ${datos.pedidos.length} pedido(s)…`);
     try {
       const d = await api(`pos/integraciones/${grupo[0].id}/importar`, { method: 'POST', body: { archivo: datos.nombre, pedidos: datos.pedidos, tiendas: datos.tiendas } });
-      resPeya[clave] = d; msg('');
+      resPeya[clave] = d;
       await refrescar();
-    } catch (e) { msg(e.message, 'mal'); }
+      fin();
+      avisoFlotante(`PedidosYa: ${d.nuevos} pedido(s) nuevo(s)` + (d.repetidos ? `, ${d.repetidos} ya estaban` : '') + '.', 'ok');
+      document.getElementById('res-peya-' + clave)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) { fin(); msg(e.message, 'mal'); }
   }, true);
   btn.disabled = true;
   archivo.onchange = async () => {
     datos = null; pend = []; tiendas.hidden = true; tiendas.replaceChildren(); delete resPeya[clave]; resumen.replaceChildren();
-    const a = archivo.files[0]; if (!a) return listo();
+    const a = archivo.files[0]; nombreArch.textContent = a ? a.name : 'Ningún archivo elegido'; if (!a) return listo();
     const filas = parsearCSV(await leerTexto(a)), enc = filas[0] || [];
     datos = { nombre: a.name, pedidos: filas.slice(1).filter(f => f.some(x => String(x).trim())).map(f => Object.fromEntries(enc.map((c, i) => [c, f[i] ?? '']))), tiendas: {} };
     // Una cuenta del portal con varias tiendas las exporta juntas: cada pedido va al local de su "ID de tienda". Las que todavía no
@@ -343,7 +354,7 @@ function importadorPeya(grupo, clave) {
   if (d) {
     const c = d.cobros, cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n }) : '');
     const om = d.omitidos || {}, afuera = [om.hoy ? `${om.hoy} de hoy` : '', om.en_curso ? `${om.en_curso} en curso` : ''].filter(Boolean).join(' y ');
-    resumen.append(el('div', { className: 'res-peya' },
+    resumen.append(el('div', { className: 'res-peya', id: 'res-peya-' + clave },
       el('p', { className: 'ok-peya', textContent: `Importado ${d.desde === d.hasta ? 'el ' + fecha(d.desde) : `del ${fecha(d.desde)} al ${fecha(d.hasta)}`}.` }),
       el('div', { className: 'cifras-b' },
         cifra('Pedidos nuevos', String(d.nuevos || 0), d.repetidos ? `${d.repetidos} ya estaban` : null),
@@ -354,7 +365,7 @@ function importadorPeya(grupo, clave) {
         boton('Cerrar', () => { delete resPeya[clave]; resumen.replaceChildren(); }))));
   }
   return el('div', { className: 'imp-peya' },
-    el('div', { className: 'renglon', style: 'padding-left:0' }, el('label', { className: 'archivo-peya' }, 'Pedidos del portal (orderDetails.csv)', archivo), btn),
+    el('div', { className: 'linea-arch' }, el('label', { className: 'elegir-arch' }, 'Elegir orderDetails.csv', archivo), nombreArch, btn),
     tiendas, resumen,
     el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {},
       el('li', { textContent: 'En el portal de PedidosYa, Pedidos.' }), el('li', { textContent: 'Elegí el rango, hasta ayer.' }),

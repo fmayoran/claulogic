@@ -879,6 +879,9 @@ pasan a tarjetas; botones a todo el ancho en el asistente. **"Agregar nuevo…" 
 de valores, nunca un botón al costado (decisión de Fer): `opcionesConAlta` / `opcionesProveedor` en `comun.js`
 (proveedor en todas las pantallas, categoría en Productos) y "+ Crear producto nuevo" al final de la lista de
 productos del asistente (`nuevoProducto`: nombre, categoría, unidad, perecedero, IVA; SKU automático).
+**Trabajando** (08/11/2026): toda modificación por `api()` que tarda más de 300 ms muestra un aviso fijo arriba ("Procesando…",
+o `opt.trabajando`; `trabajando(texto)` devuelve la función que lo cierra, para cubrir además lo que se repinta después), y un `msg()`
+de resultado (ok, mal, aviso) cuyo lugar está fuera de la vista se muestra además flotando abajo 7 s (`avisoFlotante`).
 **Guardar sólo con cambios**: `comun.js` apaga (clase `sin-cambios`, no `disabled`, que las pantallas
 usan mientras esperan al servidor) todo botón submit que empieza con "Guardar" o "Crear" hasta que hay
 un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no pasa por un campo
