@@ -70,6 +70,11 @@
   .cifras-b div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
   .cifras-b span{display:block;color:var(--mut);font-size:.8rem;} .cifras-b strong{font-size:1.12rem;font-variant-numeric:tabular-nums;}
   .cifras-b small{display:block;color:var(--mut);font-size:.78rem;margin-top:2px;}
+  .dias-rendir{margin:0 0 12px;} .dias-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px;} .dias-cab .mut{color:var(--mut);font-size:.88rem;flex:1;}
+  .dias-cab button{font-size:.8rem;padding:4px 10px;}
+  .dias-lista{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px;}
+  .dia-r{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--g-grilla);font-size:.92rem;cursor:pointer;margin:0;}
+  .dia-r:last-child{border-bottom:0;} .dia-r b{font-variant-numeric:tabular-nums;font-weight:600;}
   .chips-d{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0;} .chips-d span{font-size:.8rem;padding:3px 9px;border-radius:999px;background:var(--sel);font-variant-numeric:tabular-nums;}
   .msg-b{display:block;margin-top:6px;}
   .botonera{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:20px;}
@@ -150,6 +155,7 @@
   <form id="fRendir" novalidate>
     <h2 id="rTitulo">Rendir efectivo</h2>
     <p class="ayuda" id="rAyuda"></p>
+    <div id="rDias" class="dias-rendir"></div>
     <div class="fila"><label>Importe que llegó *<input name="importe" inputmode="numeric"></label><label>Fecha *<input name="fecha" type="date"></label></div>
     <div class="fila"><label>Entra en *<select name="destino_id"></select></label></div>
     <div class="fila"><label>Detalle<input name="concepto" placeholder="quién lo trajo, número de depósito…"></label></div>
@@ -183,6 +189,7 @@ const boton = (texto, fn, prim) => {
   return b;
 };
 const aviso = (t, tipo) => msg(t, tipo);
+const diaSem = d => `${['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][new Date(d + 'T12:00:00').getDay()]} ${fecha(d)}`;
 // "22/10, 21/10 y 18/10"; más de seis, los seis más recientes "y N más".
 function listaDias(ds) {
   const v = ds.slice(0, 6).map(corta), resto = ds.length - v.length;
@@ -467,13 +474,35 @@ async function abrirRendir(p) {
   opciones(fR.destino_id, destinos.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), (destinos.find(c => c.tipo === 'caja') || destinos[0] || {}).id);
   $('#rTitulo').textContent = `Rendir efectivo · ${p.nombre}`;
   $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Cargá lo que efectivamente llegó; si falta algo que no va a llegar, registralo como diferencia.`;
-  fR.importe.value = miles(p.efectivo_a_rendir); fR.fecha.value = hoy(); fR.concepto.value = '';
+  fR.fecha.value = hoy(); fR.concepto.value = '';
+  // Los días a rendir (pedido de Fer, 08/11/2026). Lo rendido cubre primero lo más viejo, así que se eligen en orden: tildar un día
+  // tilda los anteriores y destildarlo destilda los siguientes. El importe es la suma, y se puede corregir si llegó menos.
+  const pend = p.dias.filter(d => centavos(d.efectivo_pendiente) > 0n).reverse();
+  const antes = centavos(p.efectivo_a_rendir) - pend.reduce((t, d) => t + centavos(d.efectivo_pendiente), 0n);
+  const filas = [...(antes > 0n ? [{ dia: null, imp: antes }] : []), ...pend.map(d => ({ dia: d.dia, imp: centavos(d.efectivo_pendiente) }))];
+  const marcas = filas.map(() => el('input', { type: 'checkbox', checked: true }));
+  const sumar = () => {
+    const el_ = filas.filter((_, i) => marcas[i].checked), tot = el_.reduce((t, f) => t + f.imp, 0n);
+    fR.importe.value = tot > 0n ? miles(deCentavos(tot)) : '';
+    const ds = el_.filter(f => f.dia);
+    $('#rTotal').textContent = el_.length ? `${el_.length} día(s) · ${pesos(deCentavos(tot))}` : 'Ningún día elegido';
+    fR.concepto.placeholder = ds.length ? `Efectivo ${ds.length === 1 ? 'del ' + corta(ds[0].dia) : `del ${corta(ds[0].dia)} al ${corta(ds.at(-1).dia)}`}` : 'quién lo trajo, número de depósito…';
+  };
+  marcas.forEach((m, i) => m.onchange = () => { marcas.forEach((o, j) => { if (m.checked ? j < i : j > i) o.checked = m.checked; }); sumar(); });
+  $('#rDias').replaceChildren(
+    el('div', { className: 'dias-cab' }, el('b', { textContent: 'Días a rendir' }), el('span', { id: 'rTotal', className: 'mut' }),
+      boton('Todos', () => { marcas.forEach(m => m.checked = true); sumar(); }), boton('Ninguno', () => { marcas.forEach(m => m.checked = false); sumar(); })),
+    el('div', { className: 'dias-lista' }, ...filas.map((f, i) => el('label', { className: 'dia-r' }, marcas[i],
+      el('span', { textContent: f.dia ? diaSem(f.dia) : 'Antes de los últimos 60 días' }), el('b', { textContent: pesos(deCentavos(f.imp)) })))));
+  $('#rDias').hidden = filas.length < 2;
+  sumar();
   $('#dlgRendir').showModal(); fR.importe.focus();
 }
 fR.onsubmit = async e => {
   e.preventDefault();
   try {
-    await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value, concepto: fR.concepto.value } });
+    await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value,
+      concepto: fR.concepto.value.trim() || (fR.concepto.placeholder.startsWith('Efectivo') ? fR.concepto.placeholder : '') } });
     $('#dlgRendir').close(); msg(`Efectivo de ${actual.nombre} rendido.`, 'ok'); await refrescar();
   } catch (err) { msg(err.message, 'mal', '#msgR'); }
 };
