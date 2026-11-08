@@ -766,7 +766,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cobra y devuelve; cifrado y nunca de vuelta al navegador): `POST|GET|PUT /v1/account/release_report/config` (columnas, una vez),
   `POST /v1/account/release_report` {begin_date, end_date} (202, asíncrono), `GET /v1/account/release_report/list`,
   `GET /v1/account/release_report/{file_name}`; también `POST|DELETE …/schedule` para que lo genere solo.
-- Pendiente: modificadores de Fudo (subitems), propinas.
+- Pendiente: modificadores de Fudo (subitems), propinas. **Artículos de PedidosYa** (Fer, 08/11/2026, para más adelante): el `orderDetails.csv` no trae la venta por producto, así que PedidosYa no entra en "lo más vendido" ni en el reparto por artículos; falta ver de dónde sacarla (otro reporte del portal o algún acceso por API).
 
 ### Estado de resultados por filial (pedido de Fer, 28/10/2026; migración 20261113)
 - `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
