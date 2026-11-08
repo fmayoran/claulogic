@@ -64,7 +64,8 @@ const Graf = (() => {
   }
 
   // Área de una serie con, opcionalmente, la del período anterior punteada para comparar. Cruz y tooltip al pasar;
-  // tocar un punto llama a alElegir(i).
+  // tocar un punto llama a alElegir(i). La serie puede ser más corta que el eje (los días que todavía no pasaron): ahí sólo
+  // se ve la del período anterior.
   function area(cont, { etiquetas, ejeX = e => e, titulo = e => e, serie, anterior, fmt = compacto, alElegir, elegido = null, alto = 240 }) {
     dibujar(cont, () => {
       cont.replaceChildren();
@@ -106,15 +107,15 @@ const Graf = (() => {
       const zona = svgEl('rect', { x: izq, y: 0, width: w - izq - der, height: alto - abajo, class: 'g-zona' + (alElegir ? ' clic' : '') });
       const indice = ev => { const [px] = pos(cont, ev); return uno ? 0 : Math.max(0, Math.min(etiquetas.length - 1, Math.round((px - izq) / (w - izq - der) * (etiquetas.length - 1)))); };
       zona.addEventListener('pointermove', ev => {
-        const i = indice(ev);
+        const i = indice(ev), hay = i < vs.length, yi = y(hay ? vs[i] : va[i] ?? 0);
         cruz.setAttribute('x1', x(i)); cruz.setAttribute('x2', x(i)); cruz.setAttribute('visibility', 'visible');
-        punto.setAttribute('cx', x(i)); punto.setAttribute('cy', y(vs[i])); punto.setAttribute('visibility', 'visible');
-        const filas = [['--serie-1', `${serie.nombre}: ${serie.texto ? serie.texto(i) : fmt(vs[i])}`]];
+        punto.setAttribute('cx', x(i)); punto.setAttribute('cy', yi); punto.setAttribute('visibility', hay ? 'visible' : 'hidden');
+        const filas = hay ? [['--serie-1', `${serie.nombre}: ${serie.texto ? serie.texto(i) : fmt(vs[i])}`]] : [];
         if (anterior && i < va.length) filas.push(['--anterior', `${anterior.nombre}: ${anterior.texto ? anterior.texto(i) : fmt(va[i])}`, true]);
-        tp.mostrar(x(i), y(vs[i]), titulo(etiquetas[i], i), filas);
+        tp.mostrar(x(i), yi, titulo(etiquetas[i], i), filas);
       });
       zona.addEventListener('pointerleave', () => { cruz.setAttribute('visibility', 'hidden'); punto.setAttribute('visibility', 'hidden'); tp.ocultar(); });
-      if (alElegir) zona.addEventListener('click', ev => alElegir(indice(ev)));
+      if (alElegir) zona.addEventListener('click', ev => { const i = indice(ev); if (i < vs.length) alElegir(i); });
       svg.append(zona);
       cont.prepend(svg);
     });
@@ -156,7 +157,8 @@ const Graf = (() => {
   // Columnas agrupadas de 2 o más series (orden fijo de colores), con leyenda arriba y tooltip por grupo.
   function columnasSeries(cont, { etiquetas, series, ejeX = e => e, titulo = e => e, fmt = compacto, alto = 220 }) {
     dibujar(cont, () => {
-      cont.replaceChildren(el('div', { className: 'g-leyenda-fila' }, ...series.map((s, j) => el('span', {}, el('i', { style: `--c:var(--serie-${j + 1})` }), s.nombre))));
+      const color = (s, j) => s.color || `--serie-${j + 1}`;
+      cont.replaceChildren(el('div', { className: 'g-leyenda-fila' }, ...series.map((s, j) => el('span', {}, el('i', { style: `--c:var(${color(s, j)})` }), s.nombre))));
       if (!etiquetas.length) return cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
       const w = ancho(cont), izq = 52, arriba = 8, abajo = 26, H = alto - arriba - abajo;
       const [tope, div] = escala(Math.max(...series.flatMap(s => s.valores.map(n)), 0)), y = v => arriba + H - H * v / tope;
@@ -173,11 +175,11 @@ const Graf = (() => {
         series.forEach((s, j) => {
           const v = n(s.valores[i]); if (v <= 0) return;
           const x0 = cx - ancho_g / 2 + j * (col + gap), yt = y(v), b = y(0), r = Math.min(4, (b - yt) / 2, col / 2);
-          svg.append(svgEl('path', { d: `M${x0} ${b} V${yt + r} Q${x0} ${yt} ${x0 + r} ${yt} H${x0 + col - r} Q${x0 + col} ${yt} ${x0 + col} ${yt + r} V${b} Z`, style: `fill:var(--serie-${j + 1})` }));
+          svg.append(svgEl('path', { d: `M${x0} ${b} V${yt + r} Q${x0} ${yt} ${x0 + r} ${yt} H${x0 + col - r} Q${x0 + col} ${yt} ${x0 + col} ${yt + r} V${b} Z`, style: `fill:var(${color(s, j)})` }));
         });
         if (i % cada === 0) { const t = svgEl('text', { x: cx, y: alto - 6, 'text-anchor': 'middle' }); t.textContent = ejeX(e); svg.append(t); }
         const zona = svgEl('rect', { x: cx - banda / 2, y: 0, width: banda, height: alto - abajo, class: 'g-zona barra-zona' });
-        zona.addEventListener('pointermove', ev => { const [px, py] = pos(cont, ev); tp.mostrar(px, py, titulo(e, i), series.map((s, j) => [`--serie-${j + 1}`, `${s.nombre}: ${pesos(String(n(s.valores[i])))}`])); });
+        zona.addEventListener('pointermove', ev => { const [px, py] = pos(cont, ev); tp.mostrar(px, py, titulo(e, i), series.map((s, j) => [color(s, j), `${s.nombre}: ${pesos(String(n(s.valores[i])))}`])); });
         zona.addEventListener('pointerleave', () => tp.ocultar());
         svg.insertBefore(zona, svg.firstChild);
       });

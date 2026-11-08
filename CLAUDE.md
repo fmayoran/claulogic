@@ -508,8 +508,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   contra el **mismo día de la semana** del período anterior y el **promedio por día de la semana** (el período anterior se corre en
   semanas enteras: ayer contra el mismo día de la semana pasada, un mes contra los mismos días cinco semanas antes; un martes no se
   compara con un sábado); **por store**, **por canal** (Salón, Take Away, Delivery propio, PedidosYa: "para llevar" se muestra Take Away,
-  también en el estado de resultados) y **por medio de pago**; **lo más vendido** (top 10: los artículos de cada venta de Fudo más el
-  informe de artículos del día de Maxirest; PedidosYa no los informa) y por hora. La lista de ventas se pide al abrir el detalle.
+  también en el estado de resultados) y **por medio de pago** (abajo sólo se avisa si lo cobrado difiere de lo vendido); **lo más
+  vendido** por importe y por cantidad, en dos rankings (top 10: los artículos de cada venta de Fudo más el informe de artículos del día
+  de Maxirest; PedidosYa no los informa). Por hora queda sólo como gráfico principal de un período de un día. La lista de ventas se pide
+  al abrir el detalle. Ajustes del 08/11/2026: en "por día de la semana" va primero el promedio anterior; con **"este mes"** el gráfico
+  por día muestra el mes entero (lo que falta, vacío, con el anterior completo; `eje_hasta` en `/pos/ventas/resumen`) y la comparación
+  se corre por el largo del mes (cinco semanas), no una semana.
 - **Tablero por vistas** (como el de tesorería): arriba sólo las cifras; tocar una abre su vista y se recuerda (`tablero-vista`).
   **Tablero**: Ventas netas, Food cost y
   Stock abren el food cost por local; Consumo real (con el desvío en la nota) la composición y los productos; **Platos con receta** la
