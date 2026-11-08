@@ -157,6 +157,7 @@
     <p class="ayuda" id="rAyuda"></p>
     <div id="rDias" class="dias-rendir"></div>
     <div class="fila"><label>Importe que llegó *<input name="importe" inputmode="numeric"></label><label>Fecha *<input name="fecha" type="date"></label></div>
+    <p class="ayuda" id="rQueda" hidden></p>
     <div class="fila"><label>Entra en *<select name="destino_id"></select></label></div>
     <div class="fila"><label>Detalle<input name="concepto" placeholder="quién lo trajo, número de depósito…"></label></div>
     <div class="acciones"><button type="submit" class="prim">Rendir</button><button type="button" id="rCancelar">Cancelar</button><span class="msg" id="msgR"></span></div>
@@ -473,7 +474,7 @@ async function abrirRendir(p) {
   const destinos = cuentas.filter(c => c.activa && ['caja', 'banco'].includes(c.tipo) && !efectivos.has(c.id));
   opciones(fR.destino_id, destinos.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), (destinos.find(c => c.tipo === 'caja') || destinos[0] || {}).id);
   $('#rTitulo').textContent = `Rendir efectivo · ${p.nombre}`;
-  $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Cargá lo que efectivamente llegó; si falta algo que no va a llegar, registralo como diferencia.`;
+  $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Cargá lo que efectivamente llegó. Si el local usó parte para gastos, rendí menos: el resto queda pendiente en su efectivo hasta cargar esos gastos. Lo que se perdió va como diferencia.`;
   fR.fecha.value = hoy(); fR.concepto.value = '';
   // Los días a rendir (pedido de Fer, 08/11/2026). Lo rendido cubre primero lo más viejo, así que se eligen en orden: tildar un día
   // tilda los anteriores y destildarlo destilda los siguientes. El importe es la suma, y se puede corregir si llegó menos.
@@ -481,12 +482,25 @@ async function abrirRendir(p) {
   const antes = centavos(p.efectivo_a_rendir) - pend.reduce((t, d) => t + centavos(d.efectivo_pendiente), 0n);
   const filas = [...(antes > 0n ? [{ dia: null, imp: antes }] : []), ...pend.map(d => ({ dia: d.dia, imp: centavos(d.efectivo_pendiente) }))];
   const marcas = filas.map(() => el('input', { type: 'checkbox', checked: true }));
+  // Rendición parcial (pedido de Fer, 08/11/2026): el local puede usar parte del efectivo para gastos; se corrige el importe y lo que
+  // no se rinde queda pendiente en su cuenta de efectivo (en los días más nuevos de los elegidos), hasta cargar esos gastos.
+  let elegido = 0n;
+  const queda = () => {
+    const v = String(fR.importe.value).replace(/\./g, '').trim(), imp = /^\d+$/.test(v) ? BigInt(v) * 100n : null;
+    const q = imp === null ? 0n : elegido - imp;
+    $('#rQueda').hidden = !(imp !== null && imp > 0n && q !== 0n);
+    $('#rQueda').textContent = q > 0n ? `Quedan ${pesos(deCentavos(q))} de estos días pendientes de rendir en el efectivo del local (por ejemplo, gastos que pagó el local).`
+      : `Es ${pesos(deCentavos(-q))} más que los días elegidos: cubre también los días siguientes.`;
+  };
+  fR.importe.oninput = queda;
   const sumar = () => {
     const el_ = filas.filter((_, i) => marcas[i].checked), tot = el_.reduce((t, f) => t + f.imp, 0n);
+    elegido = tot;
     fR.importe.value = tot > 0n ? miles(deCentavos(tot)) : '';
     const ds = el_.filter(f => f.dia);
     $('#rTotal').textContent = el_.length ? `${el_.length} día(s) · ${pesos(deCentavos(tot))}` : 'Ningún día elegido';
     fR.concepto.placeholder = ds.length ? `Efectivo ${ds.length === 1 ? 'del ' + corta(ds[0].dia) : `del ${corta(ds[0].dia)} al ${corta(ds.at(-1).dia)}`}` : 'quién lo trajo, número de depósito…';
+    queda();
   };
   marcas.forEach((m, i) => m.onchange = () => { marcas.forEach((o, j) => { if (m.checked ? j < i : j > i) o.checked = m.checked; }); sumar(); });
   $('#rDias').replaceChildren(

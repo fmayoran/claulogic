@@ -655,7 +655,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     es una transferencia a mano a la caja central o un banco cuando la plata efectivamente ingresa, y lo que no va a
     llegar es una **diferencia** con motivo (faltante o sobrante, `/diferencia`). No se rinde ni falta más de lo que hay
     a rendir. Lo rendido cubre primero los días más viejos. Al rendir se eligen los días (08/11/2026): en orden, tildar uno tilda
-    los anteriores; el importe es la suma (editable si llegó menos) y el detalle propone "Efectivo del dd/mm al dd/mm".
+    los anteriores; el importe es la suma (editable si llegó menos) y el detalle propone "Efectivo del dd/mm al dd/mm". **Rendición parcial**:
+    el local puede usar parte del efectivo para gastos; se rinde menos y el resto queda pendiente en su cuenta de efectivo (el diálogo
+    dice cuánto queda) hasta cargar esos gastos (pendiente: pantalla de gastos del local que descuente de esa cuenta). Lo perdido, diferencia.
   - Etapas siguientes del rediseño: 2 acreditaciones esperadas por procesador y proyección en el flujo de caja; 3
     egresos desde el sistema (rubros, centro de costo, gastos sin factura, sueldos directos o globales a prorratear,
     transferencias propias, cajas chicas con rendición, la conciliación como confirmación); 4 estado de resultados
