@@ -399,12 +399,12 @@ async function correr(req, integ, automatica, desdePedido = null, hastaPedido = 
   if (integ.modo !== 'api' || !POR_API.includes(integ.sistema)) throw new ErrorUsuario('Este punto de venta es por archivo: las ventas se importan desde Procesar ventas.');
   if (!integ.credenciales) throw new ErrorUsuario('Faltan las credenciales de la API en la ficha de la sede.');
   // A mano se puede pedir desde y hasta cuándo (por ejemplo, volver a traer un mes entero, o cortar antes de ayer),
-  // hasta 62 días atrás y nunca el día en curso.
+  // hasta 120 días atrás (para traer ventas históricas, como septiembre) y nunca el día en curso.
   const { rows: [r] } = await pool.query(
     `SELECT to_char(x.desde, 'YYYY-MM-DD') AS desde, to_char(x.hasta, 'YYYY-MM-DD') AS hasta,
-            x.desde < current_date - 62 AS muy_atras, x.hasta > current_date - 1 AS adelante, x.desde > x.hasta AS al_reves
+            x.desde < current_date - 120 AS muy_atras, x.hasta > current_date - 1 AS adelante, x.desde > x.hasta AS al_reves
        FROM (SELECT COALESCE($2::date, ${DESDE_CORRIDA}) AS desde, COALESCE($3::date, current_date - 1) AS hasta) x`, [integ.id, desdePedido, hastaPedido]);
-  if (r.muy_atras) throw new ErrorUsuario('Se puede traer hasta 62 días atrás.');
+  if (r.muy_atras) throw new ErrorUsuario('Se puede traer hasta 120 días atrás.');
   if (r.adelante) throw new ErrorUsuario('El día en curso no se trae: elegí una fecha hasta ayer.');
   if (r.al_reves) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
   const { rows: [co] } = await pool.query(
@@ -1006,14 +1006,17 @@ function estadoJornada(j) {
   if (Math.abs(dif) >= 0.01) alertas.push({ tipo: 'diferencia', texto: `Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(dif)}.` });
   if (j.abiertas) alertas.push({ tipo: 'aviso', texto: `Al sincronizar había ${j.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.` });
   if (j.anuladas) alertas.push({ tipo: 'info', texto: `${j.anuladas} venta(s) anulada(s) en el día (no suman).` });
+  // Antes de cobros_desde: venta histórica, sin cobros (septiembre; decisión de Fer, 08/11/2026).
+  if (j.historico) return { ...j, diferencia: dif.toFixed(2), estado: 'historico',
+    alertas: [{ tipo: 'info', texto: 'Venta histórica: es anterior al inicio de los cobros de este punto de venta, cuenta sólo como venta.' }] };
   const estado = !j.pagos_pendientes && j.pagos_procesados ? 'cobrado'
     : j.pagos_sin_asignar ? 'pendientes' : Math.abs(dif) >= 0.01 ? 'diferencia' : j.pagos_pendientes ? 'listo' : 'sin cobros';
   return { ...j, diferencia: dif.toFixed(2), estado, alertas };
 }
 const JORNADA_SQL = `SELECT j.integracion_id, to_char(j.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text,
                             j.por_cobrar::text, j.pagos_pendientes, j.pagos_sin_asignar, j.pagos_procesados, COALESCE(j.abiertas, 0) AS abiertas,
-                            j.sincronizado_en
-                       FROM pos.jornada j`;
+                            j.sincronizado_en, COALESCE(j.dia < ji.cobros_desde, false) AS historico
+                       FROM pos.jornada j JOIN pos.integracion ji ON ji.id = j.integracion_id`;
 
 r.get('/pos/jornadas', h(async (req, res) => {
   const integ = await integracion(pool, req, texto(req.query.integracion, { campo: 'el punto de venta', requerido: true }));
@@ -1118,7 +1121,7 @@ async function procesarListos(req, integ, desde = null, hasta = null) {
       ORDER BY j.dia`, [integ.id, desde, hasta]);
   const procesados = [], revisar = [];
   for (const j of rows.map(estadoJornada)) {
-    if (!j.pagos_pendientes) continue;
+    if (!j.pagos_pendientes || j.historico) continue;
     if (j.estado !== 'listo' || j.abiertas) {
       revisar.push({ dia: j.dia, estado: j.estado, motivo: j.alertas.filter(a => a.tipo !== 'info').map(a => a.texto).join(' ') });
       continue;
@@ -1305,7 +1308,8 @@ r.get('/pos/cierre', h(async (req, res) => {
   for (const i of integs) {
     const [{ rows: dias }, { rows: atrasos }, { rows: lotesSinBanco }] = await Promise.all([
       pool.query(
-        `WITH d AS (SELECT generate_series(current_date - $2::int, current_date - 1, '1 day')::date AS dia),
+        // Los días históricos (antes de cobros_desde) no tienen nada que resolver: no entran.
+        `WITH d AS (SELECT generate_series(GREATEST(current_date - $2::int, (SELECT cobros_desde FROM pos.integracion WHERE id = $1)), current_date - 1, '1 day')::date AS dia),
          pg AS (
            SELECT t.dia, SUM(p.importe) FILTER (WHERE m.cuenta_id = $3) AS efectivo,
                   SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3) AS electronico,

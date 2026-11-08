@@ -424,6 +424,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`pos.integracion.mapeo`). La exportación de "Ventas detalladas" de Maxirest no trae la forma de pago aunque se vea en pantalla.
 - **Recepción idempotente**: `pos.ticket` único por (integración, id del POS); reimportar no duplica y
   una importación sin tickets nuevos no se guarda.
+- **Ventas históricas, sin cobros** (decisión de Fer, 08/11/2026, para traer septiembre; migración 20261132):
+  `pos.integracion.cobros_desde` es el primer día cuyos cobros se procesan (01/10/2026 en todos). Los días anteriores se importan y
+  cuentan como ventas (tableros, estado de resultados, lo más vendido), pero la jornada queda **histórica**: `procesarListos` la saltea,
+  el cierre y el paso 1 de Ingresos no la miran (la serie de días arranca en `cobros_desde`), Procesar ventas no la pone para revisar,
+  y un trigger en `pos.cobro` rechaza cobrarla. Sin cobros tampoco hay costos de PedidosYa ni de procesadores en esos días. Traer a
+  mano llega hasta 120 días atrás (antes 62); de a un mes por vez.
 - **Días sin ventas** (07/11/2026: el 02/11 CORTAFUEGO cerró y PedidosYa decía "falta importar"): un archivo importado cubre su rango,
   así que los días del medio sin ventas quedan como traídos (`pos.sincronizacion_dia`, también al reimportar el mismo archivo). Un día
   suelto se marca con "No hubo ventas" en el paso 1 de Ingresos (`POST /pos/integraciones/:id/sin-ventas`; con ventas importadas, no).

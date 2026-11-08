@@ -361,11 +361,12 @@ $('#verTickets').onclick = async () => {
 };
 
 // ── Días ──
-const ESTADO_DIA = { pendientes: ['con pendientes', 'mal'], diferencia: ['diferencia', 'mal'], listo: ['listo para cobrar', 'aviso'], cobrado: ['cobrado', 'ok'], 'sin cobros': ['sin cobros', ''] };
+const ESTADO_DIA = { pendientes: ['con pendientes', 'mal'], diferencia: ['diferencia', 'mal'], listo: ['listo para cobrar', 'aviso'], cobrado: ['cobrado', 'ok'], 'sin cobros': ['sin cobros', ''], historico: ['histórico, sólo ventas', ''] };
 let diaActual = null;
 async function cargarDias() {
   const { jornadas } = await api('pos/jornadas?integracion=' + integ.id);
-  const revisar = jornadas.filter(j => j.estado !== 'cobrado' || j.abiertas), cobrados = jornadas.filter(j => !revisar.includes(j));
+  // Los días históricos (antes del inicio de los cobros) no tienen nada para revisar: van con los cobrados, plegados.
+  const revisar = jornadas.filter(j => j.estado !== 'historico' && (j.estado !== 'cobrado' || j.abiertas)), cobrados = jornadas.filter(j => !revisar.includes(j));
   const cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n, style: 'display:block;color:var(--mut);font-size:.78rem' }) : '');
   const sum = (xs, k) => pesos(deCentavos(xs.reduce((t, j) => t + centavos(j[k] || '0'), 0n)));
   $('#diasCifras').replaceChildren(...(jornadas.length ? [cifra('Días importados', String(jornadas.length), `del ${fecha(jornadas.at(-1).dia)} al ${fecha(jornadas[0].dia)}`),
