@@ -30,6 +30,9 @@
   .bloque-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin:0 0 6px;}
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .imp-peya{margin:4px 0 6px;} .imp-peya .archivo-peya{display:flex;flex-direction:column;gap:4px;font-size:.86rem;color:var(--mut);flex:1 1 260px;}
+  .res-peya{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;} .res-peya .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .ok-peya{margin:0;font-weight:600;color:var(--sube);}
   .local-peya{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:14px 0 4px;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
   details.como{flex-basis:100%;font-size:.88rem;} details.como summary{cursor:pointer;color:var(--acento);font-weight:600;}
@@ -261,8 +264,8 @@ async function pintarVentas() {
   for (const p of puntos) {
     if (p.sistema === 'pedidosya') {
       const grupo = peya.get(p.sociedad_id || p.id);
-      if (grupo && grupo[0] === p && grupo.length > 1) { bloques.push(await bloquePedidosYa(grupo)); continue; }
-      if (grupo && grupo.length > 1) continue;
+      if (grupo[0] === p) bloques.push(await bloquePedidosYa(grupo));
+      continue;
     }
     const ts = tareasVentas(p), ultimo = p.dias.find(d => d.ventas);
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
@@ -279,19 +282,83 @@ async function pintarVentas() {
   }
   $('#ventas').replaceChildren(...bloques);
 }
+// El archivo de PedidosYa se importa acá mismo (pedido de Fer, 08/11/2026: antes llevaba a Procesar ventas): se elige el
+// orderDetails.csv, las tiendas nuevas se asignan a su local y queda un resumen de lo importado; el detalle, a pedido.
+const resPeya = {};   // el último resultado de cada bloque, para mostrarlo después de repintar
 async function bloquePedidosYa(grupo) {
-  const tss = grupo.map(p => tareasVentas(p));
-  const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: `PedidosYa · ${grupo[0].sociedad}` }),
-    el('div', { className: 'acc' }, ir('procesar-ventas.html#' + grupo[0].id, 'Importar archivo', tss.some(ts => ts.some(t => t.tipo === 'importar')))),
-    el('span', { className: 'sinc', textContent: `Un solo archivo del portal para ${grupo.map(p => p.sede).join(' y ')}: cada pedido va al local de su tienda.` }));
-  const cuerpo = [];
+  const tss = grupo.map(p => tareasVentas(p)), varios = grupo.length > 1, clave = grupo[0].sociedad_id || grupo[0].id;
+  const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: varios ? `PedidosYa · ${grupo[0].sociedad}` : grupo[0].nombre }),
+    el('span', { className: 'sinc', textContent: varios ? `Un solo archivo del portal para ${grupo.map(p => p.sede).join(' y ')}: cada pedido va al local de su tienda.`
+      : 'Ventas por archivo: el detalle de pedidos del portal.' }));
+  const cuerpo = [importadorPeya(grupo, clave)];
   for (const [i, p] of grupo.entries()) {
     const ts = tss[i], ultimo = p.dias.find(d => d.ventas);
-    cuerpo.push(el('h3', { className: 'local-peya', textContent: p.sede }));
+    if (varios) cuerpo.push(el('h3', { className: 'local-peya', textContent: p.sede }));
     for (const t of ts) cuerpo.push(await tareaVenta(p, t, { agrupado: true }));
     if (!ts.length) cuerpo.push(el('p', { className: 'al-dia', textContent: ultimo ? `Ventas al día: el último día con ventas es el ${fecha(ultimo.dia)} y está cobrado.` : 'Sin ventas pendientes.' }));
   }
   return el('section', { className: 'card bloque' }, cab, ...cuerpo);
+}
+const normCol = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+function importadorPeya(grupo, clave) {
+  const peyas = puntos.filter(x => x.sistema === 'pedidosya'), de = id => peyas.find(x => (x.tiendas || []).includes(id));
+  const archivo = el('input', { type: 'file', accept: '.csv,.txt,text/csv', 'aria-label': 'Archivo de pedidos de PedidosYa' });
+  const tiendas = el('div', { className: 'tiendas-peya', hidden: true }), resumen = el('div');
+  let datos = null, pend = [];
+  const listo = () => { btn.disabled = !datos || !datos.pedidos.length || pend.some(t => !datos.tiendas[t.id]); };
+  const btn = boton('Importar', async () => {
+    msg('Importando…');
+    try {
+      const d = await api(`pos/integraciones/${grupo[0].id}/importar`, { method: 'POST', body: { archivo: datos.nombre, pedidos: datos.pedidos, tiendas: datos.tiendas } });
+      resPeya[clave] = d; msg('');
+      await refrescar();
+    } catch (e) { msg(e.message, 'mal'); }
+  }, true);
+  btn.disabled = true;
+  archivo.onchange = async () => {
+    datos = null; pend = []; tiendas.hidden = true; tiendas.replaceChildren(); delete resPeya[clave]; resumen.replaceChildren();
+    const a = archivo.files[0]; if (!a) return listo();
+    const filas = parsearCSV(await leerTexto(a)), enc = filas[0] || [];
+    datos = { nombre: a.name, pedidos: filas.slice(1).filter(f => f.some(x => String(x).trim())).map(f => Object.fromEntries(enc.map((c, i) => [c, f[i] ?? '']))), tiendas: {} };
+    // Una cuenta del portal con varias tiendas las exporta juntas: cada pedido va al local de su "ID de tienda". Las que todavía no
+    // tienen local se eligen acá, una vez; un archivo de una sola tienda en un local sin tiendas se la queda solo.
+    const claves = Object.keys(datos.pedidos[0] || {}), cId = claves.find(c => ['id de tienda', 'store id'].includes(normCol(c))),
+      cNom = claves.find(c => ['nombre del local', 'restaurant name'].includes(normCol(c)));
+    const ts = new Map();
+    if (cId) for (const f of datos.pedidos) { const id = String(f[cId] || '').trim(); const t = ts.get(id) || { id, nombre: String(f[cNom] || '').trim() || 'sin nombre', pedidos: 0 }; t.pedidos++; ts.set(id, t); }
+    const solo = ts.size === 1 && !de([...ts.keys()][0]) && !(grupo[0].tiendas || []).length;
+    pend = solo ? [] : [...ts.values()].filter(t => !de(t.id));
+    const conocidas = [...ts.values()].filter(t => de(t.id));
+    tiendas.append(el('p', { className: 'ayuda', textContent: `${datos.pedidos.length} pedido(s)` + (ts.size > 1 ? ` de ${ts.size} tiendas` : '') + '. '
+      + conocidas.map(t => `${t.nombre} (${t.pedidos}) va a ${de(t.id).sede}`).join('; ') + (conocidas.length ? '. ' : '')
+      + (pend.length ? 'Elegí el local de cada tienda nueva; queda guardado para las próximas.' : '') }));
+    for (const t of pend) {
+      const sel = el('select', {}, el('option', { value: '', textContent: 'Elegí el local…' }), ...peyas.map(x => el('option', { value: x.id, textContent: x.sede })));
+      sel.onchange = () => { if (sel.value) datos.tiendas[t.id] = sel.value; else delete datos.tiendas[t.id]; listo(); };
+      tiendas.append(el('div', { className: 'renglon' }, el('b', { textContent: t.nombre }), el('span', { className: 'mut', textContent: `ID ${t.id || 'sin ID'} · ${t.pedidos} pedido(s)` }), sel));
+    }
+    tiendas.hidden = false; listo();
+  };
+  const d = resPeya[clave];
+  if (d) {
+    const c = d.cobros, cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n }) : '');
+    const om = d.omitidos || {}, afuera = [om.hoy ? `${om.hoy} de hoy` : '', om.en_curso ? `${om.en_curso} en curso` : ''].filter(Boolean).join(' y ');
+    resumen.append(el('div', { className: 'res-peya' },
+      el('p', { className: 'ok-peya', textContent: `Importado ${d.desde === d.hasta ? 'el ' + fecha(d.desde) : `del ${fecha(d.desde)} al ${fecha(d.hasta)}`}.` }),
+      el('div', { className: 'cifras-b' },
+        cifra('Pedidos nuevos', String(d.nuevos || 0), d.repetidos ? `${d.repetidos} ya estaban` : null),
+        ...(varios && d.locales ? d.locales.map(x => cifra(grupo.find(p => p.id === x.id)?.sede || x.nombre, String(x.nuevos), x.repetidos ? `${x.repetidos} ya estaban` : 'nuevos')) : []),
+        c ? cifra('Días cobrados solos', String(c.procesados.length), c.revisar.length ? `${c.revisar.length} para revisar, abajo` : 'ninguno para revisar') : cifra('Cobros', 'sin procesar', 'los procesa finanzas'),
+        afuera ? cifra('Quedaron afuera', afuera, 'el día en curso y lo no entregado no se importa') : ''),
+      el('div', { className: 'acc' }, ir('procesar-ventas.html#' + grupo[0].id, 'Ver el detalle'),
+        boton('Cerrar', () => { delete resPeya[clave]; resumen.replaceChildren(); }))));
+  }
+  return el('div', { className: 'imp-peya' },
+    el('div', { className: 'renglon', style: 'padding-left:0' }, el('label', { className: 'archivo-peya' }, 'Pedidos del portal (orderDetails.csv)', archivo), btn),
+    tiendas, resumen,
+    el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {},
+      el('li', { textContent: 'En el portal de PedidosYa, Pedidos.' }), el('li', { textContent: 'Elegí el rango, hasta ayer.' }),
+      el('li', { textContent: 'Exportá el detalle ("orderDetails.csv") y elegilo acá. Reimportar no duplica; los pedidos de hoy se dejan afuera.' }))));
 }
 // Cuáles ventas seguían abiertas ese día, a pedido (un botón que despliega): número, tipo, estado, hora, cliente o mesa,
 // mozo y total, para encontrarla en el sistema de venta y cerrarla. Un delivery enviado no está entre las mesas.

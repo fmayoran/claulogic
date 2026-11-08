@@ -658,7 +658,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   y abre en el primero que tiene algo. Absorbe el Cierre diario (`cierre-diario.html` redirige):
   1. **Ventas**: traer hasta ayer (API) o importar (archivo), y cada problema se resuelve ahí: medio sin asignar (se elige
      el medio de pago y los días se cobran solos), diferencia (motivo y cobrar), mesa abierta (volver a traer el día),
-     cobros listos. Las tareas del cierre traen su `clase` (`medios`, `diferencia`, `abiertas`, `listos`).
+     cobros listos. Las tareas del cierre traen su `clase` (`medios`, `diferencia`, `abiertas`, `listos`). Orden por plataforma
+     (Fudo, Maxirest, otros, PedidosYa). **PedidosYa se importa ahí mismo** (08/11/2026): un bloque por sociedad (una cuenta del
+     portal, un archivo con las tiendas de sus locales), con el archivo, la elección del local de cada tienda nueva, un resumen de lo
+     importado y "Ver el detalle" (Procesar ventas); lo pendiente de cada local debajo. El campo "desde" de los de API propone el
+     primer día que falta (la automática sigue repasando 3 días).
   2. **Efectivo**: rendir o diferencia, por punto de venta.
   3. **Extractos**: una tarjeta por procesador con la cuenta donde deposita **ya fijada** (no se elige: así no se repite
      el extracto de Pago24 importado en Brubank), qué archivo va (Mercado Pago: los dos juntos) y hasta cuándo llega el
