@@ -372,7 +372,7 @@ function pintarFlujo() {
 // explicación, de qué punto de venta viene y qué hacer.
 const ESTADOS_ACR = [
   ['revisar', 'Para revisar', x => `El extracto llega hasta el ${fecha(x.extracto_hasta)} y estos cobros no aparecieron: se pagaron con otro importe, en partes o por otro medio.`, ['Revisar en la conciliación', 'ingresos.html#conciliar']],
-  ['falta_extracto', 'Falta el extracto', x => x.extracto_hasta ? `Debía entrar hasta el ${fecha(x.espera_hasta)} y el extracto llega hasta el ${fecha(x.extracto_hasta)}.` : 'Todavía no se importó ningún extracto de la cuenta donde deposita.', ['Traer el extracto', 'ingresos.html#extractos']],
+  ['falta_extracto', 'Falta el extracto', x => x.extracto_hasta ? `Pueden aparecer hasta el ${fecha(x.limite)} y el extracto llega hasta el ${fecha(x.extracto_hasta)}: falta el extracto hasta esa fecha para saber si llegaron.` : 'Todavía no se importó ningún extracto de la cuenta donde deposita.', ['Traer el extracto', 'ingresos.html#extractos']],
   ['sin_deposito', 'Sin cuenta de depósito', () => 'Falta indicar en qué cuenta deposita el procesador: sin eso no se puede conciliar.', ['Ir a Medios de pago', 'medios-pago.html']],
   ['lote', 'Esperando el banco', x => `El procesador ya lo liquidó (${rangoFechas(x.espera_desde, x.espera_hasta)}): falta que aparezca en el extracto del banco.`, null],
   ['por_venir', 'Por venir', x => `Se espera ${rangoFechas(x.espera_desde, x.espera_hasta, true)}.`, null],

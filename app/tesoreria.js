@@ -130,15 +130,20 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
     // fecha, o el extracto ya la cubre y no apareció (hay que revisarlo en la conciliación).
     if (detalle) {
       const ext = p.cuenta_acredita_id ? extDe.get(p.cuenta_acredita_id) : null;
+      // Como la conciliación (que parea del día de la venta, o de su liquidación, hasta 4 días después): un cobro es para
+      // revisar recién cuando el extracto pasó ese margen (08/11/2026: el tablero marcaba cobros del día anterior que la
+      // conciliación todavía no mostraba). `limite`: hasta cuándo puede aparecer.
+      const limite = [fecha, sumarDias(p.liquida_el || p.dia, 4)].sort()[1];
       const estado = !p.cuenta_acredita_id ? 'sin_deposito' : p.en_lote ? 'lote' : fecha >= hoy ? 'por_venir'
-        : !ext || !ext.hasta || fecha > ext.hasta ? 'falta_extracto' : 'revisar';
+        : !ext || !ext.hasta || limite > ext.hasta ? 'falta_extracto' : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
       const g = det.get(k) || { procesador_id: p.procesador_id, procesador: p.procesador, deposita: ext ? ext.nombre : null, extracto_hasta: ext ? ext.hasta : null,
-        punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha };
+        punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha , limite };
       // `saldo`: lo que el cobro pesa en la cuenta "a acreditar" (PedidosYa asienta sus costos al cobrar: queda el neto).
       g.pagos++; g.bruto += bruto; g.neto += neto; g.saldo += p.con_costos ? centavos(p.neto) : bruto;
       if (p.dia < g.ventas_desde) g.ventas_desde = p.dia; if (p.dia > g.ventas_hasta) g.ventas_hasta = p.dia;
       if (fecha < g.espera_desde) g.espera_desde = fecha; if (fecha > g.espera_hasta) g.espera_hasta = fecha;
+      if (limite > g.limite) g.limite = limite;
       det.set(k, g);
     }
     // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
