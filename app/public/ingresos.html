@@ -307,6 +307,7 @@ async function bloquePedidosYa(grupo) {
 }
 const normCol = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 function importadorPeya(grupo, clave) {
+  const varios = grupo.length > 1;
   const peyas = puntos.filter(x => x.sistema === 'pedidosya'), de = id => peyas.find(x => (x.tiendas || []).includes(id));
   const archivo = el('input', { type: 'file', accept: '.csv,.txt,text/csv', 'aria-label': 'Archivo de pedidos de PedidosYa', className: 'oculto-arch' });
   const nombreArch = el('span', { className: 'nombre-arch', textContent: 'Ningún archivo elegido' });
