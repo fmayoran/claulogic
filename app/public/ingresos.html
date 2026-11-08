@@ -30,6 +30,7 @@
   .bloque-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin:0 0 6px;}
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .local-peya{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:14px 0 4px;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
   details.como{flex-basis:100%;font-size:.88rem;} details.como summary{cursor:pointer;color:var(--acento);font-weight:600;}
   details.como ol{margin:6px 0 0;padding-left:22px;color:var(--mut);} details.como li{margin:2px 0;}
@@ -253,7 +254,16 @@ async function traer(p) {
 async function pintarVentas() {
   if (!puntos.length) return $('#ventas').replaceChildren(el('section', { className: 'card vacio-ok' }, el('b', { textContent: 'No hay puntos de venta' }), 'Cargalos en Configuración > Sedes.'));
   const bloques = [];
+  // PedidosYa de una misma sociedad: una cuenta del portal y un solo archivo con las tiendas de todos sus locales (SORELLE:
+  // bodegón, sushi y cafetería). Va en un bloque, con un solo "Importar archivo" y lo pendiente de cada local adentro.
+  const peya = new Map();
+  for (const p of puntos) if (p.sistema === 'pedidosya') { const k = p.sociedad_id || p.id; peya.set(k, [...peya.get(k) || [], p]); }
   for (const p of puntos) {
+    if (p.sistema === 'pedidosya') {
+      const grupo = peya.get(p.sociedad_id || p.id);
+      if (grupo && grupo[0] === p && grupo.length > 1) { bloques.push(await bloquePedidosYa(grupo)); continue; }
+      if (grupo && grupo.length > 1) continue;
+    }
     const ts = tareasVentas(p), ultimo = p.dias.find(d => d.ventas);
     const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: p.nombre }),
       el('div', { className: 'acc' }, ...(p.modo === 'api' ? [
@@ -269,6 +279,20 @@ async function pintarVentas() {
   }
   $('#ventas').replaceChildren(...bloques);
 }
+async function bloquePedidosYa(grupo) {
+  const tss = grupo.map(p => tareasVentas(p));
+  const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: `PedidosYa · ${grupo[0].sociedad}` }),
+    el('div', { className: 'acc' }, ir('procesar-ventas.html#' + grupo[0].id, 'Importar archivo', tss.some(ts => ts.some(t => t.tipo === 'importar')))),
+    el('span', { className: 'sinc', textContent: `Un solo archivo del portal para ${grupo.map(p => p.sede).join(' y ')}: cada pedido va al local de su tienda.` }));
+  const cuerpo = [];
+  for (const [i, p] of grupo.entries()) {
+    const ts = tss[i], ultimo = p.dias.find(d => d.ventas);
+    cuerpo.push(el('h3', { className: 'local-peya', textContent: p.sede }));
+    for (const t of ts) cuerpo.push(await tareaVenta(p, t, { agrupado: true }));
+    if (!ts.length) cuerpo.push(el('p', { className: 'al-dia', textContent: ultimo ? `Ventas al día: el último día con ventas es el ${fecha(ultimo.dia)} y está cobrado.` : 'Sin ventas pendientes.' }));
+  }
+  return el('section', { className: 'card bloque' }, cab, ...cuerpo);
+}
 // Cuáles ventas seguían abiertas ese día, a pedido (un botón que despliega): número, tipo, estado, hora, cliente o mesa,
 // mozo y total, para encontrarla en el sistema de venta y cerrarla. Un delivery enviado no está entre las mesas.
 const ESTADO_VENTA = { 'IN-COURSE': 'en curso', 'DELIVERY-SENT': 'enviado', PENDING: 'pendiente', 'READY-TO-DELIVER': 'listo para entregar' };
@@ -281,14 +305,14 @@ function verAbiertas(p, dia) {
        v.total != null && pesos(v.total)].filter(Boolean).join(' · '))));
 }
 // Cada problema con lo que hace falta para resolverlo, ahí mismo.
-async function tareaVenta(p, t) {
+async function tareaVenta(p, t, { agrupado = false } = {}) {
   const caja = el('div', { className: 'tarea ' + (t.nivel || '') });
   const titulo = el('div', { className: 't' }, el('span', { textContent: t.texto }), t.dias ? el('small', { textContent: listaDias(t.dias) }) : '');
   caja.append(titulo);
   const acc = el('div', { className: 'acc' });
   if (t.tipo === 'corrida') acc.append(boton(t.nivel === 'mal' ? 'Volver a intentar' : 'Traer ahora', () => traer(p), true));
   else if (t.tipo === 'importar') {
-    acc.append(ir('procesar-ventas.html#' + p.id, 'Importar archivo', true));
+    if (!agrupado) acc.append(ir('procesar-ventas.html#' + p.id, 'Importar archivo', true));   // agrupado: uno solo en la cabecera
     // Un día que el local estuvo cerrado no tiene nada que importar: se marca y deja de faltar (decisión de Fer, 07/11/2026).
     for (const dia of t.dias || []) caja.append(el('div', { className: 'renglon' }, el('b', { textContent: fecha(dia) }),
       boton('No hubo ventas', async () => {

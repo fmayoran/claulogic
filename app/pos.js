@@ -1294,8 +1294,9 @@ r.get('/pos/cierre', h(async (req, res) => {
                                                 to_char(c.desde, 'YYYY-MM-DD') AS desde, to_char(c.hasta, 'YYYY-MM-DD') AS hasta
                                            FROM pos.corrida c WHERE c.integracion_id = i.id ORDER BY c.iniciada_en DESC LIMIT 1) c) AS ultima_corrida,
             extract(hour FROM now())::int >= 5 AS paso_la_hora,
-            to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde
-       FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+            to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde,
+            s.sociedad_id, so.nombre AS sociedad
+       FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id LEFT JOIN org.sociedad so ON so.id = s.sociedad_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
       WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
       -- Por plataforma (pedido de Fer, 08/11/2026): los sistemas de venta primero y PedidosYa al final; dentro de cada una, por local.
