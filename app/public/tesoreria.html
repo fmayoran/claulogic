@@ -75,6 +75,8 @@
   #dlgAcr .v-det h4{margin:8px 0 2px;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;}
   #dlgAcr .v-det .r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:2px 0;} #dlgAcr .v-det .r .i{font-variant-numeric:tabular-nums;text-align:right;}
   #dlgAcr .v-det .anul{opacity:.55;text-decoration:line-through;} #dlgAcr .v-det .sub{color:var(--mut);}
+  #dlgAcr .v-acc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;} #dlgAcr .v-acc select,#dlgAcr .v-acc input{flex:1 1 100%;min-width:0;}
+  #dlgAcr .v-acc small{flex:1 1 100%;color:var(--mut);}
   .cerrar-x{all:unset;position:absolute;top:14px;right:16px;font-size:1.6rem;line-height:1;cursor:pointer;color:var(--mut);padding:4px 8px;border-radius:8px;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
 </style>
@@ -459,7 +461,7 @@ function panelAcr(proc, estado) {
         el('span', { className: 'd' }, el('b', { textContent: proc ? x.punto_venta : `${x.procesador} · ${x.punto_venta}` }),
           el('small', { textContent: `${cobros(x.pagos)} · ventas ${rangoFechas(x.ventas_desde, x.ventas_hasta)}` + (proc ? '' : ` · ${desc(x)}`) })),
         el('span', { className: 'i', textContent: pesos(x.saldo) }),
-        x.ventas && x.ventas.length ? ventasAcr(x.ventas) : ''))),
+        x.ventas && x.ventas.length ? ventasAcr(x.ventas, x.punto_venta) : ''))),
       acc ? el('a', { className: 'boton', href: acc[1], textContent: acc[0] }) : '');
   });
   $('#aCuerpo').replaceChildren(...bloques);
@@ -471,7 +473,7 @@ function panelAcr(proc, estado) {
 const ZONA_AR = { timeZone: 'America/Argentina/Buenos_Aires' };
 const diaHoraAR = v => v ? new Date(v).toLocaleString('es-AR', { ...ZONA_AR, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
 const CANAL_AR = { 'salón': 'Salón', 'para llevar': 'Take Away', delivery: 'Delivery propio', pedidosya: 'PedidosYa' };
-function ventasAcr(vs) {
+function ventasAcr(vs, puntoVenta) {
   return el('details', { className: 'a-ventas' }, el('summary', { textContent: vs.length === 1 ? 'Ver la venta' : `Ver las ${vs.length} ventas` }),
     ...vs.map(v => {
       const d = el('details', { className: 'a-venta' },
@@ -496,11 +498,73 @@ function ventasAcr(vs) {
             el('h4', { textContent: 'Artículos' }),
             ...(t.items.length ? t.items.map(i => fila(`${num(i.cantidad)} × ${i.articulo}`, pesos(i.importe), i.anulado ? 'anul' : ''))
               : [el('div', { className: 'sub', textContent: 'El sistema de venta no informa los artículos.' })]),
-            fila(el('b', { textContent: 'Total' }), pesos(t.total)));
+            fila(el('b', { textContent: 'Total' }), pesos(t.total)),
+            v.en_lote ? '' : accionesCobro(v, puntoVenta));
         } catch (e) { caja.textContent = e.message; }
       });
       return d;
     }));
+}
+
+// Resolver el cobro desde el panel (pedido de Fer, 08/11/2026), con las mismas rutas que la conciliación: parearlo con un ingreso
+// del extracto (con motivo si el importe no coincide), pasarlo al efectivo del punto de venta o registrarlo como que no va a llegar.
+function accionesCobro(v, puntoVenta) {
+  const acc = el('div', { className: 'v-acc' });
+  const listo = async texto => { msg(texto, 'ok', '#msgT0'); $('#dlgAcr').close(); await cargar(); };
+  const conMotivo = (ph, etiqueta, enviar) => {
+    const motivo = el('input', { placeholder: ph, 'aria-label': 'Motivo' });
+    const ok = el('button', { type: 'button', className: 'prim', textContent: etiqueta });
+    ok.onclick = async () => {
+      if (!motivo.value.trim()) return motivo.focus();
+      ok.disabled = true;
+      try { await enviar(motivo.value.trim()); } catch (e) { alert(e.message); ok.disabled = false; }
+    };
+    acc.replaceChildren(motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: inicial }));
+    motivo.focus();
+  };
+  const resolver = como => conMotivo(como === 'efectivo' ? 'Motivo: quién lo confirmó, cómo se cobró…' : 'Motivo: por qué no va a llegar',
+    como === 'efectivo' ? 'Pasar a efectivo' : 'Registrar diferencia', async motivo => {
+      await api('fin/conciliacion/cobro-resuelto', { method: 'POST', body: { ticket_pago_id: v.pago_id, como, motivo } });
+      await listo(como === 'efectivo' ? `La venta #${v.numero} pasó al efectivo a rendir de ${puntoVenta}.` : `La venta #${v.numero} quedó como diferencia.`);
+    });
+  const parear = async () => {
+    acc.replaceChildren(el('small', { textContent: 'Buscando los ingresos sin identificar…' }));
+    let lineas;
+    try { ({ lineas } = await api('fin/conciliacion/ingresos-libres?cuenta=' + encodeURIComponent(v.cuenta_id))); }
+    catch (e) { acc.replaceChildren(el('small', { textContent: e.message })); return; }
+    const C = centavos(v.importe), dist = l => { const x = centavos(l.importe) - C; return x < 0n ? -x : x; };
+    const cand = lineas.filter(l => l.fecha >= v.dia)
+      .sort((a, b) => (dist(a) < dist(b) ? -1 : dist(a) > dist(b) ? 1 : a.fecha.localeCompare(b.fecha))).slice(0, 40);
+    if (!cand.length) { acc.replaceChildren(el('small', { textContent: 'No hay ingresos sin identificar en el extracto desde el día de la venta.' }),
+      el('button', { type: 'button', textContent: 'Volver', onclick: inicial })); return; }
+    const sel = el('select', { 'aria-label': 'Ingreso del extracto' }, ...cand.map(l => el('option', { value: l.id,
+      textContent: `${fecha(l.fecha)} · ${pesos(l.importe)} · ${(l.concepto || '').slice(0, 50)}` })));
+    const motivo = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
+    const nota = el('small');
+    const ver = () => {
+      const D = centavos(cand.find(l => String(l.id) === sel.value).importe) - C;
+      motivo.hidden = D === 0n;
+      nota.textContent = D === 0n ? 'Mismo importe.' : `Entró ${pesos(deCentavos(D < 0n ? -D : D))} ${D > 0n ? 'más' : 'menos'} que el cobro.`;
+    };
+    sel.onchange = ver; ver();
+    const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
+    ok.onclick = async () => {
+      if (!motivo.hidden && !motivo.value.trim()) return motivo.focus();
+      ok.disabled = true;
+      try {
+        await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: v.pago_id, linea_ids: [Number(sel.value)], manual: true, motivo: motivo.hidden ? null : motivo.value.trim() } });
+        await listo(`Acreditada la venta #${v.numero}.`);
+      } catch (e) { alert(e.message); ok.disabled = false; }
+    };
+    acc.replaceChildren(sel, nota, motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: inicial }));
+    sel.focus();
+  };
+  const inicial = () => acc.replaceChildren(
+    ...(v.cuenta_id ? [el('button', { type: 'button', textContent: 'Es un ingreso del extracto…', onclick: parear })] : []),
+    ...(v.con_efectivo ? [el('button', { type: 'button', textContent: 'Se cobró en efectivo', onclick: () => resolver('efectivo') })] : []),
+    el('button', { type: 'button', textContent: 'No va a llegar', onclick: () => resolver('no_llega') }));
+  inicial();
+  return acc;
 }
 
 function pintarEfectivo() {

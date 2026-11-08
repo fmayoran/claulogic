@@ -68,7 +68,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
               (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
-              p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total
+              p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total, p.id AS pago_id, (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.lote l ON l.id = p.lote_id
@@ -145,7 +145,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       if (fecha < g.espera_desde) g.espera_desde = fecha; if (fecha > g.espera_hasta) g.espera_hasta = fecha;
       if (limite > g.limite) g.limite = limite;
       // Cada venta, para buscarla a mano en el sistema de venta (pedido de Fer, 08/11/2026: qué pasó con un cobro que no llegó).
-      g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha });
+      g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha,
+        pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote });
       det.set(k, g);
     }
     // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
@@ -1345,6 +1346,18 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
 // Un cobro que no va a llegar por su procesador (pedido de Fer, 08/11/2026): se cobró en efectivo y quedó mal cargado en el
 // sistema de venta (pasa de "a acreditar" al efectivo a rendir del punto de venta), o no llega (egreso de "a acreditar", con su
 // motivo, a Diferencias). Se deshace anulando el movimiento.
+// Los ingresos del extracto de una cuenta que todavía no están conciliados: para parear a mano un cobro desde el tablero de
+// tesorería (pedido de Fer, 08/11/2026), sin calcular todo lo que arma la conciliación.
+r.get('/fin/conciliacion/ingresos-libres', h(async (req, res) => {
+  const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
+  const { rows } = await pool.query(
+    `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
+      WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL
+        AND NOT EXISTS (SELECT 1 FROM fin.extracto_linea c WHERE c.compensa_a = l.id)
+        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
+      ORDER BY l.fecha, l.id`, [cuenta]);
+  res.json({ ok: true, lineas: rows });
+}));
 r.post('/fin/conciliacion/cobro-resuelto', h(async (req, res) => {
   const b = req.body, pagoId = texto(b.ticket_pago_id, { campo: 'el cobro', requerido: true });
   const como = b.como === 'efectivo' ? 'efectivo' : b.como === 'no_llega' ? 'no_llega' : null;
