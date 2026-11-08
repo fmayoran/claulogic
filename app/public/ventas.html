@@ -51,7 +51,7 @@
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
       <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
-      <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+      <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="meses">Por mes</button><button type="button" data-p="otro">Fechas</button>
     </div>
     <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
   </div>
@@ -179,6 +179,8 @@ function rango(p) {
   if (p === 'ayer') return [a, a];
   if (p === '7') { d.setDate(d.getDate() - 6); return [iso(d), a]; }
   if (p === 'mes') { const h = hoy(); return [h.slice(0, 8) + '01', h.endsWith('-01') ? h : a]; }
+  // Por mes (pedido de Fer, 08/11/2026): los últimos doce meses hasta ayer; el gráfico principal va mes por mes.
+  if (p === 'meses') { const x = new Date(a.slice(0, 8) + '01T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() - 11); return [iso(x), a]; }
   if (p === 'mesant') { const h = new Date(hoy().slice(0, 8) + '01T12:00:00'); h.setDate(0); return [iso(h).slice(0, 8) + '01', iso(h)]; }
   return null;
 }
@@ -253,7 +255,9 @@ let ctxV = null;
 function pintarEvolucion() {
   const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;
   // Principal: por día; si el período es un solo día, por hora.
-  $('#leyPrincipal').hidden = unDia;
+  const porMes = $('#periodo button.act')?.dataset.p === 'meses';
+  $('#leyPrincipal').hidden = unDia || porMes;
+  if (porMes) return pintarMeses();
   if (unDia) {
     $('#tPrincipal').textContent = 'Ventas por hora'; $('#capPrincipal').textContent = 'Por hora de apertura. Tocá una hora para ver sus ventas.';
     pintarHoras($('#gPrincipal'), matchMedia('(max-width:899px)').matches ? 220 : 330);
@@ -279,6 +283,32 @@ function pintarEvolucion() {
       alto: matchMedia('(max-width:899px)').matches ? 220 : 280,
     });
   }
+}
+// Por mes: lo vendido cada mes, desde el primero con ventas; el mes en curso, con los días que van. Tocar un mes lo abre.
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function pintarMeses() {
+  const { dias, vend, cant } = ctxV, meses = new Map();
+  dias.forEach((d, i) => {
+    const k = d.slice(0, 7), m = meses.get(k) || { mes: k, vendido: 0, ventas: 0, dias: 0, ultimo: d };
+    m.vendido += vend[i]; m.ventas += cant[i]; m.dias++; m.ultimo = d; meses.set(k, m);
+  });
+  const todos = [...meses.values()], desde = todos.findIndex(m => m.vendido), ms = desde < 0 ? [] : todos.slice(desde);
+  const finMes = k => finDeMes(k + '-01'), nombre = k => `${MESES[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}`;
+  $('#tPrincipal').textContent = 'Vendido por mes';
+  const enCurso = ms.length && ms.at(-1).ultimo < finMes(ms.at(-1).mes) ? ms.at(-1) : null;
+  $('#capPrincipal').textContent = 'Lo vendido cada mes, desde el primero con ventas traídas.'
+    + (enCurso ? ` ${MESES[+enCurso.mes.slice(5, 7) - 1][0].toUpperCase() + MESES[+enCurso.mes.slice(5, 7) - 1].slice(1)} va por ${enCurso.dias} día(s): compará el promedio por día.` : '')
+    + ' Tocá un mes para abrirlo.';
+  Graf.columnas($('#gPrincipal'), { etiquetas: ms.map(m => m.mes), valores: ms.map(m => m.vendido),
+    ejeX: k => MESES[+k.slice(5, 7) - 1].slice(0, 3), titulo: k => nombre(k)[0].toUpperCase() + nombre(k).slice(1),
+    texto: i => {
+      const m = ms[i], a = ms[i - 1], pd = m.vendido / m.dias, pdA = a && a.vendido / a.dias;
+      return `${pesos(String(Math.round(m.vendido)))} · ${num(String(m.ventas))} ventas · ${pesos(String(Math.round(pd)))} por día`
+        + (m === enCurso ? ` (en curso, ${m.dias} días)` : '')
+        + (pdA ? ` · por día ${pd >= pdA ? '+' : ''}${((pd / pdA - 1) * 100).toFixed(1).replace('.', ',')}% contra ${MESES[+a.mes.slice(5, 7) - 1]}` : '');
+    },
+    alElegir: i => { const k = ms[i].mes; elegirPeriodo('otro'); $('#desde').value = k + '-01'; $('#hasta').value = ms[i].ultimo; limpiarFiltros(); cargar(); },
+    alto: matchMedia('(max-width:899px)').matches ? 220 : 280 });
 }
 // Por día de la semana: el promedio de lo vendido cada lunes, martes… del período, contra el del período anterior (que empieza el
 // mismo día de la semana). Dice qué días tiran y si cada día viene mejor o peor, sin mezclar un martes con un sábado.
@@ -479,7 +509,7 @@ $('#dlgVenta').addEventListener('click', e => { if (e.target === $('#dlgVenta'))
     opciones($('#integ'), locales, pedido || (locales.length === 1 ? locales[0][0] : ''), locales.length > 1 ? 'Todos los locales' : undefined);
     const max = ayer(); $('#desde').max = $('#hasta').max = max;
     if (p.get('desde') && p.get('hasta')) {
-      const coincide = ['ayer', '7', 'mes', 'mesant'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });
+      const coincide = ['ayer', '7', 'mes', 'mesant', 'meses'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });
       elegirPeriodo(coincide || 'otro');
       if (!coincide) { $('#desde').value = p.get('desde'); $('#hasta').value = p.get('hasta'); }
     } else elegirPeriodo('7');

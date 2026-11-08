@@ -523,6 +523,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `/pos/ventas/resumen`, devuelve `mes_anterior`); las cifras y el promedio por día de la semana siguen contra el período anterior
   corrido en semanas. Si el anterior no tiene ventas traídas (hay desde el 01/10/2026), se avisa y no se dibuja. Por cantidad no
   entran los artículos en $0 (el cubierto).
+  Período **Por mes** (08/11/2026): los últimos doce meses hasta ayer; el gráfico principal pasa a columnas por mes desde el primero
+  con ventas (el mes en curso dice cuántos días van y el tooltip compara el promedio por día con el mes anterior); tocar un mes lo abre.
 - **Tablero por vistas** (como el de tesorería): arriba sólo las cifras; tocar una abre su vista y se recuerda (`tablero-vista`).
   **Tablero**: Ventas netas, Food cost y
   Stock abren el food cost por local; Consumo real (con el desvío en la nota) la composición y los productos; **Platos con receta** la
