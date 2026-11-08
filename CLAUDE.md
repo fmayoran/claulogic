@@ -597,6 +597,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `en_efectivo` saca el importe de "Efectivo · <sede>" y lo acredita en la cuenta. Si ese efectivo ya se rindió, la cuenta de
   efectivo queda en negativo y se corrige devolviendo esa parte de la rendición (transferencia de la caja a la cuenta de efectivo).
   En SORELLE (octubre) fueron 26 cobros por $689.000. Desde noviembre el efectivo se concilia día a día.
+  **Pareo manual y cobros que no llegan** (pedido de Fer, 08/11/2026; migración 20261133). En la cuenta de un procesador, cada ingreso
+  sin identificar tiene "Es el cobro de una venta…": se elige el cobro pendiente (los más parecidos en importe primero) y, si no
+  coincide, con motivo y sin el tope del 10% de las sugerencias (`/fin/conciliacion/acreditar` con `manual`). **No registrar como
+  "Otros ingresos" el cobro de una venta**: queda contado dos veces (sigue en "a acreditar" y entra como ingreso); pasó en Pago24 de
+  CORTAFUEGO en octubre y se corrigió así. Los cobros que el extracto ya debería traer y no trae (4 días después de la venta, dentro
+  del extracto) van en "Cobros que no aparecen en el extracto": **se cobró en efectivo** (transferencia de "a acreditar" al efectivo
+  del punto de venta, en el día de la venta; cuenta como efectivo de ese día en Ingresos) o **no va a llegar** (egreso de "a
+  acreditar" con motivo, Diferencias de acreditación). `pos.ticket_pago.resuelto_movimiento_id` y `resuelto_como`; se deshace con
+  `DELETE /fin/conciliacion/cobro-resuelto/:pago` (todavía sin botón).
   **Lotes (Fudo Pagos; decisiones de Fer, 26/10/2026; migración 20261109)**: Fudo informa por la API, pago por pago,
   la fecha de liquidación (`expectedBy`) y el neto (`receivedAmount`), sólo en el recurso `/payments` y sólo pidiendo
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta

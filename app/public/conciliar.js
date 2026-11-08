@@ -419,10 +419,72 @@ const Conc = (() => {
         inp.focus(); inp.select();
       };
       acc.append(registrar);
+      // Pareo manual (pedido de Fer, 08/11/2026): un ingreso de la cuenta de un procesador que es el cobro de una venta, con
+      // una diferencia que la sugerencia no cubre o una fecha lejana. Se elige el cobro; si no coincide, con motivo.
+      const cobros = (d.cobros || []);
+      if (d.procesador && cobros.length && !l.importe.startsWith('-')) {
+        const vincular = el('button', { type: 'button', textContent: 'Es el cobro de una venta…' });
+        vincular.onclick = () => {
+          const L = centavos(l.importe), dist = c => { const x = centavos(c.importe) - L; return x < 0n ? -x : x; };
+          const dd = c => Math.abs(Date.parse(l.fecha) - Date.parse(c.dia));
+          const cand = cobros.filter(c => c.dia <= String(l.fecha).slice(0, 10))
+            .sort((a, b) => (dist(a) < dist(b) ? -1 : dist(a) > dist(b) ? 1 : dd(a) - dd(b))).slice(0, 40);
+          if (!cand.length) return ctx.aviso('No hay cobros pendientes de este procesador anteriores a la línea.', 'mal');
+          const sel = el('select', { 'aria-label': 'Cobro' }, ...cand.map(c => el('option', { value: c.id,
+            textContent: `Venta #${c.id_externo} del ${fecha(c.dia)} · ${TIPO_OP[c.tipo_operacion] || c.tipo_operacion} · ${pesos(c.importe)}` + (cobros.some(x => x.punto_venta !== c.punto_venta) ? ` · ${c.punto_venta}` : '') })));
+          const motivo = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
+          const nota = el('small', { className: 'dif-nota' });
+          const ver = () => {
+            const c = cand.find(x => x.id === sel.value), D = L - centavos(c.importe);
+            motivo.hidden = D === 0n;
+            nota.textContent = D === 0n ? 'Mismo importe.' : `Entró ${pesos(deCentavos(D < 0n ? -D : D))} ${D > 0n ? 'más' : 'menos'} que el cobro.`;
+          };
+          sel.onchange = ver; ver();
+          const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
+          ok.onclick = async () => {
+            const c = cand.find(x => x.id === sel.value);
+            if (!motivo.hidden && !motivo.value.trim()) return (motivo.focus(), ctx.aviso('Indicá el motivo de la diferencia.', 'mal'));
+            ok.disabled = true;
+            try {
+              await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: c.id, linea_ids: [l.id], manual: true, motivo: motivo.hidden ? null : motivo.value.trim() } });
+              ctx.aviso(`Acreditada la venta #${c.id_externo}.`, 'ok'); await ctx.recargar();
+            } catch (e) { alert(e.message); ok.disabled = false; }
+          };
+          acc.replaceChildren(sel, nota, motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => acc.replaceChildren(...inicial, registrar, vincular) }));
+          sel.focus();
+        };
+        acc.append(vincular);
+      }
       return el('div', { className: 'pend' },
         el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
           el('small', { textContent: [pp.numero && 'Nº ' + pp.numero, l.referencia].filter(Boolean).join(' · ') })),
         el('div', { className: 'imp' }, conSigno(l.importe)), sug, acc);
+    }
+    function filaCobro(c) {
+      const acc = el('div', { className: 'acc' });
+      const abrir = como => {
+        const motivo = el('input', { placeholder: como === 'efectivo' ? 'Motivo: quién lo confirmó, cómo se cobró…' : 'Motivo: por qué no va a llegar', 'aria-label': 'Motivo' });
+        const ok = el('button', { type: 'button', className: 'prim', textContent: como === 'efectivo' ? 'Pasar a efectivo' : 'Registrar diferencia' });
+        ok.onclick = async () => {
+          if (!motivo.value.trim()) return (motivo.focus(), ctx.aviso('Indicá el motivo.', 'mal'));
+          ok.disabled = true;
+          try {
+            await api('fin/conciliacion/cobro-resuelto', { method: 'POST', body: { ticket_pago_id: c.id, como, motivo: motivo.value.trim() } });
+            ctx.aviso(como === 'efectivo' ? `La venta #${c.id_externo} pasó al efectivo a rendir de ${c.punto_venta}.` : `La venta #${c.id_externo} quedó como diferencia.`, 'ok');
+            await ctx.recargar();
+          } catch (e) { alert(e.message); ok.disabled = false; }
+        };
+        acc.replaceChildren(motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: inicial }));
+        motivo.focus();
+      };
+      const inicial = () => acc.replaceChildren(
+        ...(c.con_efectivo ? [el('button', { type: 'button', textContent: 'Se cobró en efectivo', onclick: () => abrir('efectivo') })] : []),
+        el('button', { type: 'button', textContent: 'No va a llegar', onclick: () => abrir('no_llega') }));
+      inicial();
+      return el('div', { className: 'pend' },
+        el('div', { className: 'q' }, el('b', { textContent: `${fecha(c.dia)} · Venta #${c.id_externo}` }),
+          el('small', { textContent: [TIPO_OP[c.tipo_operacion] || c.tipo_operacion, c.punto_venta].join(' · ') })),
+        el('div', { className: 'imp' }, pesos(c.importe)), acc);
     }
     const filaMov = m => el('div', { className: 'pend' },
       el('div', { className: 'q' }, el('b', { textContent: `${fecha(m.fecha)} · ${m.concepto || m.tipo}` }), el('small', { textContent: m.tipo })),
@@ -469,6 +531,13 @@ const Conc = (() => {
         : 'Plata que entró a la cuenta y no tiene movimiento: registrala o conciliala con el movimiento que corresponde.', filaLinea));
     if (egresos.length) grupos.push(grupo('Egresos sin identificar', egresos,
       'Plata que salió de la cuenta y no tiene movimiento: un pago a un proveedor (se concilia con su orden de pago hecha desde esta cuenta) o un gasto que hay que registrar.', filaLinea));
+    // Cobros de ventas que ya deberían estar en el extracto y no están (pedido de Fer, 08/11/2026): se parean desde la línea
+    // ("Es el cobro de una venta…") o, si no van a llegar por este procesador, se resuelven acá.
+    const revisar = (d.cobros || []).filter(c => c.revisar);
+    if (d.procesador && revisar.length) grupos.push(grupo('Cobros que no aparecen en el extracto', revisar,
+      'Ventas cobradas con este procesador que el extracto ya debería traer. Si la plata entró con otro importe, conciliala desde su línea con '
+      + '"Es el cobro de una venta…". Si se cobró en efectivo (mal cargado en el sistema de venta), pasa al efectivo a rendir del punto de venta; '
+      + 'si no va a llegar, queda como diferencia de acreditación.', filaCobro));
     if (d.movimientos.length) grupos.push(grupo('En el sistema, pero no en el extracto', d.movimientos,
       'Movimientos que todavía no aparecieron en el extracto: puede que no se hayan acreditado o debitado todavía, o que el banco los haya registrado con otro importe.', filaMov));
     return grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },

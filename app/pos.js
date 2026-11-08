@@ -1311,9 +1311,10 @@ r.get('/pos/cierre', h(async (req, res) => {
         // Los días históricos (antes de cobros_desde) no tienen nada que resolver: no entran.
         `WITH d AS (SELECT generate_series(GREATEST(current_date - $2::int, (SELECT cobros_desde FROM pos.integracion WHERE id = $1)), current_date - 1, '1 day')::date AS dia),
          pg AS (
-           SELECT t.dia, SUM(p.importe) FILTER (WHERE m.cuenta_id = $3) AS efectivo,
-                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3) AS electronico,
-                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND (p.acreditado_linea_id IS NOT NULL OR (p.lote_id IS NOT NULL
+           -- Un cobro electrónico que se resolvió como cobrado en efectivo cuenta como efectivo de su día; uno que no llega, como resuelto.
+           SELECT t.dia, SUM(p.importe) FILTER (WHERE m.cuenta_id = $3 OR p.resuelto_como = 'efectivo') AS efectivo,
+                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND p.resuelto_como IS DISTINCT FROM 'efectivo') AS electronico,
+                  SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND (p.acreditado_linea_id IS NOT NULL OR p.resuelto_como = 'no_llega' OR (p.lote_id IS NOT NULL
                        AND EXISTS (SELECT 1 FROM fin.lote l JOIN fin.conciliacion k ON k.movimiento_id = l.movimiento_id WHERE l.id = p.lote_id)))) AS acreditado,
                   SUM(p.importe) FILTER (WHERE m.cuenta_id IS DISTINCT FROM $3 AND p.lote_id IS NOT NULL AND NOT EXISTS (
                        SELECT 1 FROM fin.lote l JOIN fin.conciliacion k ON k.movimiento_id = l.movimiento_id WHERE l.id = p.lote_id)) AS liquidado
@@ -1336,7 +1337,7 @@ r.get('/pos/cierre', h(async (req, res) => {
            FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
            JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
           WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NOT NULL
-            AND p.acreditado_linea_id IS NULL AND p.lote_id IS NULL AND current_date - COALESCE(p.liquida_el, t.dia) > $2
+            AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND p.lote_id IS NULL AND current_date - COALESCE(p.liquida_el, t.dia) > $2
           GROUP BY pr.nombre, pr.cuenta_acredita_id ORDER BY MIN(t.dia)`, [i.id, ATRASO_DIAS]),
       pool.query(
         `SELECT DISTINCT pr.nombre AS procesador, pr.cuenta_acredita_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, (current_date - l.fecha)::int AS dias

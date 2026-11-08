@@ -48,7 +48,7 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
             COUNT(*) FILTER (WHERE p.lote_id IS NOT NULL)::int AS en_lote
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
-      WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL
+      WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND (p.lote_id IS NULL OR EXISTS (SELECT 1 FROM fin.lote l WHERE l.id = p.lote_id AND l.movimiento_id IS NULL))
       GROUP BY pr.id, pr.nombre, pr.cuenta_id, i.id, i.nombre ORDER BY pr.nombre, i.nombre`);
   res.json({ ok: true, por_acreditar: rows });
@@ -72,7 +72,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.lote l ON l.id = p.lote_id
-        WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL AND (p.lote_id IS NULL OR l.movimiento_id IS NULL)`),
+        WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND (p.lote_id IS NULL OR l.movimiento_id IS NULL)`),
     pool.query(
       `WITH h AS (
          SELECT mp.procesador_id, mp.tipo_operacion, (x.fecha - t.dia) AS d
@@ -848,8 +848,20 @@ r.get('/fin/conciliacion', h(async (req, res) => {
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id
                 AND (l.compensa_a IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
        FROM fin.extracto e WHERE e.cuenta_id = $1::uuid ORDER BY e.importado_en DESC LIMIT 20`, [cuenta]);
+  // Los cobros del procesador de la cuenta que esperan el extracto (no los de lotes): para parear a mano una línea, y los que
+  // ya deberían estar (4 días después de la venta o de su liquidación, dentro del extracto), para resolverlos.
+  const { rows: cobros } = lado === 'egresos' ? { rows: [] } : await pool.query(
+    `SELECT p.id, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, p.importe::text, mp.tipo_operacion, i.nombre AS punto_venta,
+            (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
+            COALESCE(p.liquida_el, t.dia) + 4 <= (SELECT MAX(e.hasta) FROM fin.extracto e WHERE e.cuenta_id = $1::uuid) AS revisar
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+       JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+       JOIN fin.procesador pr ON pr.id = mp.procesador_id AND pr.cuenta_acredita_id = $1::uuid
+      WHERE NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+        AND p.lote_id IS NULL
+      ORDER BY t.dia, t.id_externo`, [cuenta]);
   res.json({ ok: true, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
-    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos });
+    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos, cobros });
 }));
 
 // Descartar un extracto importado por error (un archivo equivocado, o el resumen de Mercado Pago sin las
@@ -1051,7 +1063,7 @@ async function conciliarAutomatica(req, cuenta) {
       `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
          JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           AND p.liquida_el IS NULL AND p.lote_id IS NULL
         ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [pr.id]);
     const libres = new Set(pagos.map(p => p.id));
@@ -1141,7 +1153,7 @@ const OTRO_PROCESADOR_SQL = `
   SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, opr.nombre AS procesador_cargado
     FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
     JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador opr ON opr.id = mp.procesador_id
-   WHERE mp.procesador_id <> $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+   WHERE mp.procesador_id <> $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
      AND p.liquida_el IS NULL AND p.lote_id IS NULL
      AND EXISTS (SELECT 1 FROM pos.ticket_pago a JOIN pos.medio am ON am.id = a.medio_id JOIN fin.medio_pago amp ON amp.id = am.medio_pago_id
                   WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
@@ -1154,7 +1166,7 @@ const EN_EFECTIVO_SQL = `
   SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, i.nombre AS punto_venta
     FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
     JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN pos.integracion i ON i.id = t.integracion_id
-   WHERE mp.tipo_operacion = 'efectivo' AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+   WHERE mp.tipo_operacion = 'efectivo' AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
      AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pr ON pr.id = pmp.procesador_id
                    WHERE pr.cuenta_acredita_id = $1::uuid)`;
 // El día de la venta de una línea: el que dice el concepto ("venta del AAAA-MM-DD", Mercado Pago) o el de la línea.
@@ -1170,7 +1182,7 @@ async function sugerenciasProcesador(cuenta) {
     pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
                    AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  ORDER BY t.dia`, [pr.id]),
   ]);
@@ -1207,7 +1219,7 @@ async function sugerenciasProcesador(cuenta) {
       `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.nombre AS medio
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
          JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           AND p.lote_id IS NULL AND p.neto IS NULL ORDER BY t.dia`, [pr.id]);
     // Cada depósito con cada lote de su ventana: lo que explica un cobro sin neto, o una diferencia razonable (hasta el
     // 15% del lote o $5.000). Después, cada lote y cada cobro se proponen una sola vez, primero los pares que mejor
@@ -1290,16 +1302,18 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
         `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
            FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
            JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           FOR UPDATE OF p`, [pagoId, pr.id]);
     if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador (o sus cobros no se procesaron).');
     if (otro || efectivo) await c.query('SELECT 1 FROM pos.ticket_pago WHERE id = $1 FOR UPDATE', [p.id]);
     if ((otro || efectivo) && (ls.length > 1 || centavos(ls[0].importe) !== centavos(p.importe)))
       throw new ErrorUsuario(`Un cobro cargado ${otro ? 'con otro procesador' : 'como efectivo'} se acredita sólo por el mismo importe.`);
     const P = centavos(p.importe), L = ls.reduce((s, l) => s + centavos(l.importe), 0n), D = L - P;
+    // Pareo manual (pedido de Fer, 08/11/2026): quien concilia elige el cobro; cualquier diferencia, con su motivo.
+    const manual = b.manual === true && !otro && !efectivo;
     if (ls.length > 1 && D !== 0n) throw new ErrorUsuario(`Las líneas suman ${deCentavos(L)} y el cobro es de ${p.importe}: en partes, tienen que sumar exacto.`);
     if (D !== 0n) {
-      if ((D < 0n ? -D : D) > TOLERANCIA(P)) throw new ErrorUsuario('La diferencia es demasiado grande para parearlos: registrá la línea como movimiento.');
+      if (!manual && (D < 0n ? -D : D) > TOLERANCIA(P)) throw new ErrorUsuario('La diferencia es demasiado grande para parearlos: registrá la línea como movimiento.');
       if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
     }
     const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
@@ -1319,6 +1333,65 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     await c.query('UPDATE pos.ticket_pago SET acreditado_linea_id = $1 WHERE id = $2', [ls[0].id, p.id]);
   });
   res.status(201).json({ ok: true });
+}));
+
+// Un cobro que no va a llegar por su procesador (pedido de Fer, 08/11/2026): se cobró en efectivo y quedó mal cargado en el
+// sistema de venta (pasa de "a acreditar" al efectivo a rendir del punto de venta), o no llega (egreso de "a acreditar", con su
+// motivo, a Diferencias). Se deshace anulando el movimiento.
+r.post('/fin/conciliacion/cobro-resuelto', h(async (req, res) => {
+  const b = req.body, pagoId = texto(b.ticket_pago_id, { campo: 'el cobro', requerido: true });
+  const como = b.como === 'efectivo' ? 'efectivo' : b.como === 'no_llega' ? 'no_llega' : null;
+  if (!como) throw new ErrorUsuario('Elegí si se cobró en efectivo o no va a llegar.');
+  const motivo = texto(b.motivo);
+  if (!motivo) throw new ErrorUsuario('Indicá el motivo.');
+  await enTransaccion(async c => {
+    const { rows: [p] } = await c.query(
+      `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id, pr.nombre AS procesador,
+              i.cuenta_efectivo_id, i.nombre AS punto_venta
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+         JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+        WHERE p.id = $1::uuid AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+          AND p.lote_id IS NULL
+        FOR UPDATE OF p`, [pagoId]);
+    if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar (o sus cobros no se procesaron).');
+    let mov;
+    if (como === 'efectivo') {
+      if (!p.cuenta_efectivo_id) throw new ErrorUsuario(`${p.punto_venta} no tiene cuenta de efectivo.`);
+      const concepto = `Cobro de la venta ${p.id_externo} del ${p.dia}: cargado con ${p.procesador}, se cobró en efectivo · ${motivo}`;
+      const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
+      ({ rows: [{ id: mov }] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6) RETURNING id`,
+        [p.dia, p.cuenta_id, p.importe, concepto, tr, p.id]));
+      await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6)`,
+        [p.dia, p.cuenta_efectivo_id, p.importe, concepto, tr, p.id]);
+    } else {
+      ({ rows: [{ id: mov }] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto, ticket_pago_id) VALUES ($1,$2,'egreso',$3,$4,'otro',$5) RETURNING id`,
+        [p.dia, p.cuenta_id, p.importe, `Cobro que no llega · ${p.procesador} · venta ${p.id_externo} del ${p.dia}: ${motivo}`, p.id]));
+      // En el estado de resultados, a Diferencias (como una acreditación con diferencia), en el día de la venta.
+      await c.query(`INSERT INTO fin.clasificacion (movimiento_id, rubro_id) SELECT $1, id FROM fin.rubro WHERE clave = 'dif_acreditacion'`, [mov]);
+    }
+    await c.query('UPDATE pos.ticket_pago SET resuelto_movimiento_id = $1, resuelto_como = $2 WHERE id = $3', [mov, como, p.id]);
+  });
+  res.status(201).json({ ok: true });
+}));
+r.delete('/fin/conciliacion/cobro-resuelto/:pago', h(async (req, res) => {
+  await enTransaccion(async c => {
+    const { rows: [p] } = await c.query(
+      `SELECT p.resuelto_movimiento_id AS mov, m.transferencia_id FROM pos.ticket_pago p JOIN fin.movimiento_tes m ON m.id = p.resuelto_movimiento_id
+        WHERE p.id = $1::uuid FOR UPDATE OF p`, [req.params.pago]);
+    if (!p) throw new ErrorUsuario('Ese cobro no está resuelto.');
+    const { rows: patas } = await c.query(
+      `SELECT * FROM fin.movimiento_tes x WHERE (x.id = $1 OR ($2::uuid IS NOT NULL AND x.transferencia_id = $2::uuid)) AND x.tipo <> 'anulacion'
+          AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`, [p.mov, p.transferencia_id]);
+    for (const x of patas)
+      await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a) VALUES ($1,$2,'anulacion',$3,$4,$5,$6,$7)`,
+        [x.fecha, x.cuenta_id, x.salida, x.entrada, 'Anula (se deshizo): ' + x.concepto, x.transferencia_id, x.id]);
+    await c.query('UPDATE pos.ticket_pago SET resuelto_movimiento_id = NULL, resuelto_como = NULL WHERE id = $1', [req.params.pago]);
+  });
+  res.json({ ok: true });
 }));
 
 // Confirmar un depósito contra sus lotes: la suma de los lotes, más un cobro sin neto informado (se arma su lote con
@@ -1347,7 +1420,7 @@ r.post('/fin/conciliacion/lote', h(async (req, res) => {
       const { rows: [p] } = await c.query(
         `SELECT p.id, p.importe::text, t.id_externo, m.cuenta_id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id
            JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.lote_id IS NULL
+          WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND p.lote_id IS NULL
           FOR UPDATE OF p`, [pagoId, pr.id]);
       if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador.');
       if (D <= 0n || D > centavos(p.importe)) throw new ErrorUsuario('El cobro no explica la diferencia del depósito.');
@@ -1407,7 +1480,7 @@ async function resumenProcesador(cuenta) {
                        (current_date - t.dia)::int AS dias
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
                    AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  GROUP BY t.dia, mp.tipo_operacion ORDER BY t.dia, mp.tipo_operacion`, [pr.id]),
     // Costo de cada cobro acreditado: los gastos conciliados de la misma operación del procesador (la de sus líneas
@@ -1717,7 +1790,7 @@ async function acreditarLotes(req, procesadorId = null) {
             array_agg(p.id) AS ids, COUNT(*)::int AS pagos, SUM(p.importe)::text AS bruto, SUM(p.neto)::text AS neto
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
        JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
-      WHERE p.lote_id IS NULL AND p.acreditado_linea_id IS NULL AND p.liquida_el IS NOT NULL AND p.liquida_el <= current_date
+      WHERE p.lote_id IS NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND p.liquida_el IS NOT NULL AND p.liquida_el <= current_date
         AND p.neto IS NOT NULL AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL
         AND ($1::uuid IS NULL OR mp.procesador_id = $1::uuid)
       GROUP BY mp.procesador_id, pr.nombre, pr.cuenta_acredita_id, m.cuenta_id, p.liquida_el ORDER BY p.liquida_el`, [procesadorId]);
