@@ -1360,10 +1360,12 @@ r.get('/pos/cierre', h(async (req, res) => {
       else if (i.sincroniza_auto && i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso()))
         tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
       else if (!ayerTraido) {
-        // Lo que falta empieza el día siguiente al último traído (el campo "desde" propone unos días antes, para que
-        // lleguen las mesas que cerraron tarde).
+        // Lo que falta empieza el día siguiente al último traído.
         const ultimo = dias.find(d => d.ventas || d.sincronizado);
         const falta = ultimo ? new Date(Date.parse(ultimo.dia + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10) : i.traer_desde;
+        // A mano, el campo "desde" propone lo que falta, no los 3 días de repaso de la automática (pedido de Fer, 08/11/2026:
+        // faltaba el 07/11 y proponía del 05/11); las mesas que siguen abiertas tienen su aviso con "volver a traer el día".
+        i.traer_desde = falta;
         tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: `Faltan traer las ventas desde el ${falta.slice(8, 10)}/${falta.slice(5, 7)}`
           + (i.sincroniza_auto ? '.' : ' (la sincronización automática está pausada en la ficha de la sede).') });
       }
