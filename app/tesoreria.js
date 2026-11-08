@@ -68,7 +68,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
               (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
-              p.costos IS NOT NULL AS con_costos
+              p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.lote l ON l.id = p.lote_id
@@ -138,12 +138,14 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
         : !ext || !ext.hasta || limite > ext.hasta ? 'falta_extracto' : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
       const g = det.get(k) || { procesador_id: p.procesador_id, procesador: p.procesador, deposita: ext ? ext.nombre : null, extracto_hasta: ext ? ext.hasta : null,
-        punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha , limite };
+        punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha, limite, ventas: [] };
       // `saldo`: lo que el cobro pesa en la cuenta "a acreditar" (PedidosYa asienta sus costos al cobrar: queda el neto).
       g.pagos++; g.bruto += bruto; g.neto += neto; g.saldo += p.con_costos ? centavos(p.neto) : bruto;
       if (p.dia < g.ventas_desde) g.ventas_desde = p.dia; if (p.dia > g.ventas_hasta) g.ventas_hasta = p.dia;
       if (fecha < g.espera_desde) g.espera_desde = fecha; if (fecha > g.espera_hasta) g.espera_hasta = fecha;
       if (limite > g.limite) g.limite = limite;
+      // Cada venta, para buscarla a mano en el sistema de venta (pedido de Fer, 08/11/2026: qué pasó con un cobro que no llegó).
+      g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha });
       det.set(k, g);
     }
     // Con `porSede`, cada renglón es además de una filial (la del punto de venta), para mostrarlo por filial en Cajas y bancos.
@@ -160,7 +162,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
     atrasado: [...atrasado.values()].sort((a, b) => a.desde.localeCompare(b.desde)).map(salida),
     estimaciones: [...usadas.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.tipo_operacion.localeCompare(b.tipo_operacion)),
     ...(detalle ? { detalle: [...det.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.punto_venta.localeCompare(b.punto_venta))
-      .map(g => ({ ...salida(g), saldo: deCentavos(g.saldo) })) } : {}),
+      .map(g => ({ ...salida(g), saldo: deCentavos(g.saldo), ventas: g.ventas.sort((a, b) => a.dia.localeCompare(b.dia) || String(a.hora).localeCompare(String(b.hora))) })) } : {}),
   };
 }
 r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => {

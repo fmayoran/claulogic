@@ -65,6 +65,16 @@
   #dlgAcr .linea .d{display:flex;flex-direction:column;} #dlgAcr .linea small{color:var(--mut);font-size:.82rem;}
   #dlgAcr .linea .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;}
   #dlgAcr .boton{display:inline-block;margin-top:10px;font-weight:600;}
+  /* Las ventas de un renglón, para buscarlas en el sistema de venta: cada una se despliega con sus pagos y artículos. */
+  #dlgAcr details.a-ventas{grid-column:1 / -1;margin:4px 0 2px;} #dlgAcr details.a-ventas > summary{cursor:pointer;color:var(--acento);font-size:.88rem;font-weight:600;}
+  #dlgAcr details.a-venta{border-bottom:1px solid var(--g-grilla);padding:6px 0;} #dlgAcr details.a-venta:last-child{border-bottom:0;}
+  #dlgAcr details.a-venta > summary{cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:.9rem;list-style:none;}
+  #dlgAcr details.a-venta > summary::-webkit-details-marker{display:none;}
+  #dlgAcr details.a-venta > summary b{font-weight:650;} #dlgAcr details.a-venta > summary small{grid-column:1 / -1;color:var(--mut);font-size:.8rem;}
+  #dlgAcr .v-det{background:var(--sel);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:.85rem;}
+  #dlgAcr .v-det h4{margin:8px 0 2px;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;}
+  #dlgAcr .v-det .r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:2px 0;} #dlgAcr .v-det .r .i{font-variant-numeric:tabular-nums;text-align:right;}
+  #dlgAcr .v-det .anul{opacity:.55;text-decoration:line-through;} #dlgAcr .v-det .sub{color:var(--mut);}
   .cerrar-x{all:unset;position:absolute;top:14px;right:16px;font-size:1.6rem;line-height:1;cursor:pointer;color:var(--mut);padding:4px 8px;border-radius:8px;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
 </style>
@@ -448,11 +458,49 @@ function panelAcr(proc, estado) {
       el('div', { className: 'lineas' }, ...ys.map(x => el('div', { className: 'linea' },
         el('span', { className: 'd' }, el('b', { textContent: proc ? x.punto_venta : `${x.procesador} · ${x.punto_venta}` }),
           el('small', { textContent: `${cobros(x.pagos)} · ventas ${rangoFechas(x.ventas_desde, x.ventas_hasta)}` + (proc ? '' : ` · ${desc(x)}`) })),
-        el('span', { className: 'i', textContent: pesos(x.saldo) })))),
+        el('span', { className: 'i', textContent: pesos(x.saldo) }),
+        x.ventas && x.ventas.length ? ventasAcr(x.ventas) : ''))),
       acc ? el('a', { className: 'boton', href: acc[1], textContent: acc[0] }) : '');
   });
   $('#aCuerpo').replaceChildren(...bloques);
   $('#dlgAcr').showModal();
+}
+
+// Las ventas de un renglón del panel (pedido de Fer, 08/11/2026: buscarlas a mano en el sistema de venta para ver qué pasó): número,
+// día y hora de apertura, medio e importe; cada una se despliega con lo que trae `/pos/ventas/:id` (todos sus pagos y artículos).
+const ZONA_AR = { timeZone: 'America/Argentina/Buenos_Aires' };
+const diaHoraAR = v => v ? new Date(v).toLocaleString('es-AR', { ...ZONA_AR, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const CANAL_AR = { 'salón': 'Salón', 'para llevar': 'Take Away', delivery: 'Delivery propio', pedidosya: 'PedidosYa' };
+function ventasAcr(vs) {
+  return el('details', { className: 'a-ventas' }, el('summary', { textContent: vs.length === 1 ? 'Ver la venta' : `Ver las ${vs.length} ventas` }),
+    ...vs.map(v => {
+      const d = el('details', { className: 'a-venta' },
+        el('summary', {}, el('b', { textContent: `Venta #${v.numero}` }), el('span', { className: 'i', textContent: pesos(v.importe) }),
+          el('small', { textContent: [`${fecha(v.dia)}${v.hora ? ' ' + v.hora : ''}`, TIPO_OP[v.tipo_operacion] || v.tipo_operacion,
+            v.total != null && Number(v.total) !== Number(v.importe) ? `venta total ${pesos(v.total)}` : ''].filter(Boolean).join(' · ') })));
+      d.addEventListener('toggle', async () => {
+        if (!d.open || d.dataset.cargada) return;
+        d.dataset.cargada = '1';
+        const caja = el('div', { className: 'v-det', textContent: 'Cargando…' });
+        d.append(caja);
+        try {
+          const { venta: t } = await api('pos/ventas/' + v.ticket_id);
+          const fila = (txt, imp, cls, sub) => el('div', { className: 'r' + (cls ? ' ' + cls : '') },
+            el('span', {}, txt, sub ? el('span', { className: 'sub', textContent: ' · ' + sub }) : ''), el('span', { className: 'i', textContent: imp }));
+          caja.replaceChildren(
+            el('div', { textContent: [t.punto_venta, CANAL_AR[t.tipo] || t.tipo, t.mesa ? 'mesa ' + t.mesa : '', t.mozo, t.estado === 'anulado' ? 'anulada' : '',
+              t.abierto_en ? 'abierta ' + diaHoraAR(t.abierto_en) : '', t.cerrado_en ? 'cerrada ' + diaHoraAR(t.cerrado_en) : ''].filter(Boolean).join(' · ') }),
+            el('h4', { textContent: 'Pagos' }),
+            ...(t.pagos.length ? t.pagos.map(p => fila(p.tipo_operacion ? etiquetaMedio(p) : p.medio, pesos(p.importe), p.anulado ? 'anul' : '', p.anulado ? 'anulado' : p.medio))
+              : [el('div', { className: 'sub', textContent: 'Sin pagos.' })]),
+            el('h4', { textContent: 'Artículos' }),
+            ...(t.items.length ? t.items.map(i => fila(`${num(i.cantidad)} × ${i.articulo}`, pesos(i.importe), i.anulado ? 'anul' : ''))
+              : [el('div', { className: 'sub', textContent: 'El sistema de venta no informa los artículos.' })]),
+            fila(el('b', { textContent: 'Total' }), pesos(t.total)));
+        } catch (e) { caja.textContent = e.message; }
+      });
+      return d;
+    }));
 }
 
 function pintarEfectivo() {

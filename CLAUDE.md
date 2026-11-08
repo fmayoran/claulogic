@@ -309,7 +309,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   los 4 días de margen de la conciliación, y no apareció: el mismo criterio que "Cobros que no aparecen en el extracto"), **falta el extracto**, **falta indicar dónde deposita**, **liquidado esperando el banco** (lote) y **todavía no es la
   fecha**; por procesador y punto de venta, sumando como el saldo de la cuenta (PedidosYa por el neto). La vista es sólo números
   (cuánto hay en cada estado y una grilla procesador por estado); tocar un importe abre un panel lateral con la explicación, de qué
-  punto de venta viene y qué hacer (pedido de Fer: no mezclar números con texto). La cifra dice "Por acreditar", no "hoy": cuándo
+  punto de venta viene y qué hacer (pedido de Fer: no mezclar números con texto). Cada renglón del panel tiene "Ver las ventas" (pedido de Fer, 08/11/2026: buscarlas a mano en el
+  sistema de venta): número, día y hora, medio e importe, y cada una se despliega con sus pagos (también los anulados) y artículos. La cifra dice "Por acreditar", no "hoy": cuándo
   entra lo dice el detalle. La consulta del flujo
   (`CATEGORIA_TES`) va materializada y con índice en `movimiento_tes.transferencia_id` (migración 20261128): octubre tardaba 14 s.
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
