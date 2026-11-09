@@ -705,7 +705,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
      importado y "Ver el detalle" (Procesar ventas); lo pendiente de cada local debajo. El campo "desde" de los de API propone el
      primer día que falta (la automática sigue repasando 3 días).
   2. **Efectivo**: rendir o diferencia, por punto de venta.
-  3. **Extractos**: una tarjeta por procesador con la cuenta donde deposita **ya fijada** (no se elige: así no se repite
+  3. **Extractos**: una tarjeta por **cuenta donde depositan** (un archivo: BRUBANK junta Fudo Pagos, la transferencia directa y PedidosYa;
+     09/11/2026, pedido de Fer: sólo lo que falta importar, "Falta el extracto del … al …"; las cuentas al día en una línea; lo por conciliar
+     queda en el paso 4), con la cuenta **ya fijada** (no se elige: así no se repite
      el extracto de Pago24 importado en Brubank), qué archivo va (Mercado Pago: los dos juntos) y hasta cuándo llega el
      último; al importar se concilia solo. "Cómo bajarlo" (a pedido, `comoBajar`) dice dónde se saca: Pago24 en Reportes >
      Financiero > Cta. Cte. Disponible, con el rango de fechas y la cuenta (210973 de CORTAFUEGO).
