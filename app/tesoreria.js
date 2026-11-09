@@ -87,7 +87,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
           WHERE NOT p.anulado)
        SELECT procesador_id, tipo_operacion, percentile_disc(0.5) WITHIN GROUP (ORDER BY d) AS dias, COUNT(*)::int AS muestras
          FROM h WHERE d >= 0 GROUP BY GROUPING SETS ((procesador_id, tipo_operacion), (procesador_id))`),
-    pool.query('SELECT id, nombre, cuenta_acredita_id FROM fin.procesador WHERE cuenta_acredita_id IS NOT NULL'),
+    pool.query('SELECT id, nombre, marca, cuenta_acredita_id FROM fin.procesador WHERE cuenta_acredita_id IS NOT NULL'),
     // Hasta dónde llega el extracto de cada cuenta donde deposita un procesador: lo que se esperaba antes de esa fecha y no
     // apareció hay que revisarlo; lo de después, todavía no puede estar.
     pool.query(`SELECT c.id, c.nombre, to_char(MAX(e.hasta), 'YYYY-MM-DD') AS hasta FROM fin.cuenta c
@@ -99,6 +99,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
   // Costo real por tipo de operación (en centésimos de punto), del resumen de cada procesador; sin tipo, el del procesador.
   const costo = new Map();
   for (const pr of procs) {
+    // Una transferencia directa no tiene costo (el resumen de la cuenta es el del procesador principal del banco).
+    if (pr.marca === 'transferencia') { costo.set(pr.id + '|', 0n); continue; }
     const rs = await resumenProcesador(pr.cuenta_acredita_id);
     const acc = new Map();
     for (const c of rs ? rs.costos : []) for (const k of [c.tipo_operacion, '']) {
@@ -1041,12 +1043,16 @@ const opuesto = v => String(v).startsWith('-') ? String(v).slice(1) : '-' + v;
 async function conciliarAutomatica(req, cuenta) {
   // Si el procesador liquida por lotes, primero se liquidan los que ya llegaron a su fecha. Una cuenta que no es de un
   // procesador sólo pasa por las reglas de clasificación.
-  const { rows: [prl] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+  const { rows: [prl] } = await pool.query(`SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid ORDER BY marca = 'transferencia', nombre LIMIT 1`, [cuenta]);
   const liquidados = prl ? await acreditarLotes(req, prl.id) : null;
   const out = await enTransaccion(async c => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
     const { rows: [pr] } = await c.query(
-      `SELECT p.id, p.nombre, cu.nombre AS cuenta FROM fin.procesador p JOIN fin.cuenta cu ON cu.id = p.cuenta_acredita_id WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
+      `SELECT p.id, p.nombre, cu.nombre AS cuenta FROM fin.procesador p JOIN fin.cuenta cu ON cu.id = p.cuenta_acredita_id WHERE p.cuenta_acredita_id = $1::uuid
+        ORDER BY p.marca = 'transferencia', p.nombre LIMIT 1`, [cuenta]);
+    // Todos los procesadores que depositan en la cuenta (BRUBANK: Fudo Pagos y la transferencia directa): sus cobros se parean
+    // uno a uno; los lotes y el costo, del principal.
+    const { rows: deCuenta } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
     // Una cuenta que no es de un procesador (un banco): sólo las reglas de clasificación.
     if (!pr) return { procesador: null, compensadas: 0, acreditadas: 0, acreditado: '0.00', lotes_confirmados: 0, gastos: {}, reglas: await aplicarReglas(c, cuenta),
       quedan: Number((await c.query(`SELECT COUNT(*) AS n FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
@@ -1070,12 +1076,12 @@ async function conciliarAutomatica(req, cuenta) {
 
     // 2. Ingresos contra los pagos de las ventas (sólo los ya procesados: su bruto está en "a acreditar").
     const { rows: pagos } = await c.query(
-      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id
+      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id, pr.nombre AS procesador
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
-         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
+        WHERE mp.procesador_id = ANY($1::uuid[]) AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           AND p.liquida_el IS NULL AND p.lote_id IS NULL
-        ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [pr.id]);
+        ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [deCuenta.map(x => x.id)]);
     const libres = new Set(pagos.map(p => p.id));
     // Operación del procesador -> pago de la venta, con lo acreditado antes (para atar costos que llegan después).
     const { rows: previos } = await c.query(
@@ -1092,7 +1098,7 @@ async function conciliarAutomatica(req, cuenta) {
         .sort((a, b) => dias(a) - dias(b))[0];
       if (!p) continue;
       libres.delete(p.id);
-      const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}`;
+      const concepto = `Acreditación ${p.procesador} · venta ${p.id_externo} del ${p.dia}`;
       const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
       await c.query(
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, transferencia_id, ticket_pago_id) VALUES ($1,$2,'transferencia',$3,$4,$5,$6)`,
@@ -1183,7 +1189,7 @@ const EN_EFECTIVO_SQL = `
 const diaVentaDe = l => (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1] || l.fecha;
 
 async function sugerenciasProcesador(cuenta) {
-  const { rows: [pr] } = await pool.query('SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
+  const { rows: [pr] } = await pool.query(`SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid ORDER BY marca = 'transferencia', nombre LIMIT 1`, [cuenta]);
   if (!pr) return [];
   const [{ rows: lineas }, { rows: pagos }] = await Promise.all([
     pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto FROM fin.extracto_linea l
@@ -1192,9 +1198,10 @@ async function sugerenciasProcesador(cuenta) {
     pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-                 WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+                 WHERE mp.procesador_id IN (SELECT x.id FROM fin.procesador x WHERE x.cuenta_acredita_id = $1::uuid) AND NOT p.anulado AND t.estado = 'cerrado'
+                   AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
                    AND p.liquida_el IS NULL AND p.lote_id IS NULL
-                 ORDER BY t.dia`, [pr.id]),
+                 ORDER BY t.dia`, [cuenta]),
   ]);
   const dias = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5, enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= 4;
   const abs = v => v < 0n ? -v : v, sug = [];
@@ -1301,7 +1308,12 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     if (ls.some(l => l.conciliada || l.compensa_a)) throw new ErrorUsuario('Alguna de las líneas ya está conciliada.');
     if (ls.some(l => l.importe.startsWith('-'))) throw new ErrorUsuario('Sólo se acreditan ingresos.');
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
-    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [cuenta]);
+    // El procesador: el del cobro si deposita en esta cuenta (una cuenta puede recibir de varios: BRUBANK, Fudo Pagos y la
+    // transferencia directa); si no, el principal de la cuenta (cobro cargado con otro procesador o como efectivo).
+    const { rows: [pr] } = await c.query(
+      `SELECT x.id, x.nombre FROM fin.procesador x WHERE x.cuenta_acredita_id = $1
+        ORDER BY x.id = (SELECT mp.procesador_id FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                          WHERE p.id = $2::uuid) DESC NULLS LAST, x.marca = 'transferencia', x.nombre LIMIT 1`, [cuenta, pagoId]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     // Un cobro cargado con otro procesador sólo si la venta tiene anulado un pago de éste por el mismo importe.
     const otro = b.otro_procesador === true, efectivo = b.en_efectivo === true;
@@ -1500,7 +1512,7 @@ r.post('/fin/conciliacion/lote', h(async (req, res) => {
     if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
     if (l.conciliada || l.compensa_a) throw new ErrorUsuario('La línea ya está conciliada.');
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + l.cuenta_id]);
-    const { rows: [pr] } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1', [l.cuenta_id]);
+    const { rows: [pr] } = await c.query(`SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1 ORDER BY marca = 'transferencia', nombre LIMIT 1`, [l.cuenta_id]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     const { rows: lotes } = await c.query(
       `SELECT l.id, l.neto::text FROM fin.lote l WHERE l.id = ANY($1::uuid[]) AND l.procesador_id = $2 AND l.movimiento_id IS NULL FOR UPDATE`, [loteIds, pr.id]);
@@ -1553,7 +1565,7 @@ async function resumenProcesador(cuenta) {
             sc.saldo::text AS saldo_sistema
        FROM fin.procesador p JOIN fin.cuenta cp ON cp.id = p.cuenta_id JOIN fin.saldo_cuenta sp ON sp.cuenta_id = cp.id
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = p.cuenta_acredita_id
-      WHERE p.cuenta_acredita_id = $1::uuid`, [cuenta]);
+      WHERE p.cuenta_acredita_id = $1::uuid ORDER BY p.marca = 'transferencia', p.nombre LIMIT 1`, [cuenta]);
   if (!pr) return null;
   const { rows: pendLineas } = await pool.query(
     `SELECT l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
@@ -1642,7 +1654,7 @@ r.get('/fin/procesadores/resumen', h(async (req, res) => {
   const out = [];
   for (const p of rows) out.push({ id: p.id, nombre: p.nombre, marca: p.marca, cuenta_id: p.cuenta_acredita_id, cuenta: p.cuenta,
     portal: p.portal, portal_auto: p.portal_auto, ultima_corrida: p.ultima_corrida,
-    resumen: p.cuenta_acredita_id ? await resumenProcesador(p.cuenta_acredita_id) : null, ventas: await ventasDelProcesador(p.id) });
+    resumen: p.cuenta_acredita_id && p.marca !== 'transferencia' ? await resumenProcesador(p.cuenta_acredita_id) : null, ventas: await ventasDelProcesador(p.id) });
   res.json({ ok: true, procesadores: out });
 }));
 
@@ -1653,7 +1665,7 @@ r.get('/fin/procesadores/resumen', h(async (req, res) => {
 const TIPOS_OP = ['transferencia', 'qr', 'debito', 'credito', 'online', 'otro'];
 // La marca del procesador (lista fija, migración 20261116): lo que se llama "procesador" es la cuenta de cobro de una empresa en
 // esa marca. Los reportes agrupan por marca; la conciliación, por cuenta de cobro.
-const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'pedidosya', 'otro'];
+const MARCAS = ['mercadopago', 'pago24', 'fudo', 'getnet', 'pedidosya', 'transferencia', 'otro'];
 const marcaDe = nombre => /mercado\s*pago/i.test(nombre || '') ? 'mercadopago' : /pago\s*24/i.test(nombre || '') ? 'pago24' : /fudo/i.test(nombre || '') ? 'fudo'
   : /getnet/i.test(nombre || '') ? 'getnet' : /pedidos\s*ya/i.test(nombre || '') ? 'pedidosya' : 'otro';
 const MEDIOS_SQL = `SELECT mp.id, mp.procesador_id, pr.nombre AS procesador, pr.marca, mp.tipo_operacion, mp.activo,
@@ -1683,7 +1695,7 @@ function leerProcesador(b) {
               tipos: (Array.isArray(b.tipos) ? b.tipos : []).map(String),
               portal_url: texto(b.portal_url), portal_usuario: texto(b.portal_usuario), portal_clave: texto(b.portal_clave),
               portal_auto: !!b.portal_auto };
-  if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet, PedidosYa u otro.');
+  if (!MARCAS.includes(p.marca)) throw new ErrorUsuario('Elegí el procesador: Mercado Pago, Pago24, Fudo Pagos, Getnet, PedidosYa, transferencia directa u otro.');
   if (p.tipos.some(t => !TIPOS_OP.includes(t))) throw new ErrorUsuario('Tipo de operación inválido.');
   if (!p.tipos.length) throw new ErrorUsuario('Elegí al menos un tipo de operación (QR, transferencia, débito, crédito).');
   if (p.marca !== 'pago24') Object.assign(p, { portal_url: null, portal_usuario: null, portal_clave: null });

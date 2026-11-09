@@ -715,7 +715,7 @@ function etiquetarTabla(tabla) {
 const TIPO_OP = { efectivo: 'Efectivo', transferencia: 'Transferencia', qr: 'Pago QR', debito: 'Tarjeta de débito', credito: 'Tarjeta de crédito', online: 'Pago online', otro: 'Otro' };
 // La marca del procesador (lista fija): "Mercado Pago · QR" no depende del nombre de la cuenta de cobro de cada empresa. Donde hay
 // que distinguir la cuenta (al asignar un medio en la ficha de una sede), conCuenta la agrega entre paréntesis.
-const MARCA = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', pedidosya: 'PedidosYa', otro: 'Otro' };
+const MARCA = { mercadopago: 'Mercado Pago', pago24: 'Pago24', fudo: 'Fudo Pagos', getnet: 'Getnet', pedidosya: 'PedidosYa', transferencia: 'Transferencia directa', otro: 'Otro' };
 const etiquetaMedio = (m, conCuenta) => {
   const base = m.marca ? `${MARCA[m.marca]} · ${TIPO_OP[m.tipo_operacion]}` : m.procesador ? `${m.procesador} · ${TIPO_OP[m.tipo_operacion]}` : TIPO_OP[m.tipo_operacion];
   return conCuenta && m.procesador ? `${base} (${m.procesador})` : base;

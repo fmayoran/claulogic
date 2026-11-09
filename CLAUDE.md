@@ -782,6 +782,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   dos nombres de cada columna y el separador decimal se deduce de los importes. Tiendas de SORELLE: Wera Sushi 528403 y Lo De Titi
   Bodegón 547527 (SORELLE BODEGON Y SUSHI), Di Ciucio Pasticceria E Caffe 542301 (SORELLE CAFETERIA). Los reembolsos por reclamo
   ("Operational charges", hasta el pedido entero) entran en "Otros cargos".
+- **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
+  (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
+  cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por
+  venta, como cualquier procesador. **Un banco recibe de varios procesadores** (BRUBANK: Fudo Pagos y TRANSFERENCIA BRUBANK
+  CORTAFUEGO): el pareo uno a uno de la conciliación automática, las sugerencias y `/fin/conciliacion/acreditar` toman los cobros de
+  todos los que depositan en la cuenta; los lotes, el costo real y el resumen, del **principal** (el que no es transferencia
+  directa). En `porCobrar` la transferencia directa tiene costo 0.
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también
