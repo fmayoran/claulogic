@@ -619,7 +619,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   **Lotes (Fudo Pagos; decisiones de Fer, 26/10/2026; migración 20261109)**: Fudo informa por la API, pago por pago,
   la fecha de liquidación (`expectedBy`) y el neto (`receivedAmount`), sólo en el recurso `/payments` y sólo pidiendo
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta
-  (`ticket_pago.id_externo`; los pagos anteriores se reconocen por medio e importe al volver a sincronizar). Se toman
+  (`ticket_pago.id_externo`; los pagos anteriores se reconocen por medio e importe al volver a sincronizar). Los pagos se piden hasta 2 días después del rango de ventas (una
+  mesa cobrada después de medianoche tiene el pago creado al otro día). Se toman
   sólo los que traen `receivedBy` (liquidados por un procesador); los pagos de gastos no están en las ventas y no
   entran. Al sincronizar quedan `liquida_el` y `neto`; cuando llega la fecha, **el lote se arma solo y queda esperado**
   (`acreditarLotes`, al sincronizar y al conciliar la cuenta donde deposita; por procesador, cuenta y fecha), **sin mover

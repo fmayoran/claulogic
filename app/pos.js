@@ -342,8 +342,12 @@ async function sincronizarRango(req, integ, desde, hasta) {
       catch (e) { if (!(e instanceof maxirest.ErrorMaxirest)) throw e; avisoLiquidacion = 'Artículos: ' + e.message; console.error(`Maxirest, artículos (${integ.nombre}):`, e.message); }
     } else {
       datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
-      // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual.
-      try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, rango.h); }
+      // La liquidación de cada pago (Fudo Pagos: fecha y neto del lote). Si falla, las ventas entran igual. Los pagos se piden
+      // hasta 2 días después del rango (09/11/2026: una mesa abierta antes de medianoche y cobrada después tiene el pago creado al
+      // otro día; las ventas 1909 y 1910 del 31/10 quedaron sin liquidación y su depósito no se pareó). Sólo se usan los de las
+      // ventas traídas.
+      const hastaPagos = new Date(Math.min(new Date(rango.h).getTime() + 2 * 864e5, Date.now())).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      try { liq = await fudo.liquidaciones(integ.id, cred, rango.d, hastaPagos); }
       catch (e) { if (!(e instanceof fudo.ErrorFudo)) throw e; avisoLiquidacion = e.message; console.error(`Fudo, liquidaciones (${integ.nombre}):`, e.message); }
     }
   }
