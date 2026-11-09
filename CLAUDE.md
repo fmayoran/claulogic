@@ -306,7 +306,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (dónde está, disponible por día, por filial o las cuentas), Entradas y salidas (por día y donas), **Por acreditar** y Efectivo. Los
   movimientos del período van con Disponible y Entradas y salidas. Por acreditar (`/fin/tesoreria/por-cobrar?detalle=1`, se pide al
   abrirla) dice de dónde tiene que venir lo que falta y por qué no llegó: **para revisar** (el extracto ya cubre la fecha esperada y
-  los 4 días de margen de la conciliación, y no apareció: el mismo criterio que "Cobros que no aparecen en el extracto"), **falta el extracto**, **falta indicar dónde deposita**, **liquidado esperando el banco** (lote) y **todavía no es la
+  los 4 días de margen de la conciliación, o 1 día para QR, transferencia, online y "otro", que acreditan en el momento (09/11/2026), y no apareció: el mismo criterio que "Cobros que no aparecen en el extracto"), **falta el extracto**, **falta indicar dónde deposita**, **liquidado esperando el banco** (lote) y **todavía no es la
   fecha**; por procesador y punto de venta, sumando como el saldo de la cuenta (PedidosYa por el neto). La vista es sólo números
   (cuánto hay en cada estado y una grilla procesador por estado); tocar un importe abre un panel lateral con la explicación, de qué
   punto de venta viene y qué hacer (pedido de Fer: no mezclar números con texto). Cada renglón del panel tiene "Ver las ventas" (pedido de Fer, 08/11/2026: buscarlas a mano en el

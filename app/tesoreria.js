@@ -61,6 +61,9 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
 // con el costo real por tipo (`resumenProcesador`). Sin historia, la fecha es el día siguiente a la venta y el neto, el
 // bruto. Lo que debía entrar antes de hoy y no llegó va aparte, atrasado. No guarda nada: se deriva cada vez.
 const sumarDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+// Días desde la venta (o su liquidación) hasta que un cobro que no apareció en el extracto pasa a "para revisar".
+const INMEDIATOS = ['qr', 'transferencia', 'online', 'otro'];
+const margenRevisar = tipo => INMEDIATOS.includes(tipo) ? 1 : 4;
 async function porCobrar({ porSede = false, detalle = false } = {}) {
   const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }, { rows: exts }] = await Promise.all([
     pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
@@ -139,7 +142,10 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       // Como la conciliación (que parea del día de la venta, o de su liquidación, hasta 4 días después): un cobro es para
       // revisar recién cuando el extracto pasó ese margen (08/11/2026: el tablero marcaba cobros del día anterior que la
       // conciliación todavía no mostraba). `limite`: hasta cuándo puede aparecer.
-      const limite = p.marca === 'pedidosya' && !p.liquida_el ? sumarDias(fecha, 5) : [fecha, sumarDias(p.liquida_el || p.dia, 4)].sort()[1];
+      // QR, transferencia, online y "otro" (SIN NOMBRE) acreditan en el momento: para revisar al día siguiente (pedido de Fer,
+      // 09/11/2026: con 4 días de margen, los QR de la semana que no llegaron recién aparecían el lunes siguiente).
+      const limite = p.marca === 'pedidosya' && !p.liquida_el ? sumarDias(fecha, 5)
+        : [fecha, sumarDias(p.liquida_el || p.dia, margenRevisar(p.tipo_operacion))].sort()[1];
       const estado = !p.cuenta_acredita_id ? 'sin_deposito' : p.en_lote ? 'lote' : fecha >= hoy ? 'por_venir'
         : !ext || !ext.hasta || limite > ext.hasta ? 'falta_extracto' : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
@@ -868,13 +874,14 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const { rows: cobros } = lado === 'egresos' ? { rows: [] } : await pool.query(
     `SELECT p.id, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, p.importe::text, mp.tipo_operacion, i.nombre AS punto_venta,
             (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
-            COALESCE(p.liquida_el, t.dia) + 4 <= (SELECT MAX(e.hasta) FROM fin.extracto e WHERE e.cuenta_id = $1::uuid) AS revisar
+            COALESCE(p.liquida_el, t.dia) + CASE WHEN mp.tipo_operacion = ANY($2::text[]) THEN 1 ELSE 4 END
+              <= (SELECT MAX(e.hasta) FROM fin.extracto e WHERE e.cuenta_id = $1::uuid) AS revisar
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
        JOIN fin.procesador pr ON pr.id = mp.procesador_id AND pr.cuenta_acredita_id = $1::uuid
       WHERE NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND p.lote_id IS NULL
-      ORDER BY t.dia, t.id_externo`, [cuenta]);
+      ORDER BY t.dia, t.id_externo`, [cuenta, INMEDIATOS]);
   const { rows: descartadas } = await pool.query(
     `SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text, l.descartada, l.descartada_por, l.descartada_en FROM fin.extracto_linea l
       WHERE l.cuenta_id = $1::uuid AND l.descartada IS NOT NULL ORDER BY l.fecha, l.id`, [cuenta]);
