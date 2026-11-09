@@ -679,7 +679,7 @@ function pintarMovs() {
 
 // Cuándo entra: por fecha, el neto que se espera de cada procesador. Lo que informa el procesador (Fudo Pagos: fecha de
 // liquidación y neto por cobro) va como informado; lo demás, estimado con la demora y el costo de lo ya acreditado.
-const FUENTE = { informado: 'informado', estimado: 'estimado', sin_historia: 'sin historia' };
+const FUENTE = { informado: 'informado', estimado: 'estimado', sin_historia: 'sin historia', calendario: 'calendario' };
 const OP = { transferencia: 'transferencia', qr: 'QR', debito: 'débito', credito: 'crédito', online: 'online', otro: 'otro' };
 function cuandoEntra(pc) {
   if (!pc.pagos) return '';
@@ -690,7 +690,8 @@ function cuandoEntra(pc) {
       x.en_lote ? ` (lote esperando el depósito)` : ''))));
   const porDia = new Map();
   for (const d of pc.dias) porDia.set(d.fecha, [...(porDia.get(d.fecha) || []), d]);
-  const est = pc.estimaciones.map(e => e.dias == null ? `${e.procesador} ${OP[e.tipo_operacion] || e.tipo_operacion}: sin acreditaciones todavía (al día siguiente, por el bruto)`
+  const est = pc.estimaciones.map(e => e.calendario ? `${e.procesador}: semana de lunes a domingo, se paga el viernes 12 días después del domingo (más hasta 72 h hábiles del banco), por el neto informado`
+    : e.dias == null ? `${e.procesador} ${OP[e.tipo_operacion] || e.tipo_operacion}: sin acreditaciones todavía (al día siguiente, por el bruto)`
     : `${e.procesador} ${OP[e.tipo_operacion] || e.tipo_operacion}: ${e.dias === 0 ? 'el mismo día' : e.dias === 1 ? 'al día siguiente' : `a ${e.dias} días`}`
       + (e.costo_pct != null ? `, costo ${num(e.costo_pct)}%` : '') + ` (de ${e.muestras} acreditados)`);
   return el('div', { className: 'cuando' }, el('h3', { textContent: `Cuándo entra: ${pesos(pc.neto)} netos de costos` }),

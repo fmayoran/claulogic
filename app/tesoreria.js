@@ -65,7 +65,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
   const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }, { rows: exts }] = await Promise.all([
     pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
     pool.query(
-      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
+      `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.marca, pr.cuenta_acredita_id, i.nombre AS punto_venta, i.sede_id,
               (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
               p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total, p.id AS pago_id, (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
@@ -119,12 +119,15 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
     else {
       const dm = demora.get(p.procesador_id + '|' + p.tipo_operacion) || demora.get(p.procesador_id + '|');
       const cp = costo.get(p.procesador_id + '|' + p.tipo_operacion) ?? costo.get(p.procesador_id + '|') ?? null;
-      fecha = p.liquida_el || sumarDias(p.dia, dm ? dm.dias : 1);
+      // PedidosYa liquida por semana (lunes a domingo) y procesa el pago el viernes de la semana siguiente a la próxima (12 días
+      // después del domingo); el banco puede tardar hasta 72 h hábiles (portal de CORTAFUEGO, 08/11/2026: 26/10 al 01/11 → 13/11).
+      const peya = p.marca === 'pedidosya' && !p.liquida_el;
+      fecha = p.liquida_el || (peya ? sumarDias(p.dia, (7 - new Date(p.dia + 'T00:00:00Z').getUTCDay()) % 7 + 12) : sumarDias(p.dia, dm ? dm.dias : 1));
       // Con el neto informado por pago (PedidosYa, sin fecha de liquidación), el neto es ése.
       neto = p.neto != null ? centavos(p.neto) : cp == null ? bruto : bruto - bruto * cp / 10000n;
-      fuente = dm ? 'estimado' : 'sin_historia';
+      fuente = peya ? 'calendario' : dm ? 'estimado' : 'sin_historia';
       const k = p.procesador + '|' + p.tipo_operacion;
-      if (!usadas.has(k)) usadas.set(k, { procesador: p.procesador, tipo_operacion: p.tipo_operacion, dias: dm ? dm.dias : null,
+      if (!usadas.has(k)) usadas.set(k, { procesador: p.procesador, tipo_operacion: p.tipo_operacion, dias: dm ? dm.dias : null, calendario: peya,
         muestras: dm ? dm.muestras : 0, costo_pct: cp == null ? null : (Number(cp) / 100).toFixed(2) });
     }
     tot.pagos++; tot.bruto += bruto; tot.neto += neto;
@@ -136,7 +139,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       // Como la conciliación (que parea del día de la venta, o de su liquidación, hasta 4 días después): un cobro es para
       // revisar recién cuando el extracto pasó ese margen (08/11/2026: el tablero marcaba cobros del día anterior que la
       // conciliación todavía no mostraba). `limite`: hasta cuándo puede aparecer.
-      const limite = [fecha, sumarDias(p.liquida_el || p.dia, 4)].sort()[1];
+      const limite = p.marca === 'pedidosya' && !p.liquida_el ? sumarDias(fecha, 5) : [fecha, sumarDias(p.liquida_el || p.dia, 4)].sort()[1];
       const estado = !p.cuenta_acredita_id ? 'sin_deposito' : p.en_lote ? 'lote' : fecha >= hoy ? 'por_venir'
         : !ext || !ext.hasta || limite > ext.hasta ? 'falta_extracto' : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
