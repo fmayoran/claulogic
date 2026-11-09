@@ -789,7 +789,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   venta, como cualquier procesador. **Un banco recibe de varios procesadores** (BRUBANK: Fudo Pagos y TRANSFERENCIA BRUBANK
   CORTAFUEGO): el pareo uno a uno de la conciliación automática, las sugerencias y `/fin/conciliacion/acreditar` toman los cobros de
   todos los que depositan en la cuenta; los lotes, el costo real y el resumen, del **principal** (el que no es transferencia
-  directa). En `porCobrar` la transferencia directa tiene costo 0.
+  directa). En `porCobrar` la transferencia directa tiene costo 0. Los pedidos de **PedidosYa no entran en el pareo uno a uno** ni en las
+  sugerencias (deposita varios días juntos); PEDIDOSYA CORTAFUEGO deposita en BRUBANK (09/11/2026).
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también

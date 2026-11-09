@@ -1081,6 +1081,9 @@ async function conciliarAutomatica(req, cuenta) {
          JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
         WHERE mp.procesador_id = ANY($1::uuid[]) AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           AND p.liquida_el IS NULL AND p.lote_id IS NULL
+          -- PedidosYa deposita la liquidación de varios días junta: sus pedidos no se parean uno a uno (un ingreso cualquiera del
+          -- mismo importe que un pedido se tomaría por él).
+          AND pr.marca <> 'pedidosya'
         ORDER BY t.dia, t.cerrado_en FOR UPDATE OF p`, [deCuenta.map(x => x.id)]);
     const libres = new Set(pagos.map(p => p.id));
     // Operación del procesador -> pago de la venta, con lo acreditado antes (para atar costos que llegan después).
@@ -1198,7 +1201,7 @@ async function sugerenciasProcesador(cuenta) {
     pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
                   JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-                 WHERE mp.procesador_id IN (SELECT x.id FROM fin.procesador x WHERE x.cuenta_acredita_id = $1::uuid) AND NOT p.anulado AND t.estado = 'cerrado'
+                 WHERE mp.procesador_id IN (SELECT x.id FROM fin.procesador x WHERE x.cuenta_acredita_id = $1::uuid AND x.marca <> 'pedidosya') AND NOT p.anulado AND t.estado = 'cerrado'
                    AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
                    AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  ORDER BY t.dia`, [cuenta]),
