@@ -1819,8 +1819,9 @@ r.post('/fin/procesadores/probar-portal', h(async (req, res) => {
 async function ventasDelProcesador(procesadorId) {
   const { rows } = await pool.query(
     `SELECT s.nombre AS sede,
-            to_char(LEAST((SELECT MIN(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
-                          (SELECT MIN(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS primero,
+            -- Desde el primer día cuyos cobros se procesan (cobros_desde): lo anterior son ventas históricas, sin cobros que acreditar.
+            to_char(GREATEST(LEAST((SELECT MIN(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
+                                   (SELECT MIN(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), i.cobros_desde), 'YYYY-MM-DD') AS primero,
             to_char(GREATEST((SELECT MAX(dia) FROM pos.sincronizacion_dia sd WHERE sd.integracion_id = i.id),
                              (SELECT MAX(dia) FROM pos.ticket t WHERE t.integracion_id = i.id)), 'YYYY-MM-DD') AS ultimo
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
