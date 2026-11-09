@@ -616,6 +616,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   del punto de venta, en el día de la venta; cuenta como efectivo de ese día en Ingresos) o **no va a llegar** (egreso de "a
   acreditar" con motivo, Diferencias de acreditación). `pos.ticket_pago.resuelto_movimiento_id` y `resuelto_como`; se deshace con
   `DELETE /fin/conciliacion/cobro-resuelto/:pago` (todavía sin botón).
+  **Líneas que no se tienen en cuenta** (decisión de Fer, 09/11/2026; migración 20261137): una línea del extracto que no se va a
+  conciliar nunca (cobro de una venta anterior a `cobros_desde`, algo anterior al inicio del control de la cuenta, que se resuelve con
+  el saldo inicial) se marca con motivo (`extracto_linea.descartada`, `_por`, `_en`): no mueve plata, deja de estar pendiente en todos
+  lados y se vuelve a pendiente (`POST /fin/conciliacion/descartar`, `DELETE /fin/conciliacion/descartada/:linea`; en Para resolver,
+  "No tener en cuenta…" y, plegado al final, "No se tienen en cuenta"). En MERCADO PAGO SORELLE: los 39 cobros de ventas de septiembre
+  y los ingresos anteriores al 04/10. **Transferencia desde la línea**: "Transferencia con otra cuenta…" asienta las dos patas con la
+  fecha de la línea y concilia la de esta cuenta (el apartado de Mercado Pago es la cuenta MERCADO PAGO SORE · APARTADO; su saldo
+  anterior al 04/10 entra con los saldos iniciales). Las **sugerencias** (venta en partes, con diferencia, otro procesador) miden contra
+  el "venta del" del extracto (ese día o el siguiente), como la automática: medidas contra la fecha de la línea, un cobro liberado diez
+  días después se pareó con otra venta del día de la liberación.
   **Lotes (Fudo Pagos; decisiones de Fer, 26/10/2026; migración 20261109)**: Fudo informa por la API, pago por pago,
   la fecha de liquidación (`expectedBy`) y el neto (`receivedAmount`), sólo en el recurso `/payments` y sólo pidiendo
   esos campos (que le sacan la relación con la venta): se cruzan por el **número de pago**, que viene en la venta

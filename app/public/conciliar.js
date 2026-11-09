@@ -397,7 +397,8 @@ const Conc = (() => {
       if (k) acc.append(el('button', { type: 'button', className: 'prim', textContent: k.tipo === 'cheque' ? 'Es el débito del ' + k.descripcion : `Conciliar con: ${k.descripcion} (${fecha(k.fecha)})`,
         onclick: () => conciliar({ linea_id: l.id, [k.tipo === 'cheque' ? 'cheque_id' : 'movimiento_id']: k.id }) }));
       const registrar = el('button', { type: 'button', textContent: k ? 'Otro: registrar movimiento' : 'Registrar movimiento' });
-      const inicial = [...acc.childNodes];
+      let base = [];
+      const restaurar = () => acc.replaceChildren(...base);
       // Registrar: qué es, su rubro (estado de resultados) y, si se tilda, la regla para que las próximas iguales se
       // clasifiquen y concilien solas.
       registrar.onclick = async () => {
@@ -415,7 +416,7 @@ const Conc = (() => {
           if (conRegla.checked && patron.value.trim().length < 3) return (patron.focus(), ctx.aviso('El texto de la regla tiene que tener al menos 3 letras.', 'mal'));
           conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim(), rubro_id: rub.value, regla: conRegla.checked ? patron.value.trim() : null } });
         };
-        acc.replaceChildren(inp, rub, regla, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => acc.replaceChildren(...inicial, registrar) }));
+        acc.replaceChildren(inp, rub, regla, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
         inp.focus(); inp.select();
       };
       acc.append(registrar);
@@ -450,11 +451,44 @@ const Conc = (() => {
               ctx.aviso(`Acreditada la venta #${c.id_externo}.`, 'ok'); await ctx.recargar();
             } catch (e) { alert(e.message); ok.disabled = false; }
           };
-          acc.replaceChildren(sel, nota, motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => acc.replaceChildren(...inicial, registrar, vincular) }));
+          acc.replaceChildren(sel, nota, motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
           sel.focus();
         };
         acc.append(vincular);
       }
+      // Transferencia con otra cuenta propia (el apartado de Mercado Pago, otro banco): se asientan las dos patas.
+      const transferir = el('button', { type: 'button', textContent: 'Transferencia con otra cuenta…' });
+      transferir.onclick = async () => {
+        let cuentas;
+        try { cuentas = (await api('fin/cuentas')).cuentas.filter(c => c.activa && c.id !== d.cuenta_id && c.tipo !== 'cartera'); } catch (e) { return alert(e.message); }
+        const sale = l.importe.startsWith('-');
+        const sel = el('select', { 'aria-label': sale ? 'Cuenta de destino' : 'Cuenta de origen' },
+          el('option', { value: '', textContent: sale ? 'Pasó a la cuenta…' : 'Vino de la cuenta…' }),
+          ...cuentas.sort((a, b) => a.nombre.localeCompare(b.nombre)).map(c => el('option', { value: c.id, textContent: c.nombre })));
+        const inp = el('input', { value: pp.nombre, 'aria-label': 'Concepto' });
+        const ok = el('button', { type: 'button', className: 'prim', textContent: 'Registrar' });
+        ok.onclick = () => sel.value ? conciliar({ linea_id: l.id, transferir: { cuenta_id: sel.value, concepto: inp.value.trim() } })
+          : (sel.focus(), ctx.aviso('Elegí la otra cuenta.', 'mal'));
+        acc.replaceChildren(sel, inp, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
+        sel.focus();
+      };
+      // No tener en cuenta (decisión de Fer, 09/11/2026): no se va a conciliar nunca (un cobro de una venta anterior al
+      // inicio de los cobros, algo anterior al inicio del control de la cuenta). No mueve plata y se puede volver a pendiente.
+      const descartar = el('button', { type: 'button', textContent: 'No tener en cuenta…' });
+      descartar.onclick = () => {
+        const motivo = el('input', { placeholder: 'Por qué no se tiene en cuenta', 'aria-label': 'Motivo' });
+        const ok = el('button', { type: 'button', className: 'prim', textContent: 'No tener en cuenta' });
+        ok.onclick = async () => {
+          if (!motivo.value.trim()) return (motivo.focus(), ctx.aviso('Indicá el motivo.', 'mal'));
+          ok.disabled = true;
+          try { await api('fin/conciliacion/descartar', { method: 'POST', body: { linea_ids: [l.id], motivo: motivo.value.trim() } }); ctx.aviso('La línea ya no se tiene en cuenta.', 'ok'); await ctx.recargar(); }
+          catch (e) { alert(e.message); ok.disabled = false; }
+        };
+        acc.replaceChildren(motivo, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
+        motivo.focus();
+      };
+      acc.append(transferir, descartar);
+      base = [...acc.childNodes];
       return el('div', { className: 'pend' },
         el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
           el('small', { textContent: [pp.numero && 'Nº ' + pp.numero, l.referencia].filter(Boolean).join(' · ') })),
@@ -538,11 +572,36 @@ const Conc = (() => {
       'Ventas cobradas con este procesador que el extracto ya debería traer. Si la plata entró con otro importe, conciliala desde su línea con '
       + '"Es el cobro de una venta…". Si se cobró en efectivo (mal cargado en el sistema de venta), pasa al efectivo a rendir del punto de venta; '
       + 'si no va a llegar, queda como diferencia de acreditación.', filaCobro));
+    // Las que no se tienen en cuenta, al final y plegadas: se pueden volver a pendiente.
+    const filaDescartada = l => {
+      const pp = partes(l.concepto);
+      const volver = el('button', { type: 'button', textContent: 'Volver a pendiente' });
+      volver.onclick = async () => {
+        volver.disabled = true;
+        try { await api('fin/conciliacion/descartada/' + l.id, { method: 'DELETE', body: {} }); ctx.aviso('La línea volvió a pendiente.', 'ok'); await ctx.recargar(); }
+        catch (e) { alert(e.message); volver.disabled = false; }
+      };
+      return el('div', { className: 'pend' },
+        el('div', { className: 'q' }, el('b', { textContent: `${fecha(l.fecha)} · ${pp.nombre || 'Sin concepto'}` }),
+          el('small', { textContent: `${l.descartada}` + (l.descartada_por ? ` (${l.descartada_por})` : '') })),
+        el('div', { className: 'imp' }, conSigno(l.importe)), el('div', { className: 'acc' }, volver));
+    };
+    const fueraDeCuenta = () => {
+      const lista = d.descartadas || [];
+      if (!lista.length) return null;
+      const det = el('details', { className: 'card grupo-p' },
+        el('summary', {}, el('b', { textContent: 'No se tienen en cuenta' }), el('small', { textContent: ` ${lista.length} · ${pesos(suma(lista))}` })));
+      det.addEventListener('toggle', () => { if (det.open && det.children.length === 1) det.append(
+        el('p', { className: 'cap', textContent: 'Líneas del extracto que no se van a conciliar (por ejemplo, cobros de ventas anteriores al inicio de los cobros). No mueven plata: la diferencia con el saldo del sistema se resuelve con el saldo inicial.' }),
+        ...lista.map(filaDescartada)); });
+      return det;
+    };
     if (d.movimientos.length) grupos.push(grupo('En el sistema, pero no en el extracto', d.movimientos,
       'Movimientos que todavía no aparecieron en el extracto: puede que no se hayan acreditado o debitado todavía, o que el banco los haya registrado con otro importe.', filaMov));
-    return grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },
+    const fuera = fueraDeCuenta();
+    return [...(grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },
       el('b', { textContent: d.conciliado.lineas ? 'Nada para resolver' : 'Nada para resolver todavía' }),
-      d.conciliado.lineas ? 'Todo lo importado está conciliado.' : 'Importá el extracto de la cuenta para empezar.')];
+      d.conciliado.lineas ? 'Todo lo importado está conciliado.' : 'Importá el extracto de la cuenta para empezar.')]), ...(fuera ? [fuera] : [])];
   }
 
   // El saldo del sistema contra el del extracto, en una frase (la diferencia la explican las líneas pendientes).
@@ -550,10 +609,10 @@ const Conc = (() => {
     const e = (p && p.extracto) || {};
     const det = [el('span', {}, 'Saldo en el sistema ', el('b', { textContent: pesos(saldoSistema || '0') }))];
     if (p && e.saldo_final != null) {
-      const dif = centavos(e.saldo_final) - centavos(p.saldo_sistema), expl = centavos(e.importe_pendiente || '0');
+      const dif = centavos(e.saldo_final) - centavos(p.saldo_sistema), expl = centavos(e.importe_pendiente || '0') + centavos(e.importe_descartado || '0');
       det.push(' · según el extracto al ' + fecha(e.hasta) + ' ', el('b', { textContent: pesos(e.saldo_final) }));
       if (dif === 0n) det.push('. Coinciden.');
-      else if (dif === expl) det.push('. La diferencia, ', el('b', { textContent: pesos(deCentavos(dif)) }), ', es lo que falta resolver.');
+      else if (dif === expl) det.push('. La diferencia, ', el('b', { textContent: pesos(deCentavos(dif)) }), ', es lo que falta resolver' + (centavos(e.importe_descartado || '0') ? ' y lo que no se tiene en cuenta.' : '.'));
       else det.push('. Diferencia ', el('b', { textContent: pesos(deCentavos(dif)) }), `, de la que ${pesos(deCentavos(dif - expl))} no está en las líneas pendientes: revisá movimientos posteriores al extracto.`);
     }
     return det;

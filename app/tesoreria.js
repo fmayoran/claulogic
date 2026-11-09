@@ -24,7 +24,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
             sc.saldo::text, sc.ultimo_movimiento,
             COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0)::text AS cheques_pendientes,
             (sc.saldo - COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0))::text AS proyectado,
-            (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = c.id
+            (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = c.id AND l.compensa_a IS NULL AND l.descartada IS NULL
                 AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS lineas_sin_conciliar,
             -- Para qué es la cuenta: la "a acreditar" de un procesador, donde deposita uno, o el efectivo de un punto de venta.
             (SELECT pr.nombre FROM fin.procesador pr WHERE pr.cuenta_id = c.id LIMIT 1) AS procesador_pendiente,
@@ -826,7 +826,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const lado = ['ingresos', 'egresos'].includes(req.query.lado) ? req.query.lado : null;
   const [lineas, movs, cheques, hechas] = await Promise.all([
     pool.query(`SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
-                 WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
+                 WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
     // Los movimientos que deberían aparecer en el extracto: desde que empiezan los extractos importados (la apertura
     // y lo anterior no van a aparecer nunca), y sin los anulados ni sus anulaciones (se cancelan entre sí).
@@ -861,7 +861,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
     `SELECT e.id, e.archivo, e.importado_en, e.importado_por, to_char(e.desde, 'YYYY-MM-DD') AS desde, to_char(e.hasta, 'YYYY-MM-DD') AS hasta,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id) AS lineas,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.extracto_id = e.id
-                AND (l.compensa_a IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
+                AND (l.compensa_a IS NOT NULL OR l.descartada IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
        FROM fin.extracto e WHERE e.cuenta_id = $1::uuid ORDER BY e.importado_en DESC LIMIT 20`, [cuenta]);
   // Los cobros del procesador de la cuenta que esperan el extracto (no los de lotes): para parear a mano una línea, y los que
   // ya deberían estar (4 días después de la venta o de su liquidación, dentro del extracto), para resolverlos.
@@ -875,7 +875,11 @@ r.get('/fin/conciliacion', h(async (req, res) => {
       WHERE NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND p.lote_id IS NULL
       ORDER BY t.dia, t.id_externo`, [cuenta]);
-  res.json({ ok: true, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
+  const { rows: descartadas } = await pool.query(
+    `SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text, l.descartada, l.descartada_por, l.descartada_en FROM fin.extracto_linea l
+      WHERE l.cuenta_id = $1::uuid AND l.descartada IS NOT NULL ORDER BY l.fecha, l.id`, [cuenta]);
+  res.json({ ok: true, cuenta_id: cuenta, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
+    descartadas: descartadas.map(l => ({ ...l, lado: ladoDe(l) })).filter(l => !lado || l.lado === lado),
     sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos, cobros });
 }));
 
@@ -918,6 +922,7 @@ r.post('/fin/conciliacion', h(async (req, res) => {
   const out = await enTransaccion(async c => {
     const { rows: [l] } = await c.query('SELECT * FROM fin.extracto_linea WHERE id = $1 FOR UPDATE', [linea]);
     if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
+    if (l.descartada) throw new ErrorUsuario('La línea está descartada: volvela a pendiente primero.');
     let mov = texto(b.movimiento_id);
     if (b.cheque_id) {
       // El débito del cheque aparece en el extracto: recién ahí sale del banco.
@@ -932,6 +937,16 @@ r.post('/fin/conciliacion', h(async (req, res) => {
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
         [l.fecha, l.cuenta_id, sale ? 'egreso' : 'ingreso', sale ? 0 : l.importe, sale ? String(l.importe).slice(1) : 0, concepto]));
       await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1,$2,$3)', [mov, rubro, texto(b.crear.sede_id)]);
+    } else if (b.transferir) {
+      // Línea que es una transferencia con otra cuenta propia (el apartado de Mercado Pago, otro banco): se asientan las dos
+      // patas con la fecha de la línea y se concilia la de esta cuenta. La otra queda para conciliarse con su extracto.
+      const otra = texto(b.transferir.cuenta_id, { campo: 'la otra cuenta', requerido: true });
+      if (otra === l.cuenta_id) throw new ErrorUsuario('Elegí otra cuenta.');
+      const sale = String(l.importe).startsWith('-'), imp = sale ? String(l.importe).slice(1) : String(l.importe);
+      const concepto = texto(b.transferir.concepto) || l.concepto || 'Transferencia entre cuentas';
+      const { rows: [{ tr }] } = await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, $4::date, $5) AS tr',
+        sale ? [l.cuenta_id, otra, imp, l.fecha, concepto] : [otra, l.cuenta_id, imp, l.fecha, concepto]);
+      ({ rows: [{ id: mov }] } = await c.query('SELECT id FROM fin.movimiento_tes WHERE transferencia_id = $1 AND cuenta_id = $2', [tr, l.cuenta_id]));
     }
     if (!mov) throw new ErrorUsuario('Falta el movimiento a conciliar.');
     await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, mov]);
@@ -949,6 +964,34 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
   await deshacerConciliacion(numero(req.params.linea, { campo: 'la línea', requerido: true }));
   res.json({ ok: true });
 }));
+// Líneas que no se tienen en cuenta (decisión de Fer, 09/11/2026): cobros de ventas anteriores al inicio de los cobros, lo
+// anterior al inicio del control de la cuenta (se resuelve con el saldo inicial). No mueve plata: es una marca con motivo
+// sobre la línea, que deja de estar pendiente, y se deshace.
+r.post('/fin/conciliacion/descartar', h(async (req, res) => {
+  const ids = (Array.isArray(req.body.linea_ids) ? req.body.linea_ids : []).map(x => numero(x, { campo: 'la línea', requerido: true }));
+  if (!ids.length || ids.length > 500) throw new ErrorUsuario('Elegí entre una y 500 líneas.');
+  const motivo = texto(req.body.motivo, { campo: 'el motivo', requerido: true });
+  const n = await enTransaccion(async c => {
+    const { rows } = await c.query(
+      `SELECT l.id, l.descartada, l.compensa_a, EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
+         FROM fin.extracto_linea l WHERE l.id = ANY($1::bigint[]) FOR UPDATE`, [ids]);
+    if (rows.length !== new Set(ids).size) throw new ErrorUsuario('Alguna de las líneas no existe.');
+    if (rows.some(l => l.conciliada || l.compensa_a)) throw new ErrorUsuario('Alguna de las líneas ya está conciliada.');
+    const { rowCount } = await c.query(
+      `UPDATE fin.extracto_linea SET descartada = $2, descartada_por = org.usuario_actual(), descartada_en = now()
+        WHERE id = ANY($1::bigint[]) AND descartada IS NULL`, [ids, motivo]);
+    return rowCount;
+  });
+  res.json({ ok: true, descartadas: n });
+}));
+r.delete('/fin/conciliacion/descartada/:linea', h(async (req, res) => {
+  const { rowCount } = await pool.query(
+    'UPDATE fin.extracto_linea SET descartada = NULL, descartada_por = NULL, descartada_en = NULL WHERE id = $1 AND descartada IS NOT NULL',
+    [numero(req.params.linea, { campo: 'la línea', requerido: true })]);
+  if (!rowCount) throw new ErrorUsuario('Esa línea no está descartada.');
+  res.json({ ok: true });
+}));
+
 async function deshacerConciliacion(linea) {
   await enTransaccion(async c => {
     const { rows: movs } = await c.query(
@@ -1058,13 +1101,13 @@ async function conciliarAutomatica(req, cuenta) {
     const { rows: deCuenta } = await c.query('SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid', [cuenta]);
     // Una cuenta que no es de un procesador (un banco): sólo las reglas de clasificación.
     if (!pr) return { procesador: null, compensadas: 0, acreditadas: 0, acreditado: '0.00', lotes_confirmados: 0, gastos: {}, reglas: await aplicarReglas(c, cuenta),
-      quedan: Number((await c.query(`SELECT COUNT(*) AS n FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+      quedan: Number((await c.query(`SELECT COUNT(*) AS n FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL AND l.descartada IS NULL
                                        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta])).rows[0].n) };
     const { rows: todas } = await c.query(
-      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a,
+      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a, l.descartada,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
          FROM fin.extracto_linea l WHERE l.cuenta_id = $1 ORDER BY l.fecha, l.id`, [cuenta]);
-    const pend = todas.filter(l => !l.conciliada && !l.compensa_a), usadas = new Set();
+    const pend = todas.filter(l => !l.conciliada && !l.compensa_a && !l.descartada), usadas = new Set();
     const conciliar = (linea, mov) => c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, mov]);
 
     // 1. Reversos.
@@ -1199,7 +1242,7 @@ async function sugerenciasProcesador(cuenta) {
   if (!pr) return [];
   const [{ rows: lineas }, { rows: pagos }] = await Promise.all([
     pool.query(`SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto FROM fin.extracto_linea l
-                 WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL
+                 WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL AND l.descartada IS NULL
                    AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) ORDER BY l.fecha, l.id`, [cuenta]),
     pool.query(`SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion
                   FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
@@ -1209,7 +1252,12 @@ async function sugerenciasProcesador(cuenta) {
                    AND p.liquida_el IS NULL AND p.lote_id IS NULL
                  ORDER BY t.dia`, [cuenta]),
   ]);
-  const dias = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5, enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= 4;
+  // Contra el día de la venta que dice el extracto ("venta del", Mercado Pago libera el crédito del Point a los ~10 días):
+  // ese día o el siguiente, como la conciliación automática; si no lo dice, hasta 4 días después de la venta. Medido contra la
+  // fecha de la línea, un cobro de una venta vieja se pareaba con otra venta de la fecha de la liberación (pasó el 04/11/2026).
+  const conDia = l => /venta del \d{4}-\d{2}-\d{2}/.test(String(l.concepto));
+  const dias = (l, p) => (Date.parse(diaVentaDe(l)) - Date.parse(p.dia)) / 864e5,
+    enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= (conDia(l) ? 1 : 4);
   const abs = v => v < 0n ? -v : v, sug = [];
   // Un procesador que liquida por lotes no se parea cobro por cobro: sus sugerencias son las de lote (más abajo).
   const { rows: [{ por_lotes: porLotes }] } = await pool.query(
@@ -1305,13 +1353,14 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
   const motivo = texto(b.motivo);
   await enTransaccion(async c => {
     const { rows: ls } = await c.query(
-      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a,
+      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a, l.descartada,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
          FROM fin.extracto_linea l WHERE l.id = ANY($1::bigint[]) ORDER BY l.fecha, l.id FOR UPDATE`, [ids]);
     if (ls.length !== new Set(ids).size) throw new ErrorUsuario('Alguna de las líneas no existe.');
     const cuenta = ls[0].cuenta_id;
     if (ls.some(l => l.cuenta_id !== cuenta)) throw new ErrorUsuario('Las líneas son de cuentas distintas.');
     if (ls.some(l => l.conciliada || l.compensa_a)) throw new ErrorUsuario('Alguna de las líneas ya está conciliada.');
+    if (ls.some(l => l.descartada)) throw new ErrorUsuario('Alguna de las líneas está descartada: volvela a pendiente primero.');
     if (ls.some(l => l.importe.startsWith('-'))) throw new ErrorUsuario('Sólo se acreditan ingresos.');
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + cuenta]);
     // El procesador: el del cobro si deposita en esta cuenta (una cuenta puede recibir de varios: BRUBANK, Fudo Pagos y la
@@ -1372,7 +1421,7 @@ r.get('/fin/conciliacion/ingresos-libres', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
   const { rows } = await pool.query(
     `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
-      WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL
+      WHERE l.cuenta_id = $1::uuid AND l.importe > 0 AND l.compensa_a IS NULL AND l.descartada IS NULL
         AND NOT EXISTS (SELECT 1 FROM fin.extracto_linea c WHERE c.compensa_a = l.id)
         AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
       ORDER BY l.fecha, l.id`, [cuenta]);
@@ -1513,10 +1562,11 @@ r.post('/fin/conciliacion/lote', h(async (req, res) => {
   const pagoId = texto(b.ticket_pago_id), motivo = texto(b.motivo);
   await enTransaccion(async c => {
     const { rows: [l] } = await c.query(
-      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a,
+      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a, l.descartada,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada FROM fin.extracto_linea l WHERE l.id = $1 FOR UPDATE`, [linea]);
     if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
     if (l.conciliada || l.compensa_a) throw new ErrorUsuario('La línea ya está conciliada.');
+    if (l.descartada) throw new ErrorUsuario('La línea está descartada: volvela a pendiente primero.');
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['conciliar:' + l.cuenta_id]);
     const { rows: [pr] } = await c.query(`SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1 ORDER BY marca = 'transferencia', nombre LIMIT 1`, [l.cuenta_id]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
@@ -1574,17 +1624,18 @@ async function resumenProcesador(cuenta) {
       WHERE p.cuenta_acredita_id = $1::uuid ORDER BY p.marca = 'transferencia', p.nombre LIMIT 1`, [cuenta]);
   if (!pr) return null;
   const { rows: pendLineas } = await pool.query(
-    `SELECT l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+    `SELECT l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL AND l.descartada IS NULL
         AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta]);
   const porLado = { ingresos: 0, egresos: 0 };
   for (const l of pendLineas) porLado[ladoDe(l)]++;
   const [{ rows: [ext] }, { rows: pendientes }, { rows: costos }, { rows: [sinLinea] }] = await Promise.all([
     pool.query(`SELECT to_char(MAX(hasta), 'YYYY-MM-DD') AS hasta,
                        (SELECT saldo_final::text FROM fin.extracto WHERE cuenta_id = $1 AND saldo_final IS NOT NULL ORDER BY hasta DESC, importado_en DESC LIMIT 1) AS saldo_final,
-                       (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
+                       (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL AND l.descartada IS NULL
                            AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS lineas_pendientes,
-                       (SELECT COALESCE(SUM(l.importe), 0)::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL
-                           AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS importe_pendiente
+                       (SELECT COALESCE(SUM(l.importe), 0)::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL AND l.descartada IS NULL
+                           AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)) AS importe_pendiente,
+                       (SELECT COALESCE(SUM(l.importe), 0)::text FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.descartada IS NOT NULL) AS importe_descartado
                   FROM fin.extracto WHERE cuenta_id = $1`, [cuenta]),
     pool.query(`SELECT to_char(t.dia, 'YYYY-MM-DD') AS dia, mp.tipo_operacion, COUNT(*)::int AS pagos, SUM(p.importe)::text AS importe,
                        (current_date - t.dia)::int AS dias
