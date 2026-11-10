@@ -440,7 +440,7 @@ async function pintarAcreditar() {
     for (const d of pcF.dias) porDia.set(d.fecha, (porDia.get(d.fecha) || 0) + n(d.neto));
     const cols = [...(pcF.atrasado.length ? [['atrasado', pcF.atrasado.reduce((t, x) => t + n(x.neto), 0)]] : []), ...porDia];
     Graf.columnas($('#gCuando'), { etiquetas: cols.map(c => c[0]), valores: cols.map(c => c[1]), alto: 180,
-      ejeX: d => d === 'atrasado' ? 'atras.' : fecha(d).slice(0, 5), titulo: d => d === 'atrasado' ? 'Atrasado' : diaLargo(d) });
+      ejeX: d => d === 'atrasado' ? 'atras.' : fecha(d).slice(0, 5), titulo: d => d === 'atrasado' ? 'Atrasado' : diaLargo(d), alElegir: i => panelCuando(cols[i][0], pc.hoy) });
     $('#cuandoDet').replaceChildren(el('details', { className: 'inact' }, el('summary', { textContent: 'Ver por día y procesador' }), cuandoEntra(pcF)));
   }
 }
@@ -468,6 +468,37 @@ function panelAcr(proc, estado) {
       acc ? el('a', { className: 'boton', href: acc[1], textContent: acc[0] }) : '');
   });
   $('#aCuerpo').replaceChildren(...bloques);
+  $('#dlgAcr').showModal();
+}
+
+// Una columna de "Cuándo entra" (pedido de Fer, 10/11/2026: ver de qué se compone el monto): por procesador y punto de venta, lo
+// cobrado, el costo y el neto que se espera ese día, en qué estado está y sus ventas (o sus semanas, si es una liquidación de PedidosYa).
+function panelCuando(dia, hoy) {
+  const atr = dia === 'atrasado', grupos = new Map();
+  for (const d of detAcr) for (const v of d.ventas) {
+    if (atr ? v.espera >= hoy : v.espera !== dia) continue;
+    const k = d.procesador_id + '|' + d.punto_venta + '|' + d.estado;
+    const g = grupos.get(k) || { d, ventas: [] };
+    g.ventas.push(v); grupos.set(k, g);
+  }
+  if (!grupos.size) return;
+  const tot = xs => xs.reduce((t, v) => t + n(v.neto), 0), gs = [...grupos.values()].sort((a, b) => tot(b.ventas) - tot(a.ventas));
+  const todas = gs.flatMap(g => g.ventas);
+  $('#aTitulo').textContent = atr ? 'Atrasado' : `Entra el ${diaLargo(dia)}`;
+  $('#aImporte').textContent = pesos(tot(todas));
+  $('#aDatos').textContent = `${cobros(todas.length)} · neto de costos`;
+  const nombreE = k => ESTADOS_ACR.find(e => e[0] === k)[1];
+  $('#aCuerpo').replaceChildren(el('div', { className: 'lineas' }, ...gs.map(({ d, ventas: vs }) => {
+    const bruto = vs.reduce((t, v) => t + n(v.importe), 0), neto = tot(vs), dias = vs.map(v => v.dia).sort();
+    const fuentes = [...new Set(vs.map(v => FUENTE[v.fuente]))].join(', ');
+    const liqs = (d.liquidaciones || []).filter(l => vs.some(v => v.liquidacion_id === l.id));
+    return el('div', { className: 'linea' },
+      el('span', { className: 'd' }, el('b', { textContent: `${d.procesador} · ${d.punto_venta}` }),
+        el('small', { textContent: [`${cobros(vs.length)} · ventas ${rangoFechas(dias[0], dias.at(-1))}`,
+          liqs.length ? '' : `cobrado ${pesos(bruto)}` + (Math.round(bruto - neto) ? `, costo ${pesos(bruto - neto)}` : ''), nombreE(d.estado).toLowerCase(), fuentes].filter(Boolean).join(' · ') })),
+      el('span', { className: 'i', textContent: pesos(neto) }),
+      liqs.length ? liquidacionesAcr({ ...d, liquidaciones: liqs, ventas: vs }) : ventasAcr(vs, d.punto_venta));
+  })));
   $('#dlgAcr').showModal();
 }
 

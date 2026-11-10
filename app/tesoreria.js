@@ -228,7 +228,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       if (fecha < g.espera_desde) g.espera_desde = fecha; if (fecha > g.espera_hasta) g.espera_hasta = fecha;
       if (limite > g.limite) g.limite = limite;
       // Cada venta, para buscarla a mano en el sistema de venta (pedido de Fer, 08/11/2026: qué pasó con un cobro que no llegó).
-      g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha,
+      g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha, neto: deCentavos(neto), fuente,
         pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote, liquidacion_id: lq ? lq.id : null,
         medio: p.medio, medio_original: p.medio_original, sistema: p.sistema });
       det.set(k, g);

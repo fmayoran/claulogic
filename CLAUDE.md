@@ -838,6 +838,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   pedido de su sede menos los costos de la liquidación asentados en esa sede (`liquidacionesEsperadas` en `tesoreria.js`, exacto y
   prorrateado sin perder centavos), en `porCobrar` y `/por-acreditar`. El panel de Por acreditar muestra cada semana con el neto
   de los pedidos, los costos por rubro, lo que se cobra y el día de pago, y sus ventas a pedido.
+  **Tocar una columna de "Cuándo entra"** (pedido de Fer, 10/11/2026) abre el panel con lo que compone ese día (o lo atrasado): por
+  procesador, punto de venta y estado, lo cobrado, el costo, el neto, si es informado o estimado, y sus ventas o semanas liquidadas
+  (`panelCuando` en `tesoreria.html`; cada venta del detalle de `porCobrar` trae su `neto` y su `fuente`).
   Pendiente: el CUIT de las sociedades (vacío; las facturas dicen SORELLE 30718639820).
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
