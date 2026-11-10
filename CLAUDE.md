@@ -613,6 +613,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `en_efectivo` saca el importe de "Efectivo · <sede>" y lo acredita en la cuenta. Si ese efectivo ya se rindió, la cuenta de
   efectivo queda en negativo y se corrige devolviendo esa parte de la rendición (transferencia de la caja a la cuenta de efectivo).
   En SORELLE (octubre) fueron 26 cobros por $689.000. Desde noviembre el efectivo se concilia día a día.
+  **A quién se pagó: el resumen de cuenta solo** (pedido de Fer, 10/11/2026; migración 20261143). El reporte de liberaciones dice
+  "Transferencia a banco" o "Pago desde Mercado Pago" sin destinatario; el resumen de cuenta (account_statement, "Resumen de cuenta" en
+  Reportes) dice "Transferencia enviada Disval S.a." con el mismo número de operación. Importado solo en la cuenta, no crea líneas:
+  completa `extracto_linea.destinatario` en las que ya están (`POST /fin/extractos/destinatarios`; la operación es el número al final
+  del concepto; los impuestos y cargos de la operación no lo toman) y corre las reglas, que miran concepto, referencia y destinatario.
+  La conciliación muestra "concepto · destinatario". Importado junto con el de liquidaciones sigue siendo el extracto viejo.
   **Pareo manual y cobros que no llegan** (pedido de Fer, 08/11/2026; migración 20261133). En la cuenta de un procesador, cada ingreso
   sin identificar tiene "Es el cobro de una venta…": se elige el cobro pendiente (los más parecidos en importe primero) y, si no
   coincide, con motivo y sin el tope del 10% de las sugerencias (`/fin/conciliacion/acreditar` con `manual`). **No registrar como

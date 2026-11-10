@@ -902,6 +902,29 @@ async function importarExtracto(b) {
   });
   return out;
 }
+// El resumen de cuenta de Mercado Pago importado solo (pedido de Fer, 10/11/2026): no crea líneas; completa a quién se pagó o de
+// quién se recibió en las líneas que ya están, por el número de operación. Los impuestos, cargos y retenciones de esa operación
+// no lo toman (no son el pago). Lo que ya tenía destinatario no se pisa.
+r.post('/fin/extractos/destinatarios', h(async (req, res) => {
+  const cuenta = texto(req.body.cuenta_id, { campo: 'la cuenta', requerido: true });
+  const filas = (Array.isArray(req.body.filas) ? req.body.filas : []).filter(f => /^[\w-]{4,40}$/.test(String(f.operacion || '')) && String(f.destinatario || '').trim());
+  if (!filas.length) throw new ErrorUsuario('El archivo no trae movimientos con número de operación.');
+  if (filas.length > 20000) throw new ErrorUsuario('Demasiadas filas: importá el resumen por mes.');
+  const out = await enTransaccion(async c => {
+    const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
+    if (!cu) throw new ErrorUsuario('No existe esa cuenta.');
+    const { rowCount } = await c.query(
+      `UPDATE fin.extracto_linea l SET destinatario = f.destinatario
+         FROM (SELECT DISTINCT ON (x->>'operacion') x->>'operacion' AS operacion, left(btrim(x->>'destinatario'), 200) AS destinatario
+                 FROM jsonb_array_elements($2::jsonb) x) f
+        -- La operación es el número al final del concepto ("Transferencia a banco 5645… - 183103259706": el primero es la cuenta destino).
+        WHERE l.cuenta_id = $1::uuid AND COALESCE(substring(l.concepto from ' - ([0-9A-Za-z]+)$'), l.operacion) = f.operacion AND l.destinatario IS NULL
+          AND l.concepto !~* '^(impuesto|retenci|comisi|cargo|iva|percepci)'`, [cuenta, JSON.stringify(filas)]);
+    const reglas = await aplicarReglas(c, cuenta);
+    return { completadas: rowCount, reglas };
+  });
+  res.json({ ok: true, ...out });
+}));
 r.post('/fin/extractos', h(async (req, res) => { res.status(201).json({ ok: true, ...await importarExtracto(req.body) }); }));
 
 // Lo que falta conciliar de una cuenta, con candidatos para cada línea: movimientos sin conciliar
@@ -910,7 +933,8 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
   const lado = ['ingresos', 'egresos'].includes(req.query.lado) ? req.query.lado : null;
   const [lineas, movs, cheques, hechas] = await Promise.all([
-    pool.query(`SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text FROM fin.extracto_linea l
+    pool.query(`SELECT l.id, l.fecha, CASE WHEN l.destinatario IS NOT NULL THEN l.concepto || ' · ' || l.destinatario ELSE l.concepto END AS concepto,
+                       l.referencia, l.importe::text FROM fin.extracto_linea l
                  WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
     // Los movimientos que deberían aparecer en el extracto: desde que empiezan los extractos importados (la apertura

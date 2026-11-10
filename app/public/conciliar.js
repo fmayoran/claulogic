@@ -49,6 +49,23 @@ const Conc = (() => {
     }
     return m;
   }
+  // El resumen de cuenta importado solo (pedido de Fer, 10/11/2026): no es el extracto (eso es el reporte de liberaciones), sino a
+  // quién se pagó o de quién se recibió cada operación: "Transferencia enviada Disval S.a.", con el número de operación.
+  function destinatariosMP(filas) {
+    const fila0 = f => String((f || [])[0] ?? '').trim().toUpperCase();
+    const iMov = filas.findIndex(f => fila0(f) === 'RELEASE_DATE');
+    if (iMov < 0) return null;
+    const enc = filas[iMov].map(x => String(x).trim().toUpperCase()), c = (f, n) => String(f[enc.indexOf(n)] ?? '').trim();
+    if (enc.indexOf('TRANSACTION_TYPE') < 0 || enc.indexOf('REFERENCE_ID') < 0) return null;
+    const out = new Map();
+    for (const f of filas.slice(iMov + 1)) {
+      const tipo = c(f, 'TRANSACTION_TYPE').replace(/\s+/g, ' '), id = c(f, 'REFERENCE_ID');
+      // Sólo lo que nombra a alguien; los impuestos de una transferencia repiten el nombre y no son el pago.
+      if (!id || !tipo || /^(liquidaci|cancelaci|rendimientos|pago de impuesto)/i.test(tipo) || out.has(id)) continue;
+      out.set(id, { operacion: id, destinatario: tipo });
+    }
+    return [...out.values()];
+  }
   function resumenMP(filas, liq) {
     const fila0 = f => String((f || [])[0] ?? '').trim().toUpperCase();
     const iSaldos = filas.findIndex(f => fila0(f) === 'INITIAL_BALANCE'), iMov = filas.findIndex(f => fila0(f) === 'RELEASE_DATE');
@@ -270,6 +287,12 @@ const Conc = (() => {
             + (lib.cancelados ? ` ${lib.cancelados} fila(s) se cancelan entre sí (reservas de Mercado Pago y cobros devueltos) y no se importan.` : '')
             + (lib.sinAbrir ? ` ${lib.sinAbrir} cobro(s) no cierran con su desglose y quedan por el neto.` : '');
         }
+      } else if (resA && !liqA) {
+        // Solo, el resumen de cuenta completa a quién se pagó en las líneas ya importadas (el extracto es el de liberaciones).
+        const ds = destinatariosMP(resA.filas) || [];
+        csv = { nombre: resA.nombre, dest: ds, mp: { dest: true } };
+        txt = `Es el resumen de cuenta de Mercado Pago: no se importan líneas nuevas (el extracto es el reporte de liberaciones). `
+          + `Se completa a quién se pagó o de quién se recibió en las líneas que ya están, por el número de operación: ${ds.length} operación(es) con nombre.`;
       } else if (liqA || resA) {
         const liq = liqA && liquidacionesMP(liqA.filas), res = resA && resumenMP(resA.filas, liq);
         // Hacen falta los dos: sin las liquidaciones, cada cobro queda por el neto y no se parea con las ventas; sin el
@@ -294,7 +317,7 @@ const Conc = (() => {
         return importar();
       } else csv = leidos[0];
       formato.hidden = !csv.mp; formato.textContent = txt;
-      ok.textContent = 'Importar y conciliar';
+      ok.textContent = csv.dest ? 'Completar a quién se pagó' : 'Importar y conciliar';
       opcCsv.hidden = mapaWrap.hidden = capCsv.hidden = !!csv.mp;
       ok.disabled = !!(csv.mp && csv.mp.incompleto);
       if (csv.mp) titulo.textContent = `Importar ${csv.nombre}`; else pintarMapa();
@@ -303,6 +326,15 @@ const Conc = (() => {
     encab.onchange = () => csv && pintarMapa();
     no.onclick = cerrar;
     async function importar() {
+      if (csv.dest) {
+        ok.disabled = true; avisar('Completando…');
+        try {
+          const d = await api('fin/extractos/destinatarios', { method: 'POST', body: { cuenta_id: opc.cuenta(), filas: csv.dest } });
+          const t = `Resumen de cuenta: ${d.completadas} línea(s) tomaron a quién se pagó o de quién se recibió` + (d.reglas ? `; las reglas clasificaron ${d.reglas}` : '') + '.';
+          cerrar(); opc.listo(t, 'ok');
+        } catch (e) { avisar(e.message, 'mal'); ok.disabled = false; }
+        return;
+      }
       let filas, dec = decimal.value;
       if (csv.mp) { filas = csv.mp.filas; dec = '.'; }
       else if (csv.fmt) {

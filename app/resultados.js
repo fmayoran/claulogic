@@ -61,7 +61,7 @@ async function aplicarReglas(c, cuentaId) {
   const [{ rows: reglas }, { rows: lineas }] = await Promise.all([
     c.query(`SELECT id, sentido, patron, rubro_id, sede_id FROM fin.regla WHERE activa AND (cuenta_id IS NULL OR cuenta_id = $1::uuid)
               ORDER BY length(patron) DESC`, [cuentaId]),
-    c.query(`SELECT l.id, l.fecha, l.cuenta_id, l.importe::text, l.concepto, l.referencia FROM fin.extracto_linea l
+    c.query(`SELECT l.id, l.fecha, l.cuenta_id, l.importe::text, l.concepto, l.referencia, l.destinatario FROM fin.extracto_linea l
               WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL
                 AND NOT EXISTS (SELECT 1 FROM fin.extracto_linea x WHERE x.compensa_a = l.id)
                 AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
@@ -71,7 +71,7 @@ async function aplicarReglas(c, cuentaId) {
   const rs = reglas.map(g => ({ ...g, p: norm(g.patron) }));
   let n = 0;
   for (const l of lineas) {
-    const sale = l.importe.startsWith('-'), txt = norm(`${l.concepto} ${l.referencia || ''}`);
+    const sale = l.importe.startsWith('-'), txt = norm(`${l.concepto} ${l.referencia || ''} ${l.destinatario || ''}`);
     const g = rs.find(x => x.sentido === (sale ? 'egreso' : 'ingreso') && txt.includes(x.p));
     if (!g) continue;
     const { rows: [m] } = await c.query(
