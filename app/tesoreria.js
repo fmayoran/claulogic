@@ -742,7 +742,7 @@ async function importarExtracto(b) {
   if (filas.length > 5000) throw new ErrorUsuario('Demasiadas filas: importá el extracto por mes.');
   await exigirCuentaDelFormato(cuenta, filas, b.formato);
   const lineas = [], vistas = new Map(), conSaldo = [];
-  let saldoInicial = null, saldoFinal = null;
+  let saldoInicial = null, saldoFinal = null, finalFecha = null;
   filas.forEach((f, i) => {
     // Filas sin fecha: totales al pie y renglones en blanco.
     if (!String(f.fecha ?? '').trim()) return;
@@ -751,7 +751,7 @@ async function importarExtracto(b) {
       saldoInicial = { fecha: fechaExtracto(f.fecha, i + 1), saldo: importeExtracto(f.saldo, decimal, i + 1) };
       conSaldo.push({ imp: null, saldo: saldoInicial.saldo }); return;
     }
-    if (f.saldo !== undefined && /saldo\s+final/i.test(f.concepto || '')) { saldoFinal = importeExtracto(f.saldo, decimal, i + 1); return; }
+    if (f.saldo !== undefined && /saldo\s+final/i.test(f.concepto || '')) { saldoFinal = importeExtracto(f.saldo, decimal, i + 1); finalFecha = fechaExtracto(f.fecha, i + 1); return; }
     // Débito y crédito en columnas separadas o un solo importe con signo: las dos formas existen.
     let imp = f.importe !== undefined && f.importe !== '' ? importeExtracto(f.importe, decimal, i + 1) : null;
     if (imp === null) {
@@ -782,6 +782,8 @@ async function importarExtracto(b) {
       if (saldoFinal === null) saldoFinal = ult.saldo;
     }
   }
+  // Sin movimientos vale si trae los saldos: el período queda cubierto (un día sin movimientos en Mercado Pago).
+  if (!lineas.length && !(saldoInicial && saldoFinal !== null)) throw new ErrorUsuario('El extracto no tiene movimientos ni saldos.');
   const out = await enTransaccion(async c => {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');
@@ -791,7 +793,7 @@ async function importarExtracto(b) {
     // el viernes 30 y el paso 3 pedía el 31).
     const per = periodoDeclarado(b.archivo, fechas);
     const desde = [(saldoInicial && saldoInicial.fecha) || fechas[0], per && per.desde].filter(Boolean).sort()[0] || null;
-    const hasta = [fechas.at(-1), per && per.hasta].filter(Boolean).sort().at(-1) || null;
+    const hasta = [fechas.at(-1), finalFecha, per && per.hasta].filter(Boolean).sort().at(-1) || null;
     const { rows: [e] } = await c.query(
       'INSERT INTO fin.extracto (cuenta_id, archivo, saldo_inicial, saldo_final, desde, hasta) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [cuenta, texto(b.archivo), saldoInicial && saldoInicial.saldo, saldoFinal, desde, hasta]);

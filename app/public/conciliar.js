@@ -140,7 +140,10 @@ const Conc = (() => {
         if (venta) sinAbrir++;
       }
     }
-    const ult = [...movs].reverse().find(f => f.saldo !== '');
+    // Un período sin movimientos (10/11/2026: MERCADO PAGO CF el 09/11) se importa igual: el saldo final es el inicial y el
+    // extracto deja cubiertos esos días. El último día es la fecha más nueva del archivo (sin movimientos, la del saldo inicial).
+    const ult = [...movs].reverse().find(f => f.saldo !== '')
+      || (ini && !movs.length ? { fecha: filasMP.map(f => f.fecha).filter(Boolean).sort().at(-1), saldo: ini.saldo } : null);
     if (ini && ult) {
       out.unshift({ fecha: ini.fecha, concepto: 'Saldo inicial', saldo: ini.saldo, importe: '' });
       out.push({ fecha: ult.fecha, concepto: 'Saldo final', saldo: ult.saldo, importe: '' });
