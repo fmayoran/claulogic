@@ -100,7 +100,7 @@ const Conc = (() => {
     const filasMP = filas.slice(1).map(f => ({ fecha: v(f, 'DATE').slice(0, 10), id: v(f, 'SOURCE_ID'), ref: v(f, 'EXTERNAL_REFERENCE'),
       tipo: v(f, 'RECORD_TYPE'), desc: v(f, 'DESCRIPTION'), neto: deCentavos(k(v(f, 'NET_CREDIT_AMOUNT')) - k(v(f, 'NET_DEBIT_AMOUNT'))),
       bruto: v(f, 'GROSS_AMOUNT') || '0', fee: deCentavos(k(v(f, 'MP_FEE_AMOUNT')) + k(v(f, 'FINANCING_FEE_AMOUNT'))), imp: v(f, 'TAXES_AMOUNT') || '0',
-      desglose: v(f, 'TAXES_DISAGGREGATED'), aprobada: v(f, 'TRANSACTION_APPROVAL_DATE').slice(0, 10), saldo: v(f, 'BALANCE_AMOUNT'), pos: v(f, 'POS_NAME') }));
+      desglose: v(f, 'TAXES_DISAGGREGATED'), aprobada: v(f, 'TRANSACTION_APPROVAL_DATE').slice(0, 10), aprobada_en: v(f, 'TRANSACTION_APPROVAL_DATE'), saldo: v(f, 'BALANCE_AMOUNT'), pos: v(f, 'POS_NAME') }));
     const ini = filasMP.find(f => f.tipo === 'initial_available_balance'), movs = filasMP.filter(f => f.tipo === 'release');
     // Lo que se cancela dentro del archivo: las reservas y un cobro con su devolución, por número de operación.
     const netoDe = new Map();
@@ -130,13 +130,13 @@ const Conc = (() => {
       // Se abre sólo si bruto + comisión + impuestos da exacto el neto; si no, va por el neto.
       if (!esCero(f.bruto) && k(f.bruto) + partes.reduce((s, x) => s + x, 0n) === k(f.neto) && !reserva) {
         const det = venta ? [canal(f), f.aprobada && f.aprobada !== f.fecha ? `venta del ${f.aprobada}` : ''].filter(Boolean).join(' · ') : f.ref && !/^\d+$/.test(f.ref) ? '' : f.ref;
-        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}` });
+        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}) });
         if (venta && !esCero(f.fee)) out.push({ fecha: f.fecha, importe: f.fee, referencia: '#' + f.id, concepto: `Comisión Mercado Pago - ${f.id}` });
         if (sumaImps === k(f.imp)) for (const x of imps) { if (!esCero(x.importe)) out.push({ fecha: f.fecha, importe: x.importe, referencia: '#' + f.id, concepto: `${nombreImp(x)} - ${f.id}` }); }
         else if (!esCero(f.imp)) out.push({ fecha: f.fecha, importe: f.imp, referencia: '#' + f.id, concepto: `Impuestos Mercado Pago - ${f.id}` });
         if (venta) cobros++;
       } else {
-        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}` });
+        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}) });
         if (venta) sinAbrir++;
       }
     }

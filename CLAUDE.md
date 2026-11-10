@@ -599,6 +599,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   venta se aprobó otro día que la liberación (Point con crédito libera a los ~10 días), el concepto lleva "venta del AAAA-MM-DD"
   y la conciliación parea contra ese día (o el anterior). Canal: Point ("Venta presencial"), QR, online (sin punto de venta). Con
   dos procesadores Mercado Pago, el extracto va en la cuenta de cualquiera de los dos.
+  **Qué venta toma cada cobro** (pedido de Fer, 10/11/2026; migración 20261140): el pareo uno a uno buscaba por importe y día, y un
+  QR de $27.500 se pareó con una venta con débito del mismo importe, dejando pendiente la QR. Ahora se arman todos los pares posibles y
+  se asignan del mejor al peor: primero la venta abierta cuando se aprobó el cobro (`extracto_linea.aprobada_en`, de
+  TRANSACTION_APPROVAL_DATE del reporte de liberaciones; entre la apertura y 15 min después del cierre), después la del mismo tipo
+  (QR = qr o transferencia, Point = débito o crédito; "online" y el medio "otro" sin preferencia), después la más cercana. Volver a
+  importar un reporte completa la hora en las líneas que ya estaban.
   **Cobrado acá, cargado como efectivo** (sugerencia `en_efectivo`; decisión de Fer, 02/11/2026: el efectivo de octubre no se
   controló al detalle, así que si importe y día coinciden estaba mal cargado): un ingreso sin otra sugerencia que coincide con un
   pago en efectivo ya procesado de una venta de cualquier punto de venta que cobra con ese procesador (no sólo la filial de la

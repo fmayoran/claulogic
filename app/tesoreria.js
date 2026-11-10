@@ -836,6 +836,8 @@ async function importarExtracto(b) {
     const l = { fecha: fechaExtracto(f.fecha, i + 1), concepto: String(f.concepto || '').trim().slice(0, 300),
                 referencia: String(f.referencia || '').trim().slice(0, 100), importe: imp };
     l.operacion = operacionDe(l);
+    // La hora de aprobación del cobro (Mercado Pago), para elegir la venta al conciliar; si no es una fecha y hora, no se toma.
+    l.aprobada_en = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(f.aprobada_en || '')) && !isNaN(Date.parse(f.aprobada_en)) ? String(f.aprobada_en) : null;
     const clave = [l.fecha, l.importe, l.concepto, l.referencia].join('|');
     l.ocurrencia = (vistas.get(clave) || 0) + 1; vistas.set(clave, l.ocurrencia);
     lineas.push(l);
@@ -886,10 +888,14 @@ async function importarExtracto(b) {
     }
     let nuevas = 0;
     for (const l of lineas) {
-      const { rowCount } = await c.query(
-        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia, operacion)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia, l.operacion]);
-      nuevas += rowCount;
+      // Una línea ya importada sin la hora de aprobación la toma al volver a importar el archivo.
+      const { rows: [ins] } = await c.query(
+        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia, operacion, aprobada_en)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (cuenta_id, fecha, importe, concepto, referencia, ocurrencia) DO UPDATE SET aprobada_en = EXCLUDED.aprobada_en
+           WHERE fin.extracto_linea.aprobada_en IS NULL AND EXCLUDED.aprobada_en IS NOT NULL
+         RETURNING (xmax = 0) AS nueva`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia, l.operacion, l.aprobada_en]);
+      if (ins && ins.nueva) nuevas++;
     }
     await c.query('UPDATE fin.extracto SET lineas_nuevas = $1, lineas_repetidas = $2 WHERE id = $3', [nuevas, lineas.length - nuevas, e.id]);
     return { nuevas, repetidas: lineas.length - nuevas, apertura, saldo_final: saldoFinal };
@@ -1252,7 +1258,7 @@ async function conciliarAutomatica(req, cuenta) {
       quedan: Number((await c.query(`SELECT COUNT(*) AS n FROM fin.extracto_linea l WHERE l.cuenta_id = $1 AND l.compensa_a IS NULL AND l.descartada IS NULL
                                        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`, [cuenta])).rows[0].n) };
     const { rows: todas } = await c.query(
-      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a, l.descartada,
+      `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.concepto, l.referencia, l.importe::text, l.operacion, l.compensa_a, l.descartada, l.aprobada_en,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
          FROM fin.extracto_linea l WHERE l.cuenta_id = $1 ORDER BY l.fecha, l.id`, [cuenta]);
     const pend = todas.filter(l => !l.conciliada && !l.compensa_a && !l.descartada), usadas = new Set();
@@ -1270,7 +1276,8 @@ async function conciliarAutomatica(req, cuenta) {
 
     // 2. Ingresos contra los pagos de las ventas (sólo los ya procesados: su bruto está en "a acreditar").
     const { rows: pagos } = await c.query(
-      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id, pr.nombre AS procesador
+      `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.cuenta_id, pr.nombre AS procesador, mp.tipo_operacion,
+              extract(epoch FROM t.abierto_en) * 1000 AS abierto, extract(epoch FROM COALESCE(t.cerrado_en, t.abierto_en)) * 1000 AS cerrado
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
          JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
         WHERE mp.procesador_id = ANY($1::uuid[]) AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
@@ -1286,15 +1293,32 @@ async function conciliarAutomatica(req, cuenta) {
         WHERE l.cuenta_id = $1 AND l.operacion IS NOT NULL`, [cuenta]);
     const pagoDe = new Map(previos.map(x => [x.operacion, x.id]));
     let acreditadas = 0, acreditado = 0n;
+    // Cada ingreso con los cobros del mismo importe de su ventana. Si el extracto dice el día de la venta ("venta del AAAA-MM-DD":
+    // Mercado Pago libera el crédito del Point a los ~10 días), se parea contra ese día (o el anterior, una mesa abierta antes de
+    // medianoche); si no, hasta 4 días antes. Entre varios del mismo importe (pedido de Fer, 10/11/2026: un QR se pareó con una
+    // venta con débito y la venta QR quedó pendiente), primero la venta que estaba abierta cuando se aprobó el cobro (hora de
+    // aprobación de Mercado Pago), después la del mismo tipo de operación (QR, Point = débito o crédito, online), después la más
+    // cercana en hora o en días. Se asigna de a pares, el mejor primero, así una línea no le quita la venta a otra que encaja mejor.
+    // "online" (cobro sin punto de venta) puede ser un link, una transferencia o un QR: sin preferencia. Un medio "otro" (SIN NOMBRE)
+    // no dice cómo se cobró: no pierde contra nadie.
+    const TIPOS_CANAL = { QR: ['qr', 'transferencia', 'otro'], Point: ['debito', 'credito', 'otro'] };
+    const pares = [];
     for (const l of pend.filter(l => !usadas.has(l.id) && !l.importe.startsWith('-'))) {
-      // Si el extracto dice el día de la venta ("venta del AAAA-MM-DD": Mercado Pago libera el crédito del Point a los
-      // ~10 días), se parea contra ese día (o el anterior, una mesa abierta antes de medianoche); si no, hasta 4 días antes.
       const diaVenta = (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1];
       const dias = p => (Date.parse(diaVenta || l.fecha) - Date.parse(p.dia)) / 864e5;
-      const p = pagos.filter(p => libres.has(p.id) && normImp(p.importe) === normImp(l.importe) && dias(p) >= 0 && dias(p) <= (diaVenta ? 1 : 4))
-        .sort((a, b) => dias(a) - dias(b))[0];
-      if (!p) continue;
-      libres.delete(p.id);
+      const tipos = TIPOS_CANAL[l.referencia], ap = l.aprobada_en ? new Date(l.aprobada_en).getTime() : null;
+      for (const p of pagos) {
+        if (normImp(p.importe) !== normImp(l.importe) || dias(p) < 0 || dias(p) > (diaVenta ? 1 : 4)) continue;
+        const ab = Number(p.abierto) || null, ce = Number(p.cerrado) || ab;
+        const lejos = ap != null && ab != null ? (ap < ab ? ab - ap : ap > ce + 15 * 60e3 ? ap - ce - 15 * 60e3 : 0) : null;
+        pares.push({ l, p, clave: [lejos === 0 ? 0 : 1, tipos && !tipos.includes(p.tipo_operacion) ? 1 : 0, lejos ?? dias(p) * 864e5] });
+      }
+    }
+    pares.sort((a, b) => a.clave[0] - b.clave[0] || a.clave[1] - b.clave[1] || a.clave[2] - b.clave[2]);
+    const elegido = new Map();
+    for (const x of pares) if (libres.has(x.p.id) && !elegido.has(x.l.id)) { elegido.set(x.l.id, x.p); libres.delete(x.p.id); }
+    for (const l of pend.filter(l => elegido.has(l.id))) {
+      const p = elegido.get(l.id);
       const concepto = `Acreditación ${p.procesador} · venta ${p.id_externo} del ${p.dia}`;
       const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
       await c.query(
