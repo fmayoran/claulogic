@@ -67,6 +67,9 @@
   #dlgAcr .boton{display:inline-block;margin-top:10px;font-weight:600;}
   /* Las ventas de un renglón, para buscarlas en el sistema de venta: cada una se despliega con sus pagos y artículos. */
   #dlgAcr details.a-ventas{grid-column:1 / -1;margin:4px 0 2px;} #dlgAcr details.a-ventas > summary{cursor:pointer;color:var(--acento);font-size:.88rem;font-weight:600;}
+  /* Las semanas de PedidosYa liquidadas: desglose de la liquidación y sus ventas. */
+  #dlgAcr .a-liqs{grid-column:1 / -1;margin:4px 0 2px;} #dlgAcr .v-det .r.tot{font-weight:650;border-top:1px solid var(--g-grilla);margin-top:4px;padding-top:4px;}
+  #dlgAcr .v-det details.a-ventas{margin-top:6px;}
   #dlgAcr details.a-venta{border-bottom:1px solid var(--g-grilla);padding:6px 0;} #dlgAcr details.a-venta:last-child{border-bottom:0;}
   #dlgAcr details.a-venta > summary{cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:.9rem;list-style:none;}
   #dlgAcr details.a-venta > summary::-webkit-details-marker{display:none;}
@@ -461,11 +464,32 @@ function panelAcr(proc, estado) {
         el('span', { className: 'd' }, el('b', { textContent: proc ? x.punto_venta : `${x.procesador} · ${x.punto_venta}` }),
           el('small', { textContent: `${cobros(x.pagos)} · ventas ${rangoFechas(x.ventas_desde, x.ventas_hasta)}` + (proc ? '' : ` · ${desc(x)}`) })),
         el('span', { className: 'i', textContent: pesos(x.saldo) }),
-        x.ventas && x.ventas.length ? ventasAcr(x.ventas, x.punto_venta) : ''))),
+        x.liquidaciones ? liquidacionesAcr(x) : x.ventas && x.ventas.length ? ventasAcr(x.ventas, x.punto_venta) : ''))),
       acc ? el('a', { className: 'boton', href: acc[1], textContent: acc[0] }) : '');
   });
   $('#aCuerpo').replaceChildren(...bloques);
   $('#dlgAcr').showModal();
+}
+
+// Las semanas de PedidosYa ya liquidadas con las facturas (pedido de Fer, 10/11/2026: con las facturas subidas, lo que va a llegar
+// es lo de la liquidación, no el neto por pedido): por semana, el neto de los pedidos, lo que descuentan las facturas (publicidad, IVA
+// y percepciones de la sede) y lo que se cobra el día de pago; las ventas de la semana, a pedido.
+function liquidacionesAcr(x) {
+  const fila = (txt, imp, cls) => el('div', { className: 'r' + (cls ? ' ' + cls : '') }, el('span', { textContent: txt }), el('span', { className: 'i', textContent: imp }));
+  const sueltas = x.ventas.filter(v => !v.liquidacion_id);
+  return el('div', { className: 'a-liqs' },
+    ...x.liquidaciones.map(l => {
+      const vs = x.ventas.filter(v => v.liquidacion_id === l.id);
+      return el('details', { className: 'a-venta' },
+        el('summary', {}, el('b', { textContent: `Semana del ${fecha(l.desde).slice(0, 5)} al ${fecha(l.hasta).slice(0, 5)}` }), el('span', { className: 'i', textContent: pesos(l.a_cobrar) }),
+          el('small', { textContent: `paga el ${fecha(l.fecha_pago)} · ${cobros(vs.length)}` })),
+        el('div', { className: 'v-det' },
+          fila('Neto de los pedidos', pesos(l.neto_pedidos)),
+          ...l.costos.filter(c => Number(c.costo)).map(c => fila(c.rubro, pesos(-Number(c.costo)), 'sub')),
+          fila('A cobrar', pesos(l.a_cobrar), 'tot'),
+          vs.length ? ventasAcr(vs, x.punto_venta) : ''));
+    }),
+    sueltas.length ? ventasAcr(sueltas, x.punto_venta) : '');
 }
 
 // Las ventas de un renglón del panel (pedido de Fer, 08/11/2026: buscarlas a mano en el sistema de venta para ver qué pasó): número,

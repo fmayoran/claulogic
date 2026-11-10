@@ -40,6 +40,54 @@ r.get('/fin/cuentas', h(async (req, res) => {
 // Lo cobrado con cada procesador que todavía no llegó a la cuenta donde deposita, por punto de venta: los cobros ya
 // procesados, sin acreditar con el extracto ni en un lote confirmado. Para el tablero de Cajas y bancos, que lo reparte por la
 // filial del punto de venta: una cuenta de cobro compartida (la cafetería y el bodegón de SORELLE) no es toda de la filial de la cuenta.
+// Liquidaciones semanales de PedidosYa con el lote esperado (pedido de Fer, 10/11/2026: "esperando el banco" sumaba el neto por
+// pedido y no descontaba la publicidad, el IVA y las percepciones de las facturas, ya asentados como egresos de "a acreditar").
+// Lo que va a llegar de cada punto de venta es su neto por pedido menos los costos de la liquidación de su sede (asentados por
+// tienda, así que es exacto); lo que no tenga sede se reparte por el neto. Cada cobro lleva su parte, prorrateada sin perder
+// centavos. Devuelve, por pago, la parte, y por liquidación y sede, el desglose por rubro.
+const prorratear = (vals, total) => {
+  const S = vals.reduce((a, b) => a + b, 0n);
+  if (S === 0n) return vals.map((_, i) => i === vals.length - 1 ? total : 0n);
+  const red = (a, b) => { const q = a / b, r = a % b; return r * 2n >= b ? q + 1n : r * 2n <= -b ? q - 1n : q; };
+  let acc = 0n, prev = 0n;
+  return vals.map(v => { acc += v; const x = red(acc * total, S); const out = x - prev; prev = x; return out; });
+};
+async function liquidacionesEsperadas(pagos) {
+  const { rows: liqs } = await pool.query(
+    `SELECT li.id, li.lote_id, to_char(li.desde, 'YYYY-MM-DD') AS desde, to_char(li.hasta, 'YYYY-MM-DD') AS hasta,
+            to_char(li.fecha_pago, 'YYYY-MM-DD') AS fecha_pago, lo.neto::text AS lote_neto
+       FROM fin.liquidacion li JOIN fin.lote lo ON lo.id = li.lote_id WHERE lo.movimiento_id IS NULL AND NOT li.fuera_gestion`);
+  const parte = new Map(), desglose = new Map();
+  if (!liqs.length) return { parte, desglose, liq: new Map() };
+  const { rows: costos } = await pool.query(
+    `SELECT lc.liquidacion_id, cl.sede_id, COALESCE(r.nombre, 'Otros') AS rubro, SUM(m.salida - m.entrada)::text AS costo
+       FROM fin.liquidacion_costo lc JOIN fin.movimiento_tes m ON m.id = lc.movimiento_id
+       LEFT JOIN fin.clasificacion cl ON cl.movimiento_id = m.id LEFT JOIN fin.rubro r ON r.id = cl.rubro_id
+      WHERE lc.liquidacion_id = ANY($1::uuid[]) GROUP BY 1, 2, 3`, [liqs.map(l => l.id)]);
+  const liq = new Map(liqs.map(l => [l.lote_id, l]));
+  for (const l of liqs) {
+    const ps = pagos.filter(p => p.lote_id === l.lote_id);
+    if (!ps.length) continue;
+    const sedes = [...new Set(ps.map(p => p.sede_id))];
+    const netoSede = sedes.map(sd => ps.filter(p => p.sede_id === sd).reduce((a, p) => a + centavos(p.neto ?? p.importe), 0n));
+    const cs = costos.filter(c => c.liquidacion_id === l.id);
+    const costoSede = sedes.map(sd => cs.filter(c => c.sede_id === sd).reduce((a, c) => a + centavos(c.costo), 0n));
+    // Lo que no quedó en una sede de estos cobros se reparte por el neto, así las partes suman el lote.
+    const objetivo = sedes.map((_, i) => netoSede[i] - costoSede[i]);
+    const resto = prorratear(netoSede, centavos(l.lote_neto) - objetivo.reduce((a, b) => a + b, 0n));
+    sedes.forEach((sd, i) => {
+      const xs = ps.filter(p => p.sede_id === sd);
+      const partes = prorratear(xs.map(p => centavos(p.neto ?? p.importe)), objetivo[i] + resto[i]);
+      xs.forEach((p, j) => parte.set(p.pago_id, partes[j]));
+      const rub = new Map();
+      for (const c of cs.filter(c => c.sede_id === sd)) rub.set(c.rubro, (rub.get(c.rubro) || 0n) + centavos(c.costo));
+      if (resto[i]) rub.set('Otros', (rub.get('Otros') || 0n) - resto[i]);
+      desglose.set(l.id + '|' + sd, { neto_pedidos: netoSede[i], costos: [...rub].map(([rubro, c]) => ({ rubro, costo: c })), a_cobrar: objetivo[i] + resto[i] });
+    });
+  }
+  return { parte, desglose, liq };
+}
+
 r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pr.id AS procesador_id, pr.nombre AS procesador, pr.cuenta_id, i.id AS integracion_id, i.nombre AS punto_venta, i.sede_id,
@@ -51,6 +99,17 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
       WHERE p.cobro_id IS NOT NULL AND NOT p.anulado AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND (p.lote_id IS NULL OR EXISTS (SELECT 1 FROM fin.lote l WHERE l.id = p.lote_id AND l.movimiento_id IS NULL))
       GROUP BY pr.id, pr.nombre, pr.cuenta_id, i.id, i.nombre ORDER BY pr.nombre, i.nombre`);
+  // Las semanas de PedidosYa ya liquidadas: lo que va a llegar es lo de la liquidación, no el neto por pedido.
+  const { rows: enLiq } = await pool.query(
+    `SELECT p.id AS pago_id, p.lote_id, p.importe::text, p.neto::text, i.sede_id, i.id AS integracion_id, mp.procesador_id
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+       JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+      WHERE p.lote_id IN (SELECT li.lote_id FROM fin.liquidacion li JOIN fin.lote lo ON lo.id = li.lote_id WHERE lo.movimiento_id IS NULL AND NOT li.fuera_gestion)`);
+  const { parte } = await liquidacionesEsperadas(enLiq);
+  for (const p of enLiq) {
+    const r = rows.find(x => x.procesador_id === p.procesador_id && x.integracion_id === p.integracion_id);
+    if (r && parte.has(p.pago_id)) r.importe = deCentavos(centavos(r.importe) - centavos(p.neto ?? p.importe) + parte.get(p.pago_id));
+  }
   res.json({ ok: true, por_acreditar: rows });
 }));
 
@@ -72,7 +131,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
               (SELECT s.sociedad_id FROM org.sede s WHERE s.id = i.sede_id) AS sociedad_id, mp.tipo_operacion, to_char(t.dia, 'YYYY-MM-DD') AS dia,
               p.importe::text, p.neto::text, to_char(COALESCE(l.fecha, p.liquida_el), 'YYYY-MM-DD') AS liquida_el, l.id IS NOT NULL AS en_lote,
               p.costos IS NOT NULL AS con_costos, t.id AS ticket_id, t.id_externo, to_char(t.abierto_en, 'HH24:MI') AS hora, t.total::text AS total, p.id AS pago_id, (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
-              (SELECT mo.nombre FROM pos.medio mo WHERE mo.id = p.medio_original_id) AS medio_original, m.nombre AS medio, i.sistema
+              (SELECT mo.nombre FROM pos.medio mo WHERE mo.id = p.medio_original_id) AS medio_original, m.nombre AS medio, i.sistema, p.lote_id
          FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
          JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.lote l ON l.id = p.lote_id
@@ -98,6 +157,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
                  WHERE c.id IN (SELECT cuenta_acredita_id FROM fin.procesador WHERE cuenta_acredita_id IS NOT NULL) GROUP BY c.id`),
   ]);
   const extDe = new Map(exts.map(e => [e.id, e]));
+  const { parte, desglose, liq: liqDe } = await liquidacionesEsperadas(pagos);
   const det = new Map();
   // Costo real por tipo de operación (en centésimos de punto), del resumen de cada procesador; sin tipo, el del procesador.
   const costo = new Map();
@@ -133,6 +193,8 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       if (!usadas.has(k)) usadas.set(k, { procesador: p.procesador, tipo_operacion: p.tipo_operacion, dias: dm ? dm.dias : null, calendario: peya,
         muestras: dm ? dm.muestras : 0, costo_pct: cp == null ? null : (Number(cp) / 100).toFixed(2) });
     }
+    const lq = parte.has(p.pago_id) ? liqDe.get(p.lote_id) : null;
+    if (lq) neto = parte.get(p.pago_id);
     tot.pagos++; tot.bruto += bruto; tot.neto += neto;
     // Con `detalle`, por qué no entró todavía (pedido de Fer, 07/11/2026: ver de dónde tiene que venir lo que falta cobrar):
     // sin cuenta donde deposita, liquidado en un lote que espera el banco, todavía no es la fecha, el extracto no llega a esa
@@ -152,13 +214,22 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       const g = det.get(k) || { procesador_id: p.procesador_id, procesador: p.procesador, deposita: ext ? ext.nombre : null, extracto_hasta: ext ? ext.hasta : null,
         punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha, limite, ventas: [] };
       // `saldo`: lo que el cobro pesa en la cuenta "a acreditar" (PedidosYa asienta sus costos al cobrar: queda el neto).
-      g.pagos++; g.bruto += bruto; g.neto += neto; g.saldo += p.con_costos ? centavos(p.neto) : bruto;
+      g.pagos++; g.bruto += bruto; g.neto += neto; g.saldo += lq ? neto : p.con_costos ? centavos(p.neto) : bruto;
+      // Una semana de PedidosYa liquidada: el desglose de la liquidación para esta sede (neto por pedido, costos de las facturas).
+      if (lq) {
+        g.liquidaciones = g.liquidaciones || [];
+        if (!g.liquidaciones.some(x => x.id === lq.id)) {
+          const d = desglose.get(lq.id + '|' + p.sede_id);
+          g.liquidaciones.push({ id: lq.id, desde: lq.desde, hasta: lq.hasta, fecha_pago: lq.fecha_pago, neto_pedidos: deCentavos(d.neto_pedidos),
+            costos: d.costos.map(c => ({ rubro: c.rubro, costo: deCentavos(c.costo) })), a_cobrar: deCentavos(d.a_cobrar) });
+        }
+      }
       if (p.dia < g.ventas_desde) g.ventas_desde = p.dia; if (p.dia > g.ventas_hasta) g.ventas_hasta = p.dia;
       if (fecha < g.espera_desde) g.espera_desde = fecha; if (fecha > g.espera_hasta) g.espera_hasta = fecha;
       if (limite > g.limite) g.limite = limite;
       // Cada venta, para buscarla a mano en el sistema de venta (pedido de Fer, 08/11/2026: qué pasó con un cobro que no llegó).
       g.ventas.push({ ticket_id: p.ticket_id, numero: p.id_externo, dia: p.dia, hora: p.hora, tipo_operacion: p.tipo_operacion, importe: p.importe, total: p.total, espera: fecha,
-        pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote,
+        pago_id: p.pago_id, cuenta_id: p.cuenta_acredita_id, con_efectivo: p.con_efectivo, en_lote: p.en_lote, liquidacion_id: lq ? lq.id : null,
         medio: p.medio, medio_original: p.medio_original, sistema: p.sistema });
       det.set(k, g);
     }
@@ -176,7 +247,7 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
     atrasado: [...atrasado.values()].sort((a, b) => a.desde.localeCompare(b.desde)).map(salida),
     estimaciones: [...usadas.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.tipo_operacion.localeCompare(b.tipo_operacion)),
     ...(detalle ? { detalle: [...det.values()].sort((a, b) => a.procesador.localeCompare(b.procesador) || a.punto_venta.localeCompare(b.punto_venta))
-      .map(g => ({ ...salida(g), saldo: deCentavos(g.saldo), ventas: g.ventas.sort((a, b) => a.dia.localeCompare(b.dia) || String(a.hora).localeCompare(String(b.hora))) })) } : {}),
+      .map(g => ({ ...salida(g), saldo: deCentavos(g.saldo), ...(g.liquidaciones ? { liquidaciones: g.liquidaciones.sort((a, b) => a.desde.localeCompare(b.desde)) } : {}), ventas: g.ventas.sort((a, b) => a.dia.localeCompare(b.dia) || String(a.hora).localeCompare(String(b.hora))) })) } : {}),
   };
 }
 r.get('/fin/tesoreria/por-cobrar', h(async (req, res) => {
