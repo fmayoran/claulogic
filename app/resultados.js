@@ -7,9 +7,12 @@ const { ErrorUsuario, texto, fecha, h, enTransaccion } = require('./util');
 
 const r = express.Router();
 
-const LINEAS = ['ventas', 'cmv', 'cobro', 'impuestos', 'bancarios', 'operativos', 'diferencias', 'otros', 'fuera'];
-// Las de ventas y costo de mercadería las arma el sistema: no se clasifica nada a mano ahí.
-const LINEAS_A_MANO = LINEAS.filter(l => !['ventas', 'cmv'].includes(l));
+// Líneas del estado (10/11/2026: Personal, Locación, Comercialización, Administración e Inversiones, para ver el prime cost).
+const LINEAS = ['ventas', 'cmv', 'personal', 'cobro', 'locacion', 'operativos', 'comercializacion', 'administracion', 'impuestos', 'bancarios',
+  'inversiones', 'diferencias', 'otros', 'fuera'];
+// Ventas la arma el sistema. En costo de mercadería, el rubro del sistema (el consumo) tampoco se toca, pero "Compras de
+// mercadería" sí se clasifica a mano (decisión de Fer, 10/11/2026: para la historia, sin facturas ni consumo).
+const LINEAS_A_MANO = LINEAS.filter(l => l !== 'ventas');
 
 // ── Rubros ───────────────────────────────────────────────────────────────────────────────────
 r.get('/fin/rubros', h(async (req, res) => {
@@ -43,9 +46,9 @@ r.put('/fin/rubros/:id', h(async (req, res) => {
 }));
 async function rubroValido(c, id, campo = 'el rubro') {
   const rid = texto(id, { campo, requerido: true });
-  const { rows: [x] } = await c.query('SELECT linea FROM fin.rubro WHERE id = $1::uuid AND activo', [rid]);
+  const { rows: [x] } = await c.query('SELECT linea, clave FROM fin.rubro WHERE id = $1::uuid AND activo', [rid]);
   if (!x) throw new ErrorUsuario('Ese rubro no existe o está inactivo.');
-  if (!LINEAS_A_MANO.includes(x.linea)) throw new ErrorUsuario('Ventas y costo de mercadería los arma el sistema: elegí otro rubro.');
+  if (!LINEAS_A_MANO.includes(x.linea) || x.clave === 'cmv') throw new ErrorUsuario('Ventas y costo de mercadería los arma el sistema: elegí otro rubro.');
   return rid;
 }
 

@@ -886,6 +886,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   conciliación manual, "Registrar movimiento" pide rubro y ofrece "Aplicar a las próximas que digan…" (crea la regla y la aplica a
   lo pendiente). Deshacer una línea anula también lo que asentó una regla. Pantalla `rubros.html` (Configuración, "Rubros y reglas"). **Rendimientos de Mercado Pago** (09/11/2026, migración 20261136): "Rendimiento dinero en cuenta" (intereses por el saldo)
   va al rubro del sistema **Otros ingresos financieros** (línea Otros) por una regla para cualquier cuenta.
+- **Rubros de egresos** (decisiones de Fer, 10/11/2026; migración 20261141), con la práctica de gastronomía (separar el prime cost
+  de la locación y la estructura). Líneas del estado: Ventas, Costo de mercadería (el consumo del sistema y **Compras de mercadería**,
+  que se clasifica a mano y es sólo para reconstruir la historia: sin facturas ni consumo, el costo se aproxima por lo pagado), Margen
+  bruto, **Personal** (sueldos, cargas sociales F.931, sindicato y obra social, ART, SAC y vacaciones, eventuales, indemnizaciones,
+  comida y uniformes), Costos de cobro, **Locación** (alquiler, expensas, luz, gas, agua, tasas municipales), Gastos operativos
+  (descartables, limpieza, vajilla, lavandería, mantenimiento, plagas, combustible, fletes), **Comercialización** (publicidad, música),
+  **Administración** (honorarios, sistemas, internet y telefonía, seguros, seguridad, librería), Impuestos, Gastos bancarios →
+  **Resultado operativo**; después **Inversiones** (equipamiento, obras, mobiliario: imputadas al mes, sin amortizar), Diferencias y
+  Otros → Resultado. Arriba, el **prime cost** (mercadería + personal, lo usual es 55 a 65% de las ventas). No es resultado suma Pagos a
+  proveedores, Transferencias propias y Anticipos al personal. Los rubros se agregan y renombran en Rubros y reglas.
 - **Comercios dentro de un local** (pedido de Fer, 07/11/2026; migración 20261126). SORELLE BODEGON Y SUSHI es un punto de venta (un
   Maxirest, una caja, una cuenta de Mercado Pago) con dos comercios que se miran por separado: **Wera Sushi** y **Lo de Titi Bodegón**
   (`org.comercio`: rubros propios del sistema de venta y tiendas de PedidosYa; se configuran en la ficha de la sede). Maxirest no dice de

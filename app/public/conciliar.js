@@ -166,11 +166,12 @@ const Conc = (() => {
   // ── Rubros del estado de resultados ──
   // Al registrar una línea se elige su rubro; "+ Nuevo rubro…" al final de la lista. Ventas y costo de mercadería
   // los arma el sistema y no se ofrecen.
-  const LINEA = { cobro: 'Costos de cobro', impuestos: 'Impuestos', bancarios: 'Gastos bancarios', operativos: 'Gastos operativos',
-    diferencias: 'Diferencias', otros: 'Otros ingresos y gastos', fuera: 'No es resultado (aportes, retiros, préstamos)' };
+  const LINEA = { cmv: 'Costo de mercadería', personal: 'Personal', cobro: 'Costos de cobro', locacion: 'Locación', operativos: 'Gastos operativos',
+    comercializacion: 'Comercialización', administracion: 'Administración', impuestos: 'Impuestos', bancarios: 'Gastos bancarios',
+    inversiones: 'Inversiones', diferencias: 'Diferencias', otros: 'Otros ingresos y gastos', fuera: 'No es resultado' };
   let rubrosCache = null;
   async function rubros(recargar) {
-    if (!rubrosCache || recargar) rubrosCache = (await api('fin/rubros')).rubros.filter(r => r.activo && LINEA[r.linea]);
+    if (!rubrosCache || recargar) rubrosCache = (await api('fin/rubros')).rubros.filter(r => r.activo && LINEA[r.linea] && r.clave !== 'cmv');
     return rubrosCache;
   }
   function nuevoRubro(lineaSugerida) {

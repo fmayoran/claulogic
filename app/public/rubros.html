@@ -67,7 +67,7 @@ async function cargar() {
     'Todavía no hay reglas. Creá una acá o al registrar una línea en la conciliación.', 7);
   filas($('#tRubros'), rubros, r => el('tr', { className: r.activo ? '' : 'inactivo' },
     td(r.nombre + (r.activo ? '' : ' (inactivo)')), td(LINEA[r.linea] || r.linea),
-    el('td', {}, ['ventas', 'cmv'].includes(r.linea) ? '' : el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirRubro(r) }))), '', 3);
+    el('td', {}, ['ventas', 'cmv'].includes(r.clave) ? '' : el('button', { className: 'chico', textContent: 'Editar', onclick: () => abrirRubro(r) }))), '', 3);
   etiquetarTabla($('#tReglas').closest('table')); etiquetarTabla($('#tRubros').closest('table'));
 }
 async function borrar() {

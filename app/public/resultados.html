@@ -74,17 +74,26 @@
 <script src="conciliar.js"></script>
 <script>
 // Las líneas del estado, en orden; los totales suman las de arriba. "fuera" (aportes, retiros) no es resultado.
+// Prime cost = mercadería + personal (práctica de gastronomía: 55 a 65% de las ventas). Las inversiones se imputan al mes, sin
+// amortizar, debajo del resultado operativo (decisión de Fer, 10/11/2026).
+const OPERATIVO = ['ventas', 'cmv', 'personal', 'cobro', 'locacion', 'operativos', 'comercializacion', 'administracion', 'impuestos', 'bancarios'];
 const ESTRUCTURA = [
   { linea: 'ventas', nombre: 'Ventas', siempre: true },
   { linea: 'cmv', nombre: 'Costo de mercadería vendida', siempre: true },
   { total: 'Margen bruto', de: ['ventas', 'cmv'] },
+  { linea: 'personal', nombre: 'Personal' },
   { linea: 'cobro', nombre: 'Costos de cobro' },
+  { linea: 'locacion', nombre: 'Locación' },
+  { linea: 'operativos', nombre: 'Gastos operativos' },
+  { linea: 'comercializacion', nombre: 'Comercialización' },
+  { linea: 'administracion', nombre: 'Administración' },
   { linea: 'impuestos', nombre: 'Impuestos' },
   { linea: 'bancarios', nombre: 'Gastos bancarios' },
-  { linea: 'operativos', nombre: 'Gastos operativos' },
+  { total: 'Resultado operativo', de: OPERATIVO },
+  { linea: 'inversiones', nombre: 'Inversiones' },
   { linea: 'diferencias', nombre: 'Diferencias' },
   { linea: 'otros', nombre: 'Otros ingresos y gastos' },
-  { total: 'Resultado', de: ['ventas', 'cmv', 'cobro', 'impuestos', 'bancarios', 'operativos', 'diferencias', 'otros'], final: true },
+  { total: 'Resultado', de: [...OPERATIVO, 'inversiones', 'diferencias', 'otros'], final: true },
 ];
 // Los canales con el nombre que usa el tablero de ventas (pedido de Fer, 07/11/2026: "para llevar" es Take Away).
 const TIPO_VENTA = { 'salón': 'Salón', 'para llevar': 'Take Away', delivery: 'Delivery propio', pedidosya: 'PedidosYa', 'sin tipo': 'Sin tipo' };
@@ -171,6 +180,8 @@ function pintar() {
   $('#kpis').replaceChildren(
     kpi('Ventas', pC(ventas), vari(ventas, ventasAnt)),
     kpi('Margen bruto', pC(margen), null, pct(margen, ventas) + ' de las ventas'),
+    kpi('Prime cost', pC(-totalDe(act, ['cmv', 'personal'])), null, 'mercadería y personal · ' + pct(-totalDe(act, ['cmv', 'personal']), ventas) + ' de las ventas'),
+    kpi('Resultado operativo', pC(totalDe(act, OPERATIVO)), vari(totalDe(act, OPERATIVO), totalDe(ant, OPERATIVO)), pct(totalDe(act, OPERATIVO), ventas) + ' de las ventas'),
     kpi('Resultado', pC(res), vari(res, resAnt), pct(res, ventas) + ' de las ventas'));
 
   // Lo que no entra en el estado y conviene resolver.
@@ -179,7 +190,7 @@ function pintar() {
   if (sin) av.push(aviso(`${sin.n} movimiento(s) sin clasificar por ${pesos(sin.importe)}: no suman en el estado hasta que tengan rubro.`,
     el('button', { type: 'button', className: 'prim', textContent: 'Clasificar', onclick: () => detalle('sin', 'Sin clasificar') })));
   const fuera = act.rubros.filter(r => r.linea === 'fuera');
-  if (fuera.length) av.push(aviso(`No es resultado (aportes, retiros, préstamos): ${pC(sumaC(fuera))}.`,
+  if (fuera.length) av.push(aviso(`No es resultado (aportes, préstamos, pagos a proveedores, transferencias propias): ${pC(sumaC(fuera))}.`,
     el('button', { type: 'button', textContent: 'Ver', onclick: () => detalle(fuera[0].rubro_id, fuera[0].rubro) })));
   if (ventas > 0n && totalLinea(act, 'cmv') === 0n)
     av.push(aviso('El costo de mercadería vendida está en 0: sale de los platos de carta, cuando los artículos del sistema de venta estén vinculados y se procese el consumo.'));
