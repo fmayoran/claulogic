@@ -39,6 +39,23 @@
   .linea-arch button{font-size:.88rem;padding:6px 14px;}
   .res-peya{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;} .res-peya .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
   .ok-peya{margin:0;font-weight:600;color:var(--sube);}
+  /* Liquidaciones semanales de PedidosYa */
+  .liq{margin:14px 0 4px;border-top:1px solid var(--line);padding-top:10px;}
+  .liq h3{margin:0 0 2px;font-size:.98rem;} .liq > .mut{margin:0 0 6px;font-size:.86rem;color:var(--mut);}
+  .sem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:8px 0;border-top:1px solid var(--g-grilla);font-size:.92rem;}
+  .sem .t b{font-weight:600;} .sem .t small{display:block;color:var(--mut);font-size:.82rem;}
+  .sem .acc{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;} .sem .acc button{font-size:.84rem;padding:5px 11px;}
+  .sem .form{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-left:2px;}
+  .sem .form input{flex:1 1 200px;max-width:320px;padding:6px 10px;} .sem .form input[type=date]{flex:0 0 auto;}
+  .sem .fact{grid-column:1/-1;color:var(--mut);font-size:.82rem;}
+  .est{font-size:.8rem;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--sel);white-space:nowrap;}
+  .est.falta{background:var(--aviso-bg, var(--sel));} .est.ok{background:var(--ok-bg);color:var(--sube);}
+  details.acred summary{cursor:pointer;color:var(--acento);font-weight:600;font-size:.88rem;padding:6px 0;}
+  #dlgLiq{max-width:640px;width:calc(100% - 32px);}
+  .liq-calc{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 16px;margin:10px 0;font-size:.92rem;}
+  .liq-calc .tot{font-weight:700;border-top:1px solid var(--line);padding-top:4px;} .liq-calc span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums;}
+  .liq-fact{margin:6px 0;padding-left:18px;font-size:.88rem;} .liq-fact li{margin:2px 0;}
+  .liq-tiendas{font-size:.84rem;color:var(--mut);margin:4px 0 8px;}
   .local-peya{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:14px 0 4px;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
   details.como{flex-basis:100%;font-size:.88rem;} details.como summary{cursor:pointer;color:var(--acento);font-weight:600;}
@@ -178,12 +195,31 @@
   </form>
 </dialog>
 
+<dialog id="dlgLiq">
+  <form id="fLiq" novalidate>
+    <h2 id="lTitulo">Liquidación semanal</h2>
+    <p class="ayuda">Las facturas de la semana en PDF, como las baja el portal (Finance, Historial de pagos, la semana, Descargar): la de
+      PedidosYa y la de Pagos Ya. Quedan cargadas en Facturas de proveedor, compensadas con la liquidación (no generan deuda), y lo que no
+      estaba asentado por pedido (publicidad, su IVA, percepciones) se asienta como costo de la semana.</p>
+    <div class="linea-arch"><label class="elegir-arch">Elegir las facturas (PDF)<input type="file" name="pdf" accept="application/pdf,.pdf" multiple class="oculto-arch"></label>
+      <span class="nombre-arch" id="lArch">Ningún archivo elegido</span></div>
+    <div id="lPrev"></div>
+    <div id="lDatos" hidden>
+      <div class="fila"><label>Lo que paga PedidosYa (el Total del portal) *<input name="total" inputmode="decimal" placeholder="2.699.471,50"></label>
+        <label>Fecha de pago *<input name="fecha_pago" type="date"></label></div>
+      <p class="ayuda" id="lDif" hidden></p>
+      <div class="fila" id="lMotivo" hidden><label>Motivo de la diferencia *<input name="motivo" placeholder="qué explica la diferencia"></label></div>
+    </div>
+    <div class="acciones"><button type="submit" class="prim" id="lConfirmar" disabled>Confirmar la liquidación</button><button type="button" id="lCancelar">Cancelar</button><span class="msg" id="msgL"></span></div>
+  </form>
+</dialog>
+
 <script src="comun.js"></script>
 <script src="conciliar.js"></script>
 <script>
 const PASOS = ['ventas', 'efectivo', 'extractos', 'conciliar', 'resultado'];
 const NOMBRE = { ventas: 'Ventas', efectivo: 'Efectivo', extractos: 'Extractos', conciliar: 'Conciliación manual', resultado: 'Resultado' };
-let puntos = [], procs = [], cuentas = [], paso = null, cuentaC = null, actual = null;
+let puntos = [], procs = [], cuentas = [], paso = null, cuentaC = null, actual = null, liqs = [];
 const ayer = (() => { const d = new Date(Date.now() - 3 * 3600e3 - 864e5); return d.toISOString().slice(0, 10); })();
 const corta = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const hora = v => v ? new Date(v).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
@@ -239,8 +275,8 @@ $('#seguir').onclick = () => irA(PASOS[PASOS.indexOf(paso) + 1]);
 $('#volver').onclick = () => irA(PASOS[PASOS.indexOf(paso) - 1]);
 
 async function cargarDatos() {
-  const [c, p] = await Promise.all([api('pos/cierre?dias=60'), api('fin/procesadores/resumen')]);
-  puntos = c.puntos; procs = p.procesadores;
+  const [c, p, l] = await Promise.all([api('pos/cierre?dias=60'), api('fin/procesadores/resumen'), api('fin/liquidaciones').catch(() => ({ procesadores: [] }))]);
+  puntos = c.puntos; procs = p.procesadores; liqs = l.procesadores;
 }
 async function irA(k, { recargar = false } = {}) {
   if (recargar) await cargarDatos();
@@ -309,6 +345,7 @@ async function bloquePedidosYa(grupo) {
     el('span', { className: 'sinc', textContent: varios ? `Un solo archivo del portal para ${grupo.map(p => p.sede).join(' y ')}: cada pedido va al local de su tienda.`
       : 'Ventas por archivo: el detalle de pedidos del portal.' }));
   const cuerpo = [importadorPeya(grupo, clave)];
+  for (const pr of liqs.filter(x => grupo.some(p => p.sociedad_id && p.sociedad_id === x.sociedad_id))) cuerpo.push(bloqueLiquidaciones(pr));
   for (const [i, p] of grupo.entries()) {
     const ts = tss[i], ultimo = p.dias.find(d => d.ventas);
     if (varios) cuerpo.push(el('h3', { className: 'local-peya', textContent: p.sede }));
@@ -317,6 +354,160 @@ async function bloquePedidosYa(grupo) {
   }
   return el('section', { className: 'card bloque' }, cab, ...cuerpo);
 }
+// ── Liquidaciones semanales de PedidosYa (decisión de Fer, 09/11/2026) ──
+// PedidosYa liquida de lunes a domingo y paga el viernes 12 días después, por lo vendido menos sus dos facturas. Cada semana
+// terminada y cobrada se liquida con sus facturas en PDF; queda esperando el depósito (el extracto lo confirma solo, o con
+// el portal si no hay extracto) y después acreditada.
+const plata = v => { if (v == null || v === '') return ''; const c = centavos(v), a = c < 0n ? -c : c;
+  return (c < 0n ? '-$' : '$') + num(String(a / 100n)) + ',' + String(a % 100n).padStart(2, '0'); };
+const semana = w => `${corta(w.desde)} al ${corta(w.hasta)}`;
+function bloqueLiquidaciones(pr) {
+  const abiertas = pr.semanas.filter(w => w.estado !== 'acreditada'), acred = pr.semanas.filter(w => w.estado === 'acreditada');
+  const caja = el('section', { className: 'liq' }, el('h3', { textContent: 'Liquidaciones semanales' }),
+    el('p', { className: 'mut', textContent: `${pr.nombre} · deposita en ${pr.deposita || 'sin cuenta elegida (Medios de pago)'}. Lunes a domingo; paga el viernes 12 días después.` }));
+  for (const w of abiertas) caja.append(filaSemana(pr, w));
+  if (!abiertas.length) caja.append(el('p', { className: 'al-dia', textContent: 'Sin semanas por liquidar.' }));
+  if (acred.length) caja.append(el('details', { className: 'acred' }, el('summary', { textContent: `Acreditadas (${acred.length})` }), ...acred.map(w => filaSemana(pr, w))));
+  return caja;
+}
+function filaSemana(pr, w) {
+  const l = w.liquidacion, fila = el('div', { className: 'sem' });
+  const est = (t, cls = '') => el('span', { className: 'est ' + cls, textContent: t });
+  const info = [], acc = [];
+  const pedidos = w.pedidos ? `${w.pedidos} pedido(s) · neto por pedido ${plata(w.neto_libre ?? w.neto)}` : '';
+  if (w.estado === 'en_curso') { info.push(pedidos); acc.push(est('En curso')); }
+  else if (w.estado === 'faltan_cobros') { info.push(pedidos, `${w.sin_cobrar} sin el cobro procesado (arriba)`); acc.push(est('Faltan cobros', 'falta')); }
+  else if (w.estado === 'por_liquidar') {
+    info.push(pedidos, `PedidosYa paga el ${diaSem(w.fecha_esperada)}`);
+    acc.push(boton('Cargar las facturas…', () => abrirLiq(pr, w), true), boton('Cobrada fuera de la gestión…', () => formFila(fila, 'motivo', 'por qué no pasa por la gestión', 'Confirmar',
+      async v => { await api('fin/liquidaciones/fuera', { method: 'POST', body: { procesador_id: pr.id, desde: w.desde, motivo: v } }); msg(`Semana del ${semana(w)}: cobrada fuera de la gestión.`, 'ok'); })));
+  } else if (w.estado === 'esperando') {
+    info.push(`Paga ${plata(l.total)} el ${diaSem(l.fecha_pago)}` + (centavos(l.calculado) !== centavos(l.total) ? ` (neto por pedido ${plata(l.calculado)})` : ''),
+      `Esperando el depósito en ${pr.deposita}: el extracto lo confirma solo; sin extracto, con el portal.`);
+    acc.push(est('Esperando el banco', 'falta'),
+      boton('Confirmar con el portal…', () => formFila(fila, 'fecha', l.fecha_pago, 'Confirmar el pago',
+        async v => { await api(`fin/liquidaciones/${l.id}/confirmar`, { method: 'POST', body: { fecha: v } }); msg(`Semana del ${semana(w)}: pago confirmado en ${pr.deposita}.`, 'ok'); })),
+      boton('Deshacer…', () => formFila(fila, 'motivo', 'por qué se deshace', 'Deshacer la liquidación',
+        async v => { await api(`fin/liquidaciones/${l.id}`, { method: 'DELETE', body: { motivo: v } }); msg(`Semana del ${semana(w)}: liquidación deshecha.`, 'ok'); })));
+  } else if (w.estado === 'acreditada') {
+    info.push(`${plata(l.total)} acreditado el ${fecha(l.acreditada_el)} en ${l.acreditada_en}` + (l.conciliada ? ', conciliado con el extracto' : ', confirmado con el portal'));
+    acc.push(est('Acreditada', 'ok'));
+    if (!l.conciliada) acc.push(boton('Deshacer…', () => formFila(fila, 'motivo', 'por qué se deshace', 'Deshacer la liquidación',
+      async v => { await api(`fin/liquidaciones/${l.id}`, { method: 'DELETE', body: { motivo: v } }); msg(`Semana del ${semana(w)}: liquidación deshecha.`, 'ok'); })));
+  } else if (w.estado === 'fuera') {
+    info.push(`${plata(l.total)} cobrado fuera de la gestión: ${l.motivo}`);
+    acc.push(est('Fuera de la gestión'), boton('Deshacer…', () => formFila(fila, 'motivo', 'por qué se deshace', 'Deshacer',
+      async v => { await api(`fin/liquidaciones/${l.id}`, { method: 'DELETE', body: { motivo: v } }); msg(`Semana del ${semana(w)}: vuelve a quedar por liquidar.`, 'ok'); })));
+  }
+  fila.append(el('div', { className: 't' }, el('b', { textContent: `Semana del ${semana(w)}` }), ...info.filter(Boolean).map(t => el('small', { textContent: t }))),
+    el('div', { className: 'acc' }, ...acc));
+  if (l && l.facturas) fila.append(el('div', { className: 'fact', textContent: 'Facturas: ' + l.facturas.map(f => `${f.proveedor} ${f.numero} (${plata(f.total)})`).join('; ') }));
+  return fila;
+}
+// Un dato más en la misma fila (un motivo o una fecha) y su botón.
+function formFila(fila, tipo, ayuda, accion, fn) {
+  fila.querySelector('.form')?.remove();
+  const inp = tipo === 'fecha' ? el('input', { type: 'date', value: ayuda }) : el('input', { placeholder: ayuda });
+  const m = el('span', { className: 'msg' });
+  const ok = boton(accion, async () => {
+    const mal = t => { m.textContent = t; m.className = 'msg mal'; };
+    if (!inp.value.trim()) return mal(tipo === 'fecha' ? 'Elegí la fecha.' : 'Indicá el motivo.');
+    const fin = trabajando();
+    try { await fn(inp.value.trim()); await refrescar(); } catch (e) { mal(e.message); } finally { fin(); }
+  }, true);
+  const f = el('div', { className: 'form' }, inp, ok, boton('Cancelar', () => f.remove()), m);
+  fila.append(f); inp.focus();
+}
+// El texto de un PDF, página por página, renglón por renglón: pdf.js da fragmentos con su posición; se juntan los de la
+// misma altura de izquierda a derecha (con un espacio si hay separación), de arriba hacia abajo.
+let _pdfjs;
+async function textoPdf(archivo) {
+  if (!_pdfjs) { _pdfjs = await import('/vendor/pdfjs/pdf.min.mjs'); _pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs'; }
+  const doc = await _pdfjs.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()), isEvalSupported: false }).promise;
+  const paginas = [];
+  for (let n = 1; n <= Math.min(doc.numPages, 6); n++) {
+    const tc = await (await doc.getPage(n)).getTextContent();
+    const items = tc.items.filter(i => i.str && i.str.trim()).map(i => ({ s: i.str, x: i.transform[4], y: i.transform[5], w: i.width, h: Math.abs(i.transform[3]) || 8 }));
+    const lineas = [];
+    for (const it of items.sort((a, b) => b.y - a.y || a.x - b.x)) {
+      const l = lineas.find(x => Math.abs(x.y - it.y) <= Math.max(2, it.h * 0.3));
+      if (l) l.items.push(it); else lineas.push({ y: it.y, items: [it] });
+    }
+    paginas.push(lineas.sort((a, b) => b.y - a.y).map(l => {
+      const xs = l.items.sort((a, b) => a.x - b.x); let t = '', fin = null;
+      for (const i of xs) { t += (fin !== null && i.x - fin > 1 ? ' ' : '') + i.s; fin = i.x + i.w; }
+      return t.replace(/\s+/g, ' ').trim();
+    }).join('\n'));
+  }
+  return paginas;
+}
+let liqActual = null;
+const fL = $('#fLiq');
+function abrirLiq(pr, w) {
+  liqActual = { pr, w, facturas: null, esperado: null };
+  fL.reset(); $('#lArch').textContent = 'Ningún archivo elegido'; $('#lPrev').replaceChildren(); $('#lDatos').hidden = true;
+  $('#lConfirmar').disabled = true; msg('', '', '#msgL');
+  $('#lTitulo').textContent = `${pr.nombre} · semana del ${semana(w)}`;
+  $('#dlgLiq').showModal();
+}
+const aPortal = v => { const c = centavos(v); return num(String(c / 100n)) + ',' + String((c < 0n ? -c : c) % 100n).padStart(2, '0'); };
+function centavosPortal(v) {
+  let s = String(v || '').trim().replace(/^\$\s*/, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  return /^\d+(\.\d{1,2})?$/.test(s) ? centavos(s) : null;
+}
+function difLiq() {
+  const t = centavosPortal(fL.total.value), e = liqActual && liqActual.esperado;
+  if (t === null || e === null) { $('#lDif').hidden = true; $('#lMotivo').hidden = true; return; }
+  const d = e - t, abs = d < 0n ? -d : d;
+  $('#lDif').hidden = d === 0n;
+  $('#lDif').textContent = d === 0n ? '' : `No coincide con lo esperado (${plata(deCentavos(e))}): diferencia ${plata(deCentavos(d))}. Queda como diferencia de acreditación.`;
+  $('#lMotivo').hidden = abs <= 10000n;
+}
+fL.total.oninput = difLiq;
+fL.pdf.onchange = async () => {
+  const as = [...fL.pdf.files]; $('#lArch').textContent = as.length ? as.map(a => a.name).join(', ') : 'Ningún archivo elegido';
+  $('#lPrev').replaceChildren(); $('#lDatos').hidden = true; $('#lConfirmar').disabled = true; msg('', '', '#msgL');
+  if (!as.length) return;
+  const fin = trabajando('Leyendo las facturas…');
+  try {
+    const facturas = [];
+    for (const a of as) facturas.push(await textoPdf(a));
+    const d = await api('fin/liquidaciones/leer', { method: 'POST', body: { procesador_id: liqActual.pr.id, desde: liqActual.w.desde, facturas } });
+    liqActual.facturas = facturas; liqActual.esperado = centavos(d.esperado);
+    const fila = (t, v, cls) => [el('span', { className: cls || '', textContent: t }), el('span', { className: cls || '', textContent: v })];
+    $('#lPrev').replaceChildren(
+      el('ul', { className: 'liq-fact' }, ...d.facturas.map(f => el('li', { textContent:
+        `${f.emisor.razon_social || f.emisor.cuit}${f.proveedor ? '' : ' (proveedor nuevo)'} · ${f.letra} ${String(f.punto_venta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')} del ${fecha(f.fecha)} · ${plata(f.total)}` }))),
+      el('div', { className: 'liq-calc' },
+        ...fila('Neto por pedido (ya asentado)', plata(d.calculado)),
+        ...fila('− Publicidad', plata(d.publicidad)),
+        ...fila('− IVA de las facturas no asentado', plata(d.iva)),
+        ...(centavos(d.perc_iva) ? fila('− Percepción de IVA', plata(d.perc_iva)) : []),
+        ...(centavos(d.perc_iibb) ? fila('− Percepción de IIBB', plata(d.perc_iibb)) : []),
+        ...(centavos(d.perc_otras) ? fila('− Otros tributos', plata(d.perc_otras)) : []),
+        ...fila('Tiene que pagar PedidosYa', plata(d.esperado), 'tot')),
+      el('p', { className: 'liq-tiendas', textContent: 'Publicidad por tienda: ' + d.tiendas.map(t => `${t.comercio || t.nombre || t.sede || 'sin tienda'} ${plata(t.publicidad)}`).join(' · ') }),
+      ...d.avisos.map(a => el('p', { className: 'ayuda', textContent: a })));
+    fL.total.value = aPortal(d.esperado); fL.fecha_pago.value = d.fecha_esperada;
+    $('#lDatos').hidden = false; $('#lConfirmar').disabled = false; difLiq();
+  } catch (e) { msg(e.message, 'mal', '#msgL'); } finally { fin(); }
+};
+fL.onsubmit = async e => {
+  e.preventDefault();
+  if (!liqActual.facturas) return;
+  if (!$('#lMotivo').hidden && !fL.motivo.value.trim()) return msg('Indicá el motivo de la diferencia.', 'mal', '#msgL');
+  const fin = trabajando('Registrando la liquidación…');
+  try {
+    const d = await api('fin/liquidaciones', { method: 'POST', body: { procesador_id: liqActual.pr.id, desde: liqActual.w.desde, facturas: liqActual.facturas,
+      total: fL.total.value, fecha_pago: fL.fecha_pago.value, motivo: fL.motivo.value.trim() || null } });
+    $('#dlgLiq').close();
+    await refrescar();
+    msg(`Semana del ${semana(liqActual.w)} liquidada: ${d.comprobantes} factura(s) cargadas y compensadas; queda esperando el depósito.`, 'ok');
+  } catch (err) { msg(err.message, 'mal', '#msgL'); } finally { fin(); }
+};
+$('#lCancelar').onclick = () => $('#dlgLiq').close();
 const normCol = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 function importadorPeya(grupo, clave) {
   const varios = grupo.length > 1;

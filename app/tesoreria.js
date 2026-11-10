@@ -1168,11 +1168,12 @@ async function conciliarAutomatica(req, cuenta) {
       usadas.add(l.id); acreditadas++; acreditado += centavos(l.importe);
     }
 
-    // 2b. Depósitos de lotes esperados (procesadores que liquidan por lotes): mismo neto, del día del lote a 5 días
-    // después. Al parearlo, el lote se asienta con la fecha del depósito.
+    // 2b. Depósitos de lotes esperados (procesadores que liquidan por lotes: Fudo Pagos, y las liquidaciones semanales de
+    // PedidosYa, de cualquier procesador que deposita en la cuenta): mismo neto, del día del lote a 5 días después. Al
+    // parearlo, el lote se asienta con la fecha del depósito.
     const { rows: lotesAbiertos } = await c.query(
       `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text FROM fin.lote l
-        WHERE l.procesador_id = $1 AND l.movimiento_id IS NULL ORDER BY l.fecha`, [pr.id]);
+        WHERE l.procesador_id = ANY($1::uuid[]) AND l.movimiento_id IS NULL ORDER BY l.fecha`, [deCuenta.map(x => x.id)]);
     // Un depósito puede juntar varios lotes del mismo día (un crédito de una venta anterior con los débitos del día):
     // un lote, o la suma exacta de 2 o 3, el grupo más cercano en fecha.
     let lotesConfirmados = 0;
@@ -1986,7 +1987,7 @@ async function acreditarLotes(req, procesadorId = null) {
 // acreditar"). Devuelve la entrada, que es la que se concilia con la línea.
 async function asentarLote(c, loteId, fecha) {
   const { rows: [l] } = await c.query(
-    `SELECT l.*, to_char(l.fecha, 'YYYY-MM-DD') AS dia, pr.nombre, pr.cuenta_id AS pendiente, pr.cuenta_acredita_id
+    `SELECT l.*, to_char(l.fecha, 'YYYY-MM-DD') AS dia, pr.nombre, pr.marca, pr.cuenta_id AS pendiente, pr.cuenta_acredita_id
        FROM fin.lote l JOIN fin.procesador pr ON pr.id = l.procesador_id WHERE l.id = $1 FOR UPDATE OF l`, [loteId]);
   if (l.movimiento_id) throw new ErrorUsuario(`El lote ${l.nombre} del ${l.dia} ya está confirmado.`);
   const concepto = `Lote ${l.nombre} del ${l.dia} · ${l.pagos} cobro(s)`;
@@ -1996,7 +1997,9 @@ async function asentarLote(c, loteId, fecha) {
   const { rows: [ent] } = await c.query(
     `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, concepto, transferencia_id) VALUES ($1,$2,'transferencia',$3,$4,$5) RETURNING id`,
     [fecha, l.cuenta_acredita_id, l.neto, concepto, tr]);
-  const costo = centavos(l.bruto) - centavos(l.neto);
+  // PedidosYa: sus costos ya están asentados (por pedido al cobrar, y lo de las facturas al liquidar la semana); el lote
+  // sólo pasa el neto al banco.
+  const costo = l.marca === 'pedidosya' ? 0n : centavos(l.bruto) - centavos(l.neto);
   const { rows: [cm] } = costo > 0n ? await c.query(
     `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, salida, concepto, gasto) VALUES ($1,$2,'egreso',$3,$4,'comision') RETURNING id`,
     [fecha, l.pendiente, deCentavos(costo), `Cargos ${l.nombre} · lote del ${l.dia}`]) : { rows: [{}] };
@@ -2004,5 +2007,5 @@ async function asentarLote(c, loteId, fecha) {
   return ent.id;
 }
 
-Object.assign(r, { MEDIOS_SQL, acreditarLotes, porCobrar, traerPortalesAutomaticos, traerPortal, deshacerConciliacion });
+Object.assign(r, { MEDIOS_SQL, acreditarLotes, asentarLote, porCobrar, traerPortalesAutomaticos, traerPortal, deshacerConciliacion });
 module.exports = r;

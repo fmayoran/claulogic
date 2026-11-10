@@ -806,6 +806,26 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   viernes 12 días después del domingo (26/10 al 01/11 → 13/11, $868.629,61 = la suma exacta de nuestros netos de esa semana), con hasta
   72 h hábiles del banco. `porCobrar` lo usa como fecha (fuente `calendario`) y lo da para revisar recién 5 días después de esa fecha.
   Pendiente: confirmar el depósito contra la suma de netos de la semana cuando llegue el primero.
+- **Liquidación semanal de PedidosYa** (decisión de Fer, 09/11/2026, opción 2; migración 20261138, `app/liquidaciones.js`). PedidosYa
+  paga lo vendido menos **dos facturas A** a la sociedad: Delivery Hero E-Commerce (CUIT 30711985766: comisión + publicidad + descuentos
+  del local, menos una bonificación, y reclamos) y Pagos Ya (Delivery Hero Financial Services, 30715221159: el pago en línea), con IVA,
+  percepción de IVA RG 5319 y de IIBB. El `orderDetails` trae por pedido comisión, pago en línea, descuentos y reclamos (asentados al
+  cobrar), pero **no la publicidad ni las percepciones**: por eso SORELLE cobraba ~$500.000 por semana menos que lo calculado (CORTAFUEGO
+  no tiene publicidad). En el paso 1 de Ingresos, dentro del bloque de PedidosYa de cada sociedad, "Liquidaciones semanales": cada semana
+  terminada y cobrada se liquida subiendo los PDF de las dos facturas (pdf.js en el navegador, `/vendor/pdfjs`; el servidor lee el texto
+  con `factura_pdf.js`, formato oficial de ARCA, sólo las páginas ORIGINAL) y el Total del portal. Cálculo: publicidad = lo facturado
+  antes de la bonificación − lo asentado por pedido sin IVA (exacto por tienda: la tienda de cada renglón se reconoce por el pago en línea
+  de la factura de Pagos Ya, que coincide al centavo); IVA = IVA de las facturas − IVA asentado + IVA de la bonificación; esperado = neto
+  por pedido − publicidad − IVA − percepciones (la bonificación tiene efecto cero en lo pagado: el portal la resta de "Ventas" con su IVA
+  y la devuelve). Verificado con la semana del 26/10 de SORELLE: 2.699.471,50, al centavo. Al confirmar: las facturas quedan
+  **registradas y compensadas** (`fin.liquidacion_comprobante` + un movimiento `pago` en la cuenta corriente: sin deuda, en el libro IVA
+  de la sociedad; `comprobante_pendiente` las descuenta), los costos se asientan como egresos de "a acreditar" el domingo de la semana, por
+  tienda (Publicidad y marketing, IVA de comisiones, Otras retenciones, Ingresos Brutos; la diferencia con el portal, en Diferencias de
+  acreditación, con motivo si pasa de $100), y los cobros forman un `fin.lote` por el total, **esperado**. Lo confirma la conciliación
+  automática del banco (busca lotes de todos los procesadores que depositan en la cuenta) o, sin extracto (SANTANDER de SORELLE, sin
+  acceso), "Confirmar con el portal" con la fecha de pago. `asentarLote` no asienta costo para PedidosYa. "Cobrada fuera de la gestión"
+  (la semana del 28/09 de SORELLE) saca lo de "a acreditar" como "No es resultado". Se deshace mientras el pago no esté conciliado.
+  Pendiente: el CUIT de las sociedades (vacío; las facturas dicen SORELLE 30718639820).
 - **Mercado Pago por API — PENDIENTE** (03/11/2026: Fer todavía no tiene acceso a Mercado Pago Developers; por ahora CORTAFUEGO y
   SORELLE siguen con el reporte de liberaciones a mano). Cuando se retome, se prueba primero en CORTAFUEGO. API de
   reportes de liberaciones, con el Access Token de producción de una aplicación propia de la cuenta (no es de solo lectura: también
