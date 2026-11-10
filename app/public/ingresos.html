@@ -40,7 +40,7 @@
   .res-peya{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;} .res-peya .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
   .ok-peya{margin:0;font-weight:600;color:var(--sube);}
   /* Liquidaciones semanales de PedidosYa */
-  .liq{margin:14px 0 4px;border-top:1px solid var(--line);padding-top:10px;}
+  .liq{margin:0 0 4px;}
   .liq h3{margin:0 0 2px;font-size:.98rem;} .liq > .mut{margin:0 0 6px;font-size:.86rem;color:var(--mut);}
   .sem{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:8px 0;border-top:1px solid var(--g-grilla);font-size:.92rem;}
   .sem .t b{font-weight:600;} .sem .t small{display:block;color:var(--mut);font-size:.82rem;}
@@ -56,6 +56,12 @@
   .liq-calc .tot{font-weight:700;border-top:1px solid var(--line);padding-top:4px;} .liq-calc span:nth-child(even){text-align:right;font-variant-numeric:tabular-nums;}
   .liq-fact{margin:6px 0;padding-left:18px;font-size:.88rem;} .liq-fact li{margin:2px 0;}
   .liq-tiendas{font-size:.84rem;color:var(--mut);margin:4px 0 8px;}
+  /* PedidosYa: dos secciones (ventas diarias y liquidaciones semanales), cada una con su estado en el título */
+  .sec-peya{margin:16px 0 4px;border-top:1px solid var(--line);padding-top:12px;}
+  .sec-peya:first-of-type{border-top:0;padding-top:0;margin-top:6px;}
+  .sec-peya-cab{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 6px;}
+  .sec-peya-cab h3{margin:0;font-size:1rem;letter-spacing:.06em;}
+  .sec-peya-cab .det{flex-basis:100%;color:var(--mut);font-size:.88rem;}
   .local-peya{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:600;margin:14px 0 4px;}
   .bloque-cab .desde{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:.88rem;margin:0;} .bloque-cab .desde input{width:auto;}
   details.como{flex-basis:100%;font-size:.88rem;} details.como summary{cursor:pointer;color:var(--acento);font-weight:600;}
@@ -341,16 +347,35 @@ async function pintarVentas() {
 const resPeya = {};   // el último resultado de cada bloque, para mostrarlo después de repintar
 async function bloquePedidosYa(grupo) {
   const tss = grupo.map(p => tareasVentas(p)), varios = grupo.length > 1, clave = grupo[0].sociedad_id || grupo[0].id;
-  const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: varios ? `PedidosYa · ${grupo[0].sociedad}` : grupo[0].nombre }),
+  const est = (t, cls = '') => el('span', { className: 'est ' + cls, textContent: t });
+  const cab = el('div', { className: 'bloque-cab' }, el('h2', { textContent: varios ? `PEDIDOSYA · ${grupo[0].sociedad}` : `PEDIDOSYA · ${grupo[0].sede || grupo[0].nombre}` }),
     el('span', { className: 'sinc', textContent: varios ? `Un solo archivo del portal para ${grupo.map(p => p.sede).join(' y ')}: cada pedido va al local de su tienda.`
       : 'Ventas por archivo: el detalle de pedidos del portal.' }));
-  const cuerpo = [importadorPeya(grupo, clave)];
-  for (const pr of liqs.filter(x => grupo.some(p => p.sociedad_id && p.sociedad_id === x.sociedad_id))) cuerpo.push(bloqueLiquidaciones(pr));
+  // VENTAS DIARIAS: cuántos días faltan importar, en el título (pedido de Fer, 10/11/2026: antes recién se veía abajo).
+  const faltan = grupo.map((p, i) => ({ p, dias: [...new Set(tss[i].filter(t => t.tipo === 'importar').flatMap(t => t.dias || []))].sort() }));
+  const nFaltan = new Set(faltan.flatMap(f => f.dias)).size, otras = tss.reduce((n, ts) => n + ts.filter(t => t.tipo !== 'importar').length, 0);
+  const tramo = ds => ds.length === 1 ? `el ${corta(ds[0])}` : `del ${corta(ds[0])} al ${corta(ds[ds.length - 1])}`;
+  const detVentas = faltan.filter(f => f.dias.length).map(f => (varios ? `${f.p.sede}: ` : '') + `${f.dias.length} día(s), ${tramo(f.dias)}`).join(' · ');
+  const ventas = el('section', { className: 'sec-peya' }, el('div', { className: 'sec-peya-cab' }, el('h3', { textContent: 'VENTAS DIARIAS' }),
+    nFaltan ? est(`Faltan importar ${nFaltan} día${nFaltan > 1 ? 's' : ''}`, 'falta') : otras ? null : est('Al día', 'ok'),
+    otras ? est(`${otras} para resolver`, 'falta') : null,
+    detVentas ? el('span', { className: 'det', textContent: detVentas }) : null), importadorPeya(grupo, clave));
   for (const [i, p] of grupo.entries()) {
     const ts = tss[i], ultimo = p.dias.find(d => d.ventas);
-    if (varios) cuerpo.push(el('h3', { className: 'local-peya', textContent: p.sede }));
-    for (const t of ts) cuerpo.push(await tareaVenta(p, t, { agrupado: true }));
-    if (!ts.length) cuerpo.push(el('p', { className: 'al-dia', textContent: ultimo ? `Ventas al día: el último día con ventas es el ${fecha(ultimo.dia)} y está cobrado.` : 'Sin ventas pendientes.' }));
+    if (varios) ventas.append(el('h4', { className: 'local-peya', textContent: p.sede }));
+    for (const t of ts) ventas.append(await tareaVenta(p, t, { agrupado: true }));
+    if (!ts.length) ventas.append(el('p', { className: 'al-dia', textContent: ultimo ? `Ventas al día: el último día con ventas es el ${fecha(ultimo.dia)} y está cobrado.` : 'Sin ventas pendientes.' }));
+  }
+  const cuerpo = [ventas];
+  // LIQUIDACIONES SEMANALES: lo que hay por liquidar o esperando el banco, en el título.
+  const prs = liqs.filter(x => grupo.some(p => p.sociedad_id && p.sociedad_id === x.sociedad_id));
+  if (prs.length) {
+    const sems = prs.flatMap(pr => pr.semanas), n = e => sems.filter(w => w.estado === e).length;
+    const porLiq = n('por_liquidar'), faltCob = n('faltan_cobros'), esper = n('esperando');
+    cuerpo.push(el('section', { className: 'sec-peya' }, el('div', { className: 'sec-peya-cab' }, el('h3', { textContent: 'LIQUIDACIONES SEMANALES' }),
+      porLiq ? est(`${porLiq} por liquidar`, 'falta') : null, faltCob ? est(`${faltCob} esperando los cobros`, 'falta') : null,
+      esper ? est(`${esper} esperando el banco`) : null, !porLiq && !faltCob && !esper ? est('Al día', 'ok') : null),
+      ...prs.map(bloqueLiquidaciones)));
   }
   return el('section', { className: 'card bloque' }, cab, ...cuerpo);
 }
@@ -363,7 +388,7 @@ const plata = v => { if (v == null || v === '') return ''; const c = centavos(v)
 const semana = w => `${corta(w.desde)} al ${corta(w.hasta)}`;
 function bloqueLiquidaciones(pr) {
   const abiertas = pr.semanas.filter(w => w.estado !== 'acreditada'), acred = pr.semanas.filter(w => w.estado === 'acreditada');
-  const caja = el('section', { className: 'liq' }, el('h3', { textContent: 'Liquidaciones semanales' }),
+  const caja = el('div', { className: 'liq' },
     el('p', { className: 'mut', textContent: `${pr.nombre} · deposita en ${pr.deposita || 'sin cuenta elegida (Medios de pago)'}. Lunes a domingo; paga el viernes 12 días después.` }));
   for (const w of abiertas) caja.append(filaSemana(pr, w));
   if (!abiertas.length) caja.append(el('p', { className: 'al-dia', textContent: 'Sin semanas por liquidar.' }));
