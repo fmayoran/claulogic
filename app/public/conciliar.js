@@ -560,6 +560,36 @@ const Conc = (() => {
           + 'acredita acá y los saca del efectivo a rendir del punto de venta (si ese efectivo ya se rindió, queda en negativo hasta corregir la rendición).' }),
         el('div', { className: 'acciones' }, todos)));
     }
+    // Transferencias entre cuentas propias (pedido de Fer, 10/11/2026): la misma plata en dos extractos propios, o una reserva o
+    // retiro del apartado de Mercado Pago. Se confirman juntas; cada una asienta las dos patas y concilia las dos líneas.
+    const transf = d.transferencias || [];
+    const enTransf = new Set(transf.map(x => x.linea_id));
+    if (transf.length) {
+      const todas = el('button', { type: 'button', className: 'prim', textContent: transf.length === 1 ? 'Confirmar' : `Confirmar las ${transf.length}` });
+      todas.onclick = async () => {
+        todas.disabled = true;
+        try {
+          const r = await api('fin/conciliacion/transferencias', { method: 'POST', trabajando: 'Registrando las transferencias…',
+            body: { pares: transf.map(x => ({ linea_id: x.linea_id, otra_linea_id: x.otra_linea ? x.otra_linea.id : null, cuenta_id: x.cuenta_id })) } });
+          ctx.aviso(`${r.hechas} transferencia(s) registradas y conciliadas.` + (r.errores.length ? ` No se pudieron: ${r.errores.join('; ')}` : ''), r.errores.length ? 'aviso' : 'ok');
+        } catch (e) { ctx.aviso(e.message, 'mal'); }
+        await ctx.recargar();
+      };
+      const fila = x => {
+        const sale = x.linea.importe.startsWith('-'), o = x.otra_linea;
+        return el('div', { className: 'pend' },
+          el('div', { className: 'q' }, el('b', { textContent: `${fecha(x.linea.fecha)} · ${partes(x.linea.concepto).nombre || x.linea.concepto || 'Sin concepto'}` }),
+            el('small', { textContent: (sale ? 'Va a ' : 'Viene de ') + x.cuenta + (o ? ` (en su extracto el ${fecha(o.fecha)}: ${partes(o.concepto).nombre || o.concepto || ''})` : ' (sin extracto)') })),
+          el('div', { className: 'imp' }, conSigno(x.linea.importe)));
+      };
+      grupos.push(el('section', { className: 'card grupo-p' },
+        el('h3', {}, 'Transferencias entre cuentas propias', el('small', { textContent: `${transf.length} · ${pesos(deCentavos(transf.reduce((t, x) => { const v = centavos(x.linea.importe); return t + (v < 0n ? -v : v); }, 0n)))}` })),
+        el('p', { className: 'cap', textContent: 'La misma plata en el extracto de dos cuentas propias (mismo importe, hasta 2 días de diferencia), o una reserva o retiro del apartado. '
+          + 'Confirmarlas asienta la transferencia entre las dos cuentas y concilia las dos líneas.' }),
+        ...transf.map(fila), el('div', { className: 'acciones' }, todas)));
+    }
+    const sinTransf = arr => arr.filter(l => !enTransf.has(l.id));
+    ingresos.splice(0, ingresos.length, ...sinTransf(ingresos)); egresos.splice(0, egresos.length, ...sinTransf(egresos));
     if (ingresos.length) grupos.push(grupo('Ingresos sin identificar', ingresos,
       d.procesador ? 'No coinciden con ningún cobro de las ventas: puede ser una venta de un día que todavía no se importó (traela y volvé a conciliar) o un ingreso que no viene de ventas (registralo).'
         : 'Plata que entró a la cuenta y no tiene movimiento: registrala o conciliala con el movimiento que corresponde.', filaLinea));

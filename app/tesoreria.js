@@ -887,7 +887,75 @@ r.get('/fin/conciliacion', h(async (req, res) => {
       WHERE l.cuenta_id = $1::uuid AND l.descartada IS NOT NULL ORDER BY l.fecha, l.id`, [cuenta]);
   res.json({ ok: true, cuenta_id: cuenta, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
     descartadas: descartadas.map(l => ({ ...l, lado: ladoDe(l) })).filter(l => !lado || l.lado === lado),
-    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos, cobros });
+    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos, cobros,
+    transferencias: (await transferenciasPropias(cuenta)).filter(x => !lado || ladoDe(x.linea) === lado) });
+}));
+
+// Transferencias entre cuentas propias (pedido de Fer, 10/11/2026: "De una cuenta tuya - MercadoPago" en BRUBANK y "Transferencia
+// a banco" en MERCADO PAGO CF eran la misma plata, resuelta a mano de los dos lados). Una línea sin conciliar de esta cuenta se
+// propone como transferencia con:
+//   * una línea sin conciliar de otra cuenta propia por el importe opuesto, hasta 2 días de distancia (la más cercana); o
+//   * si es una reserva o un retiro del apartado de Mercado Pago, la cuenta del apartado de la misma sociedad (no tiene extracto).
+// Nunca automático: se confirman juntas desde la conciliación.
+async function transferenciasPropias(cuenta) {
+  const { rows: lineas } = await pool.query(
+    `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto, l.referencia FROM fin.extracto_linea l
+      WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL
+        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) ORDER BY l.fecha, l.id`, [cuenta]);
+  if (!lineas.length) return [];
+  const { rows: otras } = await pool.query(
+    // Sólo entre cuentas de la misma sociedad (o del grupo): una transferencia entre sociedades no es "entre cuentas propias", y
+    // un importe redondo coincide seguido (un retiro del apartado de SORELLE con un pago de CORTAFUEGO por el mismo importe).
+    `SELECT l.id, l.cuenta_id, cu.nombre AS cuenta, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto FROM fin.extracto_linea l
+       JOIN fin.cuenta cu ON cu.id = l.cuenta_id JOIN fin.cuenta yo ON yo.id = $1::uuid
+      WHERE l.cuenta_id <> $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL
+        AND (cu.sociedad_id IS NULL OR yo.sociedad_id IS NULL OR cu.sociedad_id = yo.sociedad_id)
+        AND l.importe = ANY($2::numeric[]) AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`,
+    [cuenta, lineas.map(l => opuesto(l.importe))]);
+  const { rows: [apartado] } = await pool.query(
+    `SELECT a.id, a.nombre FROM fin.cuenta a JOIN fin.cuenta c ON c.id = $1::uuid
+      WHERE a.id <> c.id AND a.activa AND a.nombre ILIKE '%apartado%' AND a.sociedad_id IS NOT DISTINCT FROM c.sociedad_id
+      ORDER BY a.nombre LIMIT 1`, [cuenta]);
+  const dias = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) / 864e5;
+  const usadas = new Set(), out = [];
+  for (const l of lineas) {
+    if (apartado && /apartado/i.test(l.concepto || '')) { out.push({ linea_id: l.id, linea: l, cuenta_id: apartado.id, cuenta: apartado.nombre, otra_linea: null }); continue; }
+    const o = otras.filter(x => !usadas.has(x.id) && !/apartado/i.test(x.concepto || '') && centavos(x.importe) === -centavos(l.importe) && dias(x.fecha, l.fecha) <= 2)
+      .sort((a, b) => dias(a.fecha, l.fecha) - dias(b.fecha, l.fecha))[0];
+    if (o) { usadas.add(o.id); out.push({ linea_id: l.id, linea: l, cuenta_id: o.cuenta_id, cuenta: o.cuenta, otra_linea: o }); }
+  }
+  return out;
+}
+r.post('/fin/conciliacion/transferencias', h(async (req, res) => {
+  const pares = Array.isArray(req.body.pares) ? req.body.pares : [];
+  if (!pares.length || pares.length > 200) throw new ErrorUsuario('Elegí entre una y 200 transferencias.');
+  let hechas = 0; const errores = [];
+  for (const x of pares) try {
+    const linea = numero(x.linea_id, { campo: 'la línea', requerido: true }), otraId = x.otra_linea_id == null ? null : numero(x.otra_linea_id, { campo: 'la otra línea' });
+    const otraCuenta = texto(x.cuenta_id, { campo: 'la otra cuenta', requerido: true });
+    await enTransaccion(async c => {
+      const { rows: ls } = await c.query(
+        `SELECT l.*, to_char(l.fecha, 'YYYY-MM-DD') AS dia, l.importe::text AS imp, EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
+           FROM fin.extracto_linea l WHERE l.id = ANY($1::bigint[]) ORDER BY l.id FOR UPDATE`, [[linea, otraId].filter(v => v != null)]);
+      const l = ls.find(v => String(v.id) === String(linea)), o = otraId != null ? ls.find(v => String(v.id) === String(otraId)) : null;
+      if (!l || (otraId != null && !o)) throw new ErrorUsuario('Alguna de las líneas no existe.');
+      for (const v of [l, o].filter(Boolean)) if (v.conciliada || v.compensa_a || v.descartada) throw new ErrorUsuario(`La línea del ${v.dia} ya está resuelta.`);
+      if (o && (o.cuenta_id !== otraCuenta || centavos(o.imp) !== -centavos(l.imp))) throw new ErrorUsuario('Las dos líneas no son la misma transferencia.');
+      if (otraCuenta === l.cuenta_id) throw new ErrorUsuario('Elegí otra cuenta.');
+      const sale = l.imp.startsWith('-'), imp = sale ? l.imp.slice(1) : l.imp;
+      // La fecha de la salida (la plata sale de una y entra en la otra; si el banco la registra al día siguiente, se ve en la línea).
+      const fechaT = o ? (sale ? l.dia : o.dia) : l.dia;
+      const concepto = `Transferencia entre cuentas propias · ${(sale ? l.concepto : (o && o.concepto) || l.concepto) || ''}`.slice(0, 300);
+      const { rows: [{ tr }] } = await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, $4::date, $5) AS tr',
+        sale ? [l.cuenta_id, otraCuenta, imp, fechaT, concepto] : [otraCuenta, l.cuenta_id, imp, fechaT, concepto]);
+      const { rows: patas } = await c.query('SELECT id, cuenta_id FROM fin.movimiento_tes WHERE transferencia_id = $1', [tr]);
+      await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [l.id, patas.find(p => p.cuenta_id === l.cuenta_id).id]);
+      if (o) await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [o.id, patas.find(p => p.cuenta_id === o.cuenta_id).id]);
+    });
+    hechas++;
+  } catch (e) { if (!(e instanceof ErrorUsuario) && !e.code) throw e; errores.push(e.message); }
+  if (!hechas && errores.length) throw new ErrorUsuario(errores[0]);
+  res.json({ ok: true, hechas, errores });
 }));
 
 // Descartar un extracto importado por error (un archivo equivocado, o el resumen de Mercado Pago sin las

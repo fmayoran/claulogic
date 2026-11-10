@@ -806,6 +806,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   viernes 12 días después del domingo (26/10 al 01/11 → 13/11, $868.629,61 = la suma exacta de nuestros netos de esa semana), con hasta
   72 h hábiles del banco. `porCobrar` lo usa como fecha (fuente `calendario`) y lo da para revisar recién 5 días después de esa fecha.
   Pendiente: confirmar el depósito contra la suma de netos de la semana cuando llegue el primero.
+- **Transferencias entre cuentas propias** (pedido de Fer, 10/11/2026; `transferenciasPropias` en `tesoreria.js`): en "Para resolver", una línea
+  sin conciliar se propone como transferencia con una línea de otra cuenta de la **misma sociedad** (o del grupo) por el importe opuesto,
+  hasta 2 días de distancia ("De una cuenta tuya - MercadoPago" en BRUBANK con "Transferencia a banco" en MERCADO PAGO CF), o, si el
+  concepto dice "apartado", con la cuenta del apartado de la sociedad (sin extracto). Se confirman juntas (`POST
+  /fin/conciliacion/transferencias`): `fin.transferir` con la fecha de la salida y las dos líneas conciliadas. **Préstamos de socios**
+  (migración 20261139): los ingresos de BRUBANK de Fernando Mayorano, ABUNDEMIO CASH, DESARROLLOS VILARA, VILLATECNO, SEMILLAS DEL
+  CAMPO y JONATHAN LEDESMA de octubre y noviembre, como ingreso en "Aportes, retiros y préstamos" (no es resultado). La deuda con cada
+  socio no se lleva todavía.
 - **Liquidación semanal de PedidosYa** (decisión de Fer, 09/11/2026, opción 2; migración 20261138, `app/liquidaciones.js`). PedidosYa
   paga lo vendido menos **dos facturas A** a la sociedad: Delivery Hero E-Commerce (CUIT 30711985766: comisión + publicidad + descuentos
   del local, menos una bonificación, y reclamos) y Pagos Ya (Delivery Hero Financial Services, 30715221159: el pago en línea), con IVA,
