@@ -718,6 +718,7 @@ async function abrirRendir(p) {
     elegido = tot;
     fR.importe.value = tot > 0n ? miles(deCentavos(tot)) : '';
     const ds = el_.filter(f => f.dia);
+    rSel = { elegido: tot, filas: el_ };
     $('#rTotal').textContent = el_.length ? `${el_.length} día(s) · ${pesos(deCentavos(tot))}` : 'Ningún día elegido';
     fR.concepto.placeholder = ds.length ? `Efectivo ${ds.length === 1 ? 'del ' + corta(ds[0].dia) : `del ${corta(ds[0].dia)} al ${corta(ds.at(-1).dia)}`}` : 'quién lo trajo, número de depósito…';
     queda();
@@ -732,8 +733,23 @@ async function abrirRendir(p) {
   sumar();
   $('#dlgRendir').showModal(); fR.importe.focus();
 }
+// Lo que se rinde de menos queda pendiente en los días más nuevos de los elegidos (pedido de Fer, 10/11/2026: dos veces se
+// rindió menos sin darse cuenta y el último día siguió pendiente). Se pide confirmación diciendo cuánto y en qué día(s).
+let rSel = { elegido: 0n, filas: [] };
+function confirmaParcial() {
+  const v = String(fR.importe.value).replace(/\./g, '').trim();
+  if (!/^\d+$/.test(v)) return true;
+  const imp = BigInt(v) * 100n, falta = rSel.elegido - imp;
+  if (falta <= 0n) return true;
+  let resto = falta; const quedan = [];
+  for (const f of [...rSel.filas].reverse()) { if (resto <= 0n) break; quedan.unshift(f.dia ? corta(f.dia) : 'lo anterior'); resto -= f.imp; }
+  return confirm(`Rendís ${pesos(deCentavos(imp))} de ${pesos(deCentavos(rSel.elegido))}: quedan ${pesos(deCentavos(falta))} pendientes en `
+    + (quedan.length === 1 ? `el ${quedan[0]}` : `los días ${quedan.join(', ')}`) + '.\n\n¿Es una rendición parcial?\n\n'
+    + 'Aceptar: rendir ese importe y dejar el resto pendiente.\nCancelar: volver y corregir el importe.');
+}
 fR.onsubmit = async e => {
   e.preventDefault();
+  if (!confirmaParcial()) return fR.importe.focus();
   try {
     await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value,
       concepto: fR.concepto.value.trim() || (fR.concepto.placeholder.startsWith('Efectivo') ? fR.concepto.placeholder : '') } });
