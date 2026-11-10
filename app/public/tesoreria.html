@@ -70,6 +70,12 @@
   /* Las semanas de PedidosYa liquidadas: desglose de la liquidación y sus ventas. */
   #dlgAcr .a-liqs{grid-column:1 / -1;margin:4px 0 2px;} #dlgAcr .v-det .r.tot{font-weight:650;border-top:1px solid var(--g-grilla);margin-top:4px;padding-top:4px;}
   #dlgAcr .v-det details.a-ventas{margin-top:6px;}
+  /* Cuándo entra: primero cada cuenta; adentro, procesador y punto de venta. */
+  #dlgAcr details.a-cta{border-bottom:1px solid var(--g-grilla);padding:8px 0;}
+  #dlgAcr details.a-cta > summary{cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;list-style:none;}
+  #dlgAcr details.a-cta > summary::-webkit-details-marker{display:none;} #dlgAcr details.a-cta > summary .i{font-weight:650;font-variant-numeric:tabular-nums;}
+  #dlgAcr details.a-cta > summary small{grid-column:1 / -1;color:var(--mut);font-size:.82rem;}
+  #dlgAcr details.a-cta > details.a-venta{margin-left:12px;}
   #dlgAcr details.a-venta{border-bottom:1px solid var(--g-grilla);padding:6px 0;} #dlgAcr details.a-venta:last-child{border-bottom:0;}
   #dlgAcr details.a-venta > summary{cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:.9rem;list-style:none;}
   #dlgAcr details.a-venta > summary::-webkit-details-marker{display:none;}
@@ -487,17 +493,31 @@ function panelCuando(dia, hoy) {
   $('#aTitulo').textContent = atr ? 'Atrasado' : `Entra el ${diaLargo(dia)}`;
   $('#aImporte').textContent = pesos(tot(todas));
   $('#aDatos').textContent = `${cobros(todas.length)} · neto de costos`;
+  // De a un nivel (pedido de Fer, 10/11/2026: todo junto era demasiado): primero cuánto entra en cada cuenta; al abrir una, de qué
+  // procesador y punto de venta; al abrir uno, lo cobrado, el costo y el neto, y sus ventas (o semanas liquidadas) a pedido.
   const nombreE = k => ESTADOS_ACR.find(e => e[0] === k)[1];
-  $('#aCuerpo').replaceChildren(el('div', { className: 'lineas' }, ...gs.map(({ d, ventas: vs }) => {
-    const bruto = vs.reduce((t, v) => t + n(v.importe), 0), neto = tot(vs), dias = vs.map(v => v.dia).sort();
-    const fuentes = [...new Set(vs.map(v => FUENTE[v.fuente]))].join(', ');
-    const liqs = (d.liquidaciones || []).filter(l => vs.some(v => v.liquidacion_id === l.id));
-    return el('div', { className: 'linea' },
-      el('span', { className: 'd' }, el('b', { textContent: `${d.procesador} · ${d.punto_venta}` }),
-        el('small', { textContent: [`${cobros(vs.length)} · ventas ${rangoFechas(dias[0], dias.at(-1))}`,
-          liqs.length ? '' : `cobrado ${pesos(bruto)}` + (Math.round(bruto - neto) ? `, costo ${pesos(bruto - neto)}` : ''), nombreE(d.estado).toLowerCase(), fuentes].filter(Boolean).join(' · ') })),
-      el('span', { className: 'i', textContent: pesos(neto) }),
-      liqs.length ? liquidacionesAcr({ ...d, liquidaciones: liqs, ventas: vs }) : ventasAcr(vs, d.punto_venta));
+  const fila = (txt, imp, cls) => el('div', { className: 'r' + (cls ? ' ' + cls : '') }, el('span', { textContent: txt }), el('span', { className: 'i', textContent: imp }));
+  const porCuenta = new Map();
+  for (const g of gs) { const k = g.d.deposita || 'Sin cuenta donde deposita'; porCuenta.set(k, [...(porCuenta.get(k) || []), g]); }
+  const ctas = [...porCuenta].sort((a, b) => tot(b[1].flatMap(g => g.ventas)) - tot(a[1].flatMap(g => g.ventas)));
+  $('#aCuerpo').replaceChildren(el('div', { className: 'lineas' }, ...ctas.map(([cuenta, cgs]) => {
+    const vsC = cgs.flatMap(g => g.ventas), procs = [...new Set(cgs.map(g => g.d.procesador))];
+    return el('details', { className: 'a-cta', open: ctas.length === 1 },
+      el('summary', {}, el('b', { textContent: cuenta }), el('span', { className: 'i', textContent: pesos(tot(vsC)) }),
+        el('small', { textContent: `${cobros(vsC.length)} · ${procs.join(', ')}` })),
+      ...cgs.map(({ d, ventas: vs }) => {
+        const bruto = vs.reduce((t, v) => t + n(v.importe), 0), neto = tot(vs), dias = vs.map(v => v.dia).sort();
+        const fuentes = [...new Set(vs.map(v => FUENTE[v.fuente]))].join(', ');
+        const liqs = (d.liquidaciones || []).filter(l => vs.some(v => v.liquidacion_id === l.id));
+        return el('details', { className: 'a-venta' },
+          el('summary', {}, el('b', { textContent: `${d.procesador} · ${d.punto_venta}` }), el('span', { className: 'i', textContent: pesos(neto) }),
+            el('small', { textContent: [`${cobros(vs.length)} · ventas ${rangoFechas(dias[0], dias.at(-1))}`, nombreE(d.estado).toLowerCase(), fuentes].join(' · ') })),
+          el('div', { className: 'v-det' },
+            liqs.length ? '' : fila('Cobrado', pesos(bruto)),
+            liqs.length || !Math.round(bruto - neto) ? '' : fila('Costo del procesador', pesos(neto - bruto), 'sub'),
+            liqs.length ? '' : fila('Neto', pesos(neto), 'tot'),
+            liqs.length ? liquidacionesAcr({ ...d, liquidaciones: liqs, ventas: vs }) : ventasAcr(vs, d.punto_venta)));
+      }));
   })));
   $('#dlgAcr').showModal();
 }
