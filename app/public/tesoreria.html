@@ -376,6 +376,7 @@ function pintarDisponible() {
   const inactivas = cuentas.filter(c => !c.activa && filialDe(c) === filial && ['banco', 'caja'].includes(c.tipo));
   if (inactivas.length) g.push(el('details', { className: 'inact' }, el('summary', { textContent: `Cuentas inactivas (${inactivas.length})` }),
     ...inactivas.map(c => filaCuenta(c, [TIPO[c.tipo]]))));
+  if (filial === SIN) { const soc = grupoSocios(todas); if (soc) g.push(soc); }
   $('#grupos').replaceChildren(...g);
 }
 
@@ -683,6 +684,14 @@ function pintarEfectivo() {
 }
 
 // "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.
+// Préstamos de socios (11/11/2026): no es disponible; su saldo negativo es lo que se les debe a los socios.
+function grupoSocios(todas) {
+  const cs = todas.filter(c => c.tipo === 'socios');
+  if (!cs.length) return null;
+  const debe = -suma(cs);
+  return grupo('Préstamos de socios', pesosC(debe > 0n ? debe : 0n), 'Lo que los socios pusieron de su bolsillo y se les debe. No suma al disponible. Tocala para ver los movimientos.',
+    ...cs.map(c => filaCuenta(c, ['Gastos que pagaron los socios; devolverles es una transferencia a esta cuenta'])));
+}
 function resumenFiliales(todas, fs) {
   const de = id => todas.filter(c => filialDe(c) === id), ef = cs => cs.filter(c => c.punto_venta);
   $('#grupos').replaceChildren(grupo('Por sociedad', null, 'Hoy. Tocá una para ver sus cuentas.',
@@ -696,6 +705,8 @@ function resumenFiliales(todas, fs) {
         tr.onclick = () => elegirFilial(id);
         return tr;
       }))))));
+  const soc = grupoSocios(todas);
+  if (soc) $('#grupos').append(soc);
   etiquetarTabla($('#grupos table'));
 }
 // Lo que entra de los cobros de la filial, por el punto de venta que cobró (los totales se recalculan con lo filtrado).
