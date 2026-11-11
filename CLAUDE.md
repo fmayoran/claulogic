@@ -904,7 +904,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   proveedores, Transferencias propias y Anticipos al personal. Los rubros se agregan y renombran en Rubros y reglas.
   **Subcategorías de mercadería** (migración 20261142): rubros "Mercadería · Carnes / Aves / Pescados y mariscos / Fiambres y embutidos /
   Lácteos, quesos y huevos / Frutas y verduras / Almacén / Aceites y grasas / Panadería y pastelería / Congelados / Café e infusiones /
-  Bebidas sin alcohol / Bebidas con alcohol" y "Mercadería varios" (ex Compras de mercadería, para mayoristas); las mismas categorías
+  Bebidas sin alcohol / Bebidas con alcohol / Helados" (Helados y "Envíos de delivery" en Comercialización, migración 20261144) y "Mercadería varios" (ex Compras de mercadería, para mayoristas); las mismas categorías
   en Productos, así el costo del consumo se abre igual que la historia.
 - **Comercios dentro de un local** (pedido de Fer, 07/11/2026; migración 20261126). SORELLE BODEGON Y SUSHI es un punto de venta (un
   Maxirest, una caja, una cuenta de Mercado Pago) con dos comercios que se miran por separado: **Wera Sushi** y **Lo de Titi Bodegón**
