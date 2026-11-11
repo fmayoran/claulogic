@@ -826,6 +826,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (migración 20261139): los ingresos de BRUBANK de Fernando Mayorano, ABUNDEMIO CASH, DESARROLLOS VILARA, VILLATECNO, SEMILLAS DEL
   CAMPO y JONATHAN LEDESMA de octubre y noviembre, como ingreso en "Aportes, retiros y préstamos" (no es resultado). La deuda con cada
   socio no se lleva todavía.
+- **Préstamos de socios** (decisión de Fer, 11/11/2026; migración 20261145): cuenta `PRÉSTAMOS DE SOCIOS`, de tipo nuevo `socios`, que
+  no suma al disponible (los cálculos toman `tipo IN ('banco','caja')`). Un gasto que pagó un socio con plata propia sale de ahí como
+  egreso con su rubro y local; el saldo negativo es lo que se les debe; devolverles es una transferencia a esta cuenta. Por ahora es
+  global, no una por socio. No se edita ni se crea desde Cuentas. Arrancó con los saldos "a pagar" de los gastos de Fudo de CORTAFUEGO
+  desde el 01/10 (13 gastos, $27.581.231, concepto `Fudo gasto #N`): en Fudo quedaron como deuda para acordarse, pero los pagaron los
+  socios. Quedaron afuera los honorarios de Adrián Sandoval ($4.500.000, se deben de verdad: se cargan cuando se paguen) y $1.287.797 de
+  Pilotti que pagó BRUBANK el 04/11. Los préstamos depositados en BRUBANK siguen como ingreso en "Aportes, retiros y préstamos" hasta
+  analizarlos.
 - **Liquidación semanal de PedidosYa** (decisión de Fer, 09/11/2026, opción 2; migración 20261138, `app/liquidaciones.js`). PedidosYa
   paga lo vendido menos **dos facturas A** a la sociedad: Delivery Hero E-Commerce (CUIT 30711985766: comisión + publicidad + descuentos
   del local, menos una bonificación, y reclamos) y Pagos Ya (Delivery Hero Financial Services, 30715221159: el pago en línea), con IVA,
