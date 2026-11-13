@@ -572,9 +572,9 @@ const COLUMNAS_PEYA = {
   adeudado: ['monto adeudado a pedidosya', 'amount owed back to pedidosya'], articulos: ['articulos del pedido', 'order items'],
   comision: ['comision', 'commission'], comision_online: ['comision por pago en linea', 'online payment fee'], impuesto: ['impuesto', 'tax charge'],
   marketing: ['total de costes de marketing', 'marketing fees total'], tienda: ['id de tienda', 'store id'], local: ['nombre del local', 'restaurant name'],
-  aceptado: ['aceptado el', 'aceptado a las', 'pedido aceptado el', 'accepted at'],
-  motivo: ['motivo de cancelacion', 'motivo de la cancelacion', 'cancellation reason'],
-  responsable: ['responsable de la cancelacion', 'responsable de cancelacion', 'cancelado por', 'cancellation owner'] };
+  aceptado: ['aceptado en', 'aceptado el', 'aceptado a las', 'pedido aceptado el', 'accepted at'],
+  motivo: ['motivo de rechazo', 'motivo de cancelacion', 'motivo de la cancelacion', 'cancellation reason'],
+  responsable: ['responsable del rechazo', 'responsable de la cancelacion', 'responsable de cancelacion', 'cancelado por', 'cancellation owner'] };
 // Quién canceló, en castellano (para el KPI de cancelaciones).
 const RESPONSABLE_PEYA = [[/vendor|local|restaur|tienda|socio/i, 'local'], [/customer|cliente/i, 'cliente'],
   [/platform|pedidosya|transport|rider|repartidor|logistic/i, 'pedidosya']];
