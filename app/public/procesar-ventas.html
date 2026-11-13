@@ -270,7 +270,7 @@ const resultado = d => {
     `Lotes esperando el depósito: ${l.lotes.map(x => `${x.procesador} ${fecha(x.fecha).slice(0, 5)} (${pesos(x.neto)})`).join(', ')}. Se acreditan al conciliar el extracto del banco.`)));
   if (l && l.sin_cuenta.length) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' },
     `Hay lotes de ${l.sin_cuenta.join(', ')} listos para liquidar, pero falta la cuenta donde deposita (Medios de pago, "Deposita en").`)));
-  if (d.aviso_liquidacion) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' }, 'No se pudo traer la liquidación de los pagos: ' + d.aviso_liquidacion)));
+  if (d.aviso_liquidacion) $('#resListos').append(el('ul', { className: 'alertas' }, el('li', { className: 'aviso' }, (/^Maxirest|^Artículos/.test(d.aviso_liquidacion) ? '' : 'No se pudo traer la liquidación de los pagos: ') + d.aviso_liquidacion)));
 };
 // Lo que se procesó solo y lo que quedó para revisar a mano, con el porqué.
 function pintarProcesados(c) {

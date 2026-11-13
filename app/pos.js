@@ -362,7 +362,24 @@ async function sincronizarRango(req, integ, desde, hasta) {
     if (integ.sistema === 'maxirest') {
       datos = await maxirest.ventas(integ.id, cred, desde, hasta);   // por días del local
       // Los artículos del día (con su rubro) reparten las ventas entre los comercios del local. Si fallan, las ventas entran igual.
-      try { datos.articulos = await maxirest.articulos(integ.id, cred, desde, hasta); }
+      try {
+        datos.articulos = await maxirest.articulos(integ.id, cred, desde, hasta);
+        // Maxirest puede devolver las ventas de un día y todavía no sus artículos (13/11/2026: el 12/11 de SORELLE, traído a la
+        // madrugada, vino sin artículos y su venta quedó "sin repartir" entre los comercios). Los días de las últimas dos
+        // semanas con ventas y sin artículos se vuelven a pedir en cada corrida, hasta que lleguen.
+        const { rows: faltan } = await pool.query(
+          `SELECT DISTINCT to_char(t.dia, 'YYYY-MM-DD') AS dia FROM pos.ticket t
+            WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND t.dia >= current_date - 14 AND t.dia < $2::date
+              AND NOT EXISTS (SELECT 1 FROM pos.articulo_dia a WHERE a.integracion_id = t.integracion_id AND a.dia = t.dia)
+            ORDER BY 1`, [integ.id, desde]);
+        datos.articulosPrevios = [];
+        for (const f of faltan) datos.articulosPrevios.push(...await maxirest.articulos(integ.id, cred, f.dia, f.dia));
+        const conArt = new Set([...datos.articulos, ...datos.articulosPrevios].map(a => a.dia));
+        const conVentas = new Set([...datos.tickets.filter(t => t.estado === 'cerrado').map(t => String(t.abierto_en).slice(0, 10)), ...faltan.map(f => f.dia)]);
+        const sinArt = [...conVentas].filter(d => !conArt.has(d)).sort();
+        if (sinArt.length) avisoLiquidacion = `Maxirest todavía no tiene los artículos de ${sinArt.map(d => d.slice(8, 10) + '/' + d.slice(5, 7)).join(', ')}: `
+          + 'la venta de esos días queda sin repartir entre los comercios hasta la próxima vez que se traigan las ventas.';
+      }
       catch (e) { if (!(e instanceof maxirest.ErrorMaxirest)) throw e; avisoLiquidacion = 'Artículos: ' + e.message; console.error(`Maxirest, artículos (${integ.nombre}):`, e.message); }
     } else {
       datos = await fudo.ventas(integ.id, cred, rango.d, rango.h);
@@ -385,6 +402,8 @@ async function sincronizarRango(req, integ, desde, hasta) {
     const o = await recibir(c, integ, 'api', { desde, hasta, tickets: datos.tickets });
     await c.query('UPDATE pos.integracion SET ultima_sincronizacion = now() WHERE id = $1', [integ.id]);
     if (datos.articulos) await guardarArticulosDia(c, integ.id, desde, hasta, datos.articulos);
+    for (const d of new Set((datos.articulosPrevios || []).map(a => a.dia)))
+      await guardarArticulosDia(c, integ.id, d, d, datos.articulosPrevios.filter(a => a.dia === d));
     // Cada pago queda con su número del POS y, si el procesador la informó, su liquidación (fecha y neto). También
     // los de ventas que ya estaban: los anteriores a esto no tenían el número, y se reconocen por medio e importe.
     // Un pago ya liquidado en un lote no cambia.

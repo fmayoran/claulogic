@@ -310,7 +310,7 @@ async function traer(p) {
   try {
     const d = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST',
       body: { desde: (p.campoDesde && p.campoDesde.value) || null, hasta: (p.campoHasta && p.campoHasta.value) || null } });
-    msg(`${p.nombre}: del ${fecha(d.desde)} al ${fecha(d.hasta)}, ${d.nuevos} venta(s) nueva(s)` + (d.cobros ? `, ${d.cobros.procesados.length} día(s) cobrados solos` : '') + '.', 'ok');
+    msg(`${p.nombre}: del ${fecha(d.desde)} al ${fecha(d.hasta)}, ${d.nuevos} venta(s) nueva(s)` + (d.cobros ? `, ${d.cobros.procesados.length} día(s) cobrados solos` : '') + '.' + (d.aviso_liquidacion ? ' ' + d.aviso_liquidacion : ''), d.aviso_liquidacion ? 'aviso' : 'ok');
     await refrescar();
   } catch (e) { msg(e.message, 'mal'); }
 }
