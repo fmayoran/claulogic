@@ -57,12 +57,25 @@ function leerFactura(paginas) {
 
   // Renglones: descripción, cantidad, unidad, precio, descuento, subtotal, alícuota, subtotal con IVA.
   const reItem = new RegExp(`^(.+?) (\\d+(?:\\.\\d+)?) ([A-Za-zÁÉÍÓÚáéíóúñ.]+) (${NUM}) (${NUM}) (${NUM}) (\\d+(?:\\.\\d+)?) (${NUM})$`);
+  // Una descripción larga ocupa dos renglones en el PDF ("CARGOS POR RECLAMOS DE LOS USUARIOS (Di Ciucio Pasticceria E" /
+  // "Caffe)") y los números quedan a media altura: llegan como tres líneas, la del medio sólo con números (factura de SORELLE
+  // del 02/11/2026). La descripción se arma con la línea de arriba y, si dejó un paréntesis abierto, la de abajo.
+  const reCola = new RegExp(`^(\\d+(?:\\.\\d+)?) ([A-Za-zÁÉÍÓÚáéíóúñ.]+) (${NUM}) (${NUM}) (${NUM}) (\\d+(?:\\.\\d+)?) (${NUM})$`);
+  const abierto = s => (s.match(/\(/g) || []).length > (s.match(/\)/g) || []).length;
+  const suelta = s => s && !reItem.test(s) && !reCola.test(s) && !/\d+\.\d{2}/.test(s) && !/^(Producto|Comercial|IVA Subtotal|Otros Tributos)/i.test(s);
   const items = [];
-  for (const l of lineas) {
-    const m = reItem.exec(l); if (!m) continue;
-    items.push({ descripcion: m[1], cantidad: m[2], unidad: m[3], precio: imp(m[4]), descuento: imp(m[5]), subtotal: imp(m[6]),
-                 alicuota: String(Number(m[7])), con_iva: imp(m[8]) });
-  }
+  const usadas = new Set();
+  lineas.forEach((l, i) => {
+    let m = reItem.exec(l), desc, c;
+    if (m) { desc = m[1]; c = m.slice(2); }
+    else if ((m = reCola.exec(l)) && suelta(lineas[i - 1]) && !usadas.has(i - 1)) { desc = lineas[i - 1]; c = m.slice(1); usadas.add(i - 1); }
+    else return;
+    const cierra = (desc.match(/\)/g) || []).length > (desc.match(/\(/g) || []).length;
+    if (cierra && suelta(lineas[i - 1]) && abierto(lineas[i - 1]) && !usadas.has(i - 1)) { desc = lineas[i - 1] + ' ' + desc; usadas.add(i - 1); }
+    if (abierto(desc) && suelta(lineas[i + 1]) && /\)/.test(lineas[i + 1])) { desc += ' ' + lineas[i + 1]; usadas.add(i + 1); }
+    items.push({ descripcion: desc, cantidad: c[0], unidad: c[1], precio: imp(c[2]), descuento: imp(c[3]), subtotal: imp(c[4]),
+                 alicuota: String(Number(c[5])), con_iva: imp(c[6]) });
+  });
   if (!items.length) throw new ErrorUsuario('No pude leer los renglones de la factura.');
 
   // Otros tributos: "Perc. IIBB BSAS 4.000 5555.27 ARS". Los que están en cero no se guardan.
