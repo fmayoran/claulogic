@@ -807,6 +807,17 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   dos nombres de cada columna y el separador decimal se deduce de los importes. Tiendas de SORELLE: Wera Sushi 528403 y Lo De Titi
   Bodegón 547527 (SORELLE BODEGON Y SUSHI), Di Ciucio Pasticceria E Caffe 542301 (SORELLE CAFETERIA). Los reembolsos por reclamo
   ("Operational charges", hasta el pedido entero) entran en "Otros cargos".
+- **Cancelaciones de PedidosYa** (pedido de Fer, 13/11/2026; migración 20261146). Un cancelado que el local no confirmó ("Unreachable")
+  viene sin "Order received at": toma la fecha de la cancelación. PedidosYa le cobra al local un cargo ("Operational charges") más IVA
+  por esos pedidos, o lo compensa si canceló el cliente con el pedido hecho. Va como un **pago en $0 del ticket anulado** con medio
+  "Cancelaciones · liquidación PedidosYa", `neto` = Estimated earnings y sus `costos` (IVA, comisión si hay, "Cargo por pedidos
+  cancelados" o "Compensación…"): no es venta ni cobro, pero se asientan al procesar el día y la liquidación semanal los cuenta como
+  asentados por pedido (si no, iban a parar a publicidad). Por eso **un pago de un ticket anulado vale si trae costos**
+  (`(t.estado = 'cerrado' OR p.costos IS NOT NULL)` en `pos.jornada`, el procesamiento de cobros y `liquidaciones.js`; lo que mira importes
+  sigue sólo con los cerrados). `pos.ticket.aceptado_en`, `cancelado_motivo` y `cancelado_por` (local, cliente, pedidosya, otro); volver a
+  importar un archivo los completa y le pone el cargo a un cancelado viejo si su semana no está liquidada. En el Tablero de ventas,
+  "PedidosYa: pedidos y cancelaciones": recibidos, aceptados (%), cancelados (cantidad y % de lo recibido), importe cancelado y cargo,
+  contra el período anterior, con cancelados por día, quién canceló y motivo (`pedidosya` en `/pos/ventas/resumen`).
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
   (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
   cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por

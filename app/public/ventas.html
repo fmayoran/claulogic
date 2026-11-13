@@ -35,6 +35,8 @@
   .lineas .total{font-weight:700;border-bottom:0;} .lineas .anul{opacity:.5;text-decoration:line-through;}
   .lineas .sub{display:block;color:var(--mut);font-size:.8rem;}
   #dlgVenta h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 4px;font-weight:600;}
+  .peya-kpis{margin:6px 0 14px;} .peya-kpis .kpi{box-shadow:none;border:1px solid var(--line);}
+  .peya-h{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px;font-weight:600;}
   .cerrar-x{all:unset;position:absolute;top:14px;right:14px;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mut);font-size:1.3rem;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
   @media (max-width:600px){ .venta{grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;} .venta .dato:first-child{grid-column:1 / -1;flex-direction:row;gap:8px;align-items:baseline;} }
@@ -106,6 +108,18 @@
       <div id="gTopCant"></div>
     </section>
   </div>
+
+  <!-- PedidosYa: aceptación y cancelaciones (pedido de Fer, 13/11/2026), para seguir el KPI. -->
+  <section class="card" id="cPeya" hidden>
+    <h2>PedidosYa: pedidos y cancelaciones</h2>
+    <p class="cap" id="capPeya"></p>
+    <div class="kpis peya-kpis" id="kPeya"></div>
+    <div class="t-grid t-g3" style="margin:0">
+      <div><h3 class="peya-h">Cancelados por día</h3><div id="gPeyaDias"></div></div>
+      <div><h3 class="peya-h">Quién canceló</h3><div id="gPeyaQuien"></div></div>
+      <div><h3 class="peya-h">Motivo</h3><div id="gPeyaMotivo"></div></div>
+    </div>
+  </section>
 
   <section class="card" id="cDetalle">
     <div class="card-cab"><h2 id="tDetalle">Ventas del período</h2><span class="cap" id="cuenta" style="margin:0"></span></div>
@@ -249,7 +263,39 @@ function pintar() {
     kpi('Cobrado', pesos(t.cobrado), t.cobrado, a.cobrado, null));
 
   ctxV = { dias, vend, cant, diasAnt, porDiaAnt, unDia };
-  pintarEvolucion(); pintarSemana(); pintarRanking(); pintarComposicion(); pintarMedios(); pintarTop();
+  pintarEvolucion(); pintarSemana(); pintarRanking(); pintarComposicion(); pintarMedios(); pintarTop(); pintarPeya();
+}
+// PedidosYa: recibidos, tasa de aceptación, cancelados (cantidad, importe y % de lo recibido) y el cargo que cobró PedidosYa por
+// los cancelados (negativo: compensación). Contra el período anterior, como las demás cifras.
+const QUIEN_CANCELA = { local: 'El local', cliente: 'El cliente', pedidosya: 'PedidosYa', otro: 'Otro', 'sin dato': 'Sin dato' };
+const MOTIVO_PEYA = { unreachable: 'No se confirmó a tiempo', 'item unavailable': 'Producto no disponible', 'closed': 'Local cerrado',
+  'too busy': 'Local saturado', 'customer request': 'Pedido del cliente', 'sin dato': 'Sin dato' };
+function pintarPeya() {
+  const y = resumen.pedidosya;
+  $('#cPeya').hidden = !y;
+  if (!y) return;
+  const a = y.anterior, pct = (x, t) => t ? x / t * 100 : null;
+  const fp = v => v == null ? '—' : v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
+  const kpi = (et, valor, act, ant, op = {}, pie = '') => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+    el('span', { className: 'va', textContent: valor }),
+    el('span', { className: 'pie' }, act != null && ant != null ? Graf.variacion(act, ant, op) : '', pie ? el('span', { textContent: pie }) : ''));
+  const ac = pct(y.aceptados, y.recibidos), acA = pct(a.aceptados, a.recibidos), ca = pct(y.cancelados, y.recibidos), caA = pct(a.cancelados, a.recibidos);
+  $('#capPeya').textContent = `${num(String(y.recibidos))} pedidos recibidos, ${num(String(y.entregados))} entregados. Los cancelados no cuentan como venta;`
+    + ' el cargo es lo que PedidosYa cobra (o compensa) por ellos y va a los costos del día.';
+  $('#kPeya').replaceChildren(
+    kpi('Recibidos', num(String(y.recibidos)), y.recibidos, a.recibidos),
+    kpi('Aceptados', fp(ac), ac, acA, { puntos: true }, `${num(String(y.aceptados))} pedidos`),
+    kpi('Cancelados', num(String(y.cancelados)), ca, caA, { puntos: true, malo: true }, `${fp(ca)} de lo recibido`),
+    kpi('Importe cancelado', pesos(y.importe_cancelado), y.importe_cancelado, a.importe_cancelado, { malo: true }),
+    kpi('Cargo por cancelados', pesos(y.cargo_cancelados), y.cargo_cancelados, a.cargo_cancelados, { malo: true }));
+  const dias = diasEntre($('#desde').value, $('#hasta').value), porDia = new Map(y.dias.map(d => [d.dia, d]));
+  Graf.columnas($('#gPeyaDias'), { etiquetas: dias, valores: dias.map(d => (porDia.get(d) || {}).cancelados || 0), alto: 180, fmt: v => String(Math.round(v)),
+    ejeX: d => d.slice(8, 10), titulo: d => diaLargo(d),
+    texto: i => { const d = porDia.get(dias[i]); return d ? `${d.cancelados} de ${d.recibidos} pedido(s) · ${pesos(d.importe_cancelado)}` : 'Sin pedidos'; } });
+  Graf.ranking($('#gPeyaQuien'), { items: y.por_responsable.map(x => ({ clave: x.clave, etiqueta: QUIEN_CANCELA[x.clave] || x.clave, valor: x.pedidos, importe: x.importe, cargo: x.cargo })),
+    fmt: v => `${v} pedido${v === 1 ? '' : 's'}`, nota: x => pesos(x.importe) + (n(x.cargo) ? ` · cargo ${pesos(x.cargo)}` : '') });
+  Graf.ranking($('#gPeyaMotivo'), { items: y.por_motivo.map(x => ({ clave: x.clave, etiqueta: MOTIVO_PEYA[x.clave.toLowerCase()] || x.clave, valor: x.pedidos, importe: x.importe })),
+    fmt: v => `${v} pedido${v === 1 ? '' : 's'}`, nota: x => pesos(x.importe) });
 }
 let ctxV = null;
 function pintarEvolucion() {

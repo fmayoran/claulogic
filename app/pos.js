@@ -248,19 +248,43 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
     }
     return medios.get(codigo);
   };
-  let nuevos = 0;
+  let nuevos = 0, completados = 0;
   for (const t of tickets) {
     // El id del POS hace idempotente la importación: un ticket que ya está, no se toca.
     const { rows: [nt] } = await c.query(
       // El día de la venta: el de su apertura si el POS la trae (Fudo), si no el de su fecha (archivos).
-      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas, abierto_en, dia, tienda)
+      `INSERT INTO pos.ticket (integracion_id, importacion_id, id_externo, cerrado_en, estado, total, tipo, mesa, mozo, personas, abierto_en, dia, tienda,
+                               aceptado_en, cancelado_motivo, cancelado_por)
        VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11::timestamptz,
-               (COALESCE($11::timestamptz, $4::timestamptz) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date, $12)
+               (COALESCE($11::timestamptz, $4::timestamptz) AT TIME ZONE 'America/Argentina/Buenos_Aires')::date, $12, $13::timestamptz, $14, $15)
        ON CONFLICT (integracion_id, id_externo) DO NOTHING RETURNING id`,
-      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas, t.abierto_en || null, t.tienda || null]);
-    // Un ticket que ya estaba no se toca, salvo para completarle la tienda (PedidosYa importado antes de guardarla).
-    if (!nt && t.tienda)
-      await c.query('UPDATE pos.ticket SET tienda = $3 WHERE integracion_id = $1 AND id_externo = $2 AND tienda IS NULL', [integ.id, t.id, t.tienda]);
+      [integ.id, imp.id, t.id, t.cerrado_en, t.estado, t.total, t.tipo, t.mesa == null ? null : String(t.mesa), t.mozo, t.personas, t.abierto_en || null, t.tienda || null,
+       t.aceptado_en || null, t.cancelado_motivo || null, t.cancelado_por || null]);
+    // Un ticket que ya estaba no se toca, salvo para completarle lo que no se guardaba cuando se importó (PedidosYa: la tienda,
+    // la aceptación y los datos de la cancelación).
+    if (!nt && (t.tienda || t.aceptado_en || t.cancelado_motivo || t.cancelado_por))
+      await c.query(
+        `UPDATE pos.ticket SET tienda = COALESCE(tienda, $3), aceptado_en = COALESCE(aceptado_en, $4::timestamptz),
+                cancelado_motivo = COALESCE(cancelado_motivo, $5), cancelado_por = COALESCE(cancelado_por, $6)
+          WHERE integracion_id = $1 AND id_externo = $2`, [integ.id, t.id, t.tienda || null, t.aceptado_en || null, t.cancelado_motivo || null, t.cancelado_por || null]);
+    // Un cancelado de PedidosYa importado antes de llevar su cargo: se le pone, salvo que el día ya esté en una semana
+    // liquidada (el cargo ya quedó adentro de la liquidación) o sea histórico.
+    if (!nt && t.estado === 'anulado' && t.tipo === 'pedidosya' && t.pagos.some(p => p.costos)) {
+      const { rows: [v] } = await c.query(
+        `SELECT t.id FROM pos.ticket t JOIN pos.integracion i ON i.id = t.integracion_id
+          WHERE t.integracion_id = $1 AND t.id_externo = $2 AND t.estado = 'anulado' AND t.dia >= COALESCE(i.cobros_desde, t.dia)
+            AND NOT EXISTS (SELECT 1 FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND (p.costos IS NOT NULL OR p.cobro_id IS NOT NULL
+                              OR EXISTS (SELECT 1 FROM fin.movimiento_tes mt WHERE mt.ticket_pago_id = p.id)))
+            AND NOT EXISTS (SELECT 1 FROM fin.liquidacion l JOIN pos.ticket_pago p2 ON p2.lote_id = l.lote_id JOIN pos.ticket t2 ON t2.id = p2.ticket_id
+                             WHERE t2.integracion_id = t.integracion_id AND t.dia BETWEEN l.desde AND l.hasta)`, [integ.id, t.id]);
+      if (v) {
+        await c.query('DELETE FROM pos.ticket_pago WHERE ticket_id = $1', [v.id]);
+        for (const p of t.pagos)
+          await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, neto, costos) VALUES ($1,$2,$3,false,$4,$5)',
+            [v.id, await idMedio(p.codigo, p.nombre), p.importe, p.neto ?? null, p.costos ? JSON.stringify(p.costos) : null]);
+        completados++;
+      }
+    }
     if (!nt) continue;
     nuevos++;
     for (const it of t.items)
@@ -280,10 +304,10 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
   // Si no había nada nuevo (el mismo día importado dos veces), no queda una importación vacía.
   if (!nuevos) {
     await c.query('DELETE FROM pos.importacion WHERE id = $1', [imp.id]);
-    return { id: null, nuevos: 0, repetidos: tickets.length };
+    return { id: null, nuevos: 0, repetidos: tickets.length, completados };
   }
   await c.query('UPDATE pos.importacion SET tickets_nuevos = $1, tickets_repetidos = $2 WHERE id = $3', [nuevos, tickets.length - nuevos, imp.id]);
-  return { id: imp.id, nuevos, repetidos: tickets.length - nuevos };
+  return { id: imp.id, nuevos, repetidos: tickets.length - nuevos, completados };
 }
 
 // Lo vendido por artículo cada día (Maxirest): se reemplaza entero el rango traído.
@@ -547,7 +571,15 @@ const COLUMNAS_PEYA = {
   efectivo: ['monto en efectivo ya cobrado por el local', 'cash amount already collected by you'],
   adeudado: ['monto adeudado a pedidosya', 'amount owed back to pedidosya'], articulos: ['articulos del pedido', 'order items'],
   comision: ['comision', 'commission'], comision_online: ['comision por pago en linea', 'online payment fee'], impuesto: ['impuesto', 'tax charge'],
-  marketing: ['total de costes de marketing', 'marketing fees total'], tienda: ['id de tienda', 'store id'], local: ['nombre del local', 'restaurant name'] };
+  marketing: ['total de costes de marketing', 'marketing fees total'], tienda: ['id de tienda', 'store id'], local: ['nombre del local', 'restaurant name'],
+  aceptado: ['aceptado el', 'aceptado a las', 'pedido aceptado el', 'accepted at'],
+  motivo: ['motivo de cancelacion', 'motivo de la cancelacion', 'cancellation reason'],
+  responsable: ['responsable de la cancelacion', 'responsable de cancelacion', 'cancelado por', 'cancellation owner'] };
+// Quién canceló, en castellano (para el KPI de cancelaciones).
+const RESPONSABLE_PEYA = [[/vendor|local|restaur|tienda|socio/i, 'local'], [/customer|cliente/i, 'cliente'],
+  [/platform|pedidosya|transport|rider|repartidor|logistic/i, 'pedidosya']];
+const responsablePeYa = v => { const s = String(v ?? '').trim(); if (!s) return null; return (RESPONSABLE_PEYA.find(([re]) => re.test(s)) || [null, 'otro'])[1]; };
+const MEDIO_CANCELACION = 'Cancelaciones · liquidación PedidosYa';
 const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
 const MEDIO_COMISION_EFECTIVO = 'Pedidos en efectivo · liquidación PedidosYa';
 function articulosPeYa(txt) {
@@ -568,6 +600,10 @@ async function importarPedidosYa(req, res) {
   // Las columnas se buscan por nombre, sin tildes ni mayúsculas (el portal puede cambiar el orden).
   const claves = Object.keys(filas[0] || {}), col = {};
   for (const [k, nombres] of Object.entries(COLUMNAS_PEYA)) col[k] = claves.find(c => nombres.includes(sinTildes(c)));
+  // Si el portal en castellano les pone otro nombre: el motivo y el responsable de la cancelación, por lo que dicen.
+  col.motivo ||= claves.find(c => /cancel/.test(sinTildes(c)) && /motiv|razon|reason/.test(sinTildes(c)));
+  col.responsable ||= claves.find(c => /cancel/.test(sinTildes(c)) && /respons|owner|quien/.test(sinTildes(c)));
+  col.aceptado ||= claves.find(c => /acept/.test(sinTildes(c)));
   const faltan = OBLIGATORIAS_PEYA.filter(k => !col[k]).map(k => `"${COLUMNAS_PEYA[k][0]}"`);
   if (faltan.length) throw new ErrorUsuario(`No es el archivo de pedidos de PedidosYa (orderDetails): faltan las columnas ${faltan.join(', ')}.`);
   const { rows: [hoyDb] } = await pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS d`);
@@ -610,11 +646,28 @@ async function importarPedidosYa(req, res) {
     const resto = resta(importe, neto, ...costos.map(x => x.importe));
     if (!esCero(resto)) costos.push({ gasto: 'comision', concepto: 'Otros cargos PedidosYa', importe: resto });
     const pagos = [];
-    if (enEfectivo) pagos.push({ codigo: forma, nombre: forma, importe: efectivo });
-    if (!esCero(importe) || costos.length)
-      pagos.push({ codigo: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma, nombre: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma,
-                   importe, neto, costos: anulado ? null : costos });
+    if (anulado) {
+      // Un cancelado no es venta ni cobro, pero puede tener un cargo (el local no lo confirmó: comisión e IVA) o una compensación
+      // (lo canceló el cliente con el pedido hecho): un pago en $0 con ese neto y sus costos, que se asientan al procesar el día.
+      // En el archivo, el cargo viene como "Operational charges" y el IVA aparte; la comisión, si hubiera, también aparte.
+      if (!esCero(ingreso)) {
+        const cc = [['comision', 'Comisión por pedidos cancelados PedidosYa', imp(f, 'comision', n)],
+                    ['iva_credito', 'IVA de comisiones PedidosYa', imp(f, 'impuesto', n)]]
+          .filter(x => !esCero(x[2])).map(([gasto, concepto, importe]) => ({ gasto, concepto, importe }));
+        const r = resta('0', ingreso, ...cc.map(x => x.importe));
+        if (!esCero(r)) cc.push({ gasto: 'comision', concepto: r.startsWith('-') ? 'Compensación por pedidos cancelados PedidosYa' : 'Cargo por pedidos cancelados PedidosYa', importe: r });
+        pagos.push({ codigo: MEDIO_CANCELACION, nombre: MEDIO_CANCELACION, importe: '0', neto: ingreso, costos: cc });
+      }
+    } else {
+      if (enEfectivo) pagos.push({ codigo: forma, nombre: forma, importe: efectivo });
+      if (!esCero(importe) || costos.length)
+        pagos.push({ codigo: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma, nombre: enEfectivo ? MEDIO_COMISION_EFECTIVO : forma, importe, neto, costos });
+    }
+    const aceptado = col.aceptado && String(f[col.aceptado] ?? '').trim();
     tickets.push({
+      aceptado_en: aceptado ? fechaHoraArchivo(aceptado, `Fila ${n}, aceptado`) : null,
+      cancelado_motivo: anulado && col.motivo ? String(f[col.motivo] ?? '').trim() || null : null,
+      cancelado_por: anulado && col.responsable ? responsablePeYa(f[col.responsable]) : null,
       tienda, local, id: nro, abierto_en: abierto, cerrado_en: cierre ? fechaHoraArchivo(cierre, `Fila ${n}, cierre`) : abierto,
       estado: anulado ? 'anulado' : 'cerrado', total: venta,
       // PedidosYa es su propio tipo de venta, aparte del delivery propio del local (pedido de Fer, 07/11/2026), retire o no el cliente.
@@ -682,7 +735,7 @@ async function importarPedidosYa(req, res) {
     if (r) for (const k of ['procesados', 'revisar']) cobros[k].push(...r[k].map(d => ({ ...d, punto_venta: hch.integ.nombre })));
   }
   const fechas = hechos.flatMap(x => [x.desde, x.hasta]).sort();
-  res.status(201).json({ ok: true, nuevos: hechos.reduce((t, x) => t + x.nuevos, 0), repetidos: hechos.reduce((t, x) => t + x.repetidos, 0),
+  res.status(201).json({ ok: true, nuevos: hechos.reduce((t, x) => t + x.nuevos, 0), repetidos: hechos.reduce((t, x) => t + x.repetidos, 0), completados: hechos.reduce((t, x) => t + (x.completados || 0), 0),
     desde: fechas[0], hasta: fechas.at(-1), omitidos, cobros,
     locales: hechos.map(x => ({ id: x.integ.id, nombre: x.integ.nombre, nuevos: x.nuevos, repetidos: x.repetidos })) });
 }
@@ -701,9 +754,9 @@ const RESUMEN = `
      WHERE t.importacion_id = im.id AND t.estado = 'cerrado' AND NOT i.anulado AND i.consumo_id IS NULL
        AND a.plato_id IS NULL AND NOT a.sin_consumo) AS renglones_sin_receta,
   (SELECT COUNT(*)::int FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id
-     WHERE t.importacion_id = im.id AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL) AS pagos_pendientes,
+     WHERE t.importacion_id = im.id AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado AND p.cobro_id IS NULL) AS pagos_pendientes,
   (SELECT COUNT(*)::int FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
-     WHERE t.importacion_id = im.id AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NULL) AS pagos_sin_cuenta`;
+     WHERE t.importacion_id = im.id AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NULL) AS pagos_sin_cuenta`;
 
 r.get('/pos/importaciones', h(async (req, res) => {
   const { rows } = await pool.query(
@@ -857,7 +910,27 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
     const hasta = d.toISOString().slice(0, 10);
     mesAnt = [f[0], f[1], hasta.slice(0, 8) + '01', hasta, ...f.slice(4)];
   }
-  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios, top, topCant, diasMesAnt] = await Promise.all([
+  // PedidosYa: recibidos, aceptados, entregados y cancelados, con el importe cancelado, quién canceló, el motivo y el cargo o la
+  // compensación de los cancelados (pedido de Fer, 13/11/2026). Un entregado se aceptó aunque se haya importado sin la hora.
+  const PEYA = `, c AS (SELECT t.*, (SELECT SUM(-p.neto) FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND NOT p.anulado AND p.costos IS NOT NULL) AS cargo
+                         FROM t WHERE t.tipo = 'pedidosya')
+    SELECT count(*)::int AS recibidos, count(*) FILTER (WHERE estado = 'cerrado' OR aceptado_en IS NOT NULL)::int AS aceptados,
+           count(*) FILTER (WHERE estado = 'cerrado')::int AS entregados, count(*) FILTER (WHERE estado = 'anulado')::int AS cancelados,
+           COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS importe_cancelado,
+           COALESCE(SUM(cargo) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS cargo_cancelados,
+           COALESCE((SELECT json_agg(x ORDER BY x.pedidos DESC) FROM (
+             SELECT COALESCE(cancelado_por, 'sin dato') AS clave, count(*)::int AS pedidos, SUM(vendido)::numeric(16,2)::text AS importe,
+                    COALESCE(SUM(cargo), 0)::numeric(16,2)::text AS cargo
+               FROM c WHERE estado = 'anulado' GROUP BY 1) x), '[]') AS por_responsable,
+           COALESCE((SELECT json_agg(x ORDER BY x.pedidos DESC) FROM (
+             SELECT COALESCE(cancelado_motivo, 'sin dato') AS clave, count(*)::int AS pedidos, SUM(vendido)::numeric(16,2)::text AS importe
+               FROM c WHERE estado = 'anulado' GROUP BY 1) x), '[]') AS por_motivo,
+           COALESCE((SELECT json_agg(x ORDER BY x.dia) FROM (
+             SELECT to_char(dia, 'YYYY-MM-DD') AS dia, count(*)::int AS recibidos, count(*) FILTER (WHERE estado = 'anulado')::int AS cancelados,
+                    COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS importe_cancelado
+               FROM c GROUP BY dia) x), '[]') AS dias
+      FROM c`;
+  const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios, top, topCant, diasMesAnt, [peya], [peyaAnt]] = await Promise.all([
     q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
     // Con el filtro de un medio, los demás medios de esas mismas ventas también aparecen (pagos mixtos).
     q(`SELECT ${CLAVE_MEDIO} AS clave, mp.tipo_operacion, pr.nombre AS procesador, pr.marca, m.medio_pago_id IS NULL AS sin_asignar,
@@ -896,8 +969,10 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
     // Por cantidad, sin lo que no factura (el cubierto en $0 encabezaba la lista; pedido de Fer, 08/11/2026).
     q(TOP('SUM(x.cant)', 'HAVING SUM(x.venta) > 0')),
     mesAnt ? q(DIAS, mesAnt) : null,
+    q(PEYA), q(PEYA, ant),
   ]);
   res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos, comercios, top, top_cantidad: topCant,
+    pedidosya: peya.recibidos || peyaAnt.recibidos ? { ...peya, anterior: peyaAnt } : null,
     anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt },
     mes_anterior: mesAnt && { desde: mesAnt[2], hasta: mesAnt[3], dias: diasMesAnt } });
 }));
@@ -1046,7 +1121,7 @@ r.get('/pos/jornadas/:integracion/:dia', h(async (req, res) => {
          JOIN pos.medio m ON m.id = p.medio_id
          LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
-        WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'cerrado' AND NOT p.anulado
+        WHERE t.integracion_id = $1 AND t.dia = $2 AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado
         GROUP BY m.id, mp.tipo_operacion, pr.nombre, cu.nombre ORDER BY SUM(p.importe) DESC`, [integ.id, dia]),
     pool.query(`SELECT id, pagos, estado, diferencia::text, motivo_diferencia, creado_por, creado_en FROM pos.cobro
                  WHERE integracion_id = $1 AND dia = $2 ORDER BY creado_en`, [integ.id, dia]),
@@ -1078,7 +1153,7 @@ async function procesarJornada(c, integ, dia, motivo) {
     throw new ErrorUsuario(`Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(j.diferencia)}. Para procesar igual, indicá el motivo.`, 409);
   const { rows: pagos } = await c.query(
     `SELECT p.id FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
-      WHERE t.integracion_id = $1 AND t.dia = $2 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL FOR UPDATE OF p`, [integ.id, dia]);
+      WHERE t.integracion_id = $1 AND t.dia = $2 AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado AND p.cobro_id IS NULL FOR UPDATE OF p`, [integ.id, dia]);
   const ids = pagos.map(p => p.id);
   const { rows: [co] } = await c.query(
     `INSERT INTO pos.cobro (integracion_id, dia, pagos, diferencia, motivo_diferencia) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
@@ -1161,7 +1236,7 @@ r.post('/pos/importaciones/:id/cobros', h(async (req, res) => {
     const integ = await integracion(c, req, im.integracion_id);
     const { rows: dias } = await c.query(
       `SELECT DISTINCT to_char(t.dia, 'YYYY-MM-DD') AS dia FROM pos.ticket t JOIN pos.ticket_pago p ON p.ticket_id = t.id
-        WHERE t.importacion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NULL ORDER BY 1`, [im.id]);
+        WHERE t.importacion_id = $1 AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado AND p.cobro_id IS NULL ORDER BY 1`, [im.id]);
     if (!dias.length) throw new ErrorUsuario('No hay cobros para procesar: ya se procesaron.');
     const hechos = [];
     for (const d of dias) hechos.push(await procesarJornada(c, integ, d.dia, texto(req.body.motivo)));

@@ -61,13 +61,14 @@ async function procesadorPeya(c, id) {
 async function cobrosSemana(c, procesadorId, desde, { bloquear = false } = {}) {
   const { rows } = await c.query(
     `SELECT p.id, p.importe::text, p.neto::text, p.costos, p.cobro_id, p.lote_id, p.acreditado_linea_id, p.resuelto_movimiento_id,
-            t.tienda, t.dia, i.sede_id, s.nombre AS sede,
+            t.tienda, t.dia, t.estado, i.sede_id, s.nombre AS sede,
             (SELECT co.id FROM org.comercio co WHERE co.sede_id = i.sede_id AND co.activo AND t.tienda = ANY (co.tiendas) LIMIT 1) AS comercio_id,
             (SELECT co.nombre FROM org.comercio co WHERE co.sede_id = i.sede_id AND co.activo AND t.tienda = ANY (co.tiendas) LIMIT 1) AS comercio
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN org.sede s ON s.id = i.sede_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-      WHERE mp.procesador_id = $1::uuid AND NOT p.anulado AND t.estado = 'cerrado'
+      -- Con los cargos de los pedidos cancelados (pago en $0 con costos del ticket anulado): están en la factura.
+      WHERE mp.procesador_id = $1::uuid AND NOT p.anulado AND (t.estado = 'cerrado' OR p.costos IS NOT NULL)
         AND t.dia BETWEEN $2::date AND $2::date + 6 AND t.dia >= COALESCE(i.cobros_desde, t.dia)
       ${bloquear ? 'FOR UPDATE OF p' : ''}`, [procesadorId, desde]);
   return rows;
@@ -81,7 +82,8 @@ function porTienda(cobros) {
     const k = p.tienda || '';
     const t = ts.get(k) || { tienda: k, sede_id: p.sede_id, sede: p.sede, comercio_id: p.comercio_id, comercio: p.comercio, pedidos: 0,
                              bruto: 0n, neto: 0n, sin_iva: 0n, iva: 0n, conceptos: new Map() };
-    t.pedidos++; t.bruto += centavos(p.importe); t.neto += centavos(p.neto ?? p.importe);
+    if (p.estado !== 'anulado') t.pedidos++;
+    t.bruto += centavos(p.importe); t.neto += centavos(p.neto ?? p.importe);
     for (const x of p.costos || []) {
       const v = centavos(x.importe);
       if (x.gasto === 'iva_credito') t.iva += v; else t.sin_iva += v;
@@ -203,14 +205,14 @@ r.get('/fin/liquidaciones', h(async (req, res) => {
        FROM fin.procesador pr LEFT JOIN org.sociedad so ON so.id = pr.sociedad_id LEFT JOIN fin.cuenta ca ON ca.id = pr.cuenta_acredita_id
       WHERE pr.marca = 'pedidosya' AND pr.activo ORDER BY pr.nombre`);
   const { rows: semanas } = await pool.query(
-    `SELECT mp.procesador_id, to_char(date_trunc('week', t.dia), 'YYYY-MM-DD') AS desde, COUNT(*)::int AS pedidos,
+    `SELECT mp.procesador_id, to_char(date_trunc('week', t.dia), 'YYYY-MM-DD') AS desde, COUNT(*) FILTER (WHERE t.estado = 'cerrado')::int AS pedidos,
             SUM(p.importe)::text AS bruto, SUM(COALESCE(p.neto, p.importe))::text AS neto,
             COUNT(*) FILTER (WHERE p.cobro_id IS NULL)::int AS sin_cobrar,
             COUNT(*) FILTER (WHERE p.lote_id IS NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL)::int AS libres,
             SUM(COALESCE(p.neto, p.importe)) FILTER (WHERE p.lote_id IS NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL)::text AS neto_libre
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
-      WHERE pr.marca = 'pedidosya' AND NOT p.anulado AND t.estado = 'cerrado' AND t.dia >= COALESCE(i.cobros_desde, t.dia)
+      WHERE pr.marca = 'pedidosya' AND NOT p.anulado AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND t.dia >= COALESCE(i.cobros_desde, t.dia)
         AND t.dia >= current_date - 120
       GROUP BY 1, 2`);
   const { rows: liqs } = await pool.query(

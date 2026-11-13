@@ -550,7 +550,7 @@ function importadorPeya(grupo, clave) {
       resPeya[clave] = d;
       await refrescar();
       fin();
-      avisoFlotante(`PedidosYa: ${d.nuevos} pedido(s) nuevo(s)` + (d.repetidos ? `, ${d.repetidos} ya estaban` : '') + '.', 'ok');
+      avisoFlotante(`PedidosYa: ${d.nuevos} pedido(s) nuevo(s)` + (d.repetidos ? `, ${d.repetidos} ya estaban` : '') + (d.completados ? `, a ${d.completados} cancelado(s) se les sumó el cargo` : '') + '.', 'ok');
       document.getElementById('res-peya-' + clave)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (e) { fin(); msg(e.message, 'mal'); }
   }, true);
