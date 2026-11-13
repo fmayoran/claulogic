@@ -3,6 +3,8 @@
 .grupo-p{margin:0 0 16px;}
 .grupo-p h3{margin:0 0 2px;font-size:1rem;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
 .grupo-p h3 small{color:var(--mut);font-weight:400;font-size:.88rem;}
+.lista-sug{margin:6px 0 10px;padding-left:18px;font-size:.88rem;font-variant-numeric:tabular-nums;max-height:260px;overflow:auto;}
+.lista-sug li{padding:2px 0;}
 .grupo-p .cap{margin:0 0 8px;}
 .pend{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:12px 4px;border-top:1px solid var(--g-grilla);}
 .pend .q{display:flex;flex-direction:column;min-width:0;}

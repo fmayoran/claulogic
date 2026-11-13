@@ -405,6 +405,12 @@ const Conc = (() => {
           `es la venta #${p.id_externo} del ${fecha(p.dia)}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} (${pesos(p.importe)}); `
           + 'ahí mismo se anuló un pago con este procesador por el mismo importe. La plata entró acá: se acredita acá y sale de lo que esperaba el otro.'), ok);
       }
+      if (x.tipo === 'otro_por_fecha') {
+        ok.onclick = () => confirmar({ otro_procesador: 'fecha' });
+        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
+          `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} `
+          + `(${pesos(p.importe)}, mismo importe y fecha). La plata entró acá: se acredita acá y sale de lo que esperaba ${p.procesador_cargado}.`), ok);
+      }
       if (x.tipo === 'en_efectivo') {
         ok.onclick = () => confirmar({ en_efectivo: true });
         return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
@@ -576,6 +582,31 @@ const Conc = (() => {
       return sec;
     };
     const grupos = [];
+    // Cobros de otro procesador por importe y fecha (pedido de Fer, 13/11/2026: con Pago24 caído, en CORTAFUEGO se cobró por
+    // transferencia directa a BRUBANK lo que en Fudo quedó como Pago24). Se confirman todos juntos o uno por uno en su línea.
+    const porFecha = (d.sugerencias || []).filter(x => x.tipo === 'otro_por_fecha');
+    if (porFecha.length) {
+      const todos = el('button', { type: 'button', className: 'prim', textContent: porFecha.length === 1 ? 'Confirmar' : `Confirmar los ${porFecha.length}` });
+      todos.onclick = async () => {
+        todos.disabled = true; let hechos = 0;
+        for (const x of porFecha) {
+          try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: x.pago.id, linea_ids: x.lineas, otro_procesador: 'fecha' } }); hechos++; }
+          catch (e) { ctx.aviso(`Se acreditaron ${hechos}; la venta #${x.pago.id_externo} dio error: ${e.message}`, 'mal'); break; }
+          todos.textContent = `Acreditando… ${hechos} de ${porFecha.length}`;
+        }
+        if (hechos === porFecha.length) ctx.aviso(`Se acreditaron los ${hechos} cobros cargados con otro procesador.`, 'ok');
+        await ctx.recargar();
+      };
+      const porProc = [...new Set(porFecha.map(x => x.pago.procesador_cargado))].join(', ');
+      grupos.push(el('section', { className: 'card grupo-p' },
+        el('h3', {}, 'Cobrados acá, cargados con otro procesador', el('small', { textContent: `${porFecha.length} · ${pesos(deCentavos(porFecha.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
+        el('p', { className: 'cap', textContent: `Ingresos que coinciden en importe exacto y fecha (el día de la venta o hasta dos días después) con ventas que en el sistema de venta `
+          + `quedaron cobradas con ${porProc}. Confirmarlos los acredita acá y los saca de lo que esperaba ese procesador. Revisá la lista antes: el pareo es sólo por importe y día. `
+          + 'Cada uno se puede confirmar también suelto, en su línea.' }),
+        el('ul', { className: 'lista-sug' }, ...porFecha.map(x => { const l = d.lineas.find(y => y.id === x.lineas[0]) || {};
+          return el('li', { textContent: `${fecha(l.fecha)} · ${pesos(l.importe)} · ${l.concepto || ''} → venta #${x.pago.id_externo} del ${fecha(x.pago.dia)} (${x.pago.procesador_cargado})` }); })),
+        el('div', { className: 'acciones' }, todos)));
+    }
     // Los cobros que en el sistema de venta quedaron como efectivo se confirman todos juntos (decisión de Fer, 02/11/2026).
     const enEfectivo = (d.sugerencias || []).filter(x => x.tipo === 'en_efectivo');
     if (enEfectivo.length) {

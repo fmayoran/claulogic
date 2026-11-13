@@ -1420,6 +1420,23 @@ const OTRO_PROCESADOR_SQL = `
      AND EXISTS (SELECT 1 FROM pos.ticket_pago a JOIN pos.medio am ON am.id = a.medio_id JOIN fin.medio_pago amp ON amp.id = am.medio_pago_id
                   WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
 
+// Un cobro de otro procesador por fecha e importe (pedido de Fer, 13/11/2026: en CORTAFUEGO, con Pago24 caído, los clientes
+// transfirieron directo a BRUBANK ventas que en Fudo quedaron como Pago24). Cobros pendientes de cualquier procesador que no
+// deposita en esta cuenta, de los puntos de venta que cobran con algún procesador que deposita acá;
+// sin PedidosYa ni lo que liquida por lotes. El pareo es por importe exacto y día (se confirma a mano: nunca solo).
+const OTRO_POR_FECHA_SQL = `
+  SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, opr.nombre AS procesador_cargado,
+         i.nombre AS punto_venta
+    FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador opr ON opr.id = mp.procesador_id
+    JOIN pos.integracion i ON i.id = t.integracion_id
+   WHERE opr.cuenta_acredita_id IS DISTINCT FROM $1::uuid AND opr.marca <> 'pedidosya'
+     AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+     AND p.liquida_el IS NULL AND p.lote_id IS NULL
+     AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pp ON pp.id = pmp.procesador_id
+                   WHERE pp.cuenta_acredita_id = $1::uuid)`;
+const DIAS_OTRO_POR_FECHA = 2;
+
 // Un cobro del procesador que en el sistema de venta quedó como efectivo (decisión de Fer, 02/11/2026: el efectivo de octubre
 // no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de los puntos de
 // venta que cobran con el procesador de la cuenta (SORELLE BODEGON Y SUSHI y SORELLE CAFETERIA comparten la cuenta de Mercado
@@ -1512,6 +1529,18 @@ async function sugerenciasProcesador(cuenta) {
                    : { tipo: 'lote_diferencia', lineas: [x.l.id], lotes: [x.lote], diferencia: deCentavos(x.D) });
     }
   }
+  // Un cobro de otro procesador por importe exacto y fecha (antes que las diferencias: coincide exacto). Cada línea con el
+  // cobro más cercano en días, y cada cobro una sola vez.
+  {
+    const ya = new Set(sug.flatMap(x => x.lineas)), usadosF = new Set();
+    const { rows: otrosF } = await pool.query(OTRO_POR_FECHA_SQL, [cuenta]);
+    const dF = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5;
+    for (const l of lineas.filter(l => !ya.has(l.id))) {
+      const p = otrosF.filter(p => !usadosF.has(p.id) && centavos(p.importe) === centavos(l.importe) && dF(l, p) >= 0 && dF(l, p) <= DIAS_OTRO_POR_FECHA)
+        .sort((a, b) => dF(l, a) - dF(l, b))[0];
+      if (p) { usadosF.add(p.id); sug.push({ tipo: 'otro_por_fecha', pago: p, lineas: [l.id] }); }
+    }
+  }
   const enDivision = new Set(sug.flatMap(x => x.lineas));
   for (const l of lineas) {
     if (enDivision.has(l.id)) continue;
@@ -1523,7 +1552,7 @@ async function sugerenciasProcesador(cuenta) {
   // Lo que sigue sin sugerencia: un cobro de la venta cargado con otro procesador, por el mismo importe.
   const conSug = new Set(sug.flatMap(x => x.lineas));
   const { rows: otros } = await pool.query(OTRO_PROCESADOR_SQL, [pr.id]);
-  const usados = new Set();
+  const usados = new Set(sug.filter(x => x.tipo === 'otro_por_fecha').map(x => x.pago.id));
   for (const l of lineas.filter(l => !conSug.has(l.id))) {
     const p = otros.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && enVentana(l, p)).sort((a, b) => dias(l, a) - dias(l, b))[0];
     if (p) { usados.add(p.id); sug.push({ tipo: 'otro_procesador', pago: p, lineas: [l.id] }); }
@@ -1568,9 +1597,10 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
                           WHERE p.id = $2::uuid) DESC NULLS LAST, x.marca = 'transferencia', x.nombre LIMIT 1`, [cuenta, pagoId]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     // Un cobro cargado con otro procesador sólo si la venta tiene anulado un pago de éste por el mismo importe.
-    const otro = b.otro_procesador === true, efectivo = b.en_efectivo === true;
-    const { rows: [p] } = otro
-      ? await c.query(`SELECT * FROM (${OTRO_PROCESADOR_SQL}) x WHERE x.id = $2::uuid`, [pr.id, pagoId])
+    const porFecha = b.otro_procesador === 'fecha', otro = b.otro_procesador === true || porFecha, efectivo = b.en_efectivo === true;
+    const { rows: [p] } = porFecha
+      ? await c.query(`SELECT * FROM (${OTRO_POR_FECHA_SQL}) x WHERE x.id = $2::uuid`, [cuenta, pagoId])
+      : otro ? await c.query(`SELECT * FROM (${OTRO_PROCESADOR_SQL}) x WHERE x.id = $2::uuid`, [pr.id, pagoId])
       : efectivo ? await c.query(`SELECT * FROM (${EN_EFECTIVO_SQL}) x WHERE x.id = $2::uuid`, [cuenta, pagoId])
       : await c.query(
         `SELECT p.id, p.importe::text, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, m.cuenta_id
