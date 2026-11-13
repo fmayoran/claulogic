@@ -583,7 +583,11 @@ async function importarPedidosYa(req, res) {
     const estado = sinTildes(f[col.estado]);
     const anulado = /cancel|rechaz|reject/.test(estado);
     if (!anulado && !/entregad|delivered/.test(estado)) { omitidos.en_curso++; return; }
-    const abierto = fechaHoraArchivo(f[col.fecha], `Fila ${n}, fecha del pedido`);
+    // Un pedido que el local no confirmó y se canceló (SORELLE, 11/11/2026: "Unreachable") viene sin fecha de recepción:
+    // toma la de la cancelación.
+    const recibido = [col.fecha, col.cancelado, col.entregado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
+    if (!recibido) throw new ErrorUsuario(`Fila ${n}: el pedido ${nro} no trae fecha.`);
+    const abierto = fechaHoraArchivo(recibido, `Fila ${n}, fecha del pedido`);
     if (abierto.slice(0, 10) >= hoyDb.d) { omitidos.hoy++; return; }
     const cierre = [col.entregado, col.cancelado].map(c => c && String(f[c] ?? '').trim()).find(Boolean);
     const tienda = col.tienda ? String(f[col.tienda] ?? '').trim() : '', local = col.local ? String(f[col.local] ?? '').trim() : '';
