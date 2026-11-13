@@ -576,7 +576,7 @@ const COLUMNAS_PEYA = {
   motivo: ['motivo de rechazo', 'motivo de cancelacion', 'motivo de la cancelacion', 'cancellation reason'],
   responsable: ['responsable del rechazo', 'responsable de la cancelacion', 'responsable de cancelacion', 'cancelado por', 'cancellation owner'] };
 // Quién canceló, en castellano (para el KPI de cancelaciones).
-const RESPONSABLE_PEYA = [[/vendor|local|restaur|tienda|socio/i, 'local'], [/customer|cliente/i, 'cliente'],
+const RESPONSABLE_PEYA = [[/vendor|vendedor|local|restaur|tienda|socio|comercio/i, 'local'], [/customer|cliente/i, 'cliente'],
   [/platform|pedidosya|transport|rider|repartidor|logistic/i, 'pedidosya']];
 const responsablePeYa = v => { const s = String(v ?? '').trim(); if (!s) return null; return (RESPONSABLE_PEYA.find(([re]) => re.test(s)) || [null, 'otro'])[1]; };
 const MEDIO_CANCELACION = 'Cancelaciones · liquidación PedidosYa';
