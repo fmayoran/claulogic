@@ -83,6 +83,18 @@ function leerFactura(paginas) {
   const iva = {};
   for (const m of plano.matchAll(/IVA (27|21|10\.5|5|2\.5)\s*%\s*:?\s*(\d+\.\d{2})/gi)) if (Number(m[2])) iva[String(Number(m[1]))] = imp(m[2]);
   if (!total) throw new ErrorUsuario('No pude leer el importe total de la factura.');
+  // Lo leído tiene que explicar el total: si no, quedó un renglón sin leer (13/11/2026: en la de SORELLE del 02/11 faltaban
+  // $8.400 + IVA y el error saltaba recién al registrar). Se avisa acá, con los renglones con importes que no se entendieron.
+  const cts = v => Math.round(Number(v) * 100);
+  const leido = items.reduce((a, x) => a + cts(x.con_iva), 0) + tributos.reduce((a, x) => a + cts(x.importe), 0);
+  if (Math.abs(leido - cts(total)) > 100) {
+    const reTrib = /^(.+?) (\d+\.\d{3}) (\d+\.\d{2}) ?ARS$/;
+    const sueltas = lineas.filter(l => /\d+\.\d{2}/.test(l) && !reItem.test(l) && !reTrib.test(l)
+      && !/importe|subtotal|iva \d|cae|cuit|fecha|periodo|total/i.test(sinAcentos(l))).slice(0, 6);
+    const nombre = `${String(pv).padStart(5, '0')}-${String(nro).padStart(8, '0')}`;
+    throw new ErrorUsuario(`Factura ${nombre}: lo leído suma $${(leido / 100).toFixed(2)} y el total es $${total}; falta leer $${((cts(total) - leido) / 100).toFixed(2)}.`
+      + (sueltas.length ? ` Renglones que no entendí: ${sueltas.map(l => `"${l}"`).join('; ')}.` : ''));
+  }
 
   return { tipo, letra, codigo: cod, punto_venta: Number(pv), numero: Number(nro), fecha, vencimiento: vence, cae,
            periodo: { desde, hasta }, emisor: { cuit: unicos[0], razon_social: emisorRazon }, receptor: { cuit: unicos[1], razon_social: receptorRazon },
