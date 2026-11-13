@@ -408,8 +408,11 @@ const Conc = (() => {
       if (x.tipo === 'otro_por_fecha') {
         ok.onclick = () => confirmar({ otro_procesador: 'fecha' });
         return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} `
-          + `(${pesos(p.importe)}, mismo importe y fecha). La plata entró acá: se acredita acá y sale de lo que esperaba ${p.procesador_cargado}.`), ok);
+          p.propio
+            ? `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, cobrada con ${p.procesador_cargado} (${pesos(p.importe)}, mismo importe), `
+              + 'que llegó al banco más tarde de lo normal. Se acredita con esta línea.'
+            : `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} `
+              + `(${pesos(p.importe)}, mismo importe y fecha). La plata entró acá: se acredita acá y sale de lo que esperaba ${p.procesador_cargado}.`), ok);
       }
       if (x.tipo === 'en_efectivo') {
         ok.onclick = () => confirmar({ en_efectivo: true });
@@ -594,15 +597,16 @@ const Conc = (() => {
           catch (e) { ctx.aviso(`Se acreditaron ${hechos}; la venta #${x.pago.id_externo} dio error: ${e.message}`, 'mal'); break; }
           todos.textContent = `Acreditando… ${hechos} de ${porFecha.length}`;
         }
-        if (hechos === porFecha.length) ctx.aviso(`Se acreditaron los ${hechos} cobros cargados con otro procesador.`, 'ok');
+        if (hechos === porFecha.length) ctx.aviso(`Se acreditaron los ${hechos} cobros.`, 'ok');
         await ctx.recargar();
       };
       const porProc = [...new Set(porFecha.map(x => x.pago.procesador_cargado))].join(', ');
       grupos.push(el('section', { className: 'card grupo-p' },
-        el('h3', {}, 'Cobrados acá, cargados con otro procesador', el('small', { textContent: `${porFecha.length} · ${pesos(deCentavos(porFecha.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
-        el('p', { className: 'cap', textContent: `Ingresos que coinciden en importe exacto y fecha (el día de la venta o hasta dos días después) con ventas que en el sistema de venta `
-          + `quedaron cobradas con ${porProc}. Confirmarlos los acredita acá y los saca de lo que esperaba ese procesador. Revisá la lista antes: el pareo es sólo por importe y día. `
-          + 'Cada uno se puede confirmar también suelto, en su línea.' }),
+        el('h3', {}, 'Cobros que coinciden por importe y fecha', el('small', { textContent: `${porFecha.length} · ${pesos(deCentavos(porFecha.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
+        el('p', { className: 'cap', textContent: `Ingresos que coinciden en importe exacto con una venta pendiente de acreditar de hasta una semana antes (cobrada con ${porProc}): `
+          + 'ventas cargadas con otro procesador que se cobraron por acá, o que llegaron al banco más tarde de lo normal. Confirmarlos los acredita acá y los saca de lo que '
+          + 'esperaba el procesador de la venta. Es la excepción, no la regla: revisá la lista antes, el pareo es sólo por importe y día (con importes repetidos, la venta '
+          + 'que toma cada línea es indistinta). Cada uno se puede confirmar también suelto, en su línea.' }),
         el('ul', { className: 'lista-sug' }, ...porFecha.map(x => { const l = d.lineas.find(y => y.id === x.lineas[0]) || {};
           return el('li', { textContent: `${fecha(l.fecha)} · ${pesos(l.importe)} · ${l.concepto || ''} → venta #${x.pago.id_externo} del ${fecha(x.pago.dia)} (${x.pago.procesador_cargado})` }); })),
         el('div', { className: 'acciones' }, todos)));

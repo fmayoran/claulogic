@@ -829,6 +829,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   viernes 12 días después del domingo (26/10 al 01/11 → 13/11, $868.629,61 = la suma exacta de nuestros netos de esa semana), con hasta
   72 h hábiles del banco. `porCobrar` lo usa como fecha (fuente `calendario`) y lo da para revisar recién 5 días después de esa fecha.
   Pendiente: confirmar el depósito contra la suma de netos de la semana cuando llegue el primero.
+  **Cobros por importe y fecha** (pedido de Fer, 13/11/2026: con Pago24 caído, en CORTAFUEGO se cobró por transferencia a BRUBANK lo que
+  en Fudo quedó como Pago24, y algunas llegaron al banco días después). Sugerencia `otro_por_fecha` en la cuenta donde deposita: un ingreso
+  sin identificar con un cobro pendiente del mismo importe exacto, de la venta hasta 7 días antes (el más cercano; cada cobro una vez), de
+  los puntos de venta que cobran con algo que deposita ahí. Toma cobros de otro procesador si su cuenta ya tiene extracto pasado el día de
+  la venta, y de un procesador de la cuenta (también uno ya pasado a "Transferencia Brubank") que quedó fuera de la ventana normal. Grupo
+  "Cobros que coinciden por importe y fecha" con "Confirmar los N"; `/fin/conciliacion/acreditar` con `otro_procesador: 'fecha'`. Es la
+  excepción: nunca automático.
 - **Transferencias entre cuentas propias** (pedido de Fer, 10/11/2026; `transferenciasPropias` en `tesoreria.js`): en "Para resolver", una línea
   sin conciliar se propone como transferencia con una línea de otra cuenta de la **misma sociedad** (o del grupo) por el importe opuesto,
   hasta 2 días de distancia ("De una cuenta tuya - MercadoPago" en BRUBANK con "Transferencia a banco" en MERCADO PAGO CF), o, si el

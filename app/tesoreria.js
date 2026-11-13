@@ -1420,22 +1420,26 @@ const OTRO_PROCESADOR_SQL = `
      AND EXISTS (SELECT 1 FROM pos.ticket_pago a JOIN pos.medio am ON am.id = a.medio_id JOIN fin.medio_pago amp ON amp.id = am.medio_pago_id
                   WHERE a.ticket_id = p.ticket_id AND a.anulado AND amp.procesador_id = $1 AND a.importe = p.importe)`;
 
-// Un cobro de otro procesador por fecha e importe (pedido de Fer, 13/11/2026: en CORTAFUEGO, con Pago24 caído, los clientes
-// transfirieron directo a BRUBANK ventas que en Fudo quedaron como Pago24). Cobros pendientes de cualquier procesador que no
-// deposita en esta cuenta, de los puntos de venta que cobran con algún procesador que deposita acá;
-// sin PedidosYa ni lo que liquida por lotes. El pareo es por importe exacto y día (se confirma a mano: nunca solo).
+// Un cobro por fecha e importe (pedido de Fer, 13/11/2026: en CORTAFUEGO, con Pago24 caído, los clientes transfirieron directo
+// a BRUBANK ventas que en Fudo quedaron como Pago24, y algunas aparecieron en el banco días después: la del 06/11 por $240.000,
+// el 11/11). Cobros pendientes de los puntos de venta que cobran con algún procesador que deposita acá, sin PedidosYa ni lo que
+// liquida por lotes: los de otro procesador, si su cuenta ya tiene extracto pasado el día de la venta (si no, puede llegar
+// todavía por su lado), y los de un procesador de esta cuenta (también uno que ya se pasó a "Transferencia Brubank") que quedaron
+// fuera de la ventana del pareo normal. Es la excepción: importe exacto, hasta una semana, y se confirma a mano (nunca solo).
 const OTRO_POR_FECHA_SQL = `
   SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id, opr.nombre AS procesador_cargado,
-         i.nombre AS punto_venta
+         i.nombre AS punto_venta, opr.cuenta_acredita_id IS NOT DISTINCT FROM $1::uuid AS propio
     FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
     JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador opr ON opr.id = mp.procesador_id
     JOIN pos.integracion i ON i.id = t.integracion_id
-   WHERE opr.cuenta_acredita_id IS DISTINCT FROM $1::uuid AND opr.marca <> 'pedidosya'
+   WHERE opr.marca <> 'pedidosya'
+     AND (opr.cuenta_acredita_id = $1::uuid
+          OR EXISTS (SELECT 1 FROM fin.extracto_linea x WHERE x.cuenta_id = opr.cuenta_acredita_id AND x.fecha >= t.dia + 1))
      AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
      AND p.liquida_el IS NULL AND p.lote_id IS NULL
      AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pp ON pp.id = pmp.procesador_id
                    WHERE pp.cuenta_acredita_id = $1::uuid)`;
-const DIAS_OTRO_POR_FECHA = 2;
+const DIAS_OTRO_POR_FECHA = 7;
 
 // Un cobro del procesador que en el sistema de venta quedó como efectivo (decisión de Fer, 02/11/2026: el efectivo de octubre
 // no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de los puntos de
@@ -1536,7 +1540,9 @@ async function sugerenciasProcesador(cuenta) {
     const { rows: otrosF } = await pool.query(OTRO_POR_FECHA_SQL, [cuenta]);
     const dF = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5;
     for (const l of lineas.filter(l => !ya.has(l.id))) {
-      const p = otrosF.filter(p => !usadosF.has(p.id) && centavos(p.importe) === centavos(l.importe) && dF(l, p) >= 0 && dF(l, p) <= DIAS_OTRO_POR_FECHA)
+      // Uno de esta cuenta dentro de la ventana normal ya lo propone el pareo de siempre.
+      const p = otrosF.filter(p => !usadosF.has(p.id) && centavos(p.importe) === centavos(l.importe) && dF(l, p) >= 0 && dF(l, p) <= DIAS_OTRO_POR_FECHA
+                                   && !(p.propio && enVentana(l, p)))
         .sort((a, b) => dF(l, a) - dF(l, b))[0];
       if (p) { usadosF.add(p.id); sug.push({ tipo: 'otro_por_fecha', pago: p, lineas: [l.id] }); }
     }
@@ -1620,7 +1626,8 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
       if (!manual && (D < 0n ? -D : D) > TOLERANCIA(P)) throw new ErrorUsuario('La diferencia es demasiado grande para parearlos: registrá la línea como movimiento.');
       if (!motivo) throw new ErrorUsuario('Indicá el motivo de la diferencia.');
     }
-    const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
+    const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro && !p.propio ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
+      + (porFecha ? ' · por importe y fecha' : '')
       + (efectivo ? ' · cargada en el sistema de venta como efectivo' : '')
       + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
       + (D !== 0n ? ` · diferencia ${deCentavos(D)}: ${motivo}` : '');
