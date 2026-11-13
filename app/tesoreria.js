@@ -973,7 +973,9 @@ r.get('/fin/conciliacion', h(async (req, res) => {
                 AND (l.compensa_a IS NOT NULL OR l.descartada IS NOT NULL OR EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id))) AS conciliadas
        FROM fin.extracto e WHERE e.cuenta_id = $1::uuid ORDER BY e.importado_en DESC LIMIT 20`, [cuenta]);
   // Los cobros del procesador de la cuenta que esperan el extracto (no los de lotes): para parear a mano una línea, y los que
-  // ya deberían estar (4 días después de la venta o de su liquidación, dentro del extracto), para resolverlos.
+  // ya deberían estar (4 días después de la venta o de su liquidación, dentro del extracto), para resolverlos. Sin PedidosYa
+  // (13/11/2026: en BRUBANK salían 35 pedidos como "no aparecen en el extracto"): paga por semana, contra la liquidación, y lo
+  // que falta de una semana se ve en el paso 1 de Ingresos, no pedido por pedido.
   const { rows: cobros } = lado === 'egresos' ? { rows: [] } : await pool.query(
     `SELECT p.id, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, p.importe::text, mp.tipo_operacion, i.nombre AS punto_venta,
             (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
@@ -981,7 +983,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
               <= (SELECT MAX(e.hasta) FROM fin.extracto e WHERE e.cuenta_id = $1::uuid) AS revisar
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-       JOIN fin.procesador pr ON pr.id = mp.procesador_id AND pr.cuenta_acredita_id = $1::uuid
+       JOIN fin.procesador pr ON pr.id = mp.procesador_id AND pr.cuenta_acredita_id = $1::uuid AND pr.marca <> 'pedidosya'
       WHERE NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND p.lote_id IS NULL
       ORDER BY t.dia, t.id_externo`, [cuenta, INMEDIATOS]);
