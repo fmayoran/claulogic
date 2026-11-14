@@ -1012,12 +1012,12 @@ la guía y a `comun.css`, no a la pantalla.
   "Buscar o ir a…" (Ctrl+K, `buscarPantalla`) encuentra cualquier pantalla del menú.
 - **Cuatro moldes de pantalla**: tablero (cifras, gráficos, detalle en panel lateral), proceso (etapas, lo que hay para resolver y
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
-- **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `.etapas` + `.etapa`
-  (pasos de un asistente con su cifra), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
+- **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `ol.pasos`
+  (pasos de un asistente en flecha, con su cifra; lo usan Ingresos y Abastecimiento), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
 - **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
   comparar muchas cosas o ver una evolución.
 - **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes y guía. **Falta**: llevar a los moldes Inicio (líneas
-  de proceso con el paso deducido de cada uno), Proceso de ingresos (`.etapas`, grilla de días, recorrido de la plata), Tablero de
+  de proceso con el paso deducido de cada uno), Proceso de ingresos (ya tiene los pasos en flecha; faltan la grilla de días y el recorrido de la plata), Tablero de
   ventas y Facturas de proveedor; contadores de pendientes en el menú; barra de contexto común (sociedad, local, período); y
   migrar el resto de las pantallas, que hoy sólo tomaron colores y tipografía (sus `<style>` propios conservan radios y medidas viejas).
 

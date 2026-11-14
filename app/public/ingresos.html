@@ -9,21 +9,6 @@
 <link rel="stylesheet" href="graficos.css">
 <link rel="stylesheet" href="conciliar.css">
 <style>
-  /* Barra de pasos (la misma del proceso de abastecimiento): hecho, actual o por hacer, con su estado abajo. */
-  .pasos{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:4px 0 20px;padding:0;list-style:none;counter-reset:paso;}
-  .pasos li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 8px;align-items:center;padding:9px 10px;border-radius:12px;border:1.5px solid var(--line);
-    background:var(--panel);color:var(--mut);font-weight:600;font-size:.88rem;min-width:0;cursor:pointer;}
-  .pasos li:hover{background:var(--sel);}
-  .pasos li::before{counter-increment:paso;content:counter(paso);grid-row:span 2;width:26px;height:26px;border-radius:50%;
-    display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;font-size:.85rem;}
-  .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--ok);border-color:var(--ok);color:var(--panel);}
-  .pasos li.actual{border-color:var(--acento);color:var(--fg);box-shadow:0 0 0 3px var(--sel);}
-  .pasos li.actual::before{border-color:var(--acento);color:var(--acento);}
-  .pasos li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .pasos li small{font-weight:500;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut);}
-  .pasos li.falta small{color:var(--aviso-fg, var(--fg));}
-  @media (max-width:900px){ .pasos{display:flex;} .pasos li{flex:none;display:flex;justify-content:center;padding:8px;}
-    .pasos li span,.pasos li small{display:none;} .pasos li.actual{flex:1;justify-content:flex-start;} .pasos li.actual span{display:inline;} }
   .paso{max-width:980px;}
   .intro{color:var(--mut);margin:0 0 16px;max-width:760px;}
   /* Una tarjeta por punto de venta o por cuenta */

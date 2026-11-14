@@ -100,15 +100,16 @@
   </section>
 
   <section>
-    <h2>Etapas de un asistente</h2>
-    <p class="regla"><code>.etapas</code> con <code>.etapa</code>: los pasos de un proceso con la cifra de cada uno. Tocar una la abre.</p>
-    <div class="etapas">
-      <button class="etapa h"><span class="n">Paso 1</span><span class="t">Ventas</span><span class="v">Al día</span><span class="d">3 locales hasta el 13/11</span></button>
-      <button class="etapa act"><span class="n">Paso 2 · estás acá</span><span class="t">Efectivo</span><span class="v">$1.640.000</span><span class="d">a rendir, 9 días</span></button>
-      <button class="etapa"><span class="n">Paso 3</span><span class="t">Extractos</span><span class="v">1 cuenta</span><span class="d">falta importar</span></button>
-      <button class="etapa"><span class="n">Paso 4</span><span class="t">Conciliación</span><span class="v">14 líneas</span><span class="d">9 con sugerencia</span></button>
-      <button class="etapa"><span class="n">Paso 5</span><span class="t">Resultado</span><span class="v">$9.870.000</span><span class="d">por acreditar</span></button>
-    </div>
+    <h2>Pasos de un asistente</h2>
+    <p class="regla"><code>ol.pasos</code>: los pasos de un proceso con la cifra o el estado de cada uno (<code>hecho</code>,
+      <code>actual</code>, <code>falta</code>). Tocar uno lo abre.</p>
+    <ol class="pasos">
+      <li class="hecho"><span>Ventas</span><small>al día</small></li>
+      <li class="actual falta"><span>Efectivo</span><small>$1.640.000 a rendir</small></li>
+      <li class="falta"><span>Extractos</span><small>1 por importar</small></li>
+      <li class="falta"><span>Conciliación manual</span><small>14 líneas</small></li>
+      <li><span>Resultado</span><small></small></li>
+    </ol>
   </section>
 
   <section>
