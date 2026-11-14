@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mi cuenta · ClauLogic</title>
+<script src="tema.js"></script>
 <link rel="stylesheet" href="comun.css">
 </head>
 <body>
@@ -12,6 +13,16 @@
   <p class="sub" id="quien"></p>
 
   <p class="msg mal" id="forzado" hidden style="margin:0 0 16px">Entraste con una clave temporal. Elegí tu clave para seguir.</p>
+
+  <fieldset>
+    <legend>Apariencia</legend>
+    <div class="fila">
+      <label>Tema<select id="tema">
+        <option value="auto">Según el dispositivo</option><option value="claro">Claro</option><option value="oscuro">Oscuro</option>
+      </select></label>
+    </div>
+    <p class="ayuda">Se guarda en este navegador: en otro dispositivo se elige de nuevo.</p>
+  </fieldset>
 
   <form id="fc" novalidate>
     <fieldset>
@@ -53,6 +64,7 @@
 
 <script src="comun.js"></script>
 <script>
+const selTema = document.getElementById('tema'); selTema.value = temaElegido(); selTema.onchange = () => fijarTema(selTema.value);
 const fc = $('#fc'), fp = $('#fp');
 const volver = (() => {
   const v = new URLSearchParams(location.search).get('volver') || '';

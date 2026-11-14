@@ -154,14 +154,18 @@ function filas(tbody, items, fila, vacio, columnas) {
 }
 const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 
-// Secciones agrupadas por proceso (decisión de Fer, 27/10/2026; Inicio y Operaciones, 03/11/2026): en Inicio los tableros para
-// mirar, en Operaciones los asistentes de cada proceso; las pantallas de detalle de cada registro van juntas en "Registros", y lo
-// que se arma una vez, en Configuración. En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
+// El menú (rediseño del 14/11/2026). Tres partes fijas, siempre a la vista: Inicio, los procesos (los asistentes, que es por
+// donde se opera) y los tableros (para mirar). El resto son áreas, en grupos desplegables: las pantallas de detalle de cada
+// registro van juntas en "Registros", y lo que se arma una vez, en Configuración. Todo se encuentra también con "Buscar o ir
+// a…" (Ctrl+K). En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
+const FIJOS = [
+  ['', [['index.html', 'Inicio']]],
+  ['Procesos', [['ingresos.html', 'Ingresos'], ['abastecimiento.html', 'Abastecimiento'], ['egresos.html', 'Egresos'],
+                ['operaciones-tesoreria.html', 'Operaciones de tesorería']]],
+  ['Tableros', [['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
+                ['resultados.html', 'Estado de resultados']]],
+];
 const GRUPOS = [
-  ['Inicio', [['index.html', 'Panel'], ['ventas.html', 'Tablero de ventas'], ['tesoreria.html', 'Tablero de tesorería'], ['tablero.html', 'Tablero'],
-              ['resultados.html', 'Estado de resultados']]],
-  ['Operaciones', [['ingresos.html', 'Proceso de ingresos'], ['abastecimiento.html', 'Proceso de abastecimiento'], ['egresos.html', 'Proceso de egresos'],
-                   ['operaciones-tesoreria.html', 'Operaciones de tesorería']]],
   ['Compras', [['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
@@ -199,27 +203,37 @@ const menuAbiertos = () => { try { return JSON.parse(localStorage.getItem('menu-
 function navegacion() {
   const actual = location.pathname.split('/').pop() || 'index.html';
   const sec = ([href, t]) => el('a', { href, textContent: t, className: 'sec' + (href === actual ? ' act' : '') });
-  // Grupos desplegables: abierto el de la pantalla actual y los que el usuario dejó abiertos.
-  const grupos = () => GRUPOS.map(([g, secs]) => {
-    const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
-    const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
-    const cab = el('button', { type: 'button', className: 'cab' }, el('span', { textContent: g }), icono('flecha'));
-    cab.setAttribute('aria-expanded', abierto);
-    cab.onclick = () => {
-      items.hidden = !items.hidden; cab.setAttribute('aria-expanded', !items.hidden);
-      const otros = menuAbiertos().filter(x => x !== g);
-      try { localStorage.setItem('menu-abiertos', JSON.stringify(items.hidden ? otros : [...otros, g])); } catch {}
-    };
-    return el('div', { className: 'grupo' }, cab, items);
-  });
+  // Las partes fijas, con su rótulo, y después las áreas en grupos desplegables: abierto el de la pantalla actual y los que
+  // el usuario dejó abiertos.
+  const grupos = () => [
+    ...FIJOS.map(([g, secs]) => el('div', { className: 'grupo fijo' },
+      g ? el('div', { className: 'rot', textContent: g }) : null, el('div', { className: 'items' }, ...secs.map(sec)))),
+    el('div', { className: 'rot', textContent: 'Áreas' }),
+    ...GRUPOS.map(([g, secs]) => {
+      const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
+      const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
+      const cab = el('button', { type: 'button', className: 'cab' }, el('span', { textContent: g }), icono('flecha'));
+      cab.setAttribute('aria-expanded', abierto);
+      cab.onclick = () => {
+        items.hidden = !items.hidden; cab.setAttribute('aria-expanded', !items.hidden);
+        const otros = menuAbiertos().filter(x => x !== g);
+        try { localStorage.setItem('menu-abiertos', JSON.stringify(items.hidden ? otros : [...otros, g])); } catch {}
+      };
+      return el('div', { className: 'grupo' }, cab, items);
+    })];
   const btnEsc = () => el('button', { type: 'button', className: 'btn-escanear', onclick: escanear,
     ariaLabel: 'Escanear un código' }, icono('escanear'), el('span', { textContent: 'Escanear' }));
+  const btnBuscar = el('button', { type: 'button', className: 'btn-buscar', onclick: buscarPantalla },
+    el('span', { textContent: 'Buscar o ir a…' }), el('kbd', { textContent: 'Ctrl K' }));
 
   const lateral = el('nav', { className: 'lateral', ariaLabel: 'Secciones' },
-    el('a', { className: 'marca', href: './', textContent: 'ClauLogic' }), btnEsc(), ...grupos());
+    el('a', { className: 'marca', href: './', textContent: 'ClauLogic' }), btnBuscar, btnEsc(), ...grupos());
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); buscarPantalla(); }
+  });
 
   // Barra inferior del celular: lo de todos los días y Escanear al centro.
-  const abajo = [['index.html', 'Panel', 'panel'], ['stock.html', 'Stock', 'stock'], null,
+  const abajo = [['index.html', 'Inicio', 'panel'], ['stock.html', 'Stock', 'stock'], null,
                  ['productos.html', 'Productos', 'productos']];
   const enBarra = abajo.some(x => x && x[0] === actual);
   const hoja = el('dialog', { className: 'hoja', ariaLabel: 'Todas las secciones' }, ...grupos());
@@ -252,6 +266,42 @@ function navegacion() {
     lateral.append(el('div', { className: 'grupo cuenta' }, quien(), ...acciones()));
     hoja.append(el('div', { className: 'grupo cuenta' }, quien(), ...acciones()));
   }).catch(() => {});
+}
+
+// Buscar o ir a… (Ctrl+K): las pantallas del menú que el usuario puede abrir, sin acentos ni mayúsculas. Enter abre la primera.
+function buscarPantalla() {
+  if ($('dialog.buscador')) return;
+  const vistos = new Set(), pantallas = [];
+  for (const a of $$('.lateral a.sec')) {
+    const href = a.getAttribute('href');
+    if (!href || href === '#' || vistos.has(href)) continue;
+    vistos.add(href);
+    const g = a.closest('.grupo'), rot = g && (g.querySelector('.rot') || g.querySelector('.cab span'));
+    pantallas.push([href, a.textContent, rot ? rot.textContent : '']);
+  }
+  const plano = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const inp = el('input', { type: 'search', placeholder: 'Buscar una pantalla…', ariaLabel: 'Buscar una pantalla' });
+  const lista = el('div', { className: 'buscador-lista' });
+  const pintar = () => {
+    const q = plano(inp.value.trim());
+    const r = pantallas.filter(([, t, g]) => plano(t + ' ' + g).includes(q));
+    lista.replaceChildren(...(r.length
+      ? r.map(([href, t, g], i) => el('a', { href, className: i ? '' : 'act' }, el('b', { textContent: t }), el('span', { textContent: g })))
+      : [el('p', { className: 'vacio', textContent: 'Ninguna pantalla con ese nombre.' })]));
+  };
+  inp.oninput = pintar;
+  inp.onkeydown = e => { if (e.key === 'Enter') { const a = lista.querySelector('a'); if (a) location.href = a.href; } };
+  const dlg = el('dialog', { className: 'buscador', ariaLabel: 'Buscar o ir a una pantalla' }, inp, lista);
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg); dlg.showModal(); pintar();
+}
+
+// Tema: 'auto' sigue al dispositivo; 'claro' y 'oscuro' lo fijan en este navegador (tema.js lo aplica al cargar).
+const temaElegido = () => { try { return localStorage.getItem('tema') || 'auto'; } catch { return 'auto'; } };
+function fijarTema(t) {
+  try { t === 'auto' ? localStorage.removeItem('tema') : localStorage.setItem('tema', t); } catch {}
+  if (t === 'auto') delete document.documentElement.dataset.tema; else document.documentElement.dataset.tema = t;
 }
 
 let sesion = null, _sesion;

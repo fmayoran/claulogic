@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Guía de estilo · ClauLogic</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<style>
+  section{margin:0 0 28px;}
+  .muestra{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+  .color{width:150px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--panel);font-size:.86rem;}
+  .color i{display:block;height:44px;} .color span{display:block;padding:6px 10px;}
+  .color code{color:var(--mut);}
+  .regla{color:var(--mut);max-width:80ch;margin:0 0 12px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Guía de estilo</h1>
+  <p class="sub">Cada componente de la interfaz, con su clase y cuándo se usa. Una pantalla nueva se arma con lo que hay acá;
+    si falta algo, se agrega primero a esta guía y a los estilos comunes, no a la pantalla.</p>
+
+  <section>
+    <h2>Colores</h2>
+    <p class="regla">Siempre por variable, nunca por valor. El amarillo (<code>--prim</code>) es el relleno de la acción principal
+      de la pantalla, una sola, y de Escanear. <code>--acento</code> es ese mismo acento como texto, borde o foco. Los estados
+      van con texto o signo además del color.</p>
+    <div class="muestra" id="colores"></div>
+  </section>
+
+  <section>
+    <h2>Tipografía</h2>
+    <p class="regla">IBM Plex Sans. Títulos y cifras, angostos (<code>font-stretch</code> 78 a 80%) y en peso 600; el texto, en
+      ancho normal. Los números, siempre tabulares.</p>
+    <h1 style="margin:0">Título de pantalla</h1>
+    <h2 style="margin:8px 0 0">Título de sección</h2>
+    <h3 style="margin:8px 0 0">Título menor</h3>
+    <p style="margin:8px 0 0">Texto corriente de la aplicación. <span class="mut">Texto secundario.</span> <a href="#">Un enlace</a>.</p>
+  </section>
+
+  <section>
+    <h2>Botones y campos</h2>
+    <p class="regla"><code>button.prim</code> para la acción principal (una por pantalla o por tarjeta); el resto, botón común.
+      "Agregar nuevo…" va como última opción de la lista, nunca como botón al costado.</p>
+    <div class="muestra">
+      <button class="prim">Acción principal</button><button>Acción secundaria</button><button class="peligro">Anular</button>
+      <button class="chico">Chico</button><button disabled>Deshabilitado</button>
+    </div>
+    <fieldset style="margin-top:14px">
+      <legend>Un formulario</legend>
+      <div class="fila">
+        <label>Proveedor<select><option>Elegir…</option><option>+ Agregar proveedor…</option></select></label>
+        <label>Importe<input value="20.000" inputmode="numeric"></label>
+        <label>Fecha<input type="date" value="2026-11-14"></label>
+      </div>
+      <p class="ayuda">La ayuda de un campo va debajo, en gris.</p>
+    </fieldset>
+  </section>
+
+  <section>
+    <h2>Estados</h2>
+    <p class="regla"><code>.tag</code> con <code>ok</code>, <code>aviso</code>, <code>mal</code> o <code>info</code>. Cuatro
+      significados en toda la app: cerrado o al día, pendiente, para revisar o vencido, y en curso.</p>
+    <div class="muestra">
+      <span class="tag ok">Pagada</span><span class="tag aviso">Pago parcial</span><span class="tag mal">Vencida</span>
+      <span class="tag info">Por pagar</span><span class="tag">Borrador</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Franja de cifras</h2>
+    <p class="regla"><code>.franja</code> con <code>.k</code>: los números de arriba de una pantalla. La cifra que manda lleva
+      <code>dest</code>. En los tableros con mini curva siguen las <code>.kpis</code>.</p>
+    <div class="franja">
+      <div class="k dest"><span class="et">Vendido en noviembre</span><span class="va">$49.300.000</span><span class="pie">+11,8% contra octubre</span></div>
+      <div class="k"><span class="et">Disponible</span><span class="va">$18.420.000</span><span class="pie">3 bancos y la caja mayor</span></div>
+      <div class="k"><span class="et">Por acreditar</span><span class="va">$9.870.000</span><span class="pie aviso">$1.240.000 para revisar</span></div>
+      <div class="k"><span class="et">A pagar esta semana</span><span class="va">$6.310.000</span><span class="pie mal">2 vencidas</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Línea de proceso</h2>
+    <p class="regla"><code>.proc</code> con <code>.vias</code> y <code>.est</code>: en qué paso está un proceso. La estación
+      <code>act</code> es la que sigue. Va en Inicio; el color (<code>--c</code>) identifica al proceso.</p>
+    <div class="card">
+      <div class="proc">
+        <div><a class="nom" href="#">Ingresos</a><span class="est-txt aviso">$1.640.000 de efectivo a rendir</span></div>
+        <div class="vias"><div class="est h"><i></i><span>Ventas</span></div><div class="est act"><i></i><span>Efectivo</span></div><div class="est"><i></i><span>Extractos</span></div><div class="est"><i></i><span>Conciliación</span></div><div class="est"><i></i><span>Resultado</span></div></div>
+        <button class="prim">Continuar</button>
+      </div>
+      <div class="proc" style="--c:var(--serie-1)">
+        <div><a class="nom" href="#">Abastecimiento</a><span class="est-txt">4 pedidos esperan mercadería</span></div>
+        <div class="vias"><div class="est h"><i></i><span>Necesidad</span></div><div class="est h"><i></i><span>Proveedor</span></div><div class="est h"><i></i><span>Pedido</span></div><div class="est act"><i></i><span>Recepción</span></div><div class="est"><i></i><span>Comprobante</span></div><div class="est"><i></i><span>Pago</span></div></div>
+        <button>Llegó mercadería</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Etapas de un asistente</h2>
+    <p class="regla"><code>.etapas</code> con <code>.etapa</code>: los pasos de un proceso con la cifra de cada uno. Tocar una la abre.</p>
+    <div class="etapas">
+      <button class="etapa h"><span class="n">Paso 1</span><span class="t">Ventas</span><span class="v">Al día</span><span class="d">3 locales hasta el 13/11</span></button>
+      <button class="etapa act"><span class="n">Paso 2 · estás acá</span><span class="t">Efectivo</span><span class="v">$1.640.000</span><span class="d">a rendir, 9 días</span></button>
+      <button class="etapa"><span class="n">Paso 3</span><span class="t">Extractos</span><span class="v">1 cuenta</span><span class="d">falta importar</span></button>
+      <button class="etapa"><span class="n">Paso 4</span><span class="t">Conciliación</span><span class="v">14 líneas</span><span class="d">9 con sugerencia</span></button>
+      <button class="etapa"><span class="n">Paso 5</span><span class="t">Resultado</span><span class="v">$9.870.000</span><span class="d">por acreditar</span></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Grilla de días</h2>
+    <p class="regla"><code>.dias-fila</code> con <code>.dias</code> y <code>.dia</code>: el estado de cada día de cada local.
+      <code>c</code> cerrado, <code>e</code> efectivo a rendir, <code>a</code> falta acreditar, <code>r</code> para revisar.</p>
+    <div class="card" id="grilla"></div>
+  </section>
+
+  <section>
+    <h2>Gráficos</h2>
+    <p class="regla"><code>graficos.js</code>. Dona (<code>Graf.dona</code>) para cómo se reparte un total, hasta cinco partes y
+      el resto en "Otros"; barras y líneas para comparar muchas cosas o ver una evolución. La paleta va en orden fijo.</p>
+    <div class="t-grid t-g3">
+      <div class="card"><h2>Por medio de pago</h2><p class="cap">Dona con el total al centro.</p><div id="dona" style="position:relative"></div></div>
+      <div class="card"><h2>Por store</h2><p class="cap">Ranking en barras.</p><div id="rank"></div></div>
+      <div class="card"><h2>Ventas por día</h2><p class="cap">Columnas.</p><div id="cols" style="position:relative"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tabla</h2>
+    <p class="regla"><code>.tabla-wrap</code> con <code>table.datos</code>; con <code>movil</code> pasa a tarjetas en el celular.</p>
+    <div class="tabla-wrap"><table class="datos">
+      <thead><tr><th>Fecha</th><th>Proveedor</th><th>Comprobante</th><th class="num">Total</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr><td>13/11/2026</td><td>Frigorífico Don Pedro</td><td>A 0004-00018231</td><td class="num">$2.184.000</td><td><span class="tag info">Por pagar</span></td></tr>
+        <tr><td>12/11/2026</td><td>Verdulería La Huerta</td><td>X 00000-000412</td><td class="num">$386.000</td><td><span class="tag mal">Vencida</span></td></tr>
+        <tr><td>07/11/2026</td><td>Papelera Sur</td><td>B 0001-00012044</td><td class="num">$214.000</td><td><span class="tag ok">Pagada</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</main>
+<script src="comun.js"></script>
+<script src="graficos.js"></script>
+<script>
+const COLORES = [['--bg', 'Fondo'], ['--panel', 'Superficie'], ['--sel', 'Elegido'], ['--line', 'Línea'], ['--fg', 'Texto'], ['--mut', 'Texto secundario'],
+  ['--prim', 'Acción principal'], ['--acento', 'Acento'], ['--ok', 'Al día'], ['--aviso', 'Pendiente'], ['--mal', 'Para revisar'], ['--info', 'En curso'],
+  ['--serie-1', 'Serie 1'], ['--serie-2', 'Serie 2'], ['--serie-3', 'Serie 3'], ['--serie-4', 'Serie 4'], ['--serie-5', 'Serie 5']];
+$('#colores').append(...COLORES.map(([v, t]) => el('div', { className: 'color' }, el('i', { style: `background:var(${v})` }),
+  el('span', {}, t, el('br'), el('code', { textContent: v })))));
+
+const SIGNO = { c: '✓', e: '$', a: '~', r: '!' };
+const fila = (nombre, dias) => el('div', { className: 'dias-fila' }, el('b', { textContent: nombre }),
+  el('div', { className: 'dias' }, ...dias.split('').map((k, i) => el('div', { className: 'dia ' + k.trim() }, SIGNO[k] || '', el('small', { textContent: i + 1 })))));
+$('#grilla').append(fila('Cortafuego Parrilla', 'ccccccccceeee'), fila('Sorelle Bodegón y Sushi', 'cccccccccaaee'), fila('Sorelle Cafetería', 'ccccccccrceee'));
+
+Graf.dona($('#dona'), { items: [['Mercado Pago', 17700000], ['Fudo Pagos', 10800000], ['Efectivo', 9900000], ['PedidosYa', 8400000], ['Pago24', 2500000]]
+  .map(([etiqueta, valor]) => ({ clave: etiqueta, etiqueta, valor })), sub: 'cobrado', fmt: Graf.compacto });
+Graf.ranking($('#rank'), { items: [['Cortafuego Parrilla', 24800000], ['Lo de Titi Bodegón', 11200000], ['Wera Sushi', 8100000], ['Di Ciucio Caffe', 5200000]]
+  .map(([etiqueta, valor]) => ({ clave: etiqueta, etiqueta, valor })) });
+const dias = [5.9, 3.6, 2.4, 2.0, 3.2, 4.3, 5.4, 6.1, 3.7, 2.5, 2.2, 3.4, 4.6];
+Graf.columnas($('#cols'), { etiquetas: dias.map((_, i) => String(i + 1)), valores: dias.map(v => v * 1e6) });
+</script>
+</body>
+</html>

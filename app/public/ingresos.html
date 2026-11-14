@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Proceso de ingresos · ClauLogic</title>
+<script src="tema.js"></script>
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <link rel="stylesheet" href="conciliar.css">
@@ -15,7 +16,7 @@
   .pasos li:hover{background:var(--sel);}
   .pasos li::before{counter-increment:paso;content:counter(paso);grid-row:span 2;width:26px;height:26px;border-radius:50%;
     display:grid;place-items:center;background:var(--bg);border:1.5px solid var(--borde);font-weight:750;font-size:.85rem;}
-  .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--acento);border-color:var(--acento);color:var(--acento-fg);}
+  .pasos li.hecho{color:var(--fg);} .pasos li.hecho::before{content:'✓';background:var(--ok);border-color:var(--ok);color:var(--panel);}
   .pasos li.actual{border-color:var(--acento);color:var(--fg);box-shadow:0 0 0 3px var(--sel);}
   .pasos li.actual::before{border-color:var(--acento);color:var(--acento);}
   .pasos li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

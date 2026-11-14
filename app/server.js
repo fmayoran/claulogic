@@ -63,11 +63,11 @@ app.get(/^\/01\/(\d{8,14})(?:\/10\/([^/?]+))?\/?$/, (req, res) => {
 // Lector de códigos por cámara para navegadores sin BarcodeDetector (Safari, Chrome de
 // escritorio). Se sirve desde el propio paquete npm, con versión fija: nada de CDN en producción.
 app.use('/vendor/zxing', express.static(path.join(path.dirname(require.resolve('@zxing/library/package.json')), 'umd'), { maxAge: '7d' }));
-// Tipografía (Archivo, variable en peso y ancho), también desde el paquete: cargarla de Google
-// Fonts le avisaría a un tercero cada vez que alguien abre la app.
 // Lectura de PDF en el navegador (las facturas semanales de PedidosYa), también desde el paquete y con versión fija.
 app.use('/vendor/pdfjs', express.static(path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'build'), { maxAge: '7d' }));
-app.use('/vendor/archivo', express.static(path.join(path.dirname(require.resolve('@fontsource-variable/archivo/package.json')), 'files'), { maxAge: '30d' }));
+// Tipografía (IBM Plex Sans, variable en peso y ancho), también desde el paquete: cargarla de Google
+// Fonts le avisaría a un tercero cada vez que alguien abre la app.
+app.use('/vendor/plex', express.static(path.join(path.dirname(require.resolve('@fontsource-variable/ibm-plex-sans/package.json')), 'files'), { maxAge: '30d' }));
 
 // Las pantallas y sus helpers se revalidan en cada visita (304 si no cambiaron): con un max-age,
 // después de un deploy el navegador puede juntar un HTML nuevo con un comun.js viejo y la

@@ -994,6 +994,33 @@ platos de carta, integración con POS (Fudo por API, archivo para cualquiera), c
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
+### Sistema de diseño (rediseño aprobado por Fer el 14/11/2026; en la rama `rediseno`, sin desplegar)
+Fer pidió una interfaz más profesional, con tableros donde manden los gráficos y procesos lo más gráficos posible. Eligió, sobre
+maquetas (lienzo https://claude.ai/artifact/V5zvEX1kEEXfxGCw1LYXhw, página "Propuesta"): identidad oscura con un solo acento, menú
+lateral, inicio por procesos, y **dona** como forma por defecto para repartir un total. **La referencia viva es `estilo.html`**
+(cada componente con su clase y cuándo se usa): una pantalla nueva se arma con lo que hay ahí; si falta algo, se agrega primero a
+la guía y a `comun.css`, no a la pantalla.
+- **Colores por rol, nunca por valor** (`comun.css`): `--prim`/`--prim-fg` es el relleno amarillo de la acción principal (una por
+  pantalla o tarjeta, `button.prim`) y de Escanear; `--acento` es ese acento como texto, borde o foco (amarillo en oscuro, ocre en
+  claro: el amarillo sobre blanco no se lee); `--ok`, `--aviso`, `--mal`, `--info` (con su `-bg`) son estados y van siempre con
+  texto o signo. No usar `--acento` como relleno ni para decir "bien" (para eso `--ok`).
+- **Dos temas**: sigue al dispositivo; el usuario lo fija en Mi cuenta (`fijarTema`, `localStorage.tema`; `tema.js` en el `<head>`
+  de cada pantalla pone `data-tema` antes de pintar). Todo estilo nuevo tiene que verse en los dos: sólo variables.
+- **Tipografía** IBM Plex Sans variable servida desde el paquete (`/vendor/plex`): títulos y cifras angostos (`font-stretch` 78-80%,
+  peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
+- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`): Inicio, Procesos y Tableros siempre a la vista; el resto, áreas desplegables.
+  "Buscar o ir a…" (Ctrl+K, `buscarPantalla`) encuentra cualquier pantalla del menú.
+- **Cuatro moldes de pantalla**: tablero (cifras, gráficos, detalle en panel lateral), proceso (etapas, lo que hay para resolver y
+  su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
+- **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `.etapas` + `.etapa`
+  (pasos de un asistente con su cifra), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
+- **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
+  comparar muchas cosas o ver una evolución.
+- **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes y guía. **Falta**: llevar a los moldes Inicio (líneas
+  de proceso con el paso deducido de cada uno), Proceso de ingresos (`.etapas`, grilla de días, recorrido de la plata), Tablero de
+  ventas y Facturas de proveedor; contadores de pendientes en el menú; barra de contexto común (sociedad, local, período); y
+  migrar el resto de las pantallas, que hoy sólo tomaron colores y tipografía (sus `<style>` propios conservan radios y medidas viejas).
+
 **Interfaz.** `comun.js` arma la navegación de todas las pantallas. **Fechas en dd/mm/aaaa** (pedido de Fer, 01/11/2026: el
 `<input type="date">` muestra el formato del idioma del navegador, mm/dd en un Chrome en inglés): `comun.js` acompaña cada uno
 (también los que se crean después) de un campo de texto dd/mm/aaaa con botón de calendario; el original queda oculto con el valor
@@ -1032,7 +1059,7 @@ de resultado (ok, mal, aviso) cuyo lugar está fuera de la vista se muestra adem
 usan mientras esperan al servidor) todo botón submit que empieza con "Guardar" o "Crear" hasta que hay
 un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no pasa por un campo
 (foto, renglón agregado por código) se avisa con `marcarCambios(form)`; al abrir un registro, `sinCambios(form)`. Tipografía
-Archivo servida desde el paquete npm (`/vendor/archivo`), nunca de Google Fonts. Campos a 16 px en
+IBM Plex Sans servida desde el paquete npm (`/vendor/plex`), nunca de Google Fonts. Campos a 16 px en
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
 Falta: recepción en varias entregas de una misma compra (hoy lo que falta pasa a la lista de compras), anular una compra recibida o una

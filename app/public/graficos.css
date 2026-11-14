@@ -1,36 +1,40 @@
 /* Tableros: tarjetas, cifras y gráficos (graficos.js). Colores por rol; la paleta categórica está validada
-   (validate_palette.js) contra el panel claro (#fff) y el oscuro (#1a1f1d), en este orden fijo. En claro,
+   (validate_palette.js) contra el panel claro (#fff) y el oscuro (#17242C), en este orden fijo. En claro,
    aqua, amarillo y magenta quedan bajo 3:1 contra el fondo: por eso cada parte lleva su rótulo con valor. */
 :root{
   --serie-1:#2a78d6;--serie-2:#eb6834;--serie-3:#1baf7a;--serie-4:#eda100;--serie-5:#e87ba4;--serie-6:#008300;
-  --anterior:#9aa39f;--g-grilla:#eef1ef;--g-eje:#7b8782;--g-sombra:0 1px 2px rgba(16,28,22,.05),0 6px 20px rgba(16,28,22,.05);
+  --anterior:#8b9aa1;--g-grilla:#E6ECEE;--g-eje:#51646C;--g-sombra:none;
   --sube:#0a7d32;--baja:#c0352f;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-tema=claro]){
   --serie-1:#3987e5;--serie-2:#d95926;--serie-3:#199e70;--serie-4:#c98500;--serie-5:#d55181;--serie-6:#008300;
-  --anterior:#66716c;--g-grilla:#252c29;--g-eje:#8a9690;--g-sombra:none;
+  --anterior:#7d9099;--g-grilla:#22333C;--g-eje:#93A7AF;--g-sombra:none;
   --sube:#4cc27a;--baja:#f2867d;
 }}
+:root[data-tema=oscuro]{
+  --serie-1:#3987e5;--serie-2:#d95926;--serie-3:#199e70;--serie-4:#c98500;--serie-5:#d55181;--serie-6:#008300;
+  --anterior:#7d9099;--g-grilla:#22333C;--g-eje:#93A7AF;--g-sombra:none;
+  --sube:#4cc27a;--baja:#f2867d;
+}
 
 /* Encabezado del tablero: título, período en botones y filtros, en una sola franja. */
 .t-cab{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 18px;}
 .t-cab h1{margin:0;flex:1 1 auto;}
-.segm{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px;flex-wrap:wrap;}
-.segm button{all:unset;cursor:pointer;padding:6px 14px;border-radius:999px;font-size:.9rem;color:var(--mut);white-space:nowrap;}
+.segm{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px;gap:2px;flex-wrap:wrap;}
+.segm button{all:unset;cursor:pointer;padding:6px 14px;border-radius:5px;font-size:.9rem;color:var(--mut);white-space:nowrap;}
 .segm button:hover{color:var(--fg);}
-.segm button.act{background:var(--acento);color:var(--acento-fg);}
+.segm button.act{background:var(--prim);color:var(--prim-fg);font-weight:600;}
 .segm button:focus-visible{outline:2px solid var(--acento);outline-offset:1px;}
 .t-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
-.t-filtros select,.t-filtros input{width:auto;border-radius:999px;padding:7px 14px;}
+.t-filtros select,.t-filtros input{width:auto;padding:7px 12px;}
 .t-rango{color:var(--mut);font-size:.88rem;margin:-8px 0 16px;}
 
 /* Tarjetas */
 .t-grid{display:grid;gap:16px;margin:0 0 16px;}
 .t-g2{grid-template-columns:minmax(0,2fr) minmax(0,1fr);}
 .t-g3{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--g-sombra);min-width:0;}
-@media (prefers-color-scheme:light){.card{border-color:transparent;}}
-.card h2{font-size:1rem;margin:0 0 2px;font-weight:650;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;box-shadow:var(--g-sombra);min-width:0;}
+.card h2{font-size:1.05rem;margin:0 0 2px;font-weight:600;font-stretch:100%;}
 .card .cap{color:var(--mut);font-size:.84rem;margin:0 0 12px;}
 .card-cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
 
@@ -38,7 +42,7 @@
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;margin:0 0 16px;}
 .kpi{display:flex;flex-direction:column;gap:2px;}
 .kpi .et{color:var(--mut);font-size:.84rem;}
-.kpi .va{font-size:1.65rem;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.2;}
+.kpi .va{font-size:2.05rem;font-weight:600;font-stretch:78%;font-variant-numeric:tabular-nums;line-height:1.2;}
 .kpi .pie{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;font-size:.8rem;color:var(--mut);min-height:1.2em;}
 .kpi .curva{height:36px;margin-top:6px;}
 .g-var{font-size:.8rem;color:var(--mut);} .g-var b{font-weight:650;}
@@ -74,7 +78,7 @@
 .g-dona-caja{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:center;}
 .g-dona{width:170px;height:170px;flex:none;}
 .g-dona .parte{stroke:var(--panel);stroke-width:2;transition:opacity .15s;} .g-dona .parte.clic{cursor:pointer;pointer-events:auto;}
-.g-dona .centro{fill:var(--fg);font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;}
+.g-dona .centro{fill:var(--fg);font-size:19px;font-weight:600;font-stretch:78%;font-variant-numeric:tabular-nums;}
 .g-dona .centro-sub{fill:var(--mut);font-size:11px;}
 .g-leyenda{display:grid;gap:2px;flex:1 1 200px;min-width:0;}
 .g-ley{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:8px;
@@ -105,12 +109,12 @@
 
 /* Filtros activos del detalle */
 .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
-.chip{display:inline-flex;align-items:center;gap:6px;background:var(--sel);color:var(--fg);border-radius:999px;padding:4px 6px 4px 12px;font-size:.85rem;}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--sel);color:var(--fg);border-radius:6px;padding:4px 6px 4px 12px;font-size:.85rem;}
 .chip button{all:unset;cursor:pointer;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;color:var(--mut);}
 .chip button:hover{background:var(--line);color:var(--fg);}
 
 /* Panel lateral (detalle de un registro) */
-dialog.panel-lado{margin:0 0 0 auto;height:100%;max-height:100%;width:min(460px,100vw);border-radius:16px 0 0 16px;border:0;padding:22px 24px;}
+dialog.panel-lado{margin:0 0 0 auto;height:100%;max-height:100%;width:min(460px,100vw);border-radius:12px 0 0 12px;border:0;padding:22px 24px;}
 dialog.panel-lado::backdrop{background:rgba(10,16,14,.35);}
 @media (max-width:899px){
   .t-g2,.t-g3{grid-template-columns:minmax(0,1fr);}
@@ -119,7 +123,7 @@ dialog.panel-lado::backdrop{background:rgba(10,16,14,.35);}
 @media (max-width:600px){
   .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
   .kpis > :first-child{grid-column:1 / -1;} .kpis > :first-child .va{font-size:1.8rem;}
-  .kpi .va{font-size:1.3rem;} .card{padding:14px 14px;border-radius:14px;}
+  .kpi .va{font-size:1.55rem;} .card{padding:14px 14px;}
   .t-cab h1{flex-basis:100%;} .segm{width:100%;justify-content:space-between;} .segm button{padding:6px 10px;font-size:.85rem;}
   .segm.pestanas{width:auto;justify-content:flex-start;}
 }
