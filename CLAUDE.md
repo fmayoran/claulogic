@@ -864,7 +864,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   antes de la bonificación − lo asentado por pedido sin IVA (exacto por tienda: la tienda de cada renglón se reconoce por el pago en línea
   de la factura de Pagos Ya, que coincide al centavo); IVA = IVA de las facturas − IVA asentado + IVA de la bonificación; esperado = neto
   por pedido − publicidad − IVA − percepciones (la bonificación tiene efecto cero en lo pagado: el portal la resta de "Ventas" con su IVA
-  y la devuelve). Verificado con la semana del 26/10 de SORELLE: 2.699.471,50, al centavo. Al confirmar: las facturas quedan
+  y la devuelve). Verificado con la semana del 26/10 de SORELLE: 2.699.471,50, al centavo. **Descuentos del local no facturados** (14/11/2026): en CORTAFUEGO la factura de Delivery Hero trae sólo comisión y pago
+  en línea; los descuentos financiados por el local los retiene PedidosYa sin facturarlos y salían como publicidad negativa (el
+  esperado daba $117.750 de más y el depósito de $868.629,67 quedó sin conciliar). Si lo facturado no cubre lo asentado y los
+  descuentos lo explican, se toman como no facturados (aviso en la vista previa). Al confirmar: las facturas quedan
   **registradas y compensadas** (`fin.liquidacion_comprobante` + un movimiento `pago` en la cuenta corriente: sin deuda, en el libro IVA
   de la sociedad; `comprobante_pendiente` las descuenta), los costos se asientan como egresos de "a acreditar" el domingo de la semana, por
   tienda (Publicidad y marketing, IVA de comisiones, Otras retenciones, Ingresos Brutos; la diferencia con el portal, en Diferencias de
