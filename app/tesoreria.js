@@ -1502,9 +1502,12 @@ async function sugerenciasProcesador(cuenta) {
   // Depósitos de procesadores que liquidan por lotes y que no coinciden exacto con sus lotes (lo exacto lo hace la
   // automática): el lote del día más un cobro pendiente sin neto informado (Fudo no informa el neto de algunos) que
   // explica la diferencia con un costo de hasta el 15%; si no, el lote con la diferencia, a confirmar con su motivo.
+  // Los lotes de todos los procesadores que depositan en la cuenta, como la automática (14/11/2026: el pago de PedidosYa a
+  // BRUBANK llegó con 6 centavos de diferencia y no se proponía, porque sólo se miraban los lotes de Fudo).
   const { rows: lotesAb } = await pool.query(
     `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, l.pagos FROM fin.lote l
-      WHERE l.procesador_id = $1 AND l.movimiento_id IS NULL ORDER BY l.fecha`, [pr.id]);
+      WHERE l.procesador_id IN (SELECT x.id FROM fin.procesador x WHERE x.cuenta_acredita_id = $1::uuid) AND l.movimiento_id IS NULL
+      ORDER BY l.fecha`, [cuenta]);
   if (lotesAb.length) {
     const { rows: sinNeto } = await pool.query(
       `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, m.nombre AS medio
@@ -1807,7 +1810,9 @@ r.post('/fin/conciliacion/lote', h(async (req, res) => {
     const { rows: [pr] } = await c.query(`SELECT id, nombre FROM fin.procesador WHERE cuenta_acredita_id = $1 ORDER BY marca = 'transferencia', nombre LIMIT 1`, [l.cuenta_id]);
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     const { rows: lotes } = await c.query(
-      `SELECT l.id, l.neto::text FROM fin.lote l WHERE l.id = ANY($1::uuid[]) AND l.procesador_id = $2 AND l.movimiento_id IS NULL FOR UPDATE`, [loteIds, pr.id]);
+      // Lotes de cualquier procesador que deposita en la cuenta (Fudo Pagos y las liquidaciones de PedidosYa en BRUBANK).
+      `SELECT l.id, l.neto::text, x.nombre AS procesador FROM fin.lote l JOIN fin.procesador x ON x.id = l.procesador_id
+        WHERE l.id = ANY($1::uuid[]) AND x.cuenta_acredita_id = $2 AND l.movimiento_id IS NULL FOR UPDATE OF l`, [loteIds, l.cuenta_id]);
     if (lotes.length !== loteIds.length) throw new ErrorUsuario('Algún lote ya está confirmado o no es de este procesador.');
     const movs = [];
     for (const x of lotes) movs.push(await asentarLote(c, x.id, l.fecha));
@@ -1841,7 +1846,7 @@ r.post('/fin/conciliacion/lote', h(async (req, res) => {
       const neg = D < 0n, abs = neg ? -D : D;
       const { rows: [dm] } = await c.query(
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, gasto) VALUES ($1,$2,$3,$4,$5,$6,'otro') RETURNING id`,
-        [l.fecha, l.cuenta_id, neg ? 'egreso' : 'ingreso', neg ? 0 : deCentavos(abs), neg ? deCentavos(abs) : 0, `Diferencia con el lote de ${pr.nombre}: ${motivo}`]);
+        [l.fecha, l.cuenta_id, neg ? 'egreso' : 'ingreso', neg ? 0 : deCentavos(abs), neg ? deCentavos(abs) : 0, `Diferencia con el lote de ${lotes[0].procesador}: ${motivo}`]);
       movs.push(dm.id);
     }
     for (const m of movs) await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [l.id, m]);
