@@ -1004,7 +1004,7 @@ lateral, inicio por procesos, y **dona** como forma por defecto para repartir un
 (cada componente con su clase y cuándo se usa): una pantalla nueva se arma con lo que hay ahí; si falta algo, se agrega primero a
 la guía y a `comun.css`, no a la pantalla.
 - **Colores por rol, nunca por valor** (`comun.css`): `--prim`/`--prim-fg` es el relleno de la acción principal (una por pantalla
-  o tarjeta, `button.prim`) y es **petróleo** (`#2F6F73` en oscuro, `#1F5B5F` en claro, texto blanco; Fer, 14/11/2026: probó gris claro y le pareció frío) (Fer, 14/11/2026: los botones amarillos eran demasiado
+  o tarjeta, `button.prim`) y es **arena** (`#E8E0CF` con texto oscuro en el modo oscuro; carbón cálido `#2E2A24` con texto blanco en el claro. Fer, 14/11/2026: probó gris claro, frío, y petróleo, que no le gustó) (Fer, 14/11/2026: los botones amarillos eran demasiado
   fuertes; quiere moderno y minimalista). El amarillo (`--marca`) queda sólo en marcas chicas: el logo, la pantalla actual del menú
   y el paso actual de un asistente. `--acento` es el color de enlaces, foco y bordes elegidos (amarillo suave en oscuro, ocre en
   claro). `--ok`, `--aviso`, `--mal`, `--info` (con su `-bg`) son estados y van siempre con texto o signo. No usar `--acento` ni
