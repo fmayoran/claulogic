@@ -6,6 +6,7 @@
 <title>ClauLogic</title>
 <script src="tema.js"></script>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
 <style>
   .salud{margin-top:28px;color:var(--mut);font-size:.85rem;display:flex;gap:8px;align-items:center;}
   .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;} .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
@@ -24,19 +25,31 @@
   .alerta .det a{color:var(--fg);text-decoration:none;display:block;padding:3px 0;line-height:1.35;} .alerta .det b{font-weight:600;}
   .alerta .det a:hover{color:var(--acento);} .alerta .det .m{color:var(--mut);}
   .al-dia{color:var(--mut);font-size:.9rem;margin:6px 0 0;}
+  /* Indicadores del mes (pedido de Fer, 14/11/2026): una tarjeta por tablero, con su cifra, su variación y un gráfico chico. */
+  .indicadores{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-bottom:26px;}
+  .indicadores a.kpi{color:inherit;text-decoration:none;} .indicadores a.kpi:hover{border-color:var(--borde);}
+  .indicadores .kpi .curva{height:44px;margin-top:10px;display:flex;flex-direction:column;justify-content:flex-end;}
+  .ind-barra{position:relative;height:8px;border-radius:4px;background:var(--g-grilla);}
+  .ind-barra i{display:block;height:100%;border-radius:4px;background:var(--serie-1);}
+  .ind-barra b{position:absolute;top:-4px;width:2px;height:16px;margin-left:-1px;border-radius:1px;background:var(--fg);}
+  .ind-nota{font-size:.8rem;color:var(--mut);margin-top:6px;}
 </style>
 </head>
 <body>
 <main class="ancho">
-  <h1>Panel</h1>
-  <p class="sub">Lo que hay que atender hoy. Cada tarjeta lleva a donde se resuelve; "Ver" muestra el detalle sin salir de acá.</p>
+  <h1>Inicio</h1>
+  <p class="sub">Cómo viene el mes y lo que hay que atender hoy. Cada indicador abre su tablero; cada tarjeta de "Para resolver" lleva a donde
+    se resuelve, y "Ver" muestra el detalle sin salir de acá.</p>
   <div class="atajos" id="atajos"></div>
+  <h2 id="indTitulo" hidden></h2>
+  <div class="kpis indicadores" id="indicadores" hidden></div>
   <h2>Para resolver</h2>
   <div class="alertas" id="alertas"><p class="vacio">Consultando…</p></div>
   <p class="al-dia" id="alDia"></p>
   <p class="salud"><span class="p" id="p"></span><span id="t">consultando…</span></p>
 </main>
 <script src="comun.js"></script>
+<script src="graficos.js"></script>
 <script>
 // Cada alerta: nivel (mal | aviso), cantidad, título, una línea de detalle, importe opcional, a dónde ir y, opcional, el detalle
 // a pedido (renglones con su enlace). Lo que está en orden va en una sola línea abajo.
@@ -126,8 +139,78 @@ async function almacen() {
     renglones: porRecibir.map(c => ({ href: `abastecimiento.html#${c.id}/recepcion`, t: c.proveedor || 'Compra', m: fecha(c.fecha) })) });
 }
 
+// ── Indicadores del mes ──
+// El mes de ayer, del 1 hasta ayer (el día en curso no se trae). Una tarjeta por tablero, la que el usuario puede ver: cada una
+// pide lo mismo que su tablero y, si falla, no se muestra.
+const N = v => Number(v || 0);
+const correrDia = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const pct1 = v => v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
+function indicador(href, et, valor, pie, grafico) {
+  const c = el('div', { className: 'curva' });
+  const a = el('a', { className: 'card kpi', href }, el('span', { className: 'et', textContent: et }), el('span', { className: 'va', textContent: valor }),
+    el('span', { className: 'pie' }, ...pie.filter(Boolean)), c);
+  if (grafico) requestAnimationFrame(() => grafico(c));
+  return a;
+}
+const barra = (c, parte, marca, nota) => c.append(el('div', { className: 'ind-barra' },
+  el('i', { style: `width:${Math.max(0, Math.min(100, parte))}%` }), marca != null ? el('b', { style: `left:${Math.max(0, Math.min(100, marca))}%` }) : ''),
+  el('div', { className: 'ind-nota', textContent: nota }));
+async function indicadores(u) {
+  const hasta = correrDia(hoy(), -1), desde = hasta.slice(0, 8) + '01', q = `desde=${desde}&hasta=${hasta}`;
+  // El mismo tramo del mes anterior (del 1 al mismo día, o al último si el mes es más corto).
+  const finAnt = correrDia(desde, -1), desdeAnt = finAnt.slice(0, 8) + '01', mismoDia = desdeAnt.slice(0, 8) + hasta.slice(8), hastaAnt = mismoDia > finAnt ? finAnt : mismoDia;
+  const dias = []; for (let d = desde; d <= hasta; d = correrDia(d, 1)) dias.push(d);
+
+  const ventas = async () => {
+    const r = await api('pos/ventas/resumen?' + q), porDia = new Map(r.dias.map(d => [d.dia, N(d.vendido)]));
+    return indicador('ventas.html', 'Vendido', pesos(r.totales.vendido || '0'),
+      [Graf.variacion(r.totales.vendido, r.anterior.totales.vendido), el('span', { textContent: 'vs. período anterior' })],
+      c => Graf.mini(c, dias.map(d => porDia.get(d) || 0)));
+  };
+  const tesoreria = async () => {
+    const r = await api('fin/tesoreria/tablero?' + q);
+    let saldo = N(r.saldo_inicial);
+    const porDia = new Map(r.dias.map(d => [d.dia, N(d.neto)])), curva = dias.map(d => saldo += porDia.get(d) || 0);
+    return indicador('tesoreria.html', 'Disponible', pesos(r.saldo_final),
+      [el('span', { textContent: `Entró ${Graf.compacto(N(r.entradas))} · salió ${Graf.compacto(N(r.salidas))}` })],
+      c => Graf.mini(c, [N(r.saldo_inicial), ...curva], '--serie-3'));
+  };
+  const foodCost = async () => {
+    const { sedes } = await api('tablero/operativo?' + q);
+    const suma = k => sedes.reduce((t, x) => t + N(x[k]), 0), netas = suma('ventas_netas'), real = suma('real'), teorico = suma('teorico');
+    if (!(netas > 0)) return null;
+    const fr = real / netas * 100, ft = teorico / netas * 100, tope = Math.max(fr, ft, 35) * 1.2;
+    return indicador('tablero.html', 'Food cost', real > 0 ? pct1(fr) : '—',
+      [el('span', { textContent: real > 0 ? `teórico ${pct1(ft)} · sobre ventas netas` : 'sin consumo registrado en el mes' })],
+      real > 0 ? c => barra(c, fr / tope * 100, ft / tope * 100, 'La marca es el teórico') : null);
+  };
+  const resultado = async () => {
+    const [a, b] = await Promise.all([api('fin/resultados?' + q), api(`fin/resultados?desde=${desdeAnt}&hasta=${hastaAnt}`)]);
+    const LINEAS = ['ventas', 'cmv', 'personal', 'cobro', 'locacion', 'operativos', 'comercializacion', 'administracion', 'impuestos', 'bancarios', 'inversiones', 'diferencias', 'otros'];
+    const total = (d, ls) => d.rubros.filter(x => ls.includes(x.linea)).reduce((t, x) => t + centavos(x.importe || '0'), 0n);
+    const res = total(a, LINEAS), resAnt = total(b, LINEAS), vend = total(a, ['ventas']);
+    if (vend <= 0n && res === 0n) return null;
+    const margen = vend > 0n ? Number(res * 1000n / vend) / 10 : null, costos = vend > 0n ? Number((vend - res) * 1000n / vend) / 10 : null;
+    return indicador('resultados.html', 'Resultado', pesos(deCentavos(res)),
+      [Graf.variacion(deCentavos(res), deCentavos(resAnt)), el('span', { textContent: 'vs. mes anterior' })],
+      costos != null ? c => barra(c, costos, null, `Costos y gastos: ${pct1(costos)} de las ventas · margen ${pct1(margen)}`) : null);
+  };
+
+  const partes = [ventas()];
+  if (u.puede.finanzas) partes.push(tesoreria());
+  if (u.puede.gestionar || u.puede.finanzas) partes.push(foodCost());
+  if (u.puede.finanzas) partes.push(resultado());
+  const tarjetas = (await Promise.allSettled(partes)).filter(x => x.status === 'fulfilled' && x.value).map(x => x.value);
+  if (!tarjetas.length) return;
+  $('#indTitulo').textContent = `${MESES[Number(desde.slice(5, 7)) - 1][0].toUpperCase()}${MESES[Number(desde.slice(5, 7)) - 1].slice(1)}, hasta ayer`;
+  $('#indicadores').replaceChildren(...tarjetas);
+  $('#indTitulo').hidden = $('#indicadores').hidden = false;
+}
+
 (async () => {
   const { usuario: u } = await cargarSesion();
+  indicadores(u).catch(() => {});
   const atajos = [];
   if (u.puede.catalogo) atajos.push(ir('Necesito comprar', 'abastecimiento.html#lista', 'prim'), ir('Llegó mercadería', 'abastecimiento.html#nuevo/llegada'));
   if (u.puede.finanzas) atajos.push(ir('Proceso de ingresos', 'ingresos.html'));

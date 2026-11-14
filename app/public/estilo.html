@@ -24,8 +24,9 @@
 
   <section>
     <h2>Colores</h2>
-    <p class="regla">Siempre por variable, nunca por valor. El amarillo (<code>--prim</code>) es el relleno de la acción principal
-      de la pantalla, una sola, y de Escanear. <code>--acento</code> es ese mismo acento como texto, borde o foco. Los estados
+    <p class="regla">Siempre por variable, nunca por valor. <code>--prim</code> es el relleno de la acción principal, una sola por pantalla o
+      tarjeta, y es neutro. El amarillo (<code>--marca</code>) queda para marcas chicas: el logo, la pantalla actual del menú y el
+      paso actual. <code>--acento</code> es el color de enlaces, foco y bordes elegidos. Los estados
       van con texto o signo además del color.</p>
     <div class="muestra" id="colores"></div>
   </section>
@@ -71,10 +72,9 @@
 
   <section>
     <h2>Franja de cifras</h2>
-    <p class="regla"><code>.franja</code> con <code>.k</code>: los números de arriba de una pantalla. La cifra que manda lleva
-      <code>dest</code>. En los tableros con mini curva siguen las <code>.kpis</code>.</p>
+    <p class="regla"><code>.franja</code> con <code>.k</code>: los números de arriba de una pantalla. En los tableros con mini curva siguen las <code>.kpis</code>.</p>
     <div class="franja">
-      <div class="k dest"><span class="et">Vendido en noviembre</span><span class="va">$49.300.000</span><span class="pie">+11,8% contra octubre</span></div>
+      <div class="k"><span class="et">Vendido en noviembre</span><span class="va">$49.300.000</span><span class="pie">+11,8% contra octubre</span></div>
       <div class="k"><span class="et">Disponible</span><span class="va">$18.420.000</span><span class="pie">3 bancos y la caja mayor</span></div>
       <div class="k"><span class="et">Por acreditar</span><span class="va">$9.870.000</span><span class="pie aviso">$1.240.000 para revisar</span></div>
       <div class="k"><span class="et">A pagar esta semana</span><span class="va">$6.310.000</span><span class="pie mal">2 vencidas</span></div>
@@ -147,7 +147,7 @@
 <script src="graficos.js"></script>
 <script>
 const COLORES = [['--bg', 'Fondo'], ['--panel', 'Superficie'], ['--sel', 'Elegido'], ['--line', 'Línea'], ['--fg', 'Texto'], ['--mut', 'Texto secundario'],
-  ['--prim', 'Acción principal'], ['--acento', 'Acento'], ['--ok', 'Al día'], ['--aviso', 'Pendiente'], ['--mal', 'Para revisar'], ['--info', 'En curso'],
+  ['--prim', 'Acción principal'], ['--marca', 'Marca'], ['--acento', 'Acento'], ['--ok', 'Al día'], ['--aviso', 'Pendiente'], ['--mal', 'Para revisar'], ['--info', 'En curso'],
   ['--serie-1', 'Serie 1'], ['--serie-2', 'Serie 2'], ['--serie-3', 'Serie 3'], ['--serie-4', 'Serie 4'], ['--serie-5', 'Serie 5']];
 $('#colores').append(...COLORES.map(([v, t]) => el('div', { className: 'color' }, el('i', { style: `background:var(${v})` }),
   el('span', {}, t, el('br'), el('code', { textContent: v })))));

@@ -154,16 +154,15 @@ function filas(tbody, items, fila, vacio, columnas) {
 }
 const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 
-// El menú (rediseño del 14/11/2026). Tres partes fijas, siempre a la vista: Inicio, los procesos (los asistentes, que es por
-// donde se opera) y los tableros (para mirar). El resto son áreas, en grupos desplegables: las pantallas de detalle de cada
+// El menú (rediseño del 14/11/2026; orden de Fer del mismo día). Dos partes fijas, siempre a la vista: Inicio con los tableros
+// (lo más usado, para mirar) y los procesos (los asistentes, por donde se opera). El resto son áreas, en grupos desplegables: las pantallas de detalle de cada
 // registro van juntas en "Registros", y lo que se arma una vez, en Configuración. Todo se encuentra también con "Buscar o ir
 // a…" (Ctrl+K). En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
 const FIJOS = [
-  ['', [['index.html', 'Inicio']]],
+  ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
+                ['resultados.html', 'Estado de resultados']]],
   ['Procesos', [['ingresos.html', 'Ingresos'], ['abastecimiento.html', 'Abastecimiento'], ['egresos.html', 'Egresos'],
                 ['operaciones-tesoreria.html', 'Operaciones de tesorería']]],
-  ['Tableros', [['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
-                ['resultados.html', 'Estado de resultados']]],
 ];
 const GRUPOS = [
   ['Compras', [['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
@@ -188,6 +187,8 @@ const ICONOS = {
   escanear: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/>',
   productos: '<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   mas: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  tableros: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  procesos: '<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12h3M14 12h3"/>',
   volver: '<path d="M15 5l-7 7 7 7"/>',
   flecha: '<path d="M6 9l6 6 6-6"/>',
   usuario: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
@@ -205,9 +206,13 @@ function navegacion() {
   const sec = ([href, t]) => el('a', { href, textContent: t, className: 'sec' + (href === actual ? ' act' : '') });
   // Las partes fijas, con su rótulo, y después las áreas en grupos desplegables: abierto el de la pantalla actual y los que
   // el usuario dejó abiertos.
-  const grupos = () => [
-    ...FIJOS.map(([g, secs]) => el('div', { className: 'grupo fijo' },
-      g ? el('div', { className: 'rot', textContent: g }) : null, el('div', { className: 'items' }, ...secs.map(sec)))),
+  // En la hoja del celular (`todo`) no hay nada plegado: cada grupo con su rótulo y sus pantallas a la vista.
+  const fijo = ([g, secs]) => {
+    const d = el('div', { className: 'grupo fijo' }, el('div', { className: 'rot', textContent: g }), el('div', { className: 'items' }, ...secs.map(sec)));
+    d.dataset.grupo = g; return d;
+  };
+  const grupos = todo => todo ? [...FIJOS, ...GRUPOS].map(fijo) : [
+    ...FIJOS.map(fijo),
     el('div', { className: 'rot', textContent: 'Áreas' }),
     ...GRUPOS.map(([g, secs]) => {
       const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
@@ -236,13 +241,22 @@ function navegacion() {
   const abajo = [['index.html', 'Inicio', 'panel'], ['stock.html', 'Stock', 'stock'], null,
                  ['productos.html', 'Productos', 'productos']];
   const enBarra = abajo.some(x => x && x[0] === actual);
-  const hoja = el('dialog', { className: 'hoja', ariaLabel: 'Todas las secciones' }, ...grupos());
+  const hoja = el('dialog', { className: 'hoja', ariaLabel: 'Todas las secciones' }, ...grupos(true));
   hoja.addEventListener('click', e => { if (e.target === hoja) hoja.close(); });
   const esc = btnEsc(); esc.lastChild.hidden = true;
-  const inferior = el('nav', { className: 'inferior', ariaLabel: 'Secciones' },
-    ...abajo.map(x => x ? el('a', { href: x[0], className: x[0] === actual ? 'act' : '' }, icono(x[2]), el('span', { textContent: x[1] })) : esc),
-    el('button', { type: 'button', className: enBarra ? '' : 'act', onclick: () => hoja.showModal() },
-      icono('mas'), el('span', { textContent: 'Más' })));
+  const enlace = x => el('a', { href: x[0], className: x[0] === actual ? 'act' : '' }, icono(x[2]), el('span', { textContent: x[1] }));
+  const mas = el('button', { type: 'button', className: enBarra ? '' : 'act', onclick: () => hoja.showModal() }, icono('mas'), el('span', { textContent: 'Más' }));
+  const inferior = el('nav', { className: 'inferior', ariaLabel: 'Secciones' }, ...abajo.map(x => x ? enlace(x) : esc), mas);
+  // Un grupo del menú en su propia hoja (Tableros, Procesos): sus pantallas, las que el usuario puede abrir.
+  const hojaDe = g => {
+    const d = el('dialog', { className: 'hoja', ariaLabel: g }, el('h2', { textContent: g }),
+      el('div', { className: 'grupo' }, el('div', { className: 'items' }, ...[...(hoja.querySelector(`[data-grupo="${g}"]`) || hoja).querySelectorAll('a.sec')].map(a => a.cloneNode(true)))));
+    d.addEventListener('click', e => { if (e.target === d) d.close(); });
+    d.addEventListener('close', () => d.remove());
+    document.body.append(d); d.showModal();
+  };
+  const deGrupo = (g, ic) => el('button', { type: 'button', className: FIJOS.find(f => f[0] === g)[1].some(s => s[0] === actual && s[0] !== 'index.html') ? 'act' : '',
+    onclick: () => hojaDe(g) }, icono(ic), el('span', { textContent: g }));
   document.body.prepend(lateral);
   document.body.append(inferior, hoja);
   cargarSesion().then(d => {
@@ -256,6 +270,13 @@ function navegacion() {
     // Las compras son del centro: quien sólo tiene rol en locales no las ve.
     if (!u.es_admin && !u.finanzas && !u.roles.some(r => r.tipo === 'centro')) $$('a[href="compras.html"]').forEach(a => a.remove());
     $$('.grupo').forEach(g => { if (!g.querySelector('a')) g.remove(); });
+    // Barra del celular según quién entra (Fer, 14/11/2026: no encontraba los tableros): quien mira tableros o lleva procesos
+    // (finanzas, encargados) tiene Inicio, Tableros, Escanear, Procesos y Más; el resto, Stock y Productos como siempre.
+    if (u.puede.finanzas || u.puede.gestionar) {
+      const esTablero = FIJOS[0][1].some(s => s[0] === actual), esProceso = FIJOS[1][1].some(s => s[0] === actual);
+      mas.className = esTablero || esProceso ? '' : 'act';
+      inferior.replaceChildren(enlace(abajo[0]), deGrupo('Tableros', 'tableros'), esc, deGrupo('Procesos', 'procesos'), mas);
+    }
     // Quién está adentro, y las salidas: en la barra lateral abajo; en el celular, dentro de "Más".
     const acciones = () => [
       el('a', { href: 'cuenta.html', className: 'sec' + (actual === 'cuenta.html' ? ' act' : ''), textContent: 'Mi cuenta' }),

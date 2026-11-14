@@ -1000,24 +1000,32 @@ maquetas (lienzo https://claude.ai/artifact/V5zvEX1kEEXfxGCw1LYXhw, página "Pro
 lateral, inicio por procesos, y **dona** como forma por defecto para repartir un total. **La referencia viva es `estilo.html`**
 (cada componente con su clase y cuándo se usa): una pantalla nueva se arma con lo que hay ahí; si falta algo, se agrega primero a
 la guía y a `comun.css`, no a la pantalla.
-- **Colores por rol, nunca por valor** (`comun.css`): `--prim`/`--prim-fg` es el relleno amarillo de la acción principal (una por
-  pantalla o tarjeta, `button.prim`) y de Escanear; `--acento` es ese acento como texto, borde o foco (amarillo en oscuro, ocre en
-  claro: el amarillo sobre blanco no se lee); `--ok`, `--aviso`, `--mal`, `--info` (con su `-bg`) son estados y van siempre con
-  texto o signo. No usar `--acento` como relleno ni para decir "bien" (para eso `--ok`).
+- **Colores por rol, nunca por valor** (`comun.css`): `--prim`/`--prim-fg` es el relleno de la acción principal (una por pantalla
+  o tarjeta, `button.prim`) y es **neutro**, tinta invertida sobre el fondo (Fer, 14/11/2026: los botones amarillos eran demasiado
+  fuertes; quiere moderno y minimalista). El amarillo (`--marca`) queda sólo en marcas chicas: el logo, la pantalla actual del menú
+  y el paso actual de un asistente. `--acento` es el color de enlaces, foco y bordes elegidos (amarillo suave en oscuro, ocre en
+  claro). `--ok`, `--aviso`, `--mal`, `--info` (con su `-bg`) son estados y van siempre con texto o signo. No usar `--acento` ni
+  `--marca` como relleno de botones ni para decir "bien" (para eso `--ok`). Lo elegido (período, pestaña) va con `--sel`.
 - **Dos temas**: sigue al dispositivo; el usuario lo fija en Mi cuenta (`fijarTema`, `localStorage.tema`; `tema.js` en el `<head>`
   de cada pantalla pone `data-tema` antes de pintar). Todo estilo nuevo tiene que verse en los dos: sólo variables.
 - **Tipografía** IBM Plex Sans variable servida desde el paquete (`/vendor/plex`): títulos y cifras angostos (`font-stretch` 78-80%,
   peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
-- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`): Inicio, Procesos y Tableros siempre a la vista; el resto, áreas desplegables.
-  "Buscar o ir a…" (Ctrl+K, `buscarPantalla`) encuentra cualquier pantalla del menú.
+- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; orden de Fer, 14/11/2026): primero **Tableros** con Inicio adentro (lo más usado),
+  después **Procesos**, los dos siempre a la vista; el resto, áreas desplegables. "Buscar o ir a…" (Ctrl+K, `buscarPantalla`)
+  encuentra cualquier pantalla del menú. **En el celular** (Fer no encontraba los tableros): quien tiene finanzas o gestiona una
+  sede ve en la barra inferior Inicio, Tableros, Escanear, Procesos y Más (Tableros y Procesos abren una hoja con sus pantallas);
+  el resto conserva Inicio, Stock, Escanear, Productos y Más. "Más" muestra todo el menú sin nada plegado.
+- **Inicio** (`index.html`, antes "Panel"): arriba, los **indicadores del mes hasta ayer**, una tarjeta por tablero que el usuario
+  puede ver (vendido con su curva por día, disponible con su curva, food cost real contra teórico, resultado con el peso de costos
+  y gastos), cada una pide lo mismo que su tablero y lo abre; debajo, "Para resolver" como antes.
 - **Cuatro moldes de pantalla**: tablero (cifras, gráficos, detalle en panel lateral), proceso (etapas, lo que hay para resolver y
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
 - **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `ol.pasos`
   (pasos de un asistente en flecha, con su cifra; lo usan Ingresos y Abastecimiento), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
 - **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
   comparar muchas cosas o ver una evolución.
-- **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes y guía. **Falta**: llevar a los moldes Inicio (líneas
-  de proceso con el paso deducido de cada uno), Proceso de ingresos (ya tiene los pasos en flecha; faltan la grilla de días y el recorrido de la plata), Tablero de
+- **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes y guía. **Falta**: sumar a Inicio las líneas
+  de proceso con el paso deducido de cada uno, Proceso de ingresos (ya tiene los pasos en flecha; faltan la grilla de días y el recorrido de la plata), Tablero de
   ventas y Facturas de proveedor; contadores de pendientes en el menú; barra de contexto común (sociedad, local, período); y
   migrar el resto de las pantallas, que hoy sólo tomaron colores y tipografía (sus `<style>` propios conservan radios y medidas viejas).
 

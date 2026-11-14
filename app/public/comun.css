@@ -1,13 +1,13 @@
 /* Estilos comunes de ClauLogic. Cada pantalla agrega sólo lo suyo. La referencia viva de los componentes es estilo.html.
  *
- * Identidad (rediseño del 14/11/2026): petróleo y grises fríos, con un solo acento, el amarillo de la cinta de rotular,
- * reservado para la acción principal de cada pantalla y para Escanear. Tipografía IBM Plex Sans variable: títulos y cifras
+ * Identidad (rediseño del 14/11/2026): petróleo y grises fríos, casi sin color. La acción principal es neutra (tinta sobre el
+ * fondo, invertida) y el amarillo de la cinta de rotular queda sólo como marca chica: el logo, la pantalla actual del menú y el
+ * paso actual de un asistente (Fer, 14/11/2026: los botones amarillos eran demasiado fuertes). Tipografía IBM Plex Sans variable: títulos y cifras
  * angostos (font-stretch), texto en ancho normal. Dos temas, claro y oscuro: sigue al dispositivo salvo que el usuario elija
  * uno en Mi cuenta (tema.js pone data-tema en <html> antes de pintar).
  *
- * Colores por rol, nunca por valor: --prim es el relleno de la acción principal (amarillo en los dos temas, con --prim-fg
- * encima); --acento es el mismo acento usado como texto, borde o foco (amarillo sobre oscuro, ocre sobre claro, porque el
- * amarillo sobre blanco no se lee); --ok, --aviso y --mal son estados y van siempre con texto o signo.
+ * Colores por rol, nunca por valor: --prim es el relleno de la acción principal (con --prim-fg encima); --marca, el amarillo
+ * de las marcas chicas; --acento, el color de enlaces, foco y bordes elegidos (amarillo suave sobre oscuro, ocre sobre claro); --ok, --aviso y --mal son estados y van siempre con texto o signo.
  */
 @font-face{font-family:'Plex';font-style:normal;font-display:swap;font-weight:100 700;font-stretch:75% 100%;
   src:url(vendor/plex/ibm-plex-sans-latin-wdth-normal.woff2) format('woff2-variations');
@@ -15,18 +15,18 @@
 
 :root{color-scheme:light;
   --bg:#EEF2F3;--panel:#FFFFFF;--fg:#0F1C22;--mut:#51646C;--line:#D5DEE1;--borde:#B4C2C8;--sel:#E3EAEC;
-  --prim:#F4C430;--prim-fg:#1B1602;--acento:#6F4E00;--acento-fg:#1B1602;--cinta:#F4C430;--cinta-fg:#1B1602;
+  --prim:#0F1C22;--prim-fg:#FFFFFF;--marca:#F4C430;--acento:#6F4E00;--acento-fg:var(--prim-fg);--cinta:var(--prim);--cinta-fg:var(--prim-fg);
   --ok:#0B6B42;--mal:#A3231C;--aviso:#8F4400;--info:#1553A6;
   --ok-bg:#DDF1E6;--mal-bg:#FBE4E2;--aviso-bg:#FCE9D6;--info-bg:#DCE9FA;
   --lat:236px;--inf:64px;--r:8px;--r-ctl:6px;}
 @media (prefers-color-scheme:dark){:root:not([data-tema=claro]){color-scheme:dark;
   --bg:#101A20;--panel:#17242C;--fg:#E6EEF0;--mut:#93A7AF;--line:#283B45;--borde:#3B515C;--sel:#1E2F39;
-  --acento:#F4C430;
+  --prim:#E6EEF0;--prim-fg:#101A20;--acento:#E8C75A;
   --ok:#4CC38A;--mal:#F2867D;--aviso:#F0A35E;--info:#7FB4F5;
   --ok-bg:#173A2C;--mal-bg:#3D1F1D;--aviso-bg:#3A2A1A;--info-bg:#1B3350;}}
 :root[data-tema=oscuro]{color-scheme:dark;
   --bg:#101A20;--panel:#17242C;--fg:#E6EEF0;--mut:#93A7AF;--line:#283B45;--borde:#3B515C;--sel:#1E2F39;
-  --acento:#F4C430;
+  --prim:#E6EEF0;--prim-fg:#101A20;--acento:#E8C75A;
   --ok:#4CC38A;--mal:#F2867D;--aviso:#F0A35E;--info:#7FB4F5;
   --ok-bg:#173A2C;--mal-bg:#3D1F1D;--aviso-bg:#3A2A1A;--info-bg:#1B3350;}
 
@@ -62,7 +62,7 @@ form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);
   display:flex;flex-direction:column;gap:2px;padding:16px 12px;overflow-y:auto;z-index:20;}
 .lateral .marca{display:flex;align-items:center;gap:8px;font-weight:700;font-stretch:78%;font-size:1.45rem;color:var(--fg);
   text-decoration:none;padding:0 10px 12px;}
-.lateral .marca::before{content:'';width:10px;height:22px;border-radius:2px;background:var(--prim);flex:none;}
+.lateral .marca::before{content:'';width:10px;height:22px;border-radius:2px;background:var(--marca);flex:none;}
 .btn-buscar{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;color:var(--mut);
   background:var(--bg);border:1px solid var(--line);border-radius:var(--r-ctl);padding:8px 11px;margin-bottom:8px;}
 .btn-buscar kbd{font:inherit;font-size:.78rem;border:1px solid var(--line);border-radius:4px;padding:0 5px;}
@@ -79,7 +79,7 @@ form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);
 .lateral a.sec{color:var(--fg);text-decoration:none;padding:7px 10px;border-radius:var(--r-ctl);}
 .lateral .grupo:not(.fijo) a.sec{padding-left:22px;color:var(--mut);}
 .lateral a.sec:hover{background:var(--sel);}
-.lateral a.sec.act,.lateral .grupo:not(.fijo) a.sec.act{background:var(--sel);color:var(--fg);font-weight:600;box-shadow:inset 3px 0 var(--prim);}
+.lateral a.sec.act,.lateral .grupo:not(.fijo) a.sec.act{background:var(--sel);color:var(--fg);font-weight:600;box-shadow:inset 3px 0 var(--marca);}
 
 .lateral .cuenta{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;}
 .lateral .cuenta a.sec{padding-left:10px;}
@@ -90,8 +90,8 @@ form.sin-cambios .es-guardar{opacity:.45;cursor:not-allowed;filter:saturate(.4);
 .quien span{font-size:.82rem;color:var(--mut);}
 .hoja .cuenta .quien{grid-column:1/-1;padding:4px 2px 2px;}
 
-.btn-escanear{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--cinta);color:var(--cinta-fg);
-  border:0;border-radius:var(--r-ctl);padding:10px 14px;font-weight:600;font-size:1rem;margin-bottom:10px;}
+.btn-escanear{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--panel);color:var(--fg);
+  border:1px solid var(--borde);border-radius:var(--r-ctl);padding:8px 14px;font-weight:600;margin-bottom:10px;}
 .btn-escanear svg{width:20px;height:20px;flex:none;}
 
 /* Buscar o ir a… (Ctrl+K): todas las pantallas que el usuario puede abrir. */
@@ -108,7 +108,8 @@ dialog.buscador input{font-size:1.05rem;padding:11px 12px;}
 .hoja .grupo{margin:0 0 10px;}
 .hoja .grupo .items{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;}
 .hoja .grupo > .cab{font-size:1.05rem;font-weight:600;padding:8px 2px;}
-.hoja .rot{padding:10px 2px 2px;}
+.hoja .rot{padding:12px 2px 4px;font-size:.9rem;}
+.hoja h2{margin:0 0 4px;}
 .hoja .grupo.cuenta{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
 .hoja a{display:block;padding:11px 12px;border-radius:var(--r);color:var(--fg);text-decoration:none;background:var(--bg);font-size:1rem;}
 .hoja a.act{font-weight:600;box-shadow:inset 0 0 0 1.5px var(--acento);}
@@ -166,7 +167,7 @@ button{font:inherit;cursor:pointer;border-radius:var(--r-ctl);padding:8px 14px;b
   background:var(--panel);color:inherit;}
 button:hover{border-color:var(--mut);}
 button.prim{background:var(--prim);color:var(--prim-fg);border-color:var(--prim);font-weight:600;}
-button.prim:hover{border-color:var(--prim);filter:brightness(1.06);}
+button.prim:hover{border-color:var(--prim);opacity:.88;}
 button.peligro{color:var(--mal);}
 button.chico{padding:5px 10px;font-size:.86rem;}
 button:disabled{opacity:.6;cursor:default;}
@@ -313,8 +314,7 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .pasos li.falta small{color:var(--aviso);}
 .pasos li.hecho{background:var(--ok-bg);} .pasos li.hecho small{color:var(--ok);}
-.pasos li.actual{background:var(--prim);color:var(--prim-fg);}
-.pasos li.actual::before,.pasos li.actual small{color:var(--prim-fg);opacity:.85;}
+.pasos li.actual{background:var(--sel);box-shadow:inset 0 -3px var(--marca);}
 /* En pantalla chica: sólo el número de cada paso, y el actual se estira con su nombre y su cifra. */
 @media (max-width:900px){
   .pasos{flex-wrap:nowrap;gap:4px;}
@@ -342,6 +342,5 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
 .franja .k .et{display:block;color:var(--mut);font-size:.86rem;}
 .franja .k .va{display:block;font-size:2.05rem;font-weight:600;font-stretch:78%;line-height:1.1;margin-top:4px;font-variant-numeric:tabular-nums;}
 .franja .k .pie{display:block;font-size:.86rem;color:var(--mut);margin-top:4px;}
-.franja .k.dest .va{color:var(--acento);}
 .franja .k .pie.aviso{color:var(--aviso);font-weight:600;} .franja .k .pie.mal{color:var(--mal);font-weight:600;}
 @media (max-width:600px){.franja .k{flex-basis:45%;padding:12px 14px;} .franja .k .va{font-size:1.5rem;}}

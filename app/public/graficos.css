@@ -23,7 +23,7 @@
 .segm{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px;gap:2px;flex-wrap:wrap;}
 .segm button{all:unset;cursor:pointer;padding:6px 14px;border-radius:5px;font-size:.9rem;color:var(--mut);white-space:nowrap;}
 .segm button:hover{color:var(--fg);}
-.segm button.act{background:var(--prim);color:var(--prim-fg);font-weight:600;}
+.segm button.act{background:var(--sel);color:var(--fg);font-weight:600;}
 .segm button:focus-visible{outline:2px solid var(--acento);outline-offset:1px;}
 .t-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
 .t-filtros select,.t-filtros input{width:auto;padding:7px 12px;}
