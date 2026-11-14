@@ -994,7 +994,7 @@ platos de carta, integración con POS (Fudo por API, archivo para cualquiera), c
 Lectura de códigos con lector USB/Bluetooth o cámara en productos, compras, conteos y egresos. API en `app/*.js` (helpers comunes en `app/util.js`); pantallas
 en `app/public/` con estilos y helpers compartidos en `comun.css` y `comun.js`.
 
-### Sistema de diseño (rediseño aprobado por Fer el 14/11/2026; en la rama `rediseno`, sin desplegar)
+### Sistema de diseño (rediseño aprobado por Fer el 14/11/2026; en producción desde ese día, sigue en `main`)
 Fer pidió una interfaz más profesional, con tableros donde manden los gráficos y procesos lo más gráficos posible. Eligió, sobre
 maquetas (lienzo https://claude.ai/artifact/V5zvEX1kEEXfxGCw1LYXhw, página "Propuesta"): identidad oscura con un solo acento, menú
 lateral, inicio por procesos, y **dona** como forma por defecto para repartir un total. **La referencia viva es `estilo.html`**
@@ -1024,7 +1024,13 @@ la guía y a `comun.css`, no a la pantalla.
   (pasos de un asistente en flecha, con su cifra; lo usan Ingresos y Abastecimiento), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
 - **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
   comparar muchas cosas o ver una evolución.
-- **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes y guía. **Falta**: sumar a Inicio las líneas
+- **Ver una pantalla sin la base**: `python3 -I scripts/ver_pantallas.py app/public app/node_modules <carpeta de salida>
+  pagina.html:dark|light[:ancho[:botón de la barra del celular]] …` sirve `app/public` con la API simulada (sesión de
+  administrador y datos de ejemplo para los indicadores de Inicio; lo demás responde vacío) y saca capturas con Playwright. Sirve
+  para el marco y los componentes; una pantalla con datos reales sólo se ve en producción. Toda pantalla tocada se mira en oscuro,
+  en claro y a 390 px antes de desplegar.
+- **Hecho**: variables, tipografía, marco (menú, buscador, tema), componentes, guía, pasos en flecha de los asistentes e
+  indicadores de Inicio. **Falta**: sumar a Inicio las líneas
   de proceso con el paso deducido de cada uno, Proceso de ingresos (ya tiene los pasos en flecha; faltan la grilla de días y el recorrido de la plata), Tablero de
   ventas y Facturas de proveedor; contadores de pendientes en el menú; barra de contexto común (sociedad, local, período); y
   migrar el resto de las pantallas, que hoy sólo tomaron colores y tipografía (sus `<style>` propios conservan radios y medidas viejas).
