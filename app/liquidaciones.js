@@ -8,6 +8,9 @@
 //   IVA             = IVA de las facturas − IVA asentado + IVA de la bonificación (≈ 21% de la publicidad)
 //   percepciones    = las de las facturas (IVA RG 5319 a "Otras retenciones", IIBB a Ingresos Brutos)
 //   esperado        = suma de netos por pedido − publicidad − IVA − percepciones
+// Los descuentos financiados por el local a veces no vienen en la factura (CORTAFUEGO, 14/11/2026: PedidosYa los retiene del pago
+// y la factura trae sólo comisión y pago en línea; en SORELLE sí vienen). Si lo facturado no alcanza a cubrir lo asentado y los
+// descuentos lo explican, se toman como no facturados: no entran en la cuenta de la publicidad (ya están asentados por pedido).
 // La bonificación no se asienta: PedidosYa resta de las ventas la bonificación con su IVA y la devuelve, el efecto sobre lo
 // que paga es cero (verificado con la semana del 26/10 de SORELLE: esperado 2.699.471,50 = lo pagado, al centavo).
 // Lo que paga PedidosYa lo dice el portal: si no coincide con el esperado, la diferencia queda como diferencia de
@@ -81,12 +84,13 @@ function porTienda(cobros) {
   for (const p of cobros) {
     const k = p.tienda || '';
     const t = ts.get(k) || { tienda: k, sede_id: p.sede_id, sede: p.sede, comercio_id: p.comercio_id, comercio: p.comercio, pedidos: 0,
-                             bruto: 0n, neto: 0n, sin_iva: 0n, iva: 0n, conceptos: new Map() };
+                             bruto: 0n, neto: 0n, sin_iva: 0n, iva: 0n, descuentos: 0n, conceptos: new Map() };
     if (p.estado !== 'anulado') t.pedidos++;
     t.bruto += centavos(p.importe); t.neto += centavos(p.neto ?? p.importe);
     for (const x of p.costos || []) {
       const v = centavos(x.importe);
       if (x.gasto === 'iva_credito') t.iva += v; else t.sin_iva += v;
+      if (x.gasto === 'descuento') t.descuentos += v;
       t.conceptos.set(x.concepto, (t.conceptos.get(x.concepto) || 0n) + v);
     }
     ts.set(k, t);
@@ -133,7 +137,11 @@ function calcular(cobros, facturas) {
 
   const calculado = suma(tiendas.map(t => t.neto));
   const facturadoBase = suma(renglones.map(x => x.base));
-  const asentadoSinIva = suma(tiendas.map(t => t.sin_iva)), asentadoIva = suma(tiendas.map(t => t.iva));
+  const descuentos = suma(tiendas.map(t => t.descuentos));
+  const descuentosFuera = facturadoBase < suma(tiendas.map(t => t.sin_iva)) && descuentos > 0n
+    && facturadoBase >= suma(tiendas.map(t => t.sin_iva)) - descuentos;
+  const sinIva = t => t.sin_iva - (descuentosFuera ? t.descuentos : 0n);
+  const asentadoSinIva = suma(tiendas.map(sinIva)), asentadoIva = suma(tiendas.map(t => t.iva));
   const ivaFacturas = suma(facturas.map(f => suma(Object.values(f.iva).map(centavos))));
   // El IVA de la bonificación, como el de la factura: sobre la suma por alícuota (redondear renglón por renglón da un centavo de más).
   const porAlic = new Map();
@@ -145,12 +153,13 @@ function calcular(cobros, facturas) {
   const percIibb = suma(facturas.flatMap(f => f.tributos.filter(t => t.tipo === 'percepcion_iibb').map(t => centavos(t.importe))));
   const percOtras = suma(facturas.flatMap(f => f.tributos.filter(t => !['percepcion_iva', 'percepcion_iibb'].includes(t.tipo)).map(t => centavos(t.importe))));
   const esperado = calculado - publicidad - iva - percIva - percIibb - percOtras;
+  if (descuentosFuera) avisos.push(`Los descuentos financiados por el local (${deCentavos(descuentos)}) no vienen en las facturas: PedidosYa los retiene del pago. Ya están asentados por pedido.`);
   if (publicidad < 0n) avisos.push('Lo facturado es menos que lo asentado por pedido: revisá que las facturas sean de esta semana y estén las dos.');
 
   // Por tienda: la publicidad exacta si se reconoció la tienda de sus renglones; lo que no, en proporción a las ventas.
   const pubT = tiendas.map(t => {
     const base = suma(renglones.filter(x => x.nombre && mapa.get(x.nombre) === t).map(x => x.base));
-    return base ? base - t.sin_iva : 0n;
+    return base ? base - sinIva(t) : 0n;
   });
   const pubSinTienda = publicidad - suma(pubT);
   const extraPub = repartir(pubSinTienda, tiendas.map(t => t.bruto));
