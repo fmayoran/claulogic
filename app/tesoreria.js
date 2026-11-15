@@ -1472,6 +1472,13 @@ const OTRO_POR_FECHA_SQL = `
      AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pp ON pp.id = pmp.procesador_id
                    WHERE pp.cuenta_acredita_id = $1::uuid)`;
 const DIAS_OTRO_POR_FECHA = 7;
+// La venta tiene que poder ser la del cobro (15/11/2026: un cobro de Mercado Pago aprobado el 27/10 y liberado el 14/11 se pareó con
+// una venta del 13/11): si el extracto dice el día de la venta ("venta del"), ese día o el anterior (una mesa abierta antes de
+// medianoche); si no, del día de la línea hasta DIAS_OTRO_POR_FECHA días antes. Devuelve la distancia en días, o null.
+const distanciaPorFecha = (l, p) => {
+  const d = (Date.parse(diaVentaDe(l)) - Date.parse(p.dia)) / 864e5;
+  return d >= 0 && d <= (/venta del \d{4}-\d{2}-\d{2}/.test(String(l.concepto)) ? 1 : DIAS_OTRO_POR_FECHA) ? d : null;
+};
 
 // Un cobro del procesador que en el sistema de venta quedó como efectivo (decisión de Fer, 02/11/2026: el efectivo de octubre
 // no se controló al detalle; si importe y día coinciden, estaba mal cargado). Pagos en efectivo ya procesados de los puntos de
@@ -1587,12 +1594,11 @@ async function sugerenciasProcesador(cuenta) {
   {
     const ya = new Set(sug.flatMap(x => x.lineas)), usadosF = new Set();
     const { rows: otrosF } = await pool.query(OTRO_POR_FECHA_SQL, [cuenta]);
-    const dF = (l, p) => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5;
     for (const l of lineas.filter(l => !ya.has(l.id))) {
       // Uno de esta cuenta dentro de la ventana normal ya lo propone el pareo de siempre.
-      const p = otrosF.filter(p => !usadosF.has(p.id) && centavos(p.importe) === centavos(l.importe) && dF(l, p) >= 0 && dF(l, p) <= DIAS_OTRO_POR_FECHA
+      const p = otrosF.filter(p => !usadosF.has(p.id) && centavos(p.importe) === centavos(l.importe) && distanciaPorFecha(l, p) !== null
                                    && !(p.propio && enVentana(l, p)))
-        .sort((a, b) => dF(l, a) - dF(l, b))[0];
+        .sort((a, b) => distanciaPorFecha(l, a) - distanciaPorFecha(l, b))[0];
       if (p) { usadosF.add(p.id); sug.push({ tipo: 'otro_por_fecha', pago: p, lineas: [l.id] }); }
     }
   }
@@ -1634,7 +1640,7 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
   const motivo = texto(b.motivo);
   await enTransaccion(async c => {
     const { rows: ls } = await c.query(
-      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.compensa_a, l.descartada,
+      `SELECT l.id, l.cuenta_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto, l.compensa_a, l.descartada,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada
          FROM fin.extracto_linea l WHERE l.id = ANY($1::bigint[]) ORDER BY l.fecha, l.id FOR UPDATE`, [ids]);
     if (ls.length !== new Set(ids).size) throw new ErrorUsuario('Alguna de las líneas no existe.');
@@ -1664,6 +1670,8 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
           WHERE p.id = $1::uuid AND mp.procesador_id = $2 AND NOT p.anulado AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
           FOR UPDATE OF p`, [pagoId, pr.id]);
     if (!p) throw new ErrorUsuario('Ese cobro no está pendiente de acreditar con este procesador (o sus cobros no se procesaron).');
+    if (porFecha && distanciaPorFecha(ls[0], p) === null)
+      throw new ErrorUsuario(`La venta #${p.id_externo} es del ${p.dia} y el cobro del extracto es de ${diaVentaDe(ls[0]) === ls[0].fecha ? 'una fecha que no corresponde' : 'una venta del ' + diaVentaDe(ls[0])}: no pueden ser la misma.`);
     if (otro || efectivo) await c.query('SELECT 1 FROM pos.ticket_pago WHERE id = $1 FOR UPDATE', [p.id]);
     if ((otro || efectivo) && (ls.length > 1 || centavos(ls[0].importe) !== centavos(p.importe)))
       throw new ErrorUsuario(`Un cobro cargado ${otro ? 'con otro procesador' : 'como efectivo'} se acredita sólo por el mismo importe.`);
