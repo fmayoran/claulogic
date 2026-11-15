@@ -27,6 +27,7 @@
 .ver-mas{margin-top:10px;font-size:.86rem;padding:6px 14px;}
 /* Registrar una línea: concepto, rubro y, a pedido, la regla para las próximas. */
 .pend .acc select{max-width:100%;}
+.pend .acc .cb{flex:1 1 240px;max-width:340px;} .pend .acc .cb input{max-width:none;}
 .pend .acc .regla{flex-basis:100%;display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;font-size:.9rem;color:var(--mut);margin:0;}
 .pend .acc .regla input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;}
 .pend .acc .regla input[type=text],.pend .acc .regla input:not([type]){flex:1 1 180px;min-width:0;}

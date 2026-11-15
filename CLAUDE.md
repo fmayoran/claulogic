@@ -1015,7 +1015,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`PUT /sedes/:id/comercios/asignacion`, en una transacción). Comercios, artículos y medios de cobro van en bloques plegables con su
   estado en el título (los medios se abren solos si falta asignar alguno).
   Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
-- **Detalle de un rubro** (pedido de Fer, 15/11/2026): primero lo simple, fecha, proveedor (el de la factura que pagó el movimiento o el de su orden de pago; si no hay, el concepto) e importe. Tocar un renglón abre su detalle y la reclasificación; "Ver el detalle completo y reclasificar" los muestra todos así (se recuerda, `localStorage['resultados-detalle']`). "Sin clasificar" abre siempre el completo.
+- **Detalle de un rubro** (pedido de Fer, 15/11/2026): primero lo simple, fecha, proveedor (el de la factura que pagó el movimiento o el de su orden de pago; si no hay, el concepto) e importe. Tocar un renglón abre su detalle y la reclasificación; "Ver el detalle completo y reclasificar" los muestra todos así (se recuerda, `localStorage['resultados-detalle']`). "Sin clasificar" abre siempre el completo. El rubro, al reclasificar, es una lista con búsqueda (también al registrar una línea en Conciliación y en las reglas).
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)

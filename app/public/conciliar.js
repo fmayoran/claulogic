@@ -473,11 +473,11 @@ const Conc = (() => {
         const ok = el('button', { type: 'button', className: 'prim', textContent: 'Registrar' });
         ok.onclick = () => {
           if (!inp.value.trim()) return inp.focus();
-          if (!rub.value) return (rub.focus(), ctx.aviso('Elegí el rubro.', 'mal'));
+          if (!rub.value) return (rub._caja.querySelector('input').focus(), ctx.aviso('Elegí el rubro.', 'mal'));
           if (conRegla.checked && patron.value.trim().length < 3) return (patron.focus(), ctx.aviso('El texto de la regla tiene que tener al menos 3 letras.', 'mal'));
           conciliar({ linea_id: l.id, crear: { concepto: inp.value.trim(), rubro_id: rub.value, regla: conRegla.checked ? patron.value.trim() : null } });
         };
-        acc.replaceChildren(inp, rub, regla, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
+        acc.replaceChildren(inp, comboBuscable(rub), regla, ok, el('button', { type: 'button', textContent: 'Cancelar', onclick: restaurar }));
         inp.focus(); inp.select();
       };
       acc.append(registrar);

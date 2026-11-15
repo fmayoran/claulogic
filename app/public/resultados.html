@@ -33,7 +33,7 @@
   .det .q{display:flex;flex-direction:column;min-width:0;} .det .q small{color:var(--mut);font-size:.8rem;}
   .det .m{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
   .det .cl{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-  .det .cl select{flex:1 1 220px;min-width:0;}
+  .det .cl select,.det .cl .cb{flex:1 1 220px;min-width:0;}
   /* Vista simple (Fer, 15/11/2026): fecha, proveedor e importe; el detalle y la reclasificación, a pedido. */
   .dsim{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:2px 12px;padding:8px 6px;border-top:1px solid var(--g-grilla);
     width:100%;background:none;border-left:0;border-right:0;border-bottom:0;border-radius:0;text-align:left;font:inherit;color:inherit;cursor:pointer;}
@@ -287,7 +287,7 @@ async function clasificador(f) {
       msg('Clasificado.', 'ok', '#dMsg'); await cargar(); await detalle(...detActual);
     } catch (e) { msg(e.message, 'mal', '#dMsg'); ok.disabled = false; }
   };
-  return el('div', { className: 'cl' }, sel, destSel, ok);
+  return el('div', { className: 'cl' }, comboBuscable(sel), destSel, ok);
 }
 $('#dCerrar').onclick = () => $('#dlgDet').close();
 

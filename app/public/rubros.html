@@ -78,6 +78,7 @@ async function borrar() {
 }
 
 const fr = $('#fr');
+comboBuscable(fr.rubro_id);
 async function abrirRegla(g = null) {
   fr.reset(); msg('', '', '#msgR'); $('#drTitulo').textContent = g ? 'Editar regla' : 'Nueva regla'; fr.dataset.id = g ? g.id : '';
   opciones(fr.cuenta_id, cuentas.filter(c => c.activa && c.tipo !== 'cartera').map(c => [c.id, c.nombre]), g && g.cuenta_id, 'Cualquier cuenta');
