@@ -1,7 +1,7 @@
 /* Estilos comunes de ClauLogic. Cada pantalla agrega sólo lo suyo. La referencia viva de los componentes es estilo.html.
  *
- * Identidad (rediseño del 14/11/2026): petróleo y grises fríos, casi sin color. La acción principal es arena (cálida, con texto oscuro sobre el
- * oscuro; en claro, carbón cálido) y el amarillo de la cinta de rotular queda sólo como marca chica: el logo, la pantalla actual del menú y el
+ * Identidad (rediseño del 14/11/2026): petróleo y grises fríos, casi sin color. La acción principal va sin relleno, con borde y texto en el acento (sobre el
+ * fondo; amarillo suave en oscuro, ocre en claro) y el amarillo lleno de la cinta de rotular queda sólo como marca chica: el logo, la pantalla actual del menú y el
  * paso actual de un asistente (Fer, 14/11/2026: los botones amarillos eran demasiado fuertes). Tipografía IBM Plex Sans variable: títulos y cifras
  * angostos (font-stretch), texto en ancho normal. Dos temas, claro y oscuro: sigue al dispositivo salvo que el usuario elija
  * uno en Mi cuenta (tema.js pone data-tema en <html> antes de pintar).
@@ -15,18 +15,18 @@
 
 :root{color-scheme:light;
   --bg:#EEF2F3;--panel:#FFFFFF;--fg:#0F1C22;--mut:#51646C;--line:#D5DEE1;--borde:#B4C2C8;--sel:#E3EAEC;
-  --prim:#2E2A24;--prim-fg:#FFFFFF;--marca:#F4C430;--acento:#6F4E00;--acento-fg:var(--prim-fg);--cinta:var(--prim);--cinta-fg:var(--prim-fg);
+  --prim:#6F4E00;--prim-fg:#FFFFFF;--prim-bg:#FBF3DC;--marca:#F4C430;--acento:#6F4E00;--acento-fg:var(--prim-fg);--cinta:var(--panel);--cinta-fg:var(--fg);
   --ok:#0B6B42;--mal:#A3231C;--aviso:#8F4400;--info:#1553A6;
   --ok-bg:#DDF1E6;--mal-bg:#FBE4E2;--aviso-bg:#FCE9D6;--info-bg:#DCE9FA;
   --lat:236px;--inf:64px;--r:8px;--r-ctl:6px;}
 @media (prefers-color-scheme:dark){:root:not([data-tema=claro]){color-scheme:dark;
   --bg:#101A20;--panel:#17242C;--fg:#E6EEF0;--mut:#93A7AF;--line:#283B45;--borde:#3B515C;--sel:#1E2F39;
-  --prim:#E8E0CF;--prim-fg:#1E1A12;--acento:#E8C75A;
+  --prim:#E8C75A;--prim-fg:#101A20;--prim-bg:#2E2817;--acento:#E8C75A;
   --ok:#4CC38A;--mal:#F2867D;--aviso:#F0A35E;--info:#7FB4F5;
   --ok-bg:#173A2C;--mal-bg:#3D1F1D;--aviso-bg:#3A2A1A;--info-bg:#1B3350;}}
 :root[data-tema=oscuro]{color-scheme:dark;
   --bg:#101A20;--panel:#17242C;--fg:#E6EEF0;--mut:#93A7AF;--line:#283B45;--borde:#3B515C;--sel:#1E2F39;
-  --prim:#E8E0CF;--prim-fg:#1E1A12;--acento:#E8C75A;
+  --prim:#E8C75A;--prim-fg:#101A20;--prim-bg:#2E2817;--acento:#E8C75A;
   --ok:#4CC38A;--mal:#F2867D;--aviso:#F0A35E;--info:#7FB4F5;
   --ok-bg:#173A2C;--mal-bg:#3D1F1D;--aviso-bg:#3A2A1A;--info-bg:#1B3350;}
 
@@ -166,8 +166,9 @@ input:disabled,select:disabled{opacity:.7;}
 button{font:inherit;cursor:pointer;border-radius:var(--r-ctl);padding:8px 14px;border:1px solid var(--borde);
   background:var(--panel);color:inherit;}
 button:hover{border-color:var(--mut);}
-button.prim{background:var(--prim);color:var(--prim-fg);border-color:var(--prim);font-weight:600;}
-button.prim:hover{border-color:var(--prim);opacity:.88;}
+/* Acción principal sin relleno (Fer, 15/11/2026, opción B): borde y texto en el acento; al pasar, un fondo suave del mismo tono. */
+button.prim{background:transparent;color:var(--prim);border:1.5px solid var(--prim);font-weight:600;}
+button.prim:hover{border-color:var(--prim);background:var(--prim-bg);}
 button.peligro{color:var(--mal);}
 button.chico{padding:5px 10px;font-size:.86rem;}
 button:disabled{opacity:.6;cursor:default;}

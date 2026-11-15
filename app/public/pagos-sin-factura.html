@@ -9,6 +9,16 @@
 <style>
   .barra select,.barra input[type=date]{width:auto;}
   td.concepto{white-space:normal;min-width:240px;} td.concepto .m{display:block;color:var(--mut);font-size:.86rem;}
+  /* Armar proveedores: un renglón por proveedor propuesto, con sus pagos a pedido. */
+  #armar{margin:0 0 18px;} #armar[hidden]{display:none;}
+  .grupos{display:grid;gap:8px;margin:12px 0;}
+  .grupo-p{display:grid;grid-template-columns:auto minmax(180px,1.4fr) minmax(160px,1fr) minmax(150px,1fr) auto;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;}
+  .grupo-p.fuera{opacity:.5;} .grupo-p .cifra{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .grupo-p .cifra small{display:block;color:var(--mut);}
+  .grupo-p details{grid-column:2 / -1;font-size:.86rem;color:var(--mut);} .grupo-p details summary{cursor:pointer;}
+  .grupo-p details li{margin:2px 0;}
+  @media (max-width:800px){.grupo-p{grid-template-columns:auto minmax(0,1fr);} .grupo-p > :not(:first-child){grid-column:2;} .grupo-p .cifra{text-align:left;}}
 </style>
 </head>
 <body>
@@ -18,6 +28,17 @@
     factura" la arma con la fecha, la sociedad y el importe del pago; al registrarla queda pagada con él, sin mover plata ni cambiar el estado de
     resultados. La mercadería entra al stock sólo si después tocás "Recibir mercadería" en la factura.</p>
   <div class="franja" id="cifras"></div>
+  <div class="acciones fijo" style="margin:0 0 14px"><button type="button" class="prim" id="abrirArmar">Armar proveedores y comprobantes…</button></div>
+  <section id="armar" hidden>
+    <h2>Proveedores y comprobantes desde los pagos</h2>
+    <p class="ayuda">Cada renglón es un proveedor propuesto a partir del concepto de los pagos (en Fudo, lo que va después de la categoría; en
+      Mercado Pago, el destinatario; en el banco, el concepto). Revisá el nombre, elegí un proveedor existente si ya está cargado, o destildá lo
+      que no es una compra. Dos renglones con el mismo nombre terminan en el mismo proveedor. Al crear: los proveedores que faltan y un comprobante
+      no fiscal por pago, registrado y pagado con él. Después se completan los datos del proveedor (CUIT, condición de IVA) en Proveedores.</p>
+    <div class="grupos" id="grupos"></div>
+    <p class="ayuda" id="sinNombre"></p>
+    <div class="acciones fijo"><button type="button" class="prim" id="crear">Crear</button><button type="button" id="cerrarArmar">Cerrar</button><span class="msg" id="msgA"></span></div>
+  </section>
   <div class="barra">
     <input type="search" id="q" placeholder="Buscar por concepto, destinatario, rubro o importe" aria-label="Buscar">
     <select id="soc" aria-label="Sociedad"></select>
@@ -57,6 +78,61 @@ async function cargar() {
     etiquetarTabla($('#lista').closest('table'));
   } catch (e) { msg(e.message, 'mal'); }
 }
+// ── Armar proveedores y comprobantes ──
+let armado = null;
+function resumenArmar() {
+  const sel = armado.filas.filter(f => f.incluir.checked);
+  const pagos = sel.reduce((s, f) => s + f.g.pagos.length, 0), nuevos = new Set(sel.filter(f => !f.prov.value).map(f => f.nombre.value.trim().toLowerCase())).size;
+  $('#crear').textContent = sel.length ? `Crear ${nuevos} proveedor(es) nuevo(s) y ${pagos} comprobante(s)` : 'Crear';
+  $('#crear').disabled = !sel.length;
+}
+async function abrirArmar() {
+  $('#armar').hidden = false; $('#grupos').replaceChildren(el('p', { className: 'vacio', textContent: 'Armando la propuesta…' }));
+  const d = await api('fin/pagos-sin-factura/proveedores' + ($('#todo').checked ? '?todo=1' : ''));
+  armado = { filas: [] };
+  const filasG = d.grupos.map(g => {
+    const incluir = el('input', { type: 'checkbox', checked: true, ariaLabel: 'Incluir ' + g.nombre });
+    const nombre = el('input', { value: g.nombre, ariaLabel: 'Nombre del proveedor' });
+    const prov = el('select', { ariaLabel: 'Proveedor existente' });
+    opciones(prov, d.proveedores.map(p => [p.id, 'Es ' + p.nombre]), g.proveedor_id, 'Proveedor nuevo');
+    const soc = el('select', { ariaLabel: 'Sociedad' });
+    opciones(soc, d.sociedades.map(x => [x.id, x.nombre]), g.sociedad_id, g.sociedades_mezcladas ? 'La de cada pago' : 'Elegir la sociedad…');
+    const fila = el('div', { className: 'grupo-p' }, incluir, nombre, prov, soc,
+      el('span', { className: 'cifra' }, pesos(g.total), el('small', { textContent: `${g.pagos.length} pago(s)` })),
+      el('details', {}, el('summary', { textContent: 'Ver los pagos' }), el('ul', {}, ...g.pagos.map(p => el('li', { textContent: `${fecha(p.fecha)} · ${pesos(p.disponible)} · ${p.cuenta} · ${p.concepto || ''}${p.destinatario ? ' · ' + p.destinatario : ''}` })))));
+    const f = { g, incluir, nombre, prov, soc, fila };
+    incluir.onchange = () => { fila.classList.toggle('fuera', !incluir.checked); resumenArmar(); };
+    prov.onchange = () => { nombre.disabled = !!prov.value; resumenArmar(); };
+    nombre.oninput = resumenArmar;
+    nombre.disabled = !!prov.value;
+    armado.filas.push(f);
+    return fila;
+  });
+  $('#grupos').replaceChildren(...(filasG.length ? filasG : [el('p', { className: 'vacio', textContent: 'No hay pagos con un proveedor reconocible.' })]));
+  $('#sinNombre').textContent = d.sin_nombre.length ? `${d.sin_nombre.length} pago(s) sin un nombre reconocible (por ejemplo "Transferencia a banco"): quedan en la lista para cargarlos uno por uno.` : '';
+  resumenArmar();
+}
+$('#abrirArmar').onclick = () => abrirArmar().catch(e => msg(e.message, 'mal'));
+$('#cerrarArmar').onclick = () => { $('#armar').hidden = true; };
+$('#crear').onclick = async () => {
+  const sel = armado.filas.filter(f => f.incluir.checked);
+  const falta = sel.find(f => !f.soc.value && !f.g.sociedades_mezcladas && !f.g.sociedad_id);
+  if (falta) { falta.soc.focus(); return msg('Elegí la sociedad de ' + (falta.nombre.value || 'ese proveedor') + ': sus pagos son de una cuenta del grupo.', 'mal', '#msgA'); }
+  const vacio = sel.find(f => !f.prov.value && !f.nombre.value.trim());
+  if (vacio) { vacio.nombre.focus(); return msg('Falta el nombre de un proveedor.', 'mal', '#msgA'); }
+  const pagos = sel.reduce((s, f) => s + f.g.pagos.length, 0);
+  if (!confirm(`Se crean los proveedores que faltan y ${pagos} comprobante(s) no fiscales, registrados y pagados con sus pagos. ¿Seguir?`)) return;
+  $('#crear').disabled = true;
+  try {
+    const r = await api('fin/pagos-sin-factura/armar', { method: 'POST', trabajando: 'Creando proveedores y comprobantes…', body: { grupos: sel.map(f => ({
+      nombre: f.nombre.value.trim(), proveedor_id: f.prov.value || null, sociedad_id: f.soc.value || null, pagos: f.g.pagos.map(p => p.id) })) } });
+    const n = r.hechos.reduce((s, x) => s + x.comprobantes, 0);
+    msg(`Listo: ${n} comprobante(s) de ${r.hechos.length} proveedor(es).` + (r.errores.length ? ' No se pudo con: ' + r.errores.map(e => `${e.nombre} (${e.error})`).join('; ') : ''),
+      r.errores.length ? 'aviso' : 'ok', '#msgA');
+    await cargar(); await abrirArmar();
+  } catch (e) { msg(e.message, 'mal', '#msgA'); }
+  finally { $('#crear').disabled = false; }
+};
 let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(cargar, 250); };
 $('#soc').onchange = $('#desde').onchange = $('#hasta').onchange = $('#todo').onchange = cargar;
 (async () => {

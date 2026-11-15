@@ -257,6 +257,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   desvincula con una anulación en la cuenta corriente. Un pago cubre varias facturas y una factura varios pagos, sin pasar lo que salió
   (trigger diferido) ni lo pendiente (`comprobante_pendiente` lo descuenta); una factura con pagos vinculados no se anula. La mercadería
   entra al stock sólo si se toca "Recibir mercadería" en la factura (opcional, decisión de Fer).
+  **Armar proveedores y comprobantes** (mismo día, porque cargar uno por uno los 270 no era práctico): en esa pantalla, el servidor propone
+  el proveedor de cada pago (`proveedorDelPago` en `finanzas.js`: en un gasto de Fudo, lo que va después de la categoría; en el efectivo de
+  SORELLE, la descripción; si no, el destinatario de Mercado Pago sin "Transferencia enviada", o el concepto del banco), agrupa por nombre
+  (sin acentos ni "SA", "SRL"…; un grupo contenido en otro se junta) y reconoce los proveedores ya cargados. Fer revisa nombres, elige uno
+  existente, la sociedad si los pagos son del grupo, o destilda; al crear (`POST /fin/pagos-sin-factura/armar`, una transacción por
+  proveedor) se dan de alta los que faltan y un comprobante **X por pago**, registrado y pagado con él. La sociedad de cada comprobante: la
+  del local clasificado en el pago, si no la de la cuenta.
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
@@ -1014,7 +1021,7 @@ lateral, inicio por procesos, y **dona** como forma por defecto para repartir un
 (cada componente con su clase y cuándo se usa): una pantalla nueva se arma con lo que hay ahí; si falta algo, se agrega primero a
 la guía y a `comun.css`, no a la pantalla.
 - **Colores por rol, nunca por valor** (`comun.css`): `--prim`/`--prim-fg` es el relleno de la acción principal (una por pantalla
-  o tarjeta, `button.prim`) y es **arena** (`#E8E0CF` con texto oscuro en el modo oscuro; carbón cálido `#2E2A24` con texto blanco en el claro. Fer, 14/11/2026: probó gris claro, frío, y petróleo, que no le gustó) (Fer, 14/11/2026: los botones amarillos eran demasiado
+  o tarjeta, `button.prim`) va **sin relleno**: borde y texto en el acento (amarillo suave `#E8C75A` en oscuro, ocre `#6F4E00` en claro) y, al pasar, un fondo suave del mismo tono (`--prim-bg`). Fer, 15/11/2026, opción B, después de probar gris claro (frío), petróleo y arena (Fer, 14/11/2026: los botones amarillos eran demasiado
   fuertes; quiere moderno y minimalista). El amarillo (`--marca`) queda sólo en marcas chicas: el logo, la pantalla actual del menú
   y el paso actual de un asistente. `--acento` es el color de enlaces, foco y bordes elegidos (amarillo suave en oscuro, ocre en
   claro). `--ok`, `--aviso`, `--mal`, `--info` (con su `-bg`) son estados y van siempre con texto o signo. No usar `--acento` ni

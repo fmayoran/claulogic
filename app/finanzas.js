@@ -506,4 +506,132 @@ r.delete('/fin/comprobantes/:id/pago-previo/:mov', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Proveedores y comprobantes desde los pagos (pedido de Fer, 15/11/2026) ─────────────────────────────────────────────────────
+// Los pagos sin factura traen casi siempre el proveedor en el concepto: los gastos de Fudo ("Fudo pago #2120 · Almacén · PECSE
+// PESCADERIA · …", la categoría y después el proveedor), el efectivo de SORELLE ("Efectivo SORELLE #3 · Pesce"), el destinatario
+// del resumen de Mercado Pago o el concepto del banco ("PILOTTI SA EMPRESA FRIGORIFICA"). Se propone el proveedor de cada pago y
+// se agrupan; Fer revisa los nombres, junta los que son el mismo, elige uno existente o descarta, y al confirmar se crean los
+// proveedores que faltan y un comprobante no fiscal (X) por pago, registrado y pagado con él (como "Cargar factura", sin mover
+// plata ni cambiar el resultado). La sociedad de cada comprobante: la del local clasificado, si no la de la cuenta.
+const GENERICOS = new Set(['sa', 'srl', 'sas', 's', 'a', 'r', 'l', 'sociedad', 'anonima', 'empresa', 'frigorifica', 'frigorifico', 'gen', 'de', 'del',
+  'la', 'el', 'los', 'las', 'y', 'e', 'cia', 'sh', 'saci', 'sacif', 'srl.', 'hnos']);
+const palabrasProv = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w && !GENERICOS.has(w));
+const SIN_NOMBRE = /^(transferencia a banco|transferencia enviada|pago desde mercado pago|pago con qr|debito|débito|pago de servicios|extraccion|extracción)/i;
+function proveedorDelPago(p) {
+  const c = (p.concepto || '').trim();
+  let m = /^Fudo (?:pago|gasto) #\d+ · (?:saldo pagado por los socios · )?(.*)$/.exec(c);
+  if (m) {
+    const segs = m[1].split(' · ').map(x => x.replace(/\s*\(.*$/, '').trim()).filter(Boolean);
+    return segs.length >= 2 ? segs[1] : segs[0] || null;
+  }
+  m = /^Efectivo [A-Z]+ #\d+ · (.*)$/.exec(c);
+  if (m) return m[1].split(' · ')[0].trim() || null;
+  // El destinatario del resumen de Mercado Pago viene con lo que se hizo adelante ("Transferencia enviada Disval S.a.").
+  const limpiar = t => t.replace(/^(transferencia enviada|transferencia a|pago de servicios?|pago a|pago)\s+/i, '').trim();
+  if (p.destinatario) return limpiar(p.destinatario.split(' · ')[0]) || null;
+  if (!c || SIN_NOMBRE.test(c)) return null;
+  return limpiar(c.replace(/\s*[-–]\s*\d{6,}$/, '')) || null;
+}
+const titulo = t => t.length > 3 && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|\s|[.(])(\p{L})/gu, (_, a, b) => a + b.toUpperCase()) : t;
+
+r.get('/fin/pagos-sin-factura/proveedores', h(async (req, res) => {
+  const todo = req.query.todo === '1';
+  const [{ rows: pagos }, { rows: provs }, { rows: socs }] = await Promise.all([
+    pool.query(
+      `SELECT x.id, x.fecha, x.concepto, x.destinatario, x.rubro, x.cuenta, (x.salida - x.aplicado)::text AS disponible,
+              COALESCE((SELECT se.sociedad_id FROM fin.clasificacion k JOIN org.sede se ON se.id = k.sede_id WHERE k.movimiento_id = x.id), x.sociedad_id) AS sociedad_id
+         FROM (${PAGOS_SIN_FACTURA}) x
+        WHERE x.salida > x.aplicado AND ($1 OR x.linea IS NULL OR x.linea = ANY($2::text[]))
+        ORDER BY x.fecha`, [todo, LINEAS_COMPRA]),
+    pool.query('SELECT id, nombre FROM logic.proveedor WHERE activo ORDER BY nombre'),
+    pool.query('SELECT id, nombre FROM org.sociedad WHERE activa ORDER BY nombre'),
+  ]);
+  const grupos = new Map(), sinNombre = [];
+  for (const p of pagos) {
+    const nombre = proveedorDelPago(p), ws = palabrasProv(nombre);
+    if (!nombre || !ws.length) { sinNombre.push(p); continue; }
+    const k = [...new Set(ws)].sort().join(' ');
+    const g = grupos.get(k) || { clave: k, palabras: new Set(ws), nombres: new Map(), pagos: [] };
+    g.nombres.set(nombre, (g.nombres.get(nombre) || 0) + 1); g.pagos.push(p);
+    grupos.set(k, g);
+  }
+  // Un grupo cuyas palabras están contenidas en las de otro es el mismo proveedor ("PILOTTI SA" y "PILOTTI SA EMPRESA FRIGORIFICA").
+  const lista = [...grupos.values()].sort((a, b) => a.palabras.size - b.palabras.size);
+  for (let i = 0; i < lista.length; i++) for (let j = i + 1; j < lista.length; j++) {
+    const a = lista[i], b = lista[j];
+    if (!a.pagos.length || !b.pagos.length) continue;
+    if ([...a.palabras].every(w => b.palabras.has(w))) {
+      b.pagos.push(...a.pagos); for (const [n, c] of a.nombres) b.nombres.set(n, (b.nombres.get(n) || 0) + c); a.pagos = [];
+    }
+  }
+  const existentes = provs.map(p => ({ ...p, ws: new Set(palabrasProv(p.nombre)) }));
+  const salida = lista.filter(g => g.pagos.length).map(g => {
+    const nombre = [...g.nombres.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0];
+    const ex = existentes.find(p => p.ws.size && ([...p.ws].every(w => g.palabras.has(w)) || [...g.palabras].every(w => p.ws.has(w))));
+    const socsG = [...new Set(g.pagos.map(p => p.sociedad_id))];
+    return { clave: g.clave, nombre: titulo(nombre), proveedor_id: ex ? ex.id : null, proveedor: ex ? ex.nombre : null,
+      sociedad_id: socsG.length === 1 ? socsG[0] : null, sociedades_mezcladas: socsG.length > 1,
+      total: g.pagos.reduce((s, p) => s + Number(p.disponible), 0).toFixed(2), pagos: g.pagos };
+  }).sort((a, b) => Number(b.total) - Number(a.total));
+  res.json({ ok: true, grupos: salida, sin_nombre: sinNombre, proveedores: provs, sociedades: socs });
+}));
+
+// Crear: por cada grupo confirmado, el proveedor (si no se eligió uno existente) y un comprobante X por pago, registrado y pagado
+// con él. Cada grupo en su transacción: si uno falla, los demás quedan hechos y la respuesta dice cuál y por qué.
+r.post('/fin/pagos-sin-factura/armar', h(async (req, res) => {
+  const grupos = Array.isArray(req.body.grupos) ? req.body.grupos : [];
+  if (!grupos.length) throw new ErrorUsuario('No hay nada para crear.');
+  const hechos = [], errores = [];
+  for (const g of grupos) {
+    const nombre = texto(g.nombre), provId = texto(g.proveedor_id), socG = texto(g.sociedad_id);
+    const ids = (Array.isArray(g.pagos) ? g.pagos : []).map(x => numero(x, { campo: 'el pago', requerido: true }));
+    try {
+      if (!provId && !nombre) throw new ErrorUsuario('Falta el nombre del proveedor.');
+      if (!ids.length) throw new ErrorUsuario('El grupo no tiene pagos.');
+      const n = await enTransaccion(async c => {
+        await c.query('SELECT org.exigir_finanzas()');
+        let pid = provId;
+        if (!pid) {
+          const { rows: [ya] } = await c.query('SELECT id FROM logic.proveedor WHERE lower(nombre) = lower($1)', [nombre]);
+          pid = ya ? ya.id : (await c.query('INSERT INTO logic.proveedor (nombre, notas) VALUES ($1, $2) RETURNING id',
+            [nombre, 'Creado desde los pagos sin factura']).rows[0].id);
+        }
+        let creados = 0;
+        for (const id of ids) {
+          await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['pago-previo:' + id]);
+          const { rows: [p] } = await c.query(
+            `SELECT x.*, (x.salida - x.aplicado) AS disponible,
+                    COALESCE((SELECT se.sociedad_id FROM fin.clasificacion k JOIN org.sede se ON se.id = k.sede_id WHERE k.movimiento_id = x.id), x.sociedad_id) AS soc
+               FROM (${PAGOS_SIN_FACTURA}) x WHERE x.id = $1`, [id]);
+          if (!p || Number(p.disponible) <= 0) continue;
+          const soc = socG || p.soc;
+          if (!soc) throw new ErrorUsuario(`El pago del ${p.fecha.split('-').reverse().join('/')} (${p.cuenta}) es del grupo: elegí la sociedad del proveedor.`);
+          if (p.sociedad_id && p.sociedad_id !== soc) throw new ErrorUsuario(`El pago del ${p.fecha.split('-').reverse().join('/')} es de otra sociedad (${p.sociedad}).`);
+          const desc = [p.rubro, (p.concepto || '').slice(0, 160)].filter(Boolean).join(' · ') || 'Pago';
+          const { rows: [cp] } = await c.query(
+            `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, fecha, vencimiento, notas, sociedad_id)
+             VALUES ($1, 'factura', 'X', $2, $2, $3, $4) RETURNING id`,
+            [pid, p.fecha, `Armado desde el pago del ${p.fecha.split('-').reverse().join('/')} (${p.cuenta})`, soc]);
+          await c.query(
+            `INSERT INTO fin.comprobante_item (comprobante_id, orden, descripcion, cantidad, precio_unitario, descuento_pct, alicuota)
+             VALUES ($1, 1, $2, 1, $3, 0, NULL)`, [cp.id, desc, p.disponible]);
+          await c.query('SELECT fin.registrar_comprobante($1::uuid, $2::numeric)', [cp.id, p.disponible]);
+          const detalle = `Pagado con ${p.concepto || 'un egreso'} (${p.cuenta}, ${p.fecha.split('-').reverse().join('/')})`;
+          const { rows: [cc] } = await c.query(
+            `INSERT INTO fin.movimiento_cc (fecha, proveedor_id, tipo, comprobante_id, debe, detalle) VALUES ($1,$2,'pago',$3,$4,$5) RETURNING id`,
+            [p.fecha, pid, cp.id, p.disponible, detalle]);
+          await c.query('INSERT INTO fin.pago_previo (comprobante_id, movimiento_id, importe, cc_movimiento_id) VALUES ($1,$2,$3,$4)',
+            [cp.id, id, p.disponible, cc.id]);
+          creados++;
+        }
+        return creados;
+      });
+      hechos.push({ nombre: nombre || g.proveedor, comprobantes: n });
+    } catch (e) {
+      errores.push({ nombre: nombre || g.proveedor || '?', error: e.message });
+    }
+  }
+  res.status(201).json({ ok: true, hechos, errores });
+}));
+
 module.exports = r;
