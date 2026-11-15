@@ -279,8 +279,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - **Pantalla de Proveedores** (pedido de Fer, 15/11/2026: el foco en los que ya están, no en el alta): grilla con buscador y filtros
   (todos, con saldo, sin CUIT, inactivos); para finanzas, cifras arriba y por proveedor el último comprobante, lo comprado en 30 días y el
   saldo con "vencido" (`GET /fin/proveedores/resumen`), ordenada por lo comprado. "Nuevo proveedor" arriba y "Editar" por fila abren el
-  mismo diálogo; "Movimientos" abre un panel lateral con los datos y los últimos 20 movimientos de la cuenta corriente (cada comprobante
-  enlazado) y el enlace a la cuenta corriente completa. `proveedores.html#nuevo` abre el alta.
+  mismo diálogo; "Movimientos" abre un panel lateral con los datos y los últimos 20 comprobantes, **una fila por comprobante** con lo
+  facturado y lo pagado (no una línea por la factura y otra por el pago; Fer, 15/11/2026), lo pendiente debajo y "Ver detalle" con las
+  líneas de la cuenta corriente; y el enlace a la cuenta corriente completa. `proveedores.html#nuevo` abre el alta.
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.

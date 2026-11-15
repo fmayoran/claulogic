@@ -17,10 +17,16 @@
   td.acc{white-space:nowrap;text-align:right;} td.acc button + button{margin-left:6px;}
   tr.inactivo td.prov b{text-decoration:line-through;color:var(--mut);}
   .panel-lado h2{margin:0;} .panel-lado .sub{margin:4px 0 14px;}
-  .mov{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--line);font-size:.92rem;}
-  .mov .f{color:var(--mut);white-space:nowrap;} .mov .d{overflow-wrap:anywhere;} .mov .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  .mov .s{grid-column:2 / -1;color:var(--mut);font-size:.82rem;}
-  .mov.anul .d{text-decoration:line-through;color:var(--mut);}
+  /* Movimientos agrupados por comprobante (Fer, 15/11/2026: una fila con lo facturado y lo pagado, el detalle a pedido). */
+  .movs{width:100%;border-collapse:collapse;font-size:.9rem;}
+  .movs th{font-size:.78rem;padding:6px 4px;} .movs td{padding:8px 4px;vertical-align:top;border-top:1px solid var(--line);}
+  .movs td.f{color:var(--mut);white-space:nowrap;} .movs td.d{overflow-wrap:anywhere;} .movs td.d a{color:var(--fg);}
+  .movs td.d small{display:block;color:var(--mut);font-size:.8rem;}
+  .movs .num{white-space:nowrap;} .movs tr.anul td.d a{text-decoration:line-through;color:var(--mut);}
+  .movs button.det{all:unset;cursor:pointer;color:var(--acento);font-size:.8rem;margin-top:2px;display:inline-block;}
+  .movs tr.detalle td{border-top:0;padding:0 4px 8px;}
+  .movs .lin{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 10px;font-size:.82rem;color:var(--mut);padding:4px 0 4px 8px;border-left:2px solid var(--line);}
+  .movs .lin span:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .datos-p{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0 0 16px;font-size:.92rem;}
   .datos-p dt{color:var(--mut);} .datos-p dd{margin:0;overflow-wrap:anywhere;}
 </style>
@@ -88,7 +94,7 @@
     <button type="button" id="pEditar">Editar</button>
     <a id="pCC" href="cuenta-corriente.html">Cuenta corriente completa</a>
   </div>
-  <h3>Últimos movimientos</h3>
+  <h3>Últimos comprobantes</h3>
   <div id="pMovs"><p class="vacio">Consultando…</p></div>
 </dialog>
 
@@ -183,15 +189,40 @@ async function movimientos(p) {
   $('#panel').showModal();
   try {
     const d = await api('fin/cuenta-corriente/' + p.id);
-    const ms = d.movimientos.slice(-20).reverse();
-    const anulados = new Set(d.movimientos.filter(m => m.anula_a).map(m => m.anula_a));
-    $('#pMovs').replaceChildren(...(ms.length ? ms.map(m => {
-      const comp = m.comprobante_id ? el('a', { href: 'comprobantes.html#' + m.comprobante_id, textContent: m.detalle || m.tipo }) : (m.detalle || m.tipo);
-      return el('div', { className: 'mov' + (anulados.has(m.id) || m.tipo === 'anulacion' ? ' anul' : '') },
-        el('span', { className: 'f', textContent: fecha(m.fecha) }), el('span', { className: 'd' }, comp),
-        el('span', { className: 'i', textContent: !cero(m.haber) ? pesos(m.haber) : '−' + pesos(m.debe) }),
-        el('span', { className: 's', textContent: `${m.sociedad} · saldo ${pesos(m.saldo)}` }));
-    }) : [el('p', { className: 'vacio', textContent: 'Sin movimientos en la cuenta corriente.' })]));
+    // Una fila por comprobante: lo facturado (facturas y notas, netas de anulaciones) y lo pagado (pagos, netos de los que se
+    // desvincularon o anularon); las líneas, a pedido. Lo que no es de un comprobante (pagos a cuenta) va en su propia fila.
+    const porId = new Map(d.movimientos.map(m => [m.id, m]));
+    const clase = m => { const t = m.tipo === 'anulacion' && m.anula_a ? (porId.get(m.anula_a) || {}).tipo : m.tipo; return t === 'pago' ? 'pago' : 'cargo'; };
+    const grupos = new Map();
+    for (const m of d.movimientos) {
+      const k = m.comprobante_id || 'm' + m.id;
+      const g = grupos.get(k) || { k, comprobante_id: m.comprobante_id, lineas: [], cargo: 0n, pago: 0n, fecha: m.fecha, ult: m.fecha, titulo: null, anulado: false };
+      const v = centavos(m.haber || '0') - centavos(m.debe || '0');
+      if (clase(m) === 'pago') g.pago -= v; else g.cargo += v;
+      if (!g.titulo && m.tipo !== 'pago' && m.tipo !== 'anulacion') { g.titulo = m.detalle || m.tipo; g.fecha = m.fecha; }
+      if (m.tipo === 'anulacion' && clase(m) === 'cargo') g.anulado = true;
+      if (m.fecha > g.ult) g.ult = m.fecha;
+      g.lineas.push(m); grupos.set(k, g);
+    }
+    const lista = [...grupos.values()].sort((a, b) => (b.ult + b.k).localeCompare(a.ult + a.k)).slice(0, 20);
+    const fmt = c => c ? pesos(deCentavos(c)) : '—';
+    const filasM = lista.flatMap(g => {
+      const pend = g.cargo - g.pago;
+      const titulo = g.comprobante_id ? el('a', { href: 'comprobantes.html#' + g.comprobante_id, textContent: g.titulo || 'Comprobante' }) : (g.titulo || g.lineas[0].detalle || 'Pago a cuenta');
+      const det = el('tr', { className: 'detalle', hidden: true }, el('td', { colSpan: 4 }, ...g.lineas.map(m => el('div', { className: 'lin' },
+        el('span', { textContent: fecha(m.fecha) }), el('span', { textContent: `${m.detalle || m.tipo}${m.registrado_por ? ' · ' + m.registrado_por : ''}` }),
+        el('span', { textContent: !cero(m.haber) ? pesos(m.haber) : '−' + pesos(m.debe) })))));
+      const btn = el('button', { type: 'button', className: 'det', textContent: 'Ver detalle' });
+      btn.onclick = () => { det.hidden = !det.hidden; btn.textContent = det.hidden ? 'Ver detalle' : 'Ocultar detalle'; };
+      const nota = [g.lineas[0].sociedad, g.anulado ? 'anulado' : pend > 0n ? 'pendiente ' + pesos(deCentavos(pend)) : pend < 0n ? 'a favor ' + pesos(deCentavos(-pend)) : null].filter(Boolean).join(' · ');
+      return [el('tr', { className: g.anulado ? 'anul' : '' },
+        el('td', { className: 'f', textContent: fecha(g.fecha) }),
+        el('td', { className: 'd' }, titulo, el('small', { textContent: nota }), btn),
+        el('td', { className: 'num', textContent: fmt(g.cargo) }), el('td', { className: 'num', textContent: fmt(g.pago) })), det];
+    });
+    $('#pMovs').replaceChildren(lista.length ? el('table', { className: 'movs' },
+      el('thead', {}, el('tr', {}, el('th', { textContent: 'Fecha' }), el('th', { textContent: 'Comprobante' }), el('th', { className: 'num', textContent: 'Facturado' }), el('th', { className: 'num', textContent: 'Pagado' }))),
+      el('tbody', {}, ...filasM)) : el('p', { className: 'vacio', textContent: 'Sin movimientos en la cuenta corriente.' }));
   } catch (e) { $('#pMovs').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
 }
 $('#pCerrar').onclick = () => $('#panel').close();
