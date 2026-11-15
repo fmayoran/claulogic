@@ -886,7 +886,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   los puntos de venta que cobran con algo que deposita ahí. Toma cobros de otro procesador si su cuenta ya tiene extracto pasado el día de
   la venta, y de un procesador de la cuenta (también uno ya pasado a "Transferencia Brubank") que quedó fuera de la ventana normal. Grupo
   "Cobros que coinciden por importe y fecha" con "Confirmar los N"; `/fin/conciliacion/acreditar` con `otro_procesador: 'fecha'`. Es la
-  excepción: nunca automático.
+  excepción: nunca automático. Si la línea dice el día de la venta ("venta del": Mercado Pago libera días después), la venta tiene que ser
+  de ese día o del anterior, no medida contra la fecha de la línea (`distanciaPorFecha`; 15/11/2026: un cobro aprobado el 27/10 y liberado
+  el 14/11 se proponía con una venta del 13/11). El servidor lo vuelve a controlar al confirmar.
 - **Transferencias entre cuentas propias** (pedido de Fer, 10/11/2026; `transferenciasPropias` en `tesoreria.js`): en "Para resolver", una línea
   sin conciliar se propone como transferencia con una línea de otra cuenta de la **misma sociedad** (o del grupo) por el importe opuesto,
   hasta 2 días de distancia ("De una cuenta tuya - MercadoPago" en BRUBANK con "Transferencia a banco" en MERCADO PAGO CF), o, si el
