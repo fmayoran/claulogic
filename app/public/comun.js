@@ -721,7 +721,7 @@ function comboBuscable(select) {
   const caja = el('span', { className: 'cb' }, select, inp, lista);
   if (lugar) lugar.replaceWith(caja);
   select.hidden = true; select.tabIndex = -1;
-  let items = [], act = -1;
+  let items = [], act = -1, escrito = '';
   const sync = () => {
     const o = select.selectedOptions[0];
     inp.value = o && o.value ? o.textContent : '';
@@ -759,13 +759,15 @@ function comboBuscable(select) {
   };
   const cerrar = () => { lista.hidden = true; inp.setAttribute('aria-expanded', 'false'); act = -1; };
   const elegir = v => {
+    // Lo que se escribió queda para el alta ("+ Agregar … nuevo…" abre con ese nombre).
+    select.dataset.buscado = escrito.trim();
     cerrar();
     if (v !== select.value) { select.value = v; select.dispatchEvent(new Event('change', { bubbles: true })); }
     sync();
   };
-  inp.addEventListener('focus', () => { inp.select(); abrir(''); });
+  inp.addEventListener('focus', () => { escrito = ''; inp.select(); abrir(''); });
   inp.addEventListener('click', () => { if (lista.hidden) abrir(''); });
-  inp.addEventListener('input', () => abrir(inp.value));
+  inp.addEventListener('input', () => { escrito = inp.value; abrir(inp.value); });
   inp.addEventListener('blur', () => {
     if (lista.hidden) return;
     cerrar();

@@ -197,9 +197,10 @@ const Conc = (() => {
     if (!rubrosCache || recargar) rubrosCache = (await api('fin/rubros')).rubros.filter(r => r.activo && LINEA[r.linea] && r.clave !== 'cmv');
     return rubrosCache;
   }
-  function nuevoRubro(lineaSugerida) {
+  // Devuelve [id, nombre] o null; `linea` del creado queda en `rubrosCache`.
+  function nuevoRubro(lineaSugerida, nombreInicial = '') {
     return new Promise(listo => {
-      const nombre = el('input', { required: true }), linea = el('select');
+      const nombre = el('input', { required: true, maxLength: 80, value: nombreInicial }), linea = el('select');
       opciones(linea, Object.entries(LINEA), lineaSugerida);
       const msgR = el('span', { className: 'msg' });
       const dlg = el('dialog', {}, el('form', { method: 'dialog' }, el('h2', { textContent: 'Nuevo rubro' }),
@@ -219,7 +220,8 @@ const Conc = (() => {
   }
   async function selectRubro(sel, valor, sale) {
     const rs = await rubros();
-    opcionesConAlta(sel, rs.map(r => [r.id, `${r.nombre} · ${LINEA[r.linea]}`]), valor, 'Elegir rubro…',
+    const orden = [...rs].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+    opcionesConAlta(sel, orden.map(r => [r.id, `${r.nombre} · ${LINEA[r.linea]}`]), valor, 'Elegir rubro…',
       { texto: '+ Nuevo rubro…', alta: () => nuevoRubro(sale ? 'operativos' : 'otros') });
   }
   // El texto de la regla que se propone: el concepto sin números (los de operación cambian en cada línea).
@@ -741,5 +743,5 @@ const Conc = (() => {
     return det;
   }
 
-  return { TIPO_OP, LINEA, conSigno, partes, automatica, importador, resolver, frenteExtracto, selectRubro, rubros, liberacionesMP };
+  return { TIPO_OP, LINEA, conSigno, partes, automatica, importador, resolver, frenteExtracto, selectRubro, rubros, nuevoRubro, liberacionesMP };
 })();

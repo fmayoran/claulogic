@@ -112,9 +112,10 @@ function comboProveedor(l) {
   const ex = (l.proveedor_cbu_id && provs.find(p => p.id === l.proveedor_cbu_id)) || (sug && provs.find(p => sinAc(p.nombre) === sinAc(sug)));
   opcionesProveedor(sel, provs.filter(p => p.activo !== false || (ex && p.id === ex.id)), ex ? ex.id : null, 'Sin proveedor');
   sel._alta = async () => {
-    const p = await nuevoProveedor(ex ? '' : sug);
+    const p = await nuevoProveedor(sel.dataset.buscado || (ex ? '' : sug));
     if (!p) return null;
     sumarProveedor(p, sel);
+    setTimeout(() => { const o = sel.querySelector(`option[value="${p.id}"]`); if (o) { o.remove(); insertarOrdenado(sel, p.id, p.nombre); sel.value = sel.dataset.previo = p.id; sel._sync && sel._sync(); } });
     return [p.id, p.nombre];
   };
   if (!ex && sug) {
@@ -126,14 +127,29 @@ function comboProveedor(l) {
 }
 // Un proveedor recién creado (con el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas, en orden alfabético, y
 // las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (Fer, 15/11/2026: dio de alta ARCA y en la fila de abajo no estaba).
+// Una opción nueva en su lugar alfabético (antes de las especiales del final, después de "Nuevo: …").
+function insertarOrdenado(s, v, t) {
+  const antes = [...s.options].find(o => o.value && o.value !== NUEVO && (o.value === ALTA || o.textContent.localeCompare(t, 'es', { sensitivity: 'base' }) > 0));
+  s.insertBefore(el('option', { value: v, textContent: t }), antes || null);
+}
+// Rubro nuevo desde la grilla (pedido de Fer, 15/11/2026): se crea con su línea del estado y pasa a los combos de las otras filas.
+async function altaRubro(sel) {
+  const r = await Conc.nuevoRubro('operativos', sel.dataset.buscado || '');
+  if (!r) return null;
+  const [id, nombre] = r;
+  rubros.push({ id, nombre, activo: true, del_centro: false });
+  rubros.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+  for (const f of filasG) if (f.rub && f.rub !== sel && !f.hecha && !f.rub.querySelector(`option[value="${id}"]`)) insertarOrdenado(f.rub, id, nombre);
+  // opcionesConAlta lo agrega al final de este combo: se acomoda después del "change".
+  setTimeout(() => { const o = sel.querySelector(`option[value="${id}"]`); if (o) { o.remove(); insertarOrdenado(sel, id, nombre); sel.value = sel.dataset.previo = id; sel._sync && sel._sync(); } });
+  return [id, nombre];
+}
 function sumarProveedor(p, salvo) {
   if (!provs.some(x => x.id === p.id)) provs.push(p);
   for (const f of filasG) {
     const s = f.prov;
     if (!s || s === salvo || f.hecha || s.querySelector(`option[value="${p.id}"]`)) continue;
-    const op = el('option', { value: p.id, textContent: p.nombre });
-    const antes = [...s.options].find(o => o.value && o.value !== NUEVO && (o.value === ALTA || o.textContent.localeCompare(p.nombre, 'es', { sensitivity: 'base' }) > 0));
-    s.insertBefore(op, antes || null);
+    insertarOrdenado(s, p.id, p.nombre);
     const nuevo = s.querySelector(`option[value="${NUEVO}"]`);
     if (nuevo && sinAc(s.dataset.sugerido) === sinAc(p.nombre)) {
       const elegido = s.value === NUEVO;
@@ -156,7 +172,8 @@ async function pintarGrilla() {
   if (!lineas.length) { $('#grilla').replaceChildren(el('p', { className: 'vacio', textContent: 'No quedan egresos sin identificar.' })); $('#todas').disabled = true; return; }
   const central = sedes.find(x => x.es_central);
   filasG = lineas.map(l => {
-    const rub = el('select', { ariaLabel: 'Rubro' }); opciones(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…');
+    const rub = el('select', { ariaLabel: 'Rubro' });
+    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
     const sede = el('select', { ariaLabel: 'Local' }); opciones(sede, sedes.map(x => [x.id, x.nombre]), null, 'Según la cuenta');
     const prov = comboProveedor(l);
     const ok = el('button', { type: 'button', className: 'chico', textContent: 'Registrar' });
