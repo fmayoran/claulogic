@@ -473,7 +473,8 @@ r.post('/fin/comprobantes/:id/pago-previo', h(async (req, res) => {
       const { rows: [m] } = await c.query(
         `SELECT x.*, (x.salida - x.aplicado) AS disponible FROM (${PAGOS_SIN_FACTURA}) x WHERE x.id = $1`, [it.id]);
       if (!m) throw new ErrorUsuario(`El movimiento ${it.id} no es un pago que se pueda vincular (o ya está anulado).`);
-      if (m.sociedad_id && m.sociedad_id !== cp.sociedad_id) throw new ErrorUsuario(`El pago del ${m.fecha} es de ${m.sociedad}, no de la sociedad de la factura.`);
+      const { rows: [dc] } = await c.query(`SELECT ${DEL_CENTRO.replace(/x\.id/g, '$1')} AS v`, [it.id]);
+      if (!dc.v && m.sociedad_id && m.sociedad_id !== cp.sociedad_id) throw new ErrorUsuario(`El pago del ${m.fecha} es de ${m.sociedad}, no de la sociedad de la factura.`);
       if (Number(it.importe) <= 0) throw new ErrorUsuario('El importe aplicado tiene que ser mayor que cero.');
       if (Number(it.importe) > Number(m.disponible)) throw new ErrorUsuario(`Al pago del ${m.fecha} le quedan ${m.disponible} sin factura.`);
       if (Number(it.importe) > pendiente + 0.004) throw new ErrorUsuario(`La factura tiene ${pendiente.toFixed(2)} pendiente: se aplica de más.`);
@@ -534,15 +535,20 @@ function proveedorDelPago(p) {
 }
 const titulo = t => t.length > 3 && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|\s|[.(])(\p{L})/gu, (_, a, b) => a + b.toUpperCase()) : t;
 
-r.get('/fin/pagos-sin-factura/proveedores', h(async (req, res) => {
-  const todo = req.query.todo === '1';
+// La sociedad de la factura de un pago: si el rubro es del centro (mercadería e insumos), la que recibe las compras del centro
+// (CORTAFUEGO, decisión de Fer, 15/11/2026); si no, la del local clasificado o la de la cuenta.
+const SOCIEDAD_DEL_PAGO = `CASE WHEN (SELECT r.del_centro FROM fin.clasificacion k JOIN fin.rubro r ON r.id = k.rubro_id WHERE k.movimiento_id = x.id)
+         THEN (SELECT id FROM org.sociedad WHERE compras_del_centro)
+         ELSE COALESCE((SELECT se.sociedad_id FROM fin.clasificacion k JOIN org.sede se ON se.id = k.sede_id WHERE k.movimiento_id = x.id), x.sociedad_id) END`;
+const DEL_CENTRO = `COALESCE((SELECT r.del_centro FROM fin.clasificacion k JOIN fin.rubro r ON r.id = k.rubro_id WHERE k.movimiento_id = x.id), false)`;
+async function proponerProveedores({ todo = false, soloDelCentro = false } = {}) {
   const [{ rows: pagos }, { rows: provs }, { rows: socs }] = await Promise.all([
     pool.query(
       `SELECT x.id, x.fecha, x.concepto, x.destinatario, x.rubro, x.cuenta, (x.salida - x.aplicado)::text AS disponible,
-              COALESCE((SELECT se.sociedad_id FROM fin.clasificacion k JOIN org.sede se ON se.id = k.sede_id WHERE k.movimiento_id = x.id), x.sociedad_id) AS sociedad_id
+              ${SOCIEDAD_DEL_PAGO} AS sociedad_id
          FROM (${PAGOS_SIN_FACTURA}) x
-        WHERE x.salida > x.aplicado AND ($1 OR x.linea IS NULL OR x.linea = ANY($2::text[]))
-        ORDER BY x.fecha`, [todo, LINEAS_COMPRA]),
+        WHERE x.salida > x.aplicado AND ($1 OR x.linea IS NULL OR x.linea = ANY($2::text[])) AND (NOT $3 OR ${DEL_CENTRO})
+        ORDER BY x.fecha`, [todo, LINEAS_COMPRA, soloDelCentro]),
     pool.query('SELECT id, nombre FROM logic.proveedor WHERE activo ORDER BY nombre'),
     pool.query('SELECT id, nombre FROM org.sociedad WHERE activa ORDER BY nombre'),
   ]);
@@ -573,14 +579,15 @@ r.get('/fin/pagos-sin-factura/proveedores', h(async (req, res) => {
       sociedad_id: socsG.length === 1 ? socsG[0] : null, sociedades_mezcladas: socsG.length > 1,
       total: g.pagos.reduce((s, p) => s + Number(p.disponible), 0).toFixed(2), pagos: g.pagos };
   }).sort((a, b) => Number(b.total) - Number(a.total));
-  res.json({ ok: true, grupos: salida, sin_nombre: sinNombre, proveedores: provs, sociedades: socs });
+  return { grupos: salida, sin_nombre: sinNombre, proveedores: provs, sociedades: socs };
+}
+r.get('/fin/pagos-sin-factura/proveedores', h(async (req, res) => {
+  res.json({ ok: true, ...await proponerProveedores({ todo: req.query.todo === '1' }) });
 }));
 
 // Crear: por cada grupo confirmado, el proveedor (si no se eligió uno existente) y un comprobante X por pago, registrado y pagado
 // con él. Cada grupo en su transacción: si uno falla, los demás quedan hechos y la respuesta dice cuál y por qué.
-r.post('/fin/pagos-sin-factura/armar', h(async (req, res) => {
-  const grupos = Array.isArray(req.body.grupos) ? req.body.grupos : [];
-  if (!grupos.length) throw new ErrorUsuario('No hay nada para crear.');
+async function armarComprobantes(grupos) {
   const hechos = [], errores = [];
   for (const g of grupos) {
     const nombre = texto(g.nombre), provId = texto(g.proveedor_id), socG = texto(g.sociedad_id);
@@ -600,13 +607,13 @@ r.post('/fin/pagos-sin-factura/armar', h(async (req, res) => {
         for (const id of ids) {
           await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['pago-previo:' + id]);
           const { rows: [p] } = await c.query(
-            `SELECT x.*, (x.salida - x.aplicado) AS disponible,
-                    COALESCE((SELECT se.sociedad_id FROM fin.clasificacion k JOIN org.sede se ON se.id = k.sede_id WHERE k.movimiento_id = x.id), x.sociedad_id) AS soc
+            `SELECT x.*, (x.salida - x.aplicado) AS disponible, ${SOCIEDAD_DEL_PAGO} AS soc, ${DEL_CENTRO} AS del_centro
                FROM (${PAGOS_SIN_FACTURA}) x WHERE x.id = $1`, [id]);
           if (!p || Number(p.disponible) <= 0) continue;
           const soc = socG || p.soc;
           if (!soc) throw new ErrorUsuario(`El pago del ${p.fecha.split('-').reverse().join('/')} (${p.cuenta}) es del grupo: elegí la sociedad del proveedor.`);
-          if (p.sociedad_id && p.sociedad_id !== soc) throw new ErrorUsuario(`El pago del ${p.fecha.split('-').reverse().join('/')} es de otra sociedad (${p.sociedad}).`);
+          // Lo del centro se factura a una sola sociedad aunque lo pague otra (decisión de Fer).
+          if (!p.del_centro && p.sociedad_id && p.sociedad_id !== soc) throw new ErrorUsuario(`El pago del ${p.fecha.split('-').reverse().join('/')} es de otra sociedad (${p.sociedad}).`);
           const desc = [p.rubro, (p.concepto || '').slice(0, 160)].filter(Boolean).join(' · ') || 'Pago';
           const { rows: [cp] } = await c.query(
             `INSERT INTO fin.comprobante (proveedor_id, tipo, letra, fecha, vencimiento, notas, sociedad_id)
@@ -631,7 +638,14 @@ r.post('/fin/pagos-sin-factura/armar', h(async (req, res) => {
       errores.push({ nombre: nombre || g.proveedor || '?', error: e.message });
     }
   }
-  res.status(201).json({ ok: true, hechos, errores });
+  return { hechos, errores };
+}
+r.post('/fin/pagos-sin-factura/armar', h(async (req, res) => {
+  const grupos = Array.isArray(req.body.grupos) ? req.body.grupos : [];
+  if (!grupos.length) throw new ErrorUsuario('No hay nada para crear.');
+  res.status(201).json({ ok: true, ...await armarComprobantes(grupos) });
 }));
 
 module.exports = r;
+module.exports.proponerProveedores = proponerProveedores;
+module.exports.armarComprobantes = armarComprobantes;

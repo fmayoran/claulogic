@@ -263,7 +263,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (sin acentos ni "SA", "SRL"…; un grupo contenido en otro se junta) y reconoce los proveedores ya cargados. Fer revisa nombres, elige uno
   existente, la sociedad si los pagos son del grupo, o destilda; al crear (`POST /fin/pagos-sin-factura/armar`, una transacción por
   proveedor) se dan de alta los que faltan y un comprobante **X por pago**, registrado y pagado con él. La sociedad de cada comprobante: la
-  del local clasificado en el pago, si no la de la cuenta.
+  del local clasificado en el pago, si no la de la cuenta; si el rubro es del centro, la de las compras del centro (abajo).
+- **Mercadería e insumos son del centro** (decisión de Fer, 15/11/2026; migraciones 20261148 y 20261149): lo que se compra de
+  mercadería e insumos es de CF CENTRAL, pague la cuenta que pague; el costo llega a cada local cuando el centro le traslade la mercadería
+  (pendiente: imputar el costo al local con el remito). `fin.rubro.del_centro` marca esos rubros (todos los "Mercadería · …", Mercadería
+  varios, Descartables y packaging, Limpieza, Vajilla y utensilios) y un trigger en `fin.clasificacion` les pone la sede central y les
+  saca el comercio, se clasifiquen como se clasifiquen; las reglas con esos rubros no llevan sede. Se reclasificaron los 222 movimientos
+  de octubre y noviembre ($89,6 M; respaldo en `/root/claulogic_respaldos/clasificacion_antes_centro_20261115.sql`): en el estado de
+  resultados quedan en "sólo el grupo" y no restan en los locales mientras no haya traslados. Sus facturas van siempre a la sociedad de
+  `org.sociedad.compras_del_centro` (CORTAFUEGO), aunque las pague una cuenta de SORELLE (eso no se lleva como deuda entre sociedades).
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
