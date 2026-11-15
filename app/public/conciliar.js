@@ -108,6 +108,8 @@ const Conc = (() => {
   // SIRTAC y SIRCUPA), que suman exacto el neto. Las reservas que MP hace y libera al instante (reserve_for_*) y un
   // cobro devuelto entero se cancelan y no se importan. Si la venta se aprobó otro día (Point con crédito libera a los
   // ~10 días), el concepto lleva "venta del AAAA-MM-DD": el servidor parea contra ese día.
+  // Los egresos también llevan la hora de aprobación (15/11/2026): con el número de operación, es lo que permite ubicar en Mercado Pago un
+  // "Pago desde Mercado Pago", que no trae destinatario en este reporte.
   // Con PAYOUT_BANK_ACCOUNT_NUMBER tildada (15/11/2026), cada "Transferencia a banco" lleva el CBU o CVU de destino: así se
   // reconoce al proveedor (o la cuenta propia) sin el resumen de cuenta, que es mensual.
   function liberacionesMP(filas) {
@@ -150,13 +152,13 @@ const Conc = (() => {
       // Se abre sólo si bruto + comisión + impuestos da exacto el neto; si no, va por el neto.
       if (!esCero(f.bruto) && k(f.bruto) + partes.reduce((s, x) => s + x, 0n) === k(f.neto) && !reserva) {
         const det = venta ? [canal(f), f.aprobada && f.aprobada !== f.fecha ? `venta del ${f.aprobada}` : ''].filter(Boolean).join(' · ') : f.ref && !/^\d+$/.test(f.ref) ? '' : f.ref;
-        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
+        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}`, ...((venta || f.neto.startsWith('-')) && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
         if (venta && !esCero(f.fee)) out.push({ fecha: f.fecha, importe: f.fee, referencia: '#' + f.id, concepto: `Comisión Mercado Pago - ${f.id}` });
         if (sumaImps === k(f.imp)) for (const x of imps) { if (!esCero(x.importe)) out.push({ fecha: f.fecha, importe: x.importe, referencia: '#' + f.id, concepto: `${nombreImp(x)} - ${f.id}` }); }
         else if (!esCero(f.imp)) out.push({ fecha: f.fecha, importe: f.imp, referencia: '#' + f.id, concepto: `Impuestos Mercado Pago - ${f.id}` });
         if (venta) cobros++;
       } else {
-        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
+        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}`, ...((venta || f.neto.startsWith('-')) && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
         if (venta) sinAbrir++;
       }
     }

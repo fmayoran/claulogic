@@ -941,7 +941,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const [lineas, movs, cheques, hechas] = await Promise.all([
     // Con la cuenta de destino (15/11/2026): el proveedor que ya cobró en ese CBU (fin.proveedor_cbu) o la cuenta propia.
     pool.query(`SELECT l.id, l.fecha, CASE WHEN l.destinatario IS NOT NULL THEN l.concepto || ' · ' || l.destinatario ELSE l.concepto END AS concepto,
-                       l.referencia, l.importe::text, l.cuenta_destino, pc.proveedor_id AS proveedor_cbu_id, pv.nombre AS proveedor_cbu,
+                       l.referencia, l.importe::text, l.cuenta_destino, l.operacion, l.aprobada_en, pc.proveedor_id AS proveedor_cbu_id, pv.nombre AS proveedor_cbu,
                        cp.id AS cuenta_propia_id, cp.nombre AS cuenta_propia
                   FROM fin.extracto_linea l
                   LEFT JOIN fin.proveedor_cbu pc ON pc.cbu = l.cuenta_destino LEFT JOIN logic.proveedor pv ON pv.id = pc.proveedor_id

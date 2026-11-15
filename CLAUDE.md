@@ -799,6 +799,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   El proveedor va en un **combo** (pedido de Fer, 15/11/2026): elegido el sugerido si existe (por el CBU o por el nombre); si no, primero
   "Nuevo: <nombre>", que se crea al registrar; al final "+ Agregar proveedor nuevo…" abre el alta rápida (`nuevoProveedor(nombre)`) con el
   nombre sugerido, y el creado pasa a los combos de las otras filas.
+  **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
+  un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
+  encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.
+  Para eso el reporte de liberaciones guarda también la hora de aprobación de los egresos (`extracto_linea.aprobada_en`, antes sólo de
+  los cobros); se completa al volver a importar.
 - **Pago24 por el portal** (pedido de Fer, 03/11/2026; migraciones 20261117 y 20261118, `app/pago24.js`). Pago24 (Traxion) no tiene API
   (lo confirmó Fer): el portal (`https://traxion.telerecargas.com.ar/`) lo arma el servidor con un framework propio ("Ajaxifier"). Todo pasa
   por `/tr4?_s=<sesión>&_k=<clave>` (`_k` nueva en cada respuesta), con las cookies SERVERID y SSESSIONID; los campos son números que

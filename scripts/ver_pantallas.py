@@ -59,7 +59,9 @@ def api(route):
         datos = {'extractos': [{'id': 1}], 'cobros': [], 'sugerencias': [], 'transferencias': [], 'descartadas': [], 'movimientos': [], 'conciliado': {'lineas': 10}, 'procesador': None, 'lineas': (
             [{'id': 11, 'fecha': '2026-10-30', 'importe': '-326000.00', 'concepto': 'HUDSON BOHNCOC SRL', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'},
              {'id': 12, 'fecha': '2026-11-13', 'importe': '-2615608.67', 'concepto': 'ARCA Vep', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'}] if b1 else
-            [{'id': 21, 'fecha': '2026-10-16', 'importe': '-187175.14', 'concepto': 'Pago desde Mercado Pago - 184476250362', 'destinatario': 'Transferencia enviada TRANSVE SA', 'candidatos': [], 'lado': 'egresos'}])}
+            [{'id': 21, 'fecha': '2026-10-16', 'importe': '-187175.14', 'concepto': 'Pago desde Mercado Pago - 184476250362 · Transferencia enviada TRANSVE SA', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-10-16T17:13:39.000-03:00', 'operacion': '184476250362'},
+             {'id': 22, 'fecha': '2026-11-11', 'importe': '-907500.00', 'concepto': 'Pago desde Mercado Pago - 189063998998', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:50:32.000-03:00', 'operacion': '189063998998'},
+             {'id': 23, 'fecha': '2026-11-11', 'importe': '-820000.00', 'concepto': 'Transferencia a banco - 187992003535', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:45:34.000-03:00', 'operacion': '187992003535', 'cuenta_destino': '0170099220000071116352'}])}
     elif 'fin/rubros' in u:
         datos = {'rubros': [{'id': 'r1', 'nombre': 'Mercadería · Almacén', 'linea': 'cmv', 'activo': True, 'del_centro': True}, {'id': 'r2', 'nombre': 'Ingresos Brutos', 'linea': 'impuestos', 'activo': True, 'del_centro': False}]}
     elif 'api/sedes' in u:
