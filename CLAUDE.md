@@ -798,7 +798,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   ahora devuelve `movimiento_id`) y, con proveedor, el proveedor si es nuevo y su comprobante X pagado (`/fin/pagos-sin-factura/armar`).
   El proveedor va en un **combo** (pedido de Fer, 15/11/2026): elegido el sugerido si existe (por el CBU o por el nombre); si no, primero
   "Nuevo: <nombre>", que se crea al registrar; al final "+ Agregar proveedor nuevo…" abre el alta rápida (`nuevoProveedor(nombre)`) con el
-  nombre sugerido, y el creado pasa a los combos de las otras filas.
+  nombre sugerido. El creado (por el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas en orden alfabético, y las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (`sumarProveedor`).
   **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
   un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
   encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.

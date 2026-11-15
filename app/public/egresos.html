@@ -114,9 +114,7 @@ function comboProveedor(l) {
   sel._alta = async () => {
     const p = await nuevoProveedor(ex ? '' : sug);
     if (!p) return null;
-    provs.push(p);
-    // Que esté también en los combos de las otras filas.
-    for (const f of filasG) if (f.prov && f.prov !== sel && !f.hecha) f.prov.insertBefore(el('option', { value: p.id, textContent: p.nombre }), f.prov.querySelector(`option[value="${ALTA}"]`));
+    sumarProveedor(p, sel);
     return [p.id, p.nombre];
   };
   if (!ex && sug) {
@@ -125,6 +123,24 @@ function comboProveedor(l) {
   }
   sel.dataset.sugerido = sug;
   return sel;
+}
+// Un proveedor recién creado (con el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas, en orden alfabético, y
+// las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (Fer, 15/11/2026: dio de alta ARCA y en la fila de abajo no estaba).
+function sumarProveedor(p, salvo) {
+  if (!provs.some(x => x.id === p.id)) provs.push(p);
+  for (const f of filasG) {
+    const s = f.prov;
+    if (!s || s === salvo || f.hecha || s.querySelector(`option[value="${p.id}"]`)) continue;
+    const op = el('option', { value: p.id, textContent: p.nombre });
+    const antes = [...s.options].find(o => o.value && o.value !== NUEVO && (o.value === ALTA || o.textContent.localeCompare(p.nombre, 'es', { sensitivity: 'base' }) > 0));
+    s.insertBefore(op, antes || null);
+    const nuevo = s.querySelector(`option[value="${NUEVO}"]`);
+    if (nuevo && sinAc(s.dataset.sugerido) === sinAc(p.nombre)) {
+      const elegido = s.value === NUEVO;
+      nuevo.remove();
+      if (elegido) s.value = s.dataset.previo = p.id;
+    }
+  }
 }
 async function pintarGrilla() {
   if (!rubros.length) {
@@ -224,7 +240,11 @@ async function registrar(f) {
       const a = await api('fin/pagos-sin-factura/armar', { method: 'POST',
         body: { grupos: [{ nombre: existente ? null : nombre, proveedor_id: existente ? existente.id : null, sociedad_id: null, pagos: [r.movimiento_id] }] } });
       if (a.errores.length) nota = 'Registrado, sin comprobante: ' + a.errores[0].error;
-      else nota = 'Registrado con comprobante';
+      else {
+        nota = 'Registrado con comprobante';
+        const pid = a.hechos[0] && a.hechos[0].proveedor_id;
+        if (pid && !existente) sumarProveedor({ id: pid, nombre, activo: true }, f.prov);
+      }
     }
     f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren(nota);
     [f.rub, f.sede, f.prov].forEach(x => { x.disabled = true; });

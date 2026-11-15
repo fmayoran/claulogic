@@ -646,9 +646,9 @@ async function armarComprobantes(grupos) {
             [cp.id, id, p.disponible, cc.id]);
           creados++;
         }
-        return creados;
+        return { creados, pid };
       });
-      hechos.push({ nombre: nombre || g.proveedor, comprobantes: n });
+      hechos.push({ nombre: nombre || g.proveedor, proveedor_id: n.pid, comprobantes: n.creados });
     } catch (e) {
       errores.push({ nombre: nombre || g.proveedor || '?', error: e.message });
     }
