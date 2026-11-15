@@ -638,10 +638,10 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
 // ── Proveedor nuevo sin salir de la pantalla ────────────────────────────────────────────────
 // Desde la factura o la compra: lo mínimo para cargarlo (el resto, en Proveedores). Devuelve el
 // proveedor creado, o null si se canceló.
-function nuevoProveedor() {
+function nuevoProveedor(nombreInicial = '') {
   return new Promise(resolve => {
     const f = el('form', { novalidate: true });
-    const nombre = el('input', { name: 'nombre', maxLength: 120 }), cuit = el('input', { name: 'cuit', placeholder: '30-12345678-9' });
+    const nombre = el('input', { name: 'nombre', maxLength: 120, value: nombreInicial }), cuit = el('input', { name: 'cuit', placeholder: '30-12345678-9' });
     const cond = el('select', { name: 'condicion_iva' }), plazo = el('input', { name: 'plazo', inputMode: 'numeric', placeholder: 'sin plazo' });
     opciones(cond, [['responsable_inscripto', 'Responsable inscripto'], ['monotributo', 'Monotributo'], ['exento', 'Exento'], ['no_categorizado', 'No categorizado']], null, 'Sin indicar');
     const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Crear proveedor' });

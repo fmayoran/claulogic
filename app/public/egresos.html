@@ -52,7 +52,6 @@
       comprobante ya pagado. Las transferencias entre cuentas propias y lo que no se tiene en cuenta se resuelven en "Por cuenta".</p>
     <div class="grilla-eg" id="grilla"><p class="vacio">Consultando…</p></div>
     <div class="pie-eg"><button type="button" class="prim" id="todas" disabled>Registrar las completas</button><span class="msg" id="msgG"></span></div>
-    <datalist id="dlProv"></datalist>
   </section>
   <section id="vCuenta" hidden>
   <div class="segm" id="cuentas" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
@@ -99,12 +98,33 @@ function proveedorSugerido(l) {
   const c = String(l.concepto || '').trim();
   return c && !GENERICO.test(sinAc(c)) ? c : '';
 }
+// El proveedor, en un combo (pedido de Fer, 15/11/2026: que se pueda cargar uno nuevo desde ahí): elegido el sugerido si ya existe (por
+// el CBU o por el nombre); si no existe, primero "Nuevo: <nombre>", que se crea al registrar; al final, el alta con sus datos.
+const NUEVO = '__nuevo';
+function comboProveedor(l) {
+  const sel = el('select', { ariaLabel: 'Proveedor' }), sug = proveedorSugerido(l);
+  const ex = (l.proveedor_cbu_id && provs.find(p => p.id === l.proveedor_cbu_id)) || (sug && provs.find(p => sinAc(p.nombre) === sinAc(sug)));
+  opcionesProveedor(sel, provs.filter(p => p.activo !== false || (ex && p.id === ex.id)), ex ? ex.id : null, 'Sin proveedor');
+  sel._alta = async () => {
+    const p = await nuevoProveedor(ex ? '' : sug);
+    if (!p) return null;
+    provs.push(p);
+    // Que esté también en los combos de las otras filas.
+    for (const f of filasG) if (f.prov && f.prov !== sel && !f.hecha) f.prov.insertBefore(el('option', { value: p.id, textContent: p.nombre }), f.prov.querySelector(`option[value="${ALTA}"]`));
+    return [p.id, p.nombre];
+  };
+  if (!ex && sug) {
+    sel.insertBefore(el('option', { value: NUEVO, textContent: `Nuevo: ${sug}` }), sel.options[1] || null);
+    sel.value = sel.dataset.previo = NUEVO;
+  }
+  sel.dataset.sugerido = sug;
+  return sel;
+}
 async function pintarGrilla() {
   if (!rubros.length) {
     const [r, s, p] = await Promise.all([api('fin/rubros'), api('sedes').catch(() => ({ sedes: [] })), api('proveedores')]);
     rubros = r.rubros.filter(x => x.activo && x.linea !== 'ventas' && x.clave !== 'cmv');
     sedes = s.sedes.filter(x => x.activa); provs = p.proveedores;
-    $('#dlProv').replaceChildren(...provs.map(x => el('option', { value: x.nombre })));
   }
   // Las transferencias a cuentas propias que propone la conciliación (por importe en las dos cuentas, o por el CBU de destino).
   const transf = new Map(cuentas.flatMap(({ d }) => (d.transferencias || []).map(t => [String(t.linea_id), t])));
@@ -115,7 +135,7 @@ async function pintarGrilla() {
   filasG = lineas.map(l => {
     const rub = el('select', { ariaLabel: 'Rubro' }); opciones(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…');
     const sede = el('select', { ariaLabel: 'Local' }); opciones(sede, sedes.map(x => [x.id, x.nombre]), null, 'Según la cuenta');
-    const prov = el('input', { ariaLabel: 'Proveedor', placeholder: 'Proveedor (opcional)', value: proveedorSugerido(l) }); prov.setAttribute('list', 'dlProv');
+    const prov = comboProveedor(l);
     const ok = el('button', { type: 'button', className: 'chico', textContent: 'Registrar' });
     const acc = el('span', { className: 'acc' }, ok);
     const det = [l.destinatario, l.cuenta, l.cuenta_destino ? `CBU ${l.cuenta_destino}` : ''].filter(Boolean).join(' · ');
@@ -167,7 +187,8 @@ function contar() {
 async function registrar(f) {
   if (f.hecha) return;
   if (!f.rub.value) { f.rub.focus(); throw new Error('Elegí el rubro.'); }
-  const nombre = f.prov.value.trim(), existente = provs.find(p => p.id && sinAc(p.nombre) === sinAc(nombre));
+  const v = f.prov.value, existente = v && v !== NUEVO ? provs.find(p => p.id === v) : null;
+  const nombre = v === NUEVO ? f.prov.dataset.sugerido : existente ? existente.nombre : '';
   const concepto = nombre || [f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ') || 'Egreso';
   f.ok.disabled = true;
   try {

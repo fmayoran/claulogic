@@ -56,7 +56,7 @@ def api(route):
                                  {'tipo': 'en_efectivo', 'lineas': [34], 'pago': V('p4', '1288', '2026-11-08', '15000.00', None, None, 'CORTAFUEGO PARRILLA', 'Efectivo')}]}
     elif 'fin/conciliacion?' in u:
         b1 = 'cuenta=b1' in u
-        datos = {'extractos': [{'id': 1}], 'cobros': [], 'sugerencias': [], 'transferencias': [], 'descartadas': [], 'lineas': (
+        datos = {'extractos': [{'id': 1}], 'cobros': [], 'sugerencias': [], 'transferencias': [], 'descartadas': [], 'movimientos': [], 'conciliado': {'lineas': 10}, 'procesador': None, 'lineas': (
             [{'id': 11, 'fecha': '2026-10-30', 'importe': '-326000.00', 'concepto': 'HUDSON BOHNCOC SRL', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'},
              {'id': 12, 'fecha': '2026-11-13', 'importe': '-2615608.67', 'concepto': 'ARCA Vep', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'}] if b1 else
             [{'id': 21, 'fecha': '2026-10-16', 'importe': '-187175.14', 'concepto': 'Pago desde Mercado Pago - 184476250362', 'destinatario': 'Transferencia enviada TRANSVE SA', 'candidatos': [], 'lado': 'egresos'}])}
