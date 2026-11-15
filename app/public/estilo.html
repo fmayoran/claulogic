@@ -137,6 +137,16 @@
   </section>
 
   <section>
+    <h2>Lista con búsqueda</h2>
+    <p class="regla"><code>comboBuscable(select)</code> en <code>comun.js</code>: para listas largas (rubros, proveedores). Se escribe una parte
+      del nombre y filtra por lo que contiene, en cualquier lugar, sin acentos ni mayúsculas. El <code>select</code> sigue siendo el dato;
+      las opciones especiales ("+ Agregar … nuevo…") quedan siempre al final. Las opciones van ordenadas.</p>
+    <div class="card" style="max-width:340px"><select id="cbDemo" aria-label="Rubro"><option value="">Rubro…</option>
+      <option>Alquiler</option><option>Cargas sociales (F.931)</option><option>Mercadería · Carnes</option><option>Mercadería · Lácteos, quesos y huevos</option>
+      <option>Publicidad y marketing</option><option>Sueldos</option></select></div>
+  </section>
+
+  <section>
     <h2>Gráficos</h2>
     <p class="regla"><code>graficos.js</code>. Dona (<code>Graf.dona</code>) para cómo se reparte un total, hasta cinco partes y
       el resto en "Otros"; barras y líneas para comparar muchas cosas o ver una evolución. La paleta va en orden fijo.</p>
@@ -163,6 +173,7 @@
 <script src="comun.js"></script>
 <script src="graficos.js"></script>
 <script>
+comboBuscable(document.getElementById("cbDemo"));
 const COLORES = [['--bg', 'Fondo'], ['--panel', 'Superficie'], ['--sel', 'Elegido'], ['--line', 'Línea'], ['--fg', 'Texto'], ['--mut', 'Texto secundario'],
   ['--prim', 'Acción principal'], ['--marca', 'Marca'], ['--acento', 'Acento'], ['--ok', 'Al día'], ['--aviso', 'Pendiente'], ['--mal', 'Para revisar'], ['--info', 'En curso'],
   ['--serie-1', 'Serie 1'], ['--serie-2', 'Serie 2'], ['--serie-3', 'Serie 3'], ['--serie-4', 'Serie 4'], ['--serie-5', 'Serie 5']];

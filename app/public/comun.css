@@ -394,3 +394,16 @@ li.abierta > .et-cab .et-flecha{transform:rotate(-135deg);margin-bottom:-2px;}
 .franja .k .pie{display:block;font-size:.86rem;color:var(--mut);margin-top:4px;}
 .franja .k .pie.aviso{color:var(--aviso);font-weight:600;} .franja .k .pie.mal{color:var(--mal);font-weight:600;}
 @media (max-width:600px){.franja .k{flex-basis:45%;padding:12px 14px;} .franja .k .va{font-size:1.5rem;}}
+
+/* Lista de valores con búsqueda (comboBuscable en comun.js): filtra por lo que contiene, en cualquier lugar. */
+.cb{position:relative;display:block;min-width:0;}
+.cb .cb-texto{width:100%;}
+.cb-lista{position:fixed;z-index:60;margin:0;padding:4px 0;list-style:none;overflow-y:auto;background:var(--panel);
+  border:1px solid var(--borde);border-radius:var(--r-ctl);box-shadow:0 8px 24px rgba(0,0,0,.28);}
+.cb-lista li{padding:7px 12px;cursor:pointer;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cb-lista li.act{background:var(--sel);}
+.cb-lista li[aria-selected="true"]{font-weight:600;}
+.cb-lista li.esp{color:var(--acento);border-top:1px solid var(--line);}
+.cb-lista li.esp + li.esp{border-top:0;}
+.cb-lista li.nada{color:var(--mut);cursor:default;}
+.cb-lista mark{background:none;color:var(--acento);font-weight:600;}

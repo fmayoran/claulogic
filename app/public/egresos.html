@@ -31,7 +31,7 @@
   @media (max-width:1100px){
     .eg{grid-template-columns:minmax(0,1fr) auto;} .eg.cab{display:none;}
     .eg .f{grid-column:1;} .eg .i{grid-column:2;grid-row:1;} .eg .c{grid-column:1 / -1;}
-    .eg > select,.eg > input,.eg .acc,.eg .tr{grid-column:1 / -1;}
+    .eg > select,.eg > input,.eg > .cb,.eg .acc,.eg .tr{grid-column:1 / -1;}
   }
 </style>
 </head>
@@ -139,13 +139,14 @@ function sumarProveedor(p, salvo) {
       const elegido = s.value === NUEVO;
       nuevo.remove();
       if (elegido) s.value = s.dataset.previo = p.id;
+      if (s._sync) s._sync();
     }
   }
 }
 async function pintarGrilla() {
   if (!rubros.length) {
     const [r, s, p] = await Promise.all([api('fin/rubros'), api('sedes').catch(() => ({ sedes: [] })), api('proveedores')]);
-    rubros = r.rubros.filter(x => x.activo && x.linea !== 'ventas' && x.clave !== 'cmv');
+    rubros = r.rubros.filter(x => x.activo && x.linea !== 'ventas' && x.clave !== 'cmv').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
     sedes = s.sedes.filter(x => x.activa); provs = p.proveedores;
   }
   // Las transferencias a cuentas propias que propone la conciliación (por importe en las dos cuentas, o por el CBU de destino).
@@ -180,7 +181,7 @@ async function pintarGrilla() {
       f.transf = true;
       return f;
     }
-    f.fila = el('div', { className: 'eg' }, ...celdas, prov, rub, sede, acc);
+    f.fila = el('div', { className: 'eg' }, ...celdas, comboBuscable(prov), comboBuscable(rub), sede, acc);
     rub.onchange = () => {
       const r = rubros.find(x => x.id === rub.value);
       if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false;
@@ -227,7 +228,7 @@ function contar() {
 // comprobante no fiscal, ya pagado con ese egreso.
 async function registrar(f) {
   if (f.hecha) return;
-  if (!f.rub.value) { f.rub.focus(); throw new Error('Elegí el rubro.'); }
+  if (!f.rub.value) { (f.rub._caja ? f.rub._caja.querySelector('input') : f.rub).focus(); throw new Error('Elegí el rubro.'); }
   const v = f.prov.value, existente = v && v !== NUEVO ? provs.find(p => p.id === v) : null;
   const nombre = v === NUEVO ? f.prov.dataset.sugerido : existente ? existente.nombre : '';
   const concepto = nombre || [f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ') || 'Egreso';

@@ -1,5 +1,5 @@
 """Sirve app/public con la API simulada y saca capturas. Uso: python3 -I ver.py <public> <node_modules> <salida> pagina[:tema[:ancho]] ..."""
-import sys, json, http.server, threading, functools, os
+import sys, re, json, http.server, threading, functools, os
 from playwright.sync_api import sync_playwright
 
 pub, nm, out = sys.argv[1:4]
@@ -63,7 +63,9 @@ def api(route):
              {'id': 22, 'fecha': '2026-11-11', 'importe': '-907500.00', 'concepto': 'Pago desde Mercado Pago - 189063998998', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:50:32.000-03:00', 'operacion': '189063998998'},
              {'id': 23, 'fecha': '2026-11-11', 'importe': '-820000.00', 'concepto': 'Transferencia a banco - 187992003535', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:45:34.000-03:00', 'operacion': '187992003535', 'cuenta_destino': '0170099220000071116352'}])}
     elif 'fin/rubros' in u:
-        datos = {'rubros': [{'id': 'r1', 'nombre': 'Mercadería · Almacén', 'linea': 'cmv', 'activo': True, 'del_centro': True}, {'id': 'r2', 'nombre': 'Ingresos Brutos', 'linea': 'impuestos', 'activo': True, 'del_centro': False}]}
+        datos = {'rubros': [{'id': 'r%d' % i, 'nombre': n, 'linea': 'operativos', 'activo': True, 'del_centro': n.startswith('Merc')} for i, n in enumerate(
+            ['Sueldos', 'Mercadería · Almacén', 'Ingresos Brutos', 'Alquiler', 'Mercadería · Carnes', 'Cargas sociales (F.931)', 'Publicidad y marketing',
+             'Mercadería · Lácteos, quesos y huevos', 'Electricidad', 'Honorarios', 'Mercadería · Frutas y verduras'])]}
     elif 'api/sedes' in u:
         datos = {'sedes': [{'id': 's0', 'nombre': 'CF CENTRAL', 'activa': True, 'es_central': True}, {'id': 's1', 'nombre': 'CORTAFUEGO PARRILLA', 'activa': True, 'es_central': False}]}
     elif 'fin/proveedores/resumen' in u:
@@ -133,9 +135,13 @@ with sync_playwright() as p:
         clic = partes[3] if len(partes) > 3 else None
         if clic and clic.startswith('='):
             for t in clic[1:].split('+'):
-                page.get_by_role('button', name=t).first.click()
+                if t.startswith('>'):  # >Rubro/carn: escribe en la primera lista con búsqueda con ese nombre
+                    cb, txt = t[1:].split('/', 1)
+                    page.get_by_role('combobox', name=cb).first.click(); page.keyboard.type(txt)
+                else:
+                    page.get_by_role('button', name=t).first.click()
                 page.wait_for_timeout(300)
-            nombre = nombre.replace('.png', '-%s.png' % clic[1:].replace(' ', '_').replace('+', '_'))
+            nombre = nombre.replace('.png', '-%s.png' % re.sub(r'[^\w]+', '_', clic[1:]))
             clic = None
             page.screenshot(path=nombre, full_page=True)
             print(nombre, 'errores:', errores[:3]); ctx.close(); continue

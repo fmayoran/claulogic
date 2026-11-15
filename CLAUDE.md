@@ -798,7 +798,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   ahora devuelve `movimiento_id`) y, con proveedor, el proveedor si es nuevo y su comprobante X pagado (`/fin/pagos-sin-factura/armar`).
   El proveedor va en un **combo** (pedido de Fer, 15/11/2026): elegido el sugerido si existe (por el CBU o por el nombre); si no, primero
   "Nuevo: <nombre>", que se crea al registrar; al final "+ Agregar proveedor nuevo…" abre el alta rápida (`nuevoProveedor(nombre)`) con el
-  nombre sugerido. El creado (por el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas en orden alfabético, y las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (`sumarProveedor`).
+  nombre sugerido. El creado (por el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas en orden alfabético, y las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (`sumarProveedor`). Proveedor y rubro son **listas con búsqueda** (`comboBuscable` en `comun.js`, pedido de Fer, 15/11/2026): se escribe una parte del nombre y filtra por lo que contiene, en cualquier lugar, sin acentos; los rubros van en orden alfabético.
   **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
   un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
   encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.
@@ -1095,6 +1095,7 @@ la guía y a `comun.css`, no a la pantalla.
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
 - **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `ol.pasos`
   (pasos de un asistente en flecha, con su cifra; lo usan Ingresos y Abastecimiento), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
+- **Lista con búsqueda** (`comboBuscable(select)`): para listas largas; el select queda oculto y sigue siendo el dato (`value` y "change"), las opciones especiales ("+ Agregar…") siempre al final.
 - **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
   comparar muchas cosas o ver una evolución.
 - **Ver una pantalla sin la base**: `python3 -I scripts/ver_pantallas.py app/public app/node_modules <carpeta de salida>

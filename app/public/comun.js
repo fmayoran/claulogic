@@ -701,6 +701,97 @@ function nuevaCuentaBanco() {
   });
 }
 
+// ── Lista de valores con búsqueda ───────────────────────────────────────────────────────────
+// El <select> nativo sólo salta por la primera letra; con listas largas (rubros, proveedores) se escribe una parte del nombre y se
+// filtra por lo que contiene, en cualquier lugar, sin acentos ni mayúsculas (pedido de Fer, 15/11/2026). El select queda oculto
+// adentro y sigue siendo el dato: la pantalla lee `select.value` y escucha su "change" como siempre. Las opciones especiales
+// (valor que empieza con "__": "Nuevo: …", "+ Agregar … nuevo…") se muestran siempre. Devuelve el contenedor para ponerlo en la
+// pantalla; si la pantalla cambia el valor por código, `select._sync()` actualiza el texto.
+function comboBuscable(select) {
+  if (select._caja) return select._caja;
+  const sinAc = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const vacio = () => [...select.options].find(o => o.value === '');
+  const inp = el('input', { type: 'text', autocomplete: 'off', spellcheck: false, className: 'cb-texto' });
+  inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false'); inp.setAttribute('aria-autocomplete', 'list');
+  if (select.getAttribute('aria-label') || select.ariaLabel) inp.setAttribute('aria-label', select.getAttribute('aria-label') || select.ariaLabel);
+  const lista = el('ul', { className: 'cb-lista', role: 'listbox', hidden: true });
+  // Si el select ya está en la pantalla, el contenedor toma su lugar.
+  const lugar = select.parentNode ? document.createComment('cb') : null;
+  if (lugar) select.replaceWith(lugar);
+  const caja = el('span', { className: 'cb' }, select, inp, lista);
+  if (lugar) lugar.replaceWith(caja);
+  select.hidden = true; select.tabIndex = -1;
+  let items = [], act = -1;
+  const sync = () => {
+    const o = select.selectedOptions[0];
+    inp.value = o && o.value ? o.textContent : '';
+    inp.placeholder = (vacio() || {}).textContent || '';
+    inp.disabled = select.disabled;
+  };
+  const ubicar = () => {
+    const r = inp.getBoundingClientRect(), abajo = innerHeight - r.bottom;
+    Object.assign(lista.style, { left: r.left + 'px', minWidth: r.width + 'px', maxWidth: Math.max(r.width, 360) + 'px' });
+    if (abajo < 220 && r.top > abajo) { lista.style.top = ''; lista.style.bottom = (innerHeight - r.top + 2) + 'px'; lista.style.maxHeight = Math.min(300, r.top - 8) + 'px'; }
+    else { lista.style.bottom = ''; lista.style.top = (r.bottom + 2) + 'px'; lista.style.maxHeight = Math.min(300, abajo - 8) + 'px'; }
+  };
+  const marcar = i => {
+    act = i; items.forEach((li, j) => li.classList.toggle('act', j === i));
+    if (items[i]) { items[i].scrollIntoView({ block: 'nearest' }); inp.setAttribute('aria-activedescendant', items[i].id); }
+  };
+  const abrir = filtro => {
+    const q = sinAc(filtro);
+    const ops = [...select.options].filter(o => o.value && !o.disabled && (o.value.startsWith('__') || !q || sinAc(o.textContent).includes(q)));
+    items = ops.map((o, i) => {
+      const li = el('li', { role: 'option', id: `cb-${Math.random().toString(36).slice(2)}`, className: o.value.startsWith('__') ? 'esp' : '' });
+      const t = o.textContent, k = q ? sinAc(t).indexOf(q) : -1;
+      if (k >= 0 && !o.value.startsWith('__')) li.append(t.slice(0, k), el('mark', { textContent: t.slice(k, k + q.length) }), t.slice(k + q.length));
+      else li.textContent = t;
+      if (o.value === select.value) li.setAttribute('aria-selected', 'true');
+      li.dataset.v = o.value;
+      li.onmousedown = e => { e.preventDefault(); elegir(o.value); };
+      return li;
+    });
+    const reales = ops.filter(o => !o.value.startsWith('__')).length;
+    lista.replaceChildren(...(q && !reales ? [el('li', { className: 'nada', textContent: 'No hay coincidencias' })] : []), ...items);
+    lista.hidden = false; inp.setAttribute('aria-expanded', 'true'); ubicar();
+    const i = items.findIndex(li => q ? !li.classList.contains('esp') : li.dataset.v === select.value);
+    marcar(i >= 0 ? i : q ? -1 : 0);
+  };
+  const cerrar = () => { lista.hidden = true; inp.setAttribute('aria-expanded', 'false'); act = -1; };
+  const elegir = v => {
+    cerrar();
+    if (v !== select.value) { select.value = v; select.dispatchEvent(new Event('change', { bubbles: true })); }
+    sync();
+  };
+  inp.addEventListener('focus', () => { inp.select(); abrir(''); });
+  inp.addEventListener('click', () => { if (lista.hidden) abrir(''); });
+  inp.addEventListener('input', () => abrir(inp.value));
+  inp.addEventListener('blur', () => {
+    if (lista.hidden) return;
+    cerrar();
+    if (!inp.value.trim() && vacio() && select.value) elegir(''); else sync();
+  });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (lista.hidden) return abrir('');
+      marcar(Math.max(0, Math.min(items.length - 1, act + (e.key === 'ArrowDown' ? 1 : -1))));
+    } else if (e.key === 'Enter') {
+      if (lista.hidden) return;
+      e.preventDefault();
+      if (items[act]) elegir(items[act].dataset.v);
+    } else if (e.key === 'Escape' && !lista.hidden) { e.preventDefault(); e.stopPropagation(); cerrar(); sync(); }
+    else if (e.key === 'Tab' && !lista.hidden && items[act] && inp.value !== (select.selectedOptions[0] || {}).textContent && !items[act].classList.contains('esp')) elegir(items[act].dataset.v);
+  });
+  addEventListener('scroll', e => { if (!lista.hidden && !lista.contains(e.target)) ubicar(); }, true);
+  addEventListener('resize', () => { if (!lista.hidden) ubicar(); });
+  select.addEventListener('change', sync);
+  new MutationObserver(sync).observe(select, { attributes: true, attributeFilter: ['disabled'], childList: true });
+  select._sync = sync; select._caja = caja;
+  sync();
+  return caja;
+}
+
 // ── "Agregar nuevo…" al final de una lista de valores ───────────────────────────────────────
 // Si el dato que falta no está en la lista (un proveedor, una categoría), la última opción lo da de
 // alta sin salir de la pantalla. `alta` devuelve [id, texto] del nuevo, o null si se canceló (vuelve a
