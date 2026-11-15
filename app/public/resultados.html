@@ -34,6 +34,14 @@
   .det .m{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
   .det .cl{grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .det .cl select{flex:1 1 220px;min-width:0;}
+  /* Vista simple (Fer, 15/11/2026): fecha, proveedor e importe; el detalle y la reclasificación, a pedido. */
+  .dsim{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:2px 12px;padding:8px 6px;border-top:1px solid var(--g-grilla);
+    width:100%;background:none;border-left:0;border-right:0;border-bottom:0;border-radius:0;text-align:left;font:inherit;color:inherit;cursor:pointer;}
+  .dsim:hover{background:var(--sel);}
+  .dsim .f{color:var(--mut);font-variant-numeric:tabular-nums;} .dsim .q{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dsim .q small{color:var(--mut);margin-left:6px;} .dsim .m{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+  .dsim + .det{border-top:0;padding:4px 6px 12px;background:var(--sel);}
+  .d-modo{margin:4px 0 10px;}
 </style>
 </head>
 <body>
@@ -66,6 +74,7 @@
   <button type="button" class="cerrar-x" id="dCerrar" aria-label="Cerrar">×</button>
   <h2 id="dTitulo"></h2>
   <p class="cap" id="dSub"></p>
+  <div class="d-modo"><button type="button" class="chico" id="dModo"></button></div>
   <span class="msg" id="dMsg"></span>
   <div id="dFilas"></div>
 </dialog>
@@ -201,28 +210,57 @@ const aviso = (t, ...acc) => el('div', { className: 'av' }, el('span', { textCon
 const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
   el('span', { className: 'va', textContent: valor }), el('span', { className: 'pie' }, variacion || '', nota ? el('span', { textContent: nota }) : ''));
 
-// ── Detalle de un rubro: cada hecho; los movimientos se reclasifican ahí mismo ──
+// ── Detalle de un rubro ──
+// Primero lo simple (pedido de Fer, 15/11/2026): fecha, proveedor e importe. Tocar un renglón abre su detalle y la reclasificación;
+// "Ver el detalle completo" muestra todos así (se recuerda en el navegador). Sin rubro elegido ("sin clasificar") va directo al completo.
 let detActual = null;
+let detCompleto = (() => { try { return localStorage.getItem('resultados-detalle') === 'completo'; } catch { return false; } })();
+// Lo que se muestra como proveedor: el de la factura u orden de pago; si no hay, el concepto sin el número de operación.
+const quienDe = f => f.proveedor || Conc.partes(String(f.concepto || '').split(' · ')[0]).nombre || f.concepto || '—';
+$('#dModo').onclick = () => {
+  detCompleto = !detCompleto;
+  try { localStorage.setItem('resultados-detalle', detCompleto ? 'completo' : 'simple'); } catch {}
+  detalle(...detActual);
+};
 async function detalle(rubro, nombre) {
   detActual = [rubro, nombre];
   const p = params(undefined, { rubro });
+  const completo = detCompleto || rubro === 'sin';
   $('#dTitulo').textContent = nombre; $('#dSub').textContent = ''; msg('', '', '#dMsg');
+  $('#dModo').textContent = completo ? 'Ver sólo proveedor, fecha e importe' : 'Ver el detalle completo y reclasificar';
+  $('#dModo').hidden = rubro === 'sin';
   if (!$('#dlgDet').open) $('#dlgDet').showModal();
   try {
     const { filas: fs, hay_mas } = await api('fin/resultados/detalle?' + p);
     $('#dSub').textContent = `${fs.length}${hay_mas ? '+' : ''} renglón(es) · ${pC(sumaC(fs))}`;
-    const filas = [];
-    for (const f of fs) {
-      const det = el('div', { className: 'det' },
-        el('div', { className: 'q' }, el('b', { textContent: f.concepto || '—' }),
-          el('small', { textContent: [fecha(f.dia), f.cuenta, f.sede, f.comercio, f.regla && `regla "${f.regla}"`,
-            f.peso != null && f.peso < 0.9999 ? `${(f.peso * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })}% ${REPARTO[f.reparto] || ''}`.trim() : ''].filter(Boolean).join(' · ') })),
-        el('span', { className: 'm' + (f.importe.startsWith('-') ? ' neg' : ''), textContent: pesos(f.importe) }));
-      if (f.origen === 'movimiento') det.append(await clasificador(f));
-      filas.push(det);
+    if (!completo) {
+      $('#dFilas').replaceChildren(...fs.map(f => {
+        const b = el('button', { type: 'button', className: 'dsim', title: 'Ver el detalle y reclasificar' },
+          el('span', { className: 'f', textContent: fecha(f.dia) }),
+          el('span', { className: 'q', textContent: quienDe(f) }),
+          el('span', { className: 'm' + (f.importe.startsWith('-') ? ' neg' : ''), textContent: pesos(f.importe) }));
+        b.onclick = async () => {
+          const abierto = b.nextElementSibling && b.nextElementSibling.classList.contains('det');
+          if (abierto) return b.nextElementSibling.remove();
+          b.after(await filaDetalle(f));
+        };
+        return b;
+      }));
+      return;
     }
+    const filas = [];
+    for (const f of fs) filas.push(await filaDetalle(f));
     $('#dFilas').replaceChildren(...filas);
   } catch (e) { msg(e.message, 'mal', '#dMsg'); }
+}
+async function filaDetalle(f) {
+  const det = el('div', { className: 'det' },
+    el('div', { className: 'q' }, el('b', { textContent: [f.proveedor, f.concepto].filter(Boolean).join(' · ') || '—' }),
+      el('small', { textContent: [fecha(f.dia), f.cuenta, f.sede, f.comercio, f.regla && `regla "${f.regla}"`,
+        f.peso != null && f.peso < 0.9999 ? `${(f.peso * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })}% ${REPARTO[f.reparto] || ''}`.trim() : ''].filter(Boolean).join(' · ') })),
+    el('span', { className: 'm' + (f.importe.startsWith('-') ? ' neg' : ''), textContent: pesos(f.importe) }));
+  if (f.origen === 'movimiento') det.append(await clasificador(f));
+  return det;
 }
 // De dónde sale la parte de un store en un hecho (fin.resultado_comercio).
 const REPARTO = { dia: 'según los artículos del día', mes: 'prorrateado por las ventas del mes', pedidos: 'según sus pedidos',

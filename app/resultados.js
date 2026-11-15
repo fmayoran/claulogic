@@ -210,17 +210,23 @@ r.get('/fin/resultados', h(async (req, res) => {
   ]);
   res.json({ ok: true, ...p, rubros: rows, ventas_por_tipo: ventasPorTipo });
 }));
-// El detalle de un rubro (o "sin" = sin clasificar): cada hecho con su día, concepto, importe y cuenta.
+// El detalle de un rubro (o "sin" = sin clasificar): cada hecho con su día, proveedor, concepto, importe y cuenta.
 r.get('/fin/resultados/detalle', h(async (req, res) => {
   const p = periodo(req), rubro = texto(req.query.rubro, { campo: 'el rubro', requerido: true }), o = origen(p);
   const { rows } = await pool.query(
     `SELECT to_char(x.dia, 'YYYY-MM-DD') AS dia, x.origen, x.movimiento_id, x.concepto, x.importe::text, cu.nombre AS cuenta, s.nombre AS sede, x.sede_id,
-            k.rubro_id IS NOT NULL AS clasificado, g.patron AS regla, k.comercio_id, cm.nombre AS comercio,
+            k.rubro_id IS NOT NULL AS clasificado, g.patron AS regla, k.comercio_id, cm.nombre AS comercio, pv.nombre AS proveedor,
             ${p.comercio ? 'x.peso::float AS peso, x.regla AS reparto' : 'NULL::float AS peso, NULL AS reparto'}
        FROM ${o.tabla} x LEFT JOIN fin.movimiento_tes m ON m.id = x.movimiento_id AND x.origen = 'movimiento'
        LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id LEFT JOIN org.sede s ON s.id = x.sede_id
        LEFT JOIN fin.clasificacion k ON k.movimiento_id = m.id LEFT JOIN fin.regla g ON g.id = k.regla_id
        LEFT JOIN org.comercio cm ON cm.id = k.comercio_id
+       -- El proveedor: el de la factura que pagó el movimiento (pago sin factura ya documentado) o el de su orden de pago.
+       LEFT JOIN LATERAL (SELECT v.nombre FROM fin.pago_previo pp JOIN fin.comprobante c ON c.id = pp.comprobante_id AND c.estado <> 'anulado'
+                            JOIN logic.proveedor v ON v.id = c.proveedor_id WHERE pp.movimiento_id = m.id
+                          UNION ALL
+                          SELECT v.nombre FROM fin.orden_pago op JOIN logic.proveedor v ON v.id = op.proveedor_id WHERE op.id = m.orden_pago_id
+                          LIMIT 1) pv ON true
       WHERE x.dia BETWEEN $1 AND $2 AND ${o.filtro} AND ${DE_SOCIEDAD}
         AND (CASE WHEN $4 = 'sin' THEN x.rubro_id IS NULL WHEN $4 = 'todos' THEN true ELSE x.rubro_id = $4::uuid END)
       ORDER BY x.dia, x.movimiento_id NULLS FIRST LIMIT 1001`, [p.desde, p.hasta, p.sociedad, rubro]);
