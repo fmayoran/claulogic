@@ -337,6 +337,21 @@ r.get('/fin/cuenta-corriente', h(async (req, res) => {
   res.json({ ok: true, proveedores: rows, total: tot.saldo });
 }));
 
+// Resumen por proveedor para la grilla de Proveedores (pedido de Fer, 15/11/2026): saldo, último comprobante, lo comprado en los
+// últimos 30 días y cuántos comprobantes tiene. Lo comprado: facturas y notas de débito menos notas de crédito, registradas.
+r.get('/fin/proveedores/resumen', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT pv.id, COALESCE((SELECT SUM(saldo) FROM fin.saldo_proveedor_sociedad x WHERE x.proveedor_id = pv.id), 0)::text AS saldo,
+            c.ultimo, c.comprobantes, c.comprado_30::text,
+            COALESCE((SELECT SUM(cp.pendiente) FROM fin.comprobante_pendiente cp WHERE cp.proveedor_id = pv.id AND cp.pendiente > 0 AND cp.vencimiento < current_date), 0)::text AS vencido
+       FROM logic.proveedor pv
+       CROSS JOIN LATERAL (
+         SELECT to_char(MAX(fecha), 'YYYY-MM-DD') AS ultimo, COUNT(*)::int AS comprobantes,
+                COALESCE(SUM(CASE WHEN tipo = 'nota_credito' THEN -total ELSE total END) FILTER (WHERE fecha > current_date - 30), 0) AS comprado_30
+           FROM fin.comprobante WHERE proveedor_id = pv.id AND estado = 'registrado') c`);
+  res.json({ ok: true, proveedores: rows });
+}));
+
 r.get('/fin/cuenta-corriente/:proveedor', h(async (req, res) => {
   const { rows: [pv] } = await pool.query('SELECT id, nombre, cuit, condicion_iva, plazo_pago_dias FROM logic.proveedor WHERE id = $1::uuid', [req.params.proveedor]);
   if (!pv) throw new ErrorUsuario('No existe ese proveedor.', 404);

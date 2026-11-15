@@ -6,91 +6,203 @@
 <title>Proveedores · ClauLogic</title>
 <script src="tema.js"></script>
 <link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<style>
+  /* Grilla de proveedores (pedido de Fer, 15/11/2026): el foco en los que ya están; el alta es un botón. */
+  .cab-p{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 16px;}
+  .cab-p h1{margin:0 auto 0 0;}
+  .barra-p{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px;}
+  .barra-p input[type=search]{flex:1 1 260px;width:auto;}
+  td.prov b{display:block;font-weight:600;} td.prov .cuit{display:block;color:var(--mut);font-size:.86rem;margin-top:2px;}
+  td.acc{white-space:nowrap;text-align:right;} td.acc button + button{margin-left:6px;}
+  tr.inactivo td.prov b{text-decoration:line-through;color:var(--mut);}
+  .panel-lado h2{margin:0;} .panel-lado .sub{margin:4px 0 14px;}
+  .mov{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--line);font-size:.92rem;}
+  .mov .f{color:var(--mut);white-space:nowrap;} .mov .d{overflow-wrap:anywhere;} .mov .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mov .s{grid-column:2 / -1;color:var(--mut);font-size:.82rem;}
+  .mov.anul .d{text-decoration:line-through;color:var(--mut);}
+  .datos-p{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0 0 16px;font-size:.92rem;}
+  .datos-p dt{color:var(--mut);} .datos-p dd{margin:0;overflow-wrap:anywhere;}
+</style>
 </head>
 <body>
-<div class="grid">
-  <aside>
-    <div class="filtros">
-      <label class="check"><input id="finact" type="checkbox"> Mostrar inactivos</label>
-      <button class="prim" id="nuevo">Nuevo proveedor</button>
+<main class="ancho">
+  <div class="cab-p">
+    <h1>Proveedores</h1>
+    <button type="button" class="prim" id="nuevo">Nuevo proveedor</button>
+  </div>
+  <div class="franja" id="cifras" hidden></div>
+  <div class="barra-p">
+    <input type="search" id="q" placeholder="Buscar por nombre, CUIT o contacto" aria-label="Buscar proveedor">
+    <div class="segm" id="filtro" role="group" aria-label="Filtro">
+      <button type="button" data-f="" class="act">Todos</button>
+      <button type="button" data-f="saldo">Con saldo</button>
+      <button type="button" data-f="sincuit">Sin CUIT</button>
+      <button type="button" data-f="inactivos">Inactivos</button>
     </div>
-    <div class="lista" id="lista"></div>
-  </aside>
-  <main>
-    <h1 id="titulo">Nuevo proveedor</h1>
-    <p class="sub">Los proveedores se usan en las compras y quedan asociados a cada lote que entregan.</p>
-    <form id="f" novalidate>
-      <fieldset>
-        <legend>Datos</legend>
-        <div class="fila">
-          <label>Nombre *<input name="nombre" maxlength="120"></label>
-          <label>CUIT<input name="cuit" placeholder="30-12345678-9"></label>
-          <label>Condición frente al IVA<select name="condicion_iva">
-            <option value="">Sin indicar</option><option value="responsable_inscripto">Responsable inscripto</option>
-            <option value="monotributo">Monotributo</option><option value="exento">Exento</option><option value="no_categorizado">No categorizado</option>
-          </select></label>
-        </div>
-        <div class="fila">
-          <label>Contacto<input name="contacto"></label>
-          <label>Teléfono<input name="telefono" type="tel"></label>
-          <label>Email<input name="email" type="email"></label>
-        </div>
-        <div class="fila">
-          <label>Plazo de pago (días)<input name="plazo_pago_dias" inputmode="numeric" placeholder="30"></label>
-          <label style="grid-column:span 2">Notas<input name="notas" placeholder="días de entrega, condiciones…"></label>
-        </div>
-        <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
-      </fieldset>
-      <div class="acciones">
-        <button type="submit" class="prim" id="guardar">Guardar</button>
-        <span class="msg" id="msg"></span>
-      </div>
-    </form>
-  </main>
-</div>
+  </div>
+  <p class="msg" id="msg"></p>
+  <div class="tabla-wrap"><table class="datos movil">
+    <thead id="cab"></thead>
+    <tbody id="lista"><tr><td class="vacio">Consultando…</td></tr></tbody>
+  </table></div>
+</main>
+
+<dialog id="dlgEditar" style="width:min(720px,calc(100vw - 32px))">
+  <form id="f" novalidate>
+    <h2 id="titulo">Nuevo proveedor</h2>
+    <div class="fila">
+      <label>Nombre *<input name="nombre" maxlength="120"></label>
+      <label>CUIT<input name="cuit" placeholder="30-12345678-9"></label>
+    </div>
+    <div class="fila">
+      <label>Condición frente al IVA<select name="condicion_iva">
+        <option value="">Sin indicar</option><option value="responsable_inscripto">Responsable inscripto</option>
+        <option value="monotributo">Monotributo</option><option value="exento">Exento</option><option value="no_categorizado">No categorizado</option>
+      </select></label>
+      <label>Plazo de pago (días)<input name="plazo_pago_dias" inputmode="numeric" placeholder="30"></label>
+    </div>
+    <div class="fila">
+      <label>Contacto<input name="contacto"></label>
+      <label>Teléfono<input name="telefono" type="tel"></label>
+      <label>Email<input name="email" type="email"></label>
+    </div>
+    <div class="fila"><label>Notas<input name="notas" placeholder="días de entrega, condiciones…"></label></div>
+    <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
+    <div class="acciones">
+      <button type="submit" class="prim" id="guardar">Guardar</button>
+      <button type="button" id="cancelar">Cancelar</button>
+      <span class="msg" id="msgF"></span>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="panel-lado" id="panel" aria-labelledby="pTitulo">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+    <h2 id="pTitulo"></h2>
+    <button type="button" class="icono" id="pCerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <p class="sub" id="pSub"></p>
+  <dl class="datos-p" id="pDatos"></dl>
+  <div class="acciones fijo" style="margin:0 0 6px">
+    <button type="button" id="pEditar">Editar</button>
+    <a id="pCC" href="cuenta-corriente.html">Cuenta corriente completa</a>
+  </div>
+  <h3>Últimos movimientos</h3>
+  <div id="pMovs"><p class="vacio">Consultando…</p></div>
+</dialog>
+
 <script src="comun.js"></script>
+<script src="graficos.js"></script>
 <script>
-let proveedores = [], actual = null;
+let proveedores = [], resumen = new Map(), yo = null, filtro = '', editando = null;
 const f = $('#f');
 const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias'];
+const IVA = { responsable_inscripto: 'Responsable inscripto', monotributo: 'Monotributo', exento: 'Exento', no_categorizado: 'No categorizado' };
+const cuitFmt = c => c && c.length === 11 ? `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}` : c || '';
+const fin = () => yo && yo.puede.finanzas;
+const cero = v => v == null || /^-?0+(\.0+)?$/.test(String(v));
 
 async function cargar() {
-  ({ proveedores } = await api('proveedores' + ($('#finact').checked ? '?inactivos=1' : '')));
-  if (!proveedores.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay proveedores.' }));
-  $('#lista').replaceChildren(...proveedores.map(p => {
-    const b = el('button', { type: 'button', className: 'item' + (p.id === actual ? ' sel' : '') + (p.activo ? '' : ' inactivo') },
-      el('div', { className: 'n', textContent: p.nombre }),
-      el('div', { className: 'm', textContent: [p.contacto, p.telefono, p.cuit].filter(Boolean).join(' · ') || '—' }));
-    b.onclick = () => abrir(p.id);
-    return b;
-  }));
+  const [d, r] = await Promise.all([api('proveedores?inactivos=1'), fin() ? api('fin/proveedores/resumen') : Promise.resolve({ proveedores: [] })]);
+  proveedores = d.proveedores; resumen = new Map(r.proveedores.map(x => [x.id, x]));
+  pintar();
 }
-function nuevo() {
-  actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo proveedor'; $('#activoWrap').hidden = true;
-  $$('.item.sel').forEach(i => i.classList.remove('sel'));
+function pintar() {
+  const q = $('#q').value.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const rs = id => resumen.get(id) || {};
+  let xs = proveedores.filter(p => filtro === 'inactivos' ? !p.activo : p.activo);
+  if (filtro === 'saldo') xs = xs.filter(p => centavos(rs(p.id).saldo || '0') !== 0n);
+  if (filtro === 'sincuit') xs = xs.filter(p => !p.cuit);
+  if (q) xs = xs.filter(p => [p.nombre, p.cuit, p.contacto, p.telefono, p.email].filter(Boolean).join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q));
+  if (fin()) xs.sort((a, b) => Number(rs(b.id).comprado_30 || 0) - Number(rs(a.id).comprado_30 || 0) || String(rs(b.id).ultimo || '').localeCompare(String(rs(a.id).ultimo || '')) || a.nombre.localeCompare(b.nombre));
+
+  const activos = proveedores.filter(p => p.activo);
+  if (fin()) {
+    const saldo = activos.reduce((s, p) => s + centavos(rs(p.id).saldo || '0'), 0n), comprado = activos.reduce((s, p) => s + centavos(rs(p.id).comprado_30 || '0'), 0n);
+    const sinCuit = activos.filter(p => !p.cuit).length;
+    $('#cifras').replaceChildren(
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Proveedores activos' }), el('span', { className: 'va', textContent: num(String(activos.length)) })),
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Comprado en 30 días' }), el('span', { className: 'va', textContent: pesos(deCentavos(comprado)) })),
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Saldo a pagar' }), el('span', { className: 'va', textContent: pesos(deCentavos(saldo)) })),
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Sin CUIT' }), el('span', { className: 'va', textContent: num(String(sinCuit)) }),
+        el('span', { className: 'pie' + (sinCuit ? ' aviso' : ''), textContent: sinCuit ? 'completalos para las facturas A' : 'todos completos' })));
+    $('#cifras').hidden = false;
+  }
+  const cols = ['Proveedor', 'Condición IVA', 'Contacto', ...(fin() ? ['Último comprobante', 'Comprado 30 días', 'Saldo'] : []), ''];
+  $('#cab').replaceChildren(el('tr', {}, ...cols.map((t, i) => el('th', { className: i >= 3 && i <= 5 && fin() && i > 3 ? 'num' : '', textContent: t }))));
+  filas($('#lista'), xs, p => {
+    const r = rs(p.id), venc = centavos(r.vencido || '0') > 0n;
+    return el('tr', { className: p.activo ? '' : 'inactivo' },
+      el('td', { className: 'prov' }, el('b', { textContent: p.nombre }), el('span', { className: 'cuit' }, p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : el('span', { className: 'tag aviso', textContent: 'Sin CUIT' }))),
+      td(IVA[p.condicion_iva] || '—'),
+      td([p.contacto, p.telefono].filter(Boolean).join(' · ') || '—', 'wrap'),
+      ...(fin() ? [td(r.ultimo ? fecha(r.ultimo) : '—'), td(centavos(r.comprado_30 || '0') ? pesos(r.comprado_30) : '—', 'num'),
+        el('td', { className: 'num' }, centavos(r.saldo || '0') ? pesos(r.saldo) : '—', venc ? el('span', { className: 'tag mal', style: 'margin-left:6px', textContent: 'vencido' }) : '')] : []),
+      el('td', { className: 'acc' },
+        el('button', { type: 'button', className: 'chico', textContent: 'Editar', onclick: () => editar(p) }),
+        fin() ? el('button', { type: 'button', className: 'chico', textContent: 'Movimientos', onclick: () => movimientos(p) }) : ''));
+  }, filtro === 'sincuit' ? 'Todos los proveedores activos tienen CUIT.' : 'No hay proveedores con esos filtros.', cols.length);
+  etiquetarTabla($('#lista').closest('table'));
 }
-function abrir(id) {
-  const p = proveedores.find(p => p.id === id); if (!p) return nuevo();
-  actual = id; msg(''); $('#titulo').textContent = p.nombre;
-  for (const c of CAMPOS) f[c].value = p[c] || '';
-  f.activo.checked = p.activo; $('#activoWrap').hidden = false;
-  cargar();
+
+// ── Alta y edición, en un diálogo ──
+function editar(p) {
+  editando = p ? p.id : null; f.reset(); msg('', '', '#msgF');
+  $('#titulo').textContent = p ? p.nombre : 'Nuevo proveedor';
+  for (const c of CAMPOS) f[c].value = p ? p[c] || '' : '';
+  f.activo.checked = p ? p.activo : true; $('#activoWrap').hidden = !p;
+  sinCambios(f);
+  $('#dlgEditar').showModal(); f.nombre.focus();
 }
 f.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(CAMPOS.map(c => [c, f[c].value]));
-  body.activo = actual ? f.activo.checked : true;
+  body.activo = editando ? f.activo.checked : true;
   $('#guardar').disabled = true;
   try {
-    const d = await api(actual ? 'proveedores/' + actual : 'proveedores', { method: actual ? 'PUT' : 'POST', body });
-    $('#finact').checked = $('#finact').checked || !body.activo;
-    await cargar(); abrir(d.id); msg('Guardado.', 'ok');
-  } catch (e) { msg(e.message, 'mal'); }
+    await api(editando ? 'proveedores/' + editando : 'proveedores', { method: editando ? 'PUT' : 'POST', body });
+    $('#dlgEditar').close(); await cargar(); msg(editando ? 'Proveedor guardado.' : 'Proveedor creado.', 'ok');
+  } catch (e) { msg(e.message, 'mal', '#msgF'); }
   finally { $('#guardar').disabled = false; }
 };
-$('#nuevo').onclick = nuevo;
-$('#finact').onchange = cargar;
-cargar().then(nuevo).catch(e => msg(e.message, 'mal'));
+$('#cancelar').onclick = () => $('#dlgEditar').close();
+$('#nuevo').onclick = () => editar(null);
+
+// ── Movimientos: panel lateral con los datos y los últimos movimientos de la cuenta corriente ──
+async function movimientos(p) {
+  const r = resumen.get(p.id) || {};
+  $('#pTitulo').textContent = p.nombre;
+  $('#pSub').textContent = [centavos(r.saldo || '0') ? 'Saldo ' + pesos(r.saldo) : 'Sin saldo', centavos(r.vencido || '0') > 0n ? 'vencido ' + pesos(r.vencido) : null,
+    r.comprobantes ? `${r.comprobantes} comprobante(s)` : null].filter(Boolean).join(' · ');
+  $('#pDatos').replaceChildren(...[['CUIT', p.cuit ? cuitFmt(p.cuit) : 'sin cargar'], ['IVA', IVA[p.condicion_iva] || 'sin indicar'], ['Contacto', [p.contacto, p.telefono, p.email].filter(Boolean).join(' · ') || '—'],
+    ['Plazo', p.plazo_pago_dias ? p.plazo_pago_dias + ' días' : '—'], ...(p.notas ? [['Notas', p.notas]] : [])].flatMap(([t, v]) => [el('dt', { textContent: t }), el('dd', { textContent: v })]));
+  $('#pEditar').onclick = () => { $('#panel').close(); editar(p); };
+  $('#pCC').href = 'cuenta-corriente.html#' + p.id;
+  $('#pMovs').replaceChildren(el('p', { className: 'vacio', textContent: 'Consultando…' }));
+  $('#panel').showModal();
+  try {
+    const d = await api('fin/cuenta-corriente/' + p.id);
+    const ms = d.movimientos.slice(-20).reverse();
+    const anulados = new Set(d.movimientos.filter(m => m.anula_a).map(m => m.anula_a));
+    $('#pMovs').replaceChildren(...(ms.length ? ms.map(m => {
+      const comp = m.comprobante_id ? el('a', { href: 'comprobantes.html#' + m.comprobante_id, textContent: m.detalle || m.tipo }) : (m.detalle || m.tipo);
+      return el('div', { className: 'mov' + (anulados.has(m.id) || m.tipo === 'anulacion' ? ' anul' : '') },
+        el('span', { className: 'f', textContent: fecha(m.fecha) }), el('span', { className: 'd' }, comp),
+        el('span', { className: 'i', textContent: !cero(m.haber) ? pesos(m.haber) : '−' + pesos(m.debe) }),
+        el('span', { className: 's', textContent: `${m.sociedad} · saldo ${pesos(m.saldo)}` }));
+    }) : [el('p', { className: 'vacio', textContent: 'Sin movimientos en la cuenta corriente.' })]));
+  } catch (e) { $('#pMovs').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
+}
+$('#pCerrar').onclick = () => $('#panel').close();
+$('#panel').addEventListener('click', e => { if (e.target === $('#panel')) $('#panel').close(); });
+
+let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(pintar, 150); };
+$$('#filtro button').forEach(b => b.onclick = () => { $$('#filtro button').forEach(x => x.classList.toggle('act', x === b)); filtro = b.dataset.f; pintar(); });
+(async () => {
+  try { ({ usuario: yo } = await cargarSesion()); await cargar(); if (location.hash === '#nuevo') editar(null); }
+  catch (e) { msg(e.message, 'mal'); }
+})();
 </script>
 </body>
 </html>

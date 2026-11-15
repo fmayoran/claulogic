@@ -38,6 +38,18 @@ def api(route):
             {'id': 2, 'fecha': '2026-11-04', 'importe': '920216.00', 'disponible': '420216.00', 'aplicado': '500000.00', 'concepto': 'Transferencia enviada', 'destinatario': 'Consorcio Av. Libertador 1200', 'rubro': 'Expensas', 'cuenta': 'MERCADO PAGO SORE', 'sociedad': 'SORELLE CIUCIO SA', 'sociedad_id': 'y'}]}
     elif 'api/sociedades' in u:
         datos = {'sociedades': [{'id': 'x', 'nombre': 'CORTAFUEGO SRL', 'activa': True}, {'id': 'y', 'nombre': 'SORELLE CIUCIO SA', 'activa': True}]}
+    elif 'fin/proveedores/resumen' in u:
+        datos = {'proveedores': [{'id': 'p1', 'saldo': '0', 'ultimo': '2026-11-11', 'comprobantes': 18, 'comprado_30': '12450000', 'vencido': '0'},
+                                 {'id': 'p2', 'saldo': '742500', 'ultimo': '2026-11-12', 'comprobantes': 4, 'comprado_30': '1604500', 'vencido': '386000'},
+                                 {'id': 'p3', 'saldo': '0', 'ultimo': '2026-11-06', 'comprobantes': 5, 'comprado_30': '370000', 'vencido': '0'}]}
+    elif 'fin/cuenta-corriente/' in u:
+        datos = {'proveedor': {}, 'pendientes': [], 'movimientos': [
+            {'id': 1, 'fecha': '2026-10-24', 'tipo': 'factura', 'comprobante_id': 'c1', 'haber': '1256000.00', 'debe': '0', 'detalle': 'FC X 00000-00000002', 'sociedad': 'CORTAFUEGO SRL', 'saldo': '1256000', 'anula_a': None},
+            {'id': 2, 'fecha': '2026-10-24', 'tipo': 'pago', 'comprobante_id': 'c1', 'haber': '0', 'debe': '1256000.00', 'detalle': 'Pagado con Fudo pago #2120 · Almacén · PECSE PESCADERIA (CAJA MAYOR EFECTIVO, 24/10/2026)', 'sociedad': 'CORTAFUEGO SRL', 'saldo': '0', 'anula_a': None}]}
+    elif 'api/proveedores' in u:
+        datos = {'proveedores': [{'id': 'p1', 'nombre': 'Frigorifico Pilotti', 'cuit': '30712345678', 'condicion_iva': 'responsable_inscripto', 'contacto': 'Marcelo', 'telefono': '11 4455-6677', 'activo': True, 'plazo_pago_dias': 15},
+                                 {'id': 'p2', 'nombre': 'Coca Cola', 'cuit': None, 'condicion_iva': None, 'contacto': None, 'telefono': None, 'activo': True},
+                                 {'id': 'p3', 'nombre': 'Pecse Pescaderia', 'cuit': None, 'condicion_iva': None, 'contacto': None, 'telefono': None, 'activo': True, 'notas': 'Creado desde los pagos sin factura'}]}
     elif 'fin/resultados' in u:
         ant = 'desde=2026-10' in u
         datos = {'rubros': [{'linea': 'ventas', 'importe': '44100000' if ant else '49300000'}, {'linea': 'cmv', 'importe': '-17756000'},
@@ -58,6 +70,13 @@ with sync_playwright() as p:
         page.wait_for_timeout(400)
         nombre = '%s/%s-%s-%d.png' % (out, pag.split('.')[0].split('#')[0], tema, ancho)
         clic = partes[3] if len(partes) > 3 else None
+        if clic and clic.startswith('='):
+            page.locator('button', has_text=clic[1:]).first.click()
+            page.wait_for_timeout(500)
+            nombre = nombre.replace('.png', '-%s.png' % clic[1:])
+            clic = None
+            page.screenshot(path=nombre)
+            print(nombre, 'errores:', errores[:3]); ctx.close(); continue
         if clic:
             page.locator('.inferior button', has_text=clic).click()
             page.wait_for_timeout(300)
