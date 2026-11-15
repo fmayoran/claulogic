@@ -1065,9 +1065,15 @@ la guía y a `comun.css`, no a la pantalla.
   encuentra cualquier pantalla del menú. **En el celular** (Fer no encontraba los tableros): quien tiene finanzas o gestiona una
   sede ve en la barra inferior Inicio, Tableros, Escanear, Procesos y Más (Tableros y Procesos abren una hoja con sus pantallas);
   el resto conserva Inicio, Stock, Escanear, Productos y Más. "Más" muestra todo el menú sin nada plegado.
-- **Inicio** (`index.html`, antes "Panel"): arriba, los **indicadores del mes hasta ayer**, una tarjeta por tablero que el usuario
-  puede ver (vendido con su curva por día, disponible con su curva, food cost real contra teórico, resultado con el peso de costos
-  y gastos), cada una pide lo mismo que su tablero y lo abre; debajo, "Para resolver" como antes.
+- **Inicio** (`index.html`, antes "Panel"; rehecho a pedido de Fer, 15/11/2026: es la primera pantalla de la jornada): al centro, la
+  **jornada** (`ol.jornada`), lo que falta para quedar al día en orden: 1 **ventas de ayer**, una fila por punto de venta (PedidosYa
+  incluido) con el sistema y cómo se trae (automática, a mano, por archivo), si se trajo sola y a qué hora, hasta qué día está y si sus
+  cobros quedaron procesados; "Traer ahora" corre `POST /pos/integraciones/:id/correr` desde ahí (y "Traer las N que faltan"), "Importar"
+  lleva al paso 1 de Ingresos; 2 efectivo a rendir; 3 extractos; 4 conciliación de cobros; 5 egresos para clasificar; 6 compras y almacén
+  (las antiguas tarjetas de "Para resolver"). Mismo criterio que la barra de pasos de Ingresos (`/pos/cierre?dias=14` y
+  `/fin/procesadores/resumen`). La etapa que sigue va resaltada y abierta ("Seguí por acá"), las hechas plegadas; arriba, la barra de
+  avance, y con todo al día "Estás al día" con los atajos para empezar otras gestiones. Los **indicadores del mes hasta ayer** van en la
+  columna del costado (debajo en el celular). Sin finanzas, sólo la etapa de compras y almacén.
 - **Cuatro moldes de pantalla**: tablero (cifras, gráficos, detalle en panel lateral), proceso (etapas, lo que hay para resolver y
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
 - **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `ol.pasos`

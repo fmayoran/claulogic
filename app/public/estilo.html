@@ -82,6 +82,23 @@
   </section>
 
   <section>
+    <h2>Jornada</h2>
+    <p class="regla"><code>ol.jornada</code>: lo que falta para quedar al día, en orden (Inicio). Cada etapa es un <code>li</code>:
+      <code>.hecha</code> plegada con su signo, <code>.actual</code> la que sigue (resaltada y abierta), <code>.falta</code> pendiente,
+      <code>.espera</code> depende de una anterior. Adentro, <code>.et-cab</code> (título, estado, acciones) y <code>.et-cuerpo</code> con
+      <code>.et-fila</code>: punto de estado, quién, qué pasa y su acción. El punto siempre va con texto.</p>
+    <ol class="jornada">
+      <li class="actual"><div class="et-cab"><h2>Ventas de ayer</h2><span class="et-est">2 de 3 al día</span><span class="et-ahora">Seguí por acá</span></div>
+        <div class="et-cuerpo">
+          <div class="et-fila"><span class="pt ok"></span><span class="et-quien"><b>CORTAFUEGO PARRILLA</b><small>Fudo · automática</small></span><span class="et-que">Se trajo sola hoy a las 05:02 · al día hasta el 14/11<small>Cobros procesados.</small></span><span class="et-facc"></span></div>
+          <div class="et-fila"><span class="pt aviso"></span><span class="et-quien"><b>SORELLE CAFETERIA</b><small>Maxirest · a mano</small></span><span class="et-que"><span class="aviso">Falta traer las ventas del 14/11</span><small>Se traen a mano desde el sistema de venta.</small></span><span class="et-facc"><button type="button" class="chico prim">Traer ahora</button></span></div>
+        </div></li>
+      <li class="falta"><div class="et-cab"><h2>Efectivo de los locales</h2><span class="et-est">$412.000 a rendir</span><span class="et-acc"><button type="button" class="chico prim">Rendir</button><button type="button" class="chico">Ver</button></span></div></li>
+      <li class="hecha"><div class="et-cab"><h2>Extractos</h2><span class="et-est">al día</span></div></li>
+    </ol>
+  </section>
+
+  <section>
     <h2>Línea de proceso</h2>
     <p class="regla"><code>.proc</code> con <code>.vias</code> y <code>.est</code>: en qué paso está un proceso. La estación
       <code>act</code> es la que sigue. Va en Inicio; el color (<code>--c</code>) identifica al proceso.</p>

@@ -276,6 +276,42 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
    Tres formas de mostrar en qué anda un proceso (referencia en estilo.html). El estado va siempre con texto o signo, no sólo
    con color. */
 
+/* Jornada (Inicio, pedido de Fer, 15/11/2026): lo que hay que hacer para quedar al día, en orden. Cada etapa es un li:
+   .hecha (al día, plegada), .actual (la que sigue: por acá se empieza), .falta (pendiente, después), .espera (depende de una
+   anterior). El número lo pone la lista; una etapa hecha lleva el signo. */
+ol.jornada{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:etapa;}
+ol.jornada > li{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:14px 18px 14px 60px;}
+ol.jornada > li::before{counter-increment:etapa;content:counter(etapa);position:absolute;left:18px;top:13px;width:26px;height:26px;border-radius:50%;
+  display:grid;place-items:center;font-size:.85rem;font-weight:600;border:2px solid var(--line);color:var(--mut);background:var(--bg);}
+ol.jornada > li.hecha::before{content:'✓';border-color:var(--ok);background:var(--ok);color:var(--panel);}
+ol.jornada > li.actual{border-color:var(--acento);box-shadow:0 0 0 1px var(--acento);}
+ol.jornada > li.actual::before{border-color:var(--acento);color:var(--acento);}
+ol.jornada > li.falta::before{border-color:var(--aviso);color:var(--aviso);}
+ol.jornada > li.hecha,ol.jornada > li.espera{padding-top:11px;padding-bottom:11px;}
+ol.jornada > li.hecha::before,ol.jornada > li.espera::before{top:10px;}
+.et-cab{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;min-height:26px;}
+.et-cab h2{margin:0;font-size:1.12rem;}
+.et-cab .et-est{font-size:.88rem;color:var(--mut);}
+li.hecha .et-est{color:var(--ok);} li.falta .et-est,li.actual .et-est{color:var(--aviso);font-weight:600;}
+.et-cab .et-acc{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+.et-ahora{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acento);}
+.et-cuerpo{margin-top:10px;}
+.et-ayuda{color:var(--mut);font-size:.86rem;margin:2px 0 6px;}
+/* Un renglón de una etapa (un punto de venta, una cuenta, una tarea): punto de estado, quién, qué pasa y su acción. */
+.et-fila{display:grid;grid-template-columns:10px minmax(0,230px) minmax(0,1fr) auto;gap:3px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);}
+.et-fila:first-child{border-top:0;}
+.et-fila .pt{width:10px;height:10px;border-radius:50%;background:var(--mut);} .et-fila .pt.ok{background:var(--ok);}
+.et-fila .pt.aviso{background:var(--aviso);} .et-fila .pt.mal{background:var(--mal);} .et-fila .pt.info{background:var(--info);}
+.et-fila .et-quien{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:0;} .et-fila .et-quien b{font-weight:600;line-height:1.25;} .et-fila .et-quien small{color:var(--mut);font-size:.8rem;}
+.et-fila .et-que{font-size:.9rem;line-height:1.35;} .et-fila .et-que small{display:block;color:var(--mut);font-size:.82rem;}
+.et-fila .et-que .mal{color:var(--mal);} .et-fila .et-que .aviso{color:var(--aviso);}
+.et-fila .et-facc{display:flex;gap:6px;justify-content:flex-end;}
+@media (max-width:700px){
+  ol.jornada > li{padding:12px 14px 12px 50px;} ol.jornada > li::before{left:12px;}
+  .et-fila{grid-template-columns:10px minmax(0,1fr) auto;} .et-fila .et-que{grid-column:2 / -1;}
+  .et-fila .et-facc{grid-column:2 / -1;justify-content:flex-start;}
+}
+
 /* Línea de un proceso: sus pasos como estaciones (sólo dentro de .vias: `.est` suelto es la etiqueta de estado de Ingresos y Sedes). `.h` hecha, `.act` la que sigue. --c es el color del proceso. */
 .proc{display:grid;grid-template-columns:minmax(150px,200px) minmax(0,1fr) auto;gap:18px;align-items:center;padding:16px 0;
   border-top:1px solid var(--line);--c:var(--serie-3,var(--ok));}

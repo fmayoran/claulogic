@@ -8,25 +8,26 @@
 <link rel="stylesheet" href="comun.css">
 <link rel="stylesheet" href="graficos.css">
 <style>
-  .salud{margin-top:28px;color:var(--mut);font-size:.85rem;display:flex;gap:8px;align-items:center;}
-  .p{width:7px;height:7px;border-radius:50%;background:#b9b5ad;} .p.ok{background:#2e9e4f;} .p.mal{background:#c4352b;}
-  /* Panel (pedido de Fer, 01/11/2026): alertas con acceso directo; el detalle de cada una, a pedido. */
-  .atajos{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px;}
-  .alertas{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));align-items:start;margin:0 0 10px;}
-  .alerta{border:1px solid var(--line);border-left:4px solid var(--aviso);border-radius:12px;background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:4px;}
-  .alerta.mal{border-left-color:var(--mal);}
-  .alerta .cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
-  .alerta .n{font-size:1.6rem;font-weight:750;font-stretch:80%;font-variant-numeric:tabular-nums;line-height:1.1;}
-  .alerta.mal .n{color:var(--mal);} .alerta.aviso .n{color:var(--aviso);}
-  .alerta .imp{font-weight:650;font-variant-numeric:tabular-nums;}
-  .alerta .t{font-weight:600;} .alerta .d{color:var(--mut);font-size:.84rem;}
-  .alerta .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
-  .alerta .det{margin-top:6px;border-top:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:2px;font-size:.86rem;}
-  .alerta .det a{color:var(--fg);text-decoration:none;display:block;padding:3px 0;line-height:1.35;} .alerta .det b{font-weight:600;}
-  .alerta .det a:hover{color:var(--acento);} .alerta .det .m{color:var(--mut);}
-  .al-dia{color:var(--mut);font-size:.9rem;margin:6px 0 0;}
+  /* Inicio (pedido de Fer, 15/11/2026): la jornada en el centro, guía de lo que falta para quedar al día; los indicadores en una
+     columna al costado. */
+  .ini-cab{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;margin:0 0 18px;}
+  .ini-cab h1{margin:0;} .ini-cab .cuando{color:var(--mut);margin:4px 0 0;font-size:.95rem;}
+  .avance{min-width:240px;flex:0 1 340px;} .avance .t{display:flex;justify-content:space-between;font-size:.88rem;color:var(--mut);margin-bottom:6px;}
+  .avance .t b{color:var(--fg);font-weight:600;}
+  .avance .seg{display:flex;gap:4px;} .avance .seg i{flex:1;height:6px;border-radius:3px;background:var(--line);} .avance .seg i.ok{background:var(--ok);}
+  .avance .seg i.act{background:var(--acento);}
+  .inicio{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start;}
+  .al-dia-ok{border:1px solid var(--ok);background:var(--ok-bg);border-radius:var(--r);padding:16px 18px;margin:0 0 12px;}
+  .al-dia-ok b{display:block;font-size:1.1rem;color:var(--ok);margin-bottom:4px;} .al-dia-ok .acc{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .det-tarea{grid-column:2 / -1;font-size:.86rem;display:flex;flex-direction:column;gap:2px;padding:4px 0 2px;}
+  .det-tarea a{color:var(--fg);text-decoration:none;} .det-tarea a:hover{color:var(--acento);} .det-tarea .m{color:var(--mut);}
+  .col-ind h2{font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:2px 0 10px;font-stretch:100%;}
+  .col-ind .indicadores{grid-template-columns:1fr;gap:12px;margin:0;}
+  .col-ind .kpi{padding:14px 16px;} .col-ind .kpi .va{font-size:1.7rem;}
+  .salud{margin-top:16px;color:var(--mut);font-size:.8rem;display:flex;gap:8px;align-items:center;}
+  .p{width:7px;height:7px;border-radius:50%;background:var(--mut);} .p.ok{background:var(--ok);} .p.mal{background:var(--mal);}
+  @media (max-width:1100px){ .inicio{grid-template-columns:minmax(0,1fr);} .col-ind .indicadores{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));} }
   /* Indicadores del mes (pedido de Fer, 14/11/2026): una tarjeta por tablero, con su cifra, su variación y un gráfico chico. */
-  .indicadores{grid-template-columns:repeat(auto-fit,minmax(230px,1fr));margin-bottom:26px;}
   .indicadores a.kpi{color:inherit;text-decoration:none;} .indicadores a.kpi:hover{border-color:var(--borde);}
   .indicadores .kpi .curva{height:44px;margin-top:10px;display:flex;flex-direction:column;justify-content:flex-end;}
   .ind-barra{position:relative;height:8px;border-radius:4px;background:var(--g-grilla);}
@@ -37,49 +38,168 @@
 </head>
 <body>
 <main class="ancho">
-  <h1>Inicio</h1>
-  <p class="sub">Cómo viene el mes y lo que hay que atender hoy. Cada indicador abre su tablero; cada tarjeta de "Para resolver" lleva a donde
-    se resuelve, y "Ver" muestra el detalle sin salir de acá.</p>
-  <div class="atajos" id="atajos"></div>
-  <h2 id="indTitulo" hidden></h2>
-  <div class="kpis indicadores" id="indicadores" hidden></div>
-  <h2>Para resolver</h2>
-  <div class="alertas" id="alertas"><p class="vacio">Consultando…</p></div>
-  <p class="al-dia" id="alDia"></p>
-  <p class="salud"><span class="p" id="p"></span><span id="t">consultando…</span></p>
+  <div class="ini-cab">
+    <div><h1>Inicio</h1><p class="cuando" id="cuando"></p></div>
+    <div class="avance" id="avance" hidden><div class="t"><span>Para quedar al día</span><b id="avanceTxt"></b></div><div class="seg" id="avanceSeg"></div></div>
+  </div>
+  <div class="inicio">
+    <section>
+      <p class="msg" id="msg"></p>
+      <div id="alDiaOk"></div>
+      <ol class="jornada" id="jornada"><li class="espera"><div class="et-cab"><h2>Consultando…</h2></div></li></ol>
+    </section>
+    <aside class="col-ind">
+      <h2 id="indTitulo">Indicadores</h2>
+      <div class="kpis indicadores" id="indicadores"></div>
+      <p class="salud"><span class="p" id="p"></span><span id="t">consultando…</span></p>
+    </aside>
+  </div>
 </main>
 <script src="comun.js"></script>
 <script src="graficos.js"></script>
 <script>
-// Cada alerta: nivel (mal | aviso), cantidad, título, una línea de detalle, importe opcional, a dónde ir y, opcional, el detalle
-// a pedido (renglones con su enlace). Lo que está en orden va en una sola línea abajo.
+// Inicio (pedido de Fer, 15/11/2026): la primera pantalla de la jornada. En el centro, en orden, lo que hay que hacer para quedar al
+// día: primero las ventas de ayer de cada punto de venta (cuáles se trajeron solas, cuáles faltan, a mano o por archivo, y si sus
+// cobros quedaron procesados), después efectivo, extractos, conciliación y egresos, y al final las tareas de compras y almacén. La
+// etapa que sigue va resaltada y abierta; las hechas, plegadas. Todo se deduce de lo que hay, como en el Proceso de ingresos (mismo
+// criterio que su barra de pasos). Los indicadores del mes van en la columna del costado.
 const alertas = [], alDia = [];
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p || s + 's'}`;
-function pintar() {
-  const orden = { mal: 0, aviso: 1 };
-  alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
-  $('#alertas').replaceChildren(...(alertas.length ? alertas.map(tarjeta) : [el('p', { className: 'vacio', textContent: 'Nada para resolver.' })]));
-  $('#alDia').textContent = alDia.length ? 'Al día: ' + alDia.join(', ') + '.' : '';
-}
-function tarjeta(a) {
-  const det = el('div', { className: 'det', hidden: true });
-  const acc = el('div', { className: 'acc' }, ir(a.accion || 'Resolver', a.href, 'prim chico'));
-  if (a.renglones && a.renglones.length) {
-    const ver = el('button', { type: 'button', className: 'chico', textContent: 'Ver' });
-    ver.onclick = () => {
-      if (!det.childNodes.length) det.append(...a.renglones.slice(0, 8).map(r => el('a', { href: r.href }, el('b', { textContent: r.t }), r.m ? el('span', { className: 'm', textContent: ' · ' + r.m }) : '')),
-        ...(a.renglones.length > 8 ? [el('a', { href: a.href }, el('span', { className: 'm', textContent: `y ${a.renglones.length - 8} más…` }))] : []));
-      det.hidden = !det.hidden; ver.textContent = det.hidden ? 'Ver' : 'Ocultar';
-    };
-    acc.append(ver);
-  }
-  return el('section', { className: 'alerta ' + a.nivel },
-    el('div', { className: 'cab' }, el('span', { className: 'n', textContent: a.n }), a.importe ? el('span', { className: 'imp', textContent: pesos(a.importe) }) : ''),
-    el('span', { className: 't', textContent: a.titulo }), a.detalle ? el('span', { className: 'd', textContent: a.detalle }) : '', acc, det);
-}
 const ir = (texto, href, cls = '') => el('button', { type: 'button', className: cls, textContent: texto, onclick: () => { location.href = href; } });
 const sumar = (xs, k) => deCentavos(xs.reduce((s, x) => s + centavos(x[k] || '0'), 0n));
+const correrDia = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const corta = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+const hora = v => v ? new Date(v).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const diaDe = v => v ? new Date(v).toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }) : '';
+const DIAS_SEM = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const AYER = correrDia(hoy(), -1);
+const SISTEMA = { fudo: 'Fudo', maxirest: 'Maxirest', pedidosya: 'PedidosYa' };
+function listaDias(ds) {
+  const v = ds.slice(0, 5).map(corta), resto = ds.length - v.length;
+  if (resto) return `${v.join(', ')} y ${resto} más`;
+  return v.length > 1 ? `${v.slice(0, -1).join(', ')} y ${v.at(-1)}` : v[0] || '';
+}
+// Un renglón de una etapa: estado (ok | aviso | mal | info), quién, qué pasa (y una nota), y sus acciones.
+function fila(nivel, quien, sub, que, nota, ...acc) {
+  return el('div', { className: 'et-fila' }, el('span', { className: 'pt ' + nivel, title: { ok: 'Al día', aviso: 'Pendiente', mal: 'Con problemas', info: 'En curso' }[nivel] || '' }),
+    el('span', { className: 'et-quien' }, el('b', { textContent: quien }), sub ? el('small', { textContent: sub }) : ''),
+    el('span', { className: 'et-que' }, que, nota ? el('small', { textContent: nota }) : ''),
+    el('span', { className: 'et-facc' }, ...acc.filter(Boolean)));
+}
+const boton = (texto, fn, cls = 'chico') => {
+  const b = el('button', { type: 'button', className: cls, textContent: texto });
+  b.onclick = async () => { b.disabled = true; try { await fn(b); } catch (e) { msg(e.message, 'mal'); } finally { b.disabled = false; } };
+  return b;
+};
 
+// ── Etapa 1: las ventas de ayer, punto por punto ──
+function estadoPunto(p) {
+  const tVentas = p.tareas.filter(t => ['corrida', 'importar'].includes(t.tipo)), tDias = p.tareas.filter(t => t.tipo === 'dia');
+  const ult = p.ultima_corrida, ultimo = (p.dias.find(d => d.ventas || d.sincronizado) || {}).dia;
+  const modo = p.modo === 'api' ? (p.sincroniza_auto ? 'automática' : 'a mano') : 'por archivo';
+  const sub = `${SISTEMA[p.sistema] || p.sistema} · ${modo}`;
+  const nombre = p.sistema === 'pedidosya' ? `PedidosYa · ${p.sede}` : p.sede;
+  let nivel = 'ok', que, nota = '', acc = [];
+  const fallo = p.tareas.find(t => t.tipo === 'corrida' && t.nivel === 'mal');
+  if (fallo) {
+    nivel = 'mal'; que = el('span', { className: 'mal', textContent: 'La última corrida falló' }); nota = fallo.texto.replace(/^La última sincronización falló:\s*/, '');
+    acc.push(boton('Reintentar', () => traer(p)));
+  } else if (tVentas.length) {
+    nivel = 'aviso';
+    if (p.modo === 'api') {
+      const desde = p.traer_desde || AYER;
+      que = el('span', { className: 'aviso', textContent: desde >= AYER ? `Falta traer las ventas del ${corta(AYER)}` : `Faltan traer las ventas del ${corta(desde)} al ${corta(AYER)}` });
+      nota = p.sincroniza_auto ? 'La automática todavía no las trajo.' : 'Se traen a mano desde el sistema de venta.';
+      acc.push(boton('Traer ahora', () => traer(p), 'chico prim'));
+    } else {
+      const ds = tVentas.flatMap(t => t.dias || []);
+      que = el('span', { className: 'aviso', textContent: ds.length ? `Falta importar ${ds.length === 1 ? 'el' : 'los días'} ${listaDias(ds)}` : 'Falta importar el archivo' });
+      nota = p.sistema === 'pedidosya' ? 'El orderDetails.csv del portal de PedidosYa.' : 'El archivo de ventas del sistema.';
+      acc.push(ir('Importar', 'ingresos.html#ventas', 'chico prim'));
+    }
+  } else {
+    const cuando = ult && diaDe(ult.iniciada_en) === hoy() && ult.ok
+      ? (ult.automatica ? `Se trajo sola hoy a las ${hora(ult.terminada_en || ult.iniciada_en)}` : `Traída a mano hoy a las ${hora(ult.terminada_en || ult.iniciada_en)}`)
+      : p.modo === 'api' ? 'Traída' : 'Importada';
+    que = el('span', { textContent: `${cuando} · al día hasta el ${ultimo ? corta(ultimo) : corta(AYER)}` });
+  }
+  // Lo que queda de los días ya traídos: medios sin asignar, diferencias, ventas abiertas o cobros sin procesar.
+  if (tDias.length) {
+    const peor = tDias.some(t => t.nivel === 'mal') ? 'mal' : 'aviso';
+    if (nivel === 'ok') { nivel = peor; acc.push(ir('Resolver', 'ingresos.html#ventas', 'chico prim')); }
+    nota = [nota, 'Cobros: ' + tDias.map(t => t.texto.replace(/\.$/, '')).join('; ').toLowerCase() + '.'].filter(Boolean).join(' ');
+  } else if (nivel === 'ok' && p.dias.some(d => d.ventas)) nota = 'Cobros procesados.';
+  return { nivel, listo: nivel === 'ok', fila: fila(nivel, nombre, sub, que, nota, ...acc), api: p.modo === 'api' && tVentas.length && !fallo, p };
+}
+async function traer(p) {
+  const desde = p.traer_desde && p.traer_desde < AYER ? p.traer_desde : AYER;
+  const r = await api(`pos/integraciones/${p.id}/correr`, { method: 'POST', body: { desde, hasta: AYER }, trabajando: `Trayendo las ventas de ${p.sede}…` });
+  await cargar();
+  const c = r.cobros || {};
+  msg(`${p.sede}: ventas traídas` + (c.procesados ? `, ${plural(c.procesados, 'día cobrado', 'días cobrados')}` : '') + (c.revisar && c.revisar.length ? `, ${plural(c.revisar.length, 'día')} para revisar` : '') + '.', 'ok');
+}
+function etapaVentas(puntos) {
+  const es = puntos.map(estadoPunto), listos = es.filter(e => e.listo).length, porApi = es.filter(e => e.api);
+  const acc = porApi.length > 1 ? [boton(`Traer las ${porApi.length} que faltan`, async () => { for (const e of porApi) await traer(e.p); }, 'chico prim')] : [];
+  return { clave: 'ventas', titulo: 'Ventas de ayer', hecha: listos === es.length,
+    estado: listos === es.length ? `al día hasta el ${corta(AYER)}` : `${listos} de ${es.length} al día`,
+    ayuda: 'Cada punto de venta: si las ventas se trajeron solas, las que faltan traer o importar, y si sus cobros quedaron procesados.',
+    acc, filas: es.map(e => e.fila), siempreAbierta: true };
+}
+
+// ── Etapas 2 a 5: efectivo, extractos, conciliación y egresos (el mismo criterio que la barra del Proceso de ingresos) ──
+function etapaEfectivo(puntos, ventasPend) {
+  const ef = puntos.filter(p => centavos(p.efectivo_a_rendir) > 0n), tot = sumar(ef, 'efectivo_a_rendir');
+  const cobrado = puntos.some(p => p.dias.some(d => centavos(d.efectivo || '0') > 0n));
+  return { clave: 'efectivo', titulo: 'Efectivo de los locales', hecha: !ef.length && !ventasPend, espera: !ef.length && ventasPend,
+    estado: ef.length ? `${pesos(tot)} a rendir` : ventasPend ? 'después de las ventas' : cobrado ? 'rendido' : 'sin efectivo cobrado',
+    ayuda: 'Lo cobrado en efectivo queda en la cuenta de cada local hasta que llega a la caja o al banco.',
+    acc: ef.length ? [ir('Rendir', 'ingresos.html#efectivo', 'chico prim')] : [],
+    filas: ef.map(p => {
+      const t = p.tareas.find(x => x.tipo === 'efectivo');
+      return fila(t && t.nivel === 'mal' ? 'mal' : 'aviso', p.sede, SISTEMA[p.sistema] || '', el('span', { textContent: `${pesos(p.efectivo_a_rendir)} a rendir` }),
+        t ? t.texto + (t.desde ? ` Desde el ${corta(t.desde)}.` : '') : '', ir('Rendir', 'ingresos.html#efectivo', 'chico'));
+    }) };
+}
+function gruposExtracto(procs) {
+  const porCuenta = new Map();
+  for (const x of procs) { if (!x.cuenta_id) continue; if (!porCuenta.has(x.cuenta_id)) porCuenta.set(x.cuenta_id, []); porCuenta.get(x.cuenta_id).push(x); }
+  return [...porCuenta.values()].map(ps => {
+    const pr = ps.find(x => x.portal) || ps.find(x => x.marca !== 'transferencia' && x.marca !== 'pedidosya') || ps[0];
+    const res = (ps.find(x => x.resumen) || {}).resumen || null, puntos = ps.flatMap(x => (x.ventas || {}).puntos || []);
+    const vs = ps.map(x => x.ventas || {}).filter(v => v.hasta);
+    const hasta = vs.map(v => v.hasta).sort().at(-1) || null, eh = res && res.extracto.hasta;
+    return { pr, ps, res, cuenta: pr.cuenta, hasta, eh, alDia: !hasta ? !!eh || !puntos.length : !!eh && eh >= hasta };
+  });
+}
+function etapaExtractos(grupos) {
+  const faltan = grupos.filter(g => !g.alDia);
+  return { clave: 'extractos', titulo: 'Extractos de bancos y procesadores', hecha: !faltan.length,
+    estado: faltan.length ? `${plural(faltan.length, 'cuenta')} sin el extracto al día` : 'al día',
+    ayuda: 'El extracto de cada cuenta donde depositan los procesadores, hasta el último día de ventas traídas. Al importarlo se concilia solo.',
+    acc: faltan.length ? [ir('Importar', 'ingresos.html#extractos', 'chico prim')] : [],
+    filas: faltan.map(g => fila('aviso', g.cuenta, g.ps.map(x => x.nombre).join(', '),
+      el('span', { className: 'aviso', textContent: !g.eh ? 'Todavía no se importó ningún extracto' : `Falta del ${corta(correrDia(g.eh, 1))} al ${corta(g.hasta)}` }),
+      g.pr.portal ? 'Se puede traer del portal.' : g.pr.marca === 'mercadopago' ? 'El reporte de liberaciones de Mercado Pago.' : 'El extracto en CSV con la columna de saldo.',
+      ir('Importar', 'ingresos.html#extractos', 'chico'))) };
+}
+function etapaConciliar(grupos) {
+  const con = grupos.filter(g => g.res && g.res.extracto.lineas_ingresos), n = con.reduce((s, g) => s + g.res.extracto.lineas_ingresos, 0);
+  return { clave: 'conciliar', titulo: 'Conciliación de cobros', hecha: !n, estado: n ? `${plural(n, 'línea')} por resolver` : 'al día',
+    ayuda: 'Los cobros y sus costos que la conciliación automática no pudo parear.',
+    acc: n ? [ir('Conciliar', 'ingresos.html#conciliar', 'chico prim')] : [],
+    filas: con.map(g => fila('aviso', g.cuenta, '', el('span', { textContent: `${plural(g.res.extracto.lineas_ingresos, 'línea')} de ingresos sin resolver` }), '',
+      ir('Conciliar', 'ingresos.html#conciliar', 'chico'))) };
+}
+function etapaEgresos(grupos) {
+  const con = grupos.filter(g => g.res && g.res.extracto.lineas_egresos), n = con.reduce((s, g) => s + g.res.extracto.lineas_egresos, 0);
+  return { clave: 'egresos', titulo: 'Egresos para clasificar', hecha: !n, estado: n ? `${plural(n, 'línea')} sin clasificar` : 'al día',
+    ayuda: 'Lo que salió de las cuentas según el extracto y todavía no tiene proveedor, rubro y local.',
+    acc: n ? [ir('Clasificar', 'egresos.html', 'chico prim')] : [],
+    filas: con.map(g => fila('aviso', g.cuenta, '', el('span', { textContent: `${plural(g.res.extracto.lineas_egresos, 'egreso')} sin clasificar` }), '')) };
+}
+
+// ── Etapa final: compras y almacén (lo que antes eran las tarjetas de "Para resolver") ──
 // Proceso de abastecimiento: lo pendiente agrupado por etapa; cada renglón lleva al paso del asistente que falta.
 const ETAPAS = [['Por pagar', 'aviso'], ['Falta el comprobante', 'aviso'], ['Comprobante sin registrar', 'aviso'], ['Esperando mercadería', 'aviso'],
   ['Pedido sin terminar', 'aviso'], ['Por pedir', 'aviso']];
@@ -98,25 +218,6 @@ async function abastecimiento(u) {
         m: [p.vencimiento ? (vencida(p) ? 'venció ' : 'vence ') + fecha(p.vencimiento) : fecha(p.fecha), conImporte && p.importe ? pesos(p.importe) : null].filter(Boolean).join(' · ') })) });
   }
   if (!pendientes.length) alDia.push('abastecimiento');
-}
-
-// Proceso de ingresos (finanzas): ventas con algo para resolver, efectivo a rendir y lo electrónico atrasado, por punto de venta.
-async function ingresos() {
-  const { puntos } = await api('pos/cierre?dias=14');
-  if (!puntos.length) return;
-  const deTipo = (p, ts) => p.tareas.filter(t => ts.includes(t.tipo));
-  const ventas = puntos.filter(p => deTipo(p, ['corrida', 'importar', 'dia']).length);
-  if (ventas.length) alertas.push({ nivel: ventas.some(p => deTipo(p, ['corrida', 'importar', 'dia']).some(t => t.nivel === 'mal')) ? 'mal' : 'aviso',
-    n: ventas.reduce((s, p) => s + deTipo(p, ['corrida', 'importar', 'dia']).length, 0), titulo: 'Ventas para resolver', detalle: 'Proceso de ingresos, paso 1',
-    href: 'ingresos.html#ventas', renglones: ventas.flatMap(p => deTipo(p, ['corrida', 'importar', 'dia']).map(t => ({ href: 'ingresos.html#ventas', t: p.nombre, m: t.texto }))) });
-  else alDia.push('ventas');
-  const ef = puntos.filter(p => centavos(p.efectivo_a_rendir) > 0n);
-  if (ef.length) alertas.push({ nivel: 'aviso', n: ef.length, titulo: ef.length === 1 ? 'Punto de venta con efectivo a rendir' : 'Puntos de venta con efectivo a rendir',
-    detalle: 'Proceso de ingresos, paso 2', importe: sumar(ef, 'efectivo_a_rendir'), href: 'ingresos.html#efectivo',
-    renglones: ef.map(p => ({ href: 'ingresos.html#efectivo', t: p.nombre, m: pesos(p.efectivo_a_rendir) })) });
-  const acr = puntos.flatMap(p => deTipo(p, ['acreditacion']).map(t => ({ ...t, pv: p.nombre })));
-  if (acr.length) alertas.push({ nivel: 'mal', n: acr.length, titulo: 'Cobros electrónicos atrasados', detalle: 'Sin acreditar a los 3 días', importe: sumar(acr, 'importe'),
-    href: 'ingresos.html#extractos', accion: 'Importar extractos', renglones: acr.map(t => ({ href: 'ingresos.html#extractos', t: t.pv, m: t.texto })) });
 }
 
 // Almacén: bajo el mínimo, lo que vence, el frío y las compras por recibir.
@@ -139,11 +240,83 @@ async function almacen() {
     renglones: porRecibir.map(c => ({ href: `abastecimiento.html#${c.id}/recepcion`, t: c.proveedor || 'Compra', m: fecha(c.fecha) })) });
 }
 
-// ── Indicadores del mes ──
+function etapaTareas() {
+  const orden = { mal: 0, aviso: 1 };
+  alertas.sort((a, b) => orden[a.nivel] - orden[b.nivel]);
+  return { clave: 'tareas', titulo: 'Compras y almacén', hecha: !alertas.length, estado: alertas.length ? plural(alertas.length, 'tema') + ' para atender' : 'al día',
+    ayuda: alDia.length ? 'Al día: ' + alDia.join(', ') + '.' : '',
+    filas: alertas.map(a => {
+      const det = el('div', { className: 'det-tarea', hidden: true });
+      const ver = a.renglones && a.renglones.length ? el('button', { type: 'button', className: 'chico', textContent: 'Ver' }) : null;
+      if (ver) ver.onclick = () => {
+        if (!det.childNodes.length) det.append(...a.renglones.slice(0, 8).map(r => el('a', { href: r.href }, el('b', { textContent: r.t }), r.m ? el('span', { className: 'm', textContent: ' · ' + r.m }) : '')),
+          ...(a.renglones.length > 8 ? [el('a', { href: a.href }, el('span', { className: 'm', textContent: `y ${a.renglones.length - 8} más…` }))] : []));
+        det.hidden = !det.hidden; ver.textContent = det.hidden ? 'Ver' : 'Ocultar';
+      };
+      const f = fila(a.nivel, `${a.n} · ${a.titulo}`, a.detalle || '', el('span', { textContent: a.importe ? pesos(a.importe) : '' }), '', ir(a.accion || 'Resolver', a.href, 'chico'), ver);
+      f.append(det);
+      return f;
+    }) };
+}
+
+// ── Pintar la jornada ──
+const abiertas = new Set();
+function pintar(etapas) {
+  const actual = etapas.find(e => !e.hecha && !e.espera);
+  const hechas = etapas.filter(e => e.hecha).length;
+  $('#avance').hidden = false;
+  $('#avanceTxt').textContent = `${hechas} de ${etapas.length}`;
+  $('#avanceSeg').replaceChildren(...etapas.map(e => el('i', { className: e.hecha ? 'ok' : e === actual ? 'act' : '', title: e.titulo })));
+  $('#alDiaOk').replaceChildren(...(actual ? [] : [el('div', { className: 'al-dia-ok' }, el('b', { textContent: 'Estás al día' }),
+    'Ventas, cobros, efectivo y extractos al día. Ya podés empezar nuevas gestiones.', el('div', { className: 'acc' }, ...atajos()))]));
+  $('#jornada').replaceChildren(...etapas.map(e => {
+    const clase = e.hecha ? 'hecha' : e === actual ? 'actual' : e.espera ? 'espera' : 'falta';
+    const abierta = e === actual || abiertas.has(e.clave);
+    const cuerpo = el('div', { className: 'et-cuerpo', hidden: !abierta },
+      e.ayuda ? el('p', { className: 'et-ayuda', textContent: e.ayuda }) : '', ...(e.filas || []));
+    const conDetalle = (e.filas && e.filas.length) || e.ayuda;
+    const ver = conDetalle && e !== actual ? el('button', { type: 'button', className: 'chico', textContent: abierta ? 'Ocultar' : 'Ver' }) : null;
+    if (ver) ver.onclick = () => {
+      cuerpo.hidden = !cuerpo.hidden; ver.textContent = cuerpo.hidden ? 'Ver' : 'Ocultar';
+      if (cuerpo.hidden) abiertas.delete(e.clave); else abiertas.add(e.clave);
+    };
+    return el('li', { className: clase },
+      el('div', { className: 'et-cab' }, el('h2', { textContent: e.titulo }), el('span', { className: 'et-est', textContent: e.estado }),
+        e === actual ? el('span', { className: 'et-ahora', textContent: 'Seguí por acá' }) : '',
+        el('span', { className: 'et-acc' }, ...(e.hecha ? [] : e.acc || []), ver)), cuerpo);
+  }));
+}
+let usuario = null;
+function atajos() {
+  const u = usuario, xs = [];
+  if (u.puede.catalogo) xs.push(ir('Necesito comprar', 'abastecimiento.html#lista'), ir('Llegó mercadería', 'abastecimiento.html#nuevo/llegada'));
+  if (u.puede.finanzas) xs.push(ir('Operaciones de tesorería', 'operaciones-tesoreria.html'), ir('Tablero de ventas', 'ventas.html'));
+  return xs;
+}
+async function cargar() {
+  const u = usuario;
+  alertas.length = 0; alDia.length = 0;
+  const [cierre, procs] = await Promise.all([
+    u.puede.finanzas ? api('pos/cierre?dias=14') : null,
+    u.puede.finanzas ? api('fin/procesadores/resumen').catch(() => ({ procesadores: [] })) : null,
+    abastecimiento(u).catch(e => alertas.push({ nivel: 'mal', n: '!', titulo: 'No se pudo consultar abastecimiento', detalle: e.message, href: 'abastecimiento.html' })),
+    almacen().catch(e => alertas.push({ nivel: 'mal', n: '!', titulo: 'No se pudo consultar el almacén', detalle: e.message, href: 'stock.html' })),
+  ]);
+  const etapas = [];
+  if (cierre && cierre.puntos.length) {
+    const v = etapaVentas(cierre.puntos);
+    etapas.push(v, etapaEfectivo(cierre.puntos, !v.hecha));
+    const grupos = gruposExtracto(procs.procesadores);
+    if (grupos.length) etapas.push(etapaExtractos(grupos), etapaConciliar(grupos), etapaEgresos(grupos));
+  }
+  etapas.push(etapaTareas());
+  pintar(etapas);
+}
+
+// ── Indicadores del mes, en la columna del costado ──
 // El mes de ayer, del 1 hasta ayer (el día en curso no se trae). Una tarjeta por tablero, la que el usuario puede ver: cada una
 // pide lo mismo que su tablero y, si falla, no se muestra.
 const N = v => Number(v || 0);
-const correrDia = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const pct1 = v => v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
 function indicador(href, et, valor, pie, grafico) {
@@ -210,17 +383,11 @@ async function indicadores(u) {
 
 (async () => {
   const { usuario: u } = await cargarSesion();
+  usuario = u;
+  const h = new Date(hoy() + 'T12:00:00');
+  $('#cuando').textContent = `${DIAS_SEM[h.getDay()][0].toUpperCase()}${DIAS_SEM[h.getDay()].slice(1)} ${fecha(hoy())} · la jornada arranca con las ventas de ayer, ${corta(AYER)}`;
   indicadores(u).catch(() => {});
-  const atajos = [];
-  if (u.puede.catalogo) atajos.push(ir('Necesito comprar', 'abastecimiento.html#lista', 'prim'), ir('Llegó mercadería', 'abastecimiento.html#nuevo/llegada'));
-  if (u.puede.finanzas) atajos.push(ir('Proceso de ingresos', 'ingresos.html'));
-  $('#atajos').replaceChildren(...atajos);
-  const partes = [abastecimiento(u), almacen()];
-  if (u.puede.finanzas) partes.push(ingresos());
-  const r = await Promise.allSettled(partes);
-  const err = r.find(x => x.status === 'rejected');
-  pintar();
-  if (err) $('#alertas').prepend(el('p', { className: 'msg mal', textContent: err.reason.message }));
+  try { await cargar(); } catch (e) { $('#jornada').replaceChildren(el('li', { className: 'falta' }, el('p', { className: 'msg mal', textContent: e.message }))); }
 })();
 fetch('salud').then(r => r.json()).then(d => {
   $('#p').className = 'p ' + (d.ok ? 'ok' : 'mal');

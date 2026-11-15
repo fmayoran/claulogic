@@ -62,6 +62,39 @@ def api(route):
         datos = {'proveedores': [{'id': 'p1', 'nombre': 'Frigorifico Pilotti', 'cuit': '30712345678', 'condicion_iva': 'responsable_inscripto', 'contacto': 'Marcelo', 'telefono': '11 4455-6677', 'activo': True, 'plazo_pago_dias': 15},
                                  {'id': 'p2', 'nombre': 'Coca Cola', 'cuit': None, 'condicion_iva': None, 'contacto': None, 'telefono': None, 'activo': True},
                                  {'id': 'p3', 'nombre': 'Pecse Pescaderia', 'cuit': None, 'condicion_iva': None, 'contacto': None, 'telefono': None, 'activo': True, 'notas': 'Creado desde los pagos sin factura'}]}
+    elif 'pos/cierre' in u:
+        def d(dia, ventas=12, **k): return dict({'dia': dia, 'ventas': ventas, 'sincronizado': True, 'efectivo': '0', 'vendido': '1000', 'cobrado': '1000'}, **k)
+        hoy_c = '2026-11-15T08:02:00Z'
+        datos = {'puntos': [
+            {'id': 'i1', 'sede': 'CORTAFUEGO PARRILLA', 'nombre': 'CORTAFUEGO PARRILLA', 'sistema': 'fudo', 'modo': 'api', 'sincroniza_auto': True, 'efectivo_a_rendir': '0',
+             'ultima_corrida': {'ok': True, 'automatica': True, 'iniciada_en': hoy_c, 'terminada_en': hoy_c}, 'tareas': [], 'dias': [d('2026-11-14')]},
+            {'id': 'i2', 'sede': 'SORELLE BODEGON Y SUSHI', 'nombre': 'SORELLE BODEGON Y SUSHI', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '412000',
+             'traer_desde': '2026-11-13', 'ultima_corrida': {'ok': True, 'automatica': False, 'iniciada_en': '2026-11-13T10:00:00Z'},
+             'tareas': [{'tipo': 'corrida', 'nivel': 'aviso', 'texto': 'Faltan traer las ventas desde el 13/11.'}, {'tipo': 'efectivo', 'nivel': 'aviso', 'texto': 'Efectivo a rendir de 2 día(s).', 'desde': '2026-11-11'}],
+             'dias': [d('2026-11-14', 0, sincronizado=False), d('2026-11-13', 0, sincronizado=False), d('2026-11-12', efectivo='200000')]},
+            {'id': 'i3', 'sede': 'SORELLE CAFETERIA', 'nombre': 'SORELLE CAFETERIA', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '0',
+             'ultima_corrida': {'ok': True, 'automatica': False, 'iniciada_en': '2026-11-15T10:59:00Z', 'terminada_en': '2026-11-15T10:59:20Z'},
+             'tareas': [{'tipo': 'dia', 'clase': 'medios', 'nivel': 'mal', 'dias': ['2026-11-14'], 'texto': 'Hay cobros con un medio sin asignar.'}], 'dias': [d('2026-11-14')]},
+            {'id': 'i4', 'sede': 'CORTAFUEGO PARRILLA', 'nombre': 'PedidosYa · CORTAFUEGO PARRILLA', 'sistema': 'pedidosya', 'modo': 'archivo', 'sincroniza_auto': False, 'efectivo_a_rendir': '0',
+             'ultima_corrida': None, 'tareas': [{'tipo': 'importar', 'nivel': 'aviso', 'dias': ['2026-11-14'], 'texto': 'Faltan importar las ventas de 1 día(s).'}],
+             'dias': [d('2026-11-14', 0, sincronizado=False), d('2026-11-13')]},
+            {'id': 'i5', 'sede': 'SORELLE BODEGON Y SUSHI', 'nombre': 'PedidosYa · SORELLE BODEGON Y SUSHI', 'sistema': 'pedidosya', 'modo': 'archivo', 'sincroniza_auto': False, 'efectivo_a_rendir': '0',
+             'ultima_corrida': None, 'tareas': [], 'dias': [d('2026-11-14')]}]}
+    elif 'fin/procesadores/resumen' in u:
+        datos = {'procesadores': [
+            {'nombre': 'MERCADO PAGO SORELLE', 'marca': 'mercadopago', 'cuenta_id': 'c1', 'cuenta': 'MERCADO PAGO SORE', 'ventas': {'hasta': '2026-11-14', 'puntos': [{'sede': 'x', 'ultimo': '2026-11-14'}]},
+             'resumen': {'extracto': {'hasta': '2026-11-13', 'lineas_ingresos': 3, 'lineas_egresos': 17}}},
+            {'nombre': 'Fudo Pagos', 'marca': 'fudo', 'cuenta_id': 'c2', 'cuenta': 'BRUBANK', 'ventas': {'hasta': '2026-11-14', 'puntos': [{'sede': 'x', 'ultimo': '2026-11-14'}]},
+             'resumen': {'extracto': {'hasta': '2026-11-14', 'lineas_ingresos': 0, 'lineas_egresos': 4}}},
+            {'nombre': 'PAGO24 CORTAFUEGO', 'marca': 'pago24', 'portal': True, 'cuenta_id': 'c3', 'cuenta': 'PAGO 24 - 210973', 'ventas': {'hasta': '2026-11-14', 'puntos': [{'sede': 'x', 'ultimo': '2026-11-14'}]},
+             'resumen': {'extracto': {'hasta': '2026-11-14', 'lineas_ingresos': 0, 'lineas_egresos': 0}}}]}
+    elif 'abastecimiento/pendientes' in u:
+        datos = {'pendientes': [{'etapa': 'Por pagar', 'proveedor': 'Logistica La Serenisima', 'compra_id': 'k1', 'paso': 'pago', 'importe': '426198', 'vencimiento': '2026-11-12', 'fecha': '2026-11-10'},
+                                {'etapa': 'Esperando mercadería', 'proveedor': 'Disval', 'compra_id': 'k2', 'paso': 'recepcion', 'fecha': '2026-11-14'}]}
+    elif 'stock/productos' in u: datos = {'productos': []}
+    elif 'api/stock' in u: datos = {'stock': []}
+    elif 'api/frio' in u: datos = {'equipos': []}
+    elif 'api/compras' in u: datos = {'compras': []}
     elif 'fin/resultados' in u:
         ant = 'desde=2026-10' in u
         datos = {'rubros': [{'linea': 'ventas', 'importe': '44100000' if ant else '49300000'}, {'linea': 'cmv', 'importe': '-17756000'},
