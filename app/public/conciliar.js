@@ -379,65 +379,70 @@ const Conc = (() => {
       } catch (e) { alert(e.message); }
     };
     const sugDe = id => (d.sugerencias || []).find(x => x.lineas.includes(id));
-    // Pareo sugerido para una línea (de una venta pagada en partes, con una diferencia chica, o un lote): se confirma acá.
+    // Pareo sugerido (pedido de Fer, 15/11/2026: que se vea claro qué encontró): tres bloques rotulados, lo que trae el extracto,
+    // cómo está cargado en el sistema y qué hace confirmar; el motivo, si hace falta, y el botón al lado.
+    const lineaTxt = l => l ? `${fecha(l.fecha)} · ${pesos(String(l.importe).replace('-', ''))} · ${partes(l.concepto).nombre || l.concepto || 'sin concepto'}` : '';
+    const ventaTxt = p => [`Venta #${p.id_externo} del ${fecha(p.dia)}${p.hora ? ' ' + p.hora : ''}`, p.punto_venta].filter(Boolean).join(' · ');
+    // Cómo lo escribió el sistema de venta y, entre paréntesis, a qué cuenta de cobro y tipo lo asignamos.
+    const medioTxt = (p, medio) => {
+      const asignado = [medio || p.procesador_cargado || p.procesador, p.tipo_operacion && (TIPO_OP[p.tipo_operacion] || p.tipo_operacion)].filter(Boolean).join(', ');
+      return p.medio_sistema ? `"${p.medio_sistema}"${asignado ? ` (${asignado})` : ''}` : asignado;
+    };
+    const bloque = (et, ...xs) => el('div', {}, el('span', { className: 'et', textContent: et }), ...xs.filter(Boolean).map(x => typeof x === 'string' ? el('span', { textContent: x }) : x));
+    // Sin extracto (null), el extracto es la línea misma, que ya está arriba: van dos bloques.
+    const pareo = (extracto, sistema, accion, ...ctl) => el('div', { className: 'sug pareo' + (extracto ? '' : ' dos') },
+      extracto ? bloque('En el extracto', ...extracto) : '', bloque('En el sistema', ...sistema), bloque('Al confirmar', ...accion), el('div', { className: 'ctl' }, ...ctl.filter(Boolean)));
     function cajaSugerencia(l, x) {
-      const p = x.pago || {}, venta = `la venta #${p.id_externo} del ${fecha(p.dia)} (${TIPO_OP[p.tipo_operacion] || p.tipo_operacion}, ${pesos(p.importe)})`;
+      const p = x.pago || {};
       const ok = el('button', { type: 'button', className: 'prim', textContent: 'Confirmar' });
       const confirmar = async body => {
         ok.disabled = true;
         try { await api('fin/conciliacion/acreditar', { method: 'POST', body: { ticket_pago_id: p.id, linea_ids: x.lineas, ...body } }); ctx.aviso(`Acreditada la venta #${p.id_externo}.`, 'ok'); await ctx.recargar(); }
         catch (e) { alert(e.message); ok.disabled = false; }
       };
+      const motivoDe = (txt, fn) => { const m = el('input', { placeholder: txt, 'aria-label': txt }); ok.onclick = () => m.value.trim() ? fn(m.value.trim()) : (m.focus(), ctx.aviso('Indicá el motivo de la diferencia.', 'mal')); return m; };
       if (x.tipo === 'lote_cobro' || x.tipo === 'lote_diferencia') {
-        const lote = x.lotes[0], deLote = `el lote del ${fecha(lote.fecha)} (${lote.pagos} cobro(s), ${pesos(lote.neto)})`;
+        const lote = x.lotes[0], deLote = `Lote de ${p.procesador || 'el procesador'} del ${fecha(lote.fecha)}: ${lote.pagos} cobro(s), neto ${pesos(lote.neto)}`;
         const confirmarLote = async body => {
           ok.disabled = true;
           try { await api('fin/conciliacion/lote', { method: 'POST', body: { linea_id: l.id, lote_ids: x.lotes.map(y => y.id), ...body } }); ctx.aviso('Depósito confirmado.', 'ok'); await ctx.recargar(); }
           catch (e) { alert(e.message); ok.disabled = false; }
         };
         if (x.tipo === 'lote_cobro') {
-          const c = x.pago, pct = num((100 - Number(x.neto_pago) / Number(c.importe) * 100).toFixed(2));
-          ok.onclick = () => confirmarLote({ ticket_pago_id: c.id });
-          return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-            `es ${deLote} más el cobro de la venta #${c.id_externo} del ${fecha(c.dia)} (${c.medio}, ${pesos(c.importe)}), que el procesador no informó: neto ${pesos(x.neto_pago)}, costo ${pct}%.`), ok);
+          const pct = num((100 - Number(x.neto_pago) / Number(p.importe) * 100).toFixed(2));
+          ok.onclick = () => confirmarLote({ ticket_pago_id: p.id });
+          return pareo([`Depósito: ${lineaTxt(l)}`], [deLote, `más ${ventaTxt(p)}, ${pesos(p.importe)} con ${medioTxt(p, p.medio)}: el procesador no informó su neto`],
+            [`Se confirma el depósito: lote más ese cobro, neto ${pesos(x.neto_pago)} (costo ${pct}%).`], ok);
         }
-        const mas = !x.diferencia.startsWith('-'), motivoL = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
-        ok.onclick = () => motivoL.value.trim() ? confirmarLote({ motivo: motivoL.value.trim() }) : (motivoL.focus(), ctx.aviso('Indicá el motivo de la diferencia.', 'mal'));
-        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          `es ${deLote}; el depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'} (por ejemplo, cobros de ventas que no se importaron).`), motivoL, ok);
+        const mas = !x.diferencia.startsWith('-');
+        const m = motivoDe('Motivo de la diferencia', v => confirmarLote({ motivo: v }));
+        return pareo([`Depósito: ${lineaTxt(l)}`], [deLote],
+          [`Se confirma el lote. El depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'}: queda como ${mas ? 'ingreso' : 'egreso'} de la cuenta con el motivo (por ejemplo, ventas que no se importaron).`], m, ok);
       }
+      const sistema = [ventaTxt(p), `${pesos(p.importe)} · ${medioTxt(p)}`];
       if (x.tipo === 'otro_procesador') {
         ok.onclick = () => confirmar({ otro_procesador: true });
-        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          `es la venta #${p.id_externo} del ${fecha(p.dia)}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} (${pesos(p.importe)}); `
-          + 'ahí mismo se anuló un pago con este procesador por el mismo importe. La plata entró acá: se acredita acá y sale de lo que esperaba el otro.'), ok);
+        return pareo(null, [...sistema, 'En la venta hay un pago anulado con este procesador por el mismo importe.'],
+          [`El cobro se acredita en esta cuenta y sale de lo que esperaba ${p.procesador_cargado}.`], ok);
       }
       if (x.tipo === 'otro_por_fecha') {
         ok.onclick = () => confirmar({ otro_procesador: 'fecha' });
-        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          p.propio
-            ? `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, cobrada con ${p.procesador_cargado} (${pesos(p.importe)}, mismo importe), `
-              + 'que llegó al banco más tarde de lo normal. Se acredita con esta línea.'
-            : `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada con ${p.procesador_cargado} `
-              + `(${pesos(p.importe)}, mismo importe y fecha). La plata entró acá: se acredita acá y sale de lo que esperaba ${p.procesador_cargado}.`), ok);
+        return pareo(null, [...sistema, `Mismo importe; llegó ${Math.round((Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5)} día(s) después de la venta.`],
+          [p.propio ? 'El cobro se acredita con esta línea (llegó más tarde de lo normal).' : `El cobro se acredita en esta cuenta y sale de lo que esperaba ${p.procesador_cargado}.`], ok);
       }
       if (x.tipo === 'en_efectivo') {
         ok.onclick = () => confirmar({ en_efectivo: true });
-        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          `es la venta #${p.id_externo} del ${fecha(p.dia)} de ${p.punto_venta}, que en el sistema de venta quedó cobrada en efectivo (${pesos(p.importe)}). `
-          + 'La plata entró acá: se acredita acá y sale del efectivo a rendir del punto de venta.'), ok);
+        return pareo(null, [ventaTxt(p), `${pesos(p.importe)} · cobrado en efectivo`],
+          [`El cobro se acredita en esta cuenta y sale del efectivo a rendir de ${p.punto_venta || 'el punto de venta'}.`], ok);
       }
       if (x.tipo === 'division') {
-        const otras = x.lineas.filter(id => id !== l.id).map(id => d.lineas.find(y => y.id === id)).filter(Boolean);
+        const ls = x.lineas.map(id => d.lineas.find(y => y.id === id)).filter(Boolean);
         ok.onclick = () => confirmar({});
-        return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-          `es ${venta}, pagada en ${x.lineas.length} partes: esta y ` + otras.map(o => `${pesos(o.importe)} del ${fecha(o.fecha)}`).join(' y ') + '.'), ok);
+        return pareo(ls.map(lineaTxt), sistema, [`Las ${ls.length} líneas suman el cobro: se acredita en ${ls.length} partes.`], ok);
       }
       const mas = !x.diferencia.startsWith('-'), dif = pesos(x.diferencia.replace('-', ''));
-      const motivo = el('input', { placeholder: 'Motivo de la diferencia', 'aria-label': 'Motivo de la diferencia' });
-      ok.onclick = () => motivo.value.trim() ? confirmar({ motivo: motivo.value.trim() }) : (motivo.focus(), ctx.aviso('Indicá el motivo de la diferencia.', 'mal'));
-      return el('div', { className: 'sug' }, el('span', { className: 't' }, el('b', { textContent: 'Sugerencia: ' }),
-        `es ${venta}; entró ${dif} ${mas ? 'más' : 'menos'}.`), motivo, ok);
+      const m = motivoDe('Motivo de la diferencia', v => confirmar({ motivo: v }));
+      return pareo(null, sistema, [`El cobro se acredita con esta línea. Entró ${dif} ${mas ? 'más' : 'menos'}: la diferencia queda con el motivo.`], m, ok);
     }
     function filaLinea(l) {
       const pp = partes(l.concepto), acc = el('div', { className: 'acc' });
@@ -583,7 +588,7 @@ const Conc = (() => {
     const VISIBLES = 8;
     const grupo = (titulo, lista, cap, fila) => {
       const sec = el('section', { className: 'card grupo-p' },
-        el('h3', {}, titulo, el('small', { textContent: `${lista.length} · ${pesos(suma(lista))}` })), el('p', { className: 'cap', textContent: cap }), ...lista.slice(0, VISIBLES).map(fila));
+        el('h3', {}, titulo, el('small', { textContent: `${lista.length} · ${pesos(suma(lista))}` })), comoFunciona(cap), ...lista.slice(0, VISIBLES).map(fila));
       if (lista.length > VISIBLES) {
         const mas = el('button', { type: 'button', className: 'ver-mas', textContent: `Ver ${lista.length - VISIBLES} más` });
         mas.onclick = () => mas.replaceWith(...lista.slice(VISIBLES).map(fila));
@@ -591,6 +596,12 @@ const Conc = (() => {
       }
       return sec;
     };
+    // La explicación de cada grupo, a pedido (pedido de Fer, 15/11/2026: mucho texto a la vista).
+    const comoFunciona = texto => el('details', { className: 'como-f' }, el('summary', { textContent: 'Cómo funciona' }), el('p', { textContent: texto }));
+    // Una fila de un grupo de confirmación en bloque: lo del extracto y la venta como está en el sistema, lado a lado.
+    const filaPar = (l, p, cargado) => el('div', { className: 'par' },
+      el('div', {}, el('span', { className: 'et', textContent: 'En el extracto' }), el('span', { textContent: lineaTxt(l) })),
+      el('div', {}, el('span', { className: 'et', textContent: 'En el sistema' }), el('span', { textContent: ventaTxt(p) }), el('small', { textContent: `${pesos(p.importe)} · ${cargado}` })));
     const grupos = [];
     // Cobros de otro procesador por importe y fecha (pedido de Fer, 13/11/2026: con Pago24 caído, en CORTAFUEGO se cobró por
     // transferencia directa a BRUBANK lo que en Fudo quedó como Pago24). Se confirman todos juntos o uno por uno en su línea.
@@ -610,18 +621,17 @@ const Conc = (() => {
       const porProc = [...new Set(porFecha.map(x => x.pago.procesador_cargado))].join(', ');
       grupos.push(el('section', { className: 'card grupo-p' },
         el('h3', {}, 'Cobros que coinciden por importe y fecha', el('small', { textContent: `${porFecha.length} · ${pesos(deCentavos(porFecha.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
-        el('p', { className: 'cap', textContent: `Ingresos que coinciden en importe exacto con una venta pendiente de acreditar de hasta una semana antes (cobrada con ${porProc}): `
-          + 'ventas cargadas con otro procesador que se cobraron por acá, o que llegaron al banco más tarde de lo normal. Confirmarlos los acredita acá y los saca de lo que '
-          + 'esperaba el procesador de la venta. Es la excepción, no la regla: revisá la lista antes, el pareo es sólo por importe y día (con importes repetidos, la venta '
-          + 'que toma cada línea es indistinta). Cada uno se puede confirmar también suelto, en su línea.' }),
-        el('ul', { className: 'lista-sug' }, ...porFecha.map(x => { const l = d.lineas.find(y => y.id === x.lineas[0]) || {};
-          return el('li', { textContent: `${fecha(l.fecha)} · ${pesos(l.importe)} · ${l.concepto || ''} → venta #${x.pago.id_externo} del ${fecha(x.pago.dia)} (${x.pago.procesador_cargado})` }); })),
+        el('p', { className: 'resumen-g', textContent: 'Al confirmar, cada cobro se acredita en esta cuenta y sale de lo que esperaba el procesador con que se cargó la venta.' }),
+        comoFunciona(`Ingresos que coinciden en importe exacto con una venta pendiente de acreditar de hasta una semana antes (cobrada con ${porProc}): `
+          + 'ventas cargadas con otro procesador que se cobraron por acá, o que llegaron al banco más tarde de lo normal. Es la excepción, no la regla: revisá la lista '
+          + 'antes, el pareo es sólo por importe y día (con importes repetidos, la venta que toma cada línea es indistinta). Cada uno se puede confirmar también suelto, en su línea.'),
+        el('div', { className: 'pares' }, ...porFecha.map(x => filaPar(d.lineas.find(y => y.id === x.lineas[0]), x.pago, medioTxt(x.pago)))),
         el('div', { className: 'acciones' }, todos)));
     }
     // Los cobros que en el sistema de venta quedaron como efectivo se confirman todos juntos (decisión de Fer, 02/11/2026).
     const enEfectivo = (d.sugerencias || []).filter(x => x.tipo === 'en_efectivo');
     if (enEfectivo.length) {
-      const todos = el('button', { type: 'button', className: 'prim', textContent: `Confirmar los ${enEfectivo.length}` });
+      const todos = el('button', { type: 'button', className: 'prim', textContent: enEfectivo.length === 1 ? 'Confirmar' : `Confirmar los ${enEfectivo.length}` });
       todos.onclick = async () => {
         todos.disabled = true; let hechos = 0;
         for (const x of enEfectivo) {
@@ -634,8 +644,10 @@ const Conc = (() => {
       };
       grupos.push(el('section', { className: 'card grupo-p' },
         el('h3', {}, 'Cobrados acá, cargados como efectivo', el('small', { textContent: `${enEfectivo.length} · ${pesos(deCentavos(enEfectivo.reduce((s, x) => s + centavos(x.pago.importe), 0n)))}` })),
-        el('p', { className: 'cap', textContent: 'Cobros que coinciden en importe y día con ventas que en el sistema de venta quedaron cobradas en efectivo. Confirmarlos los '
-          + 'acredita acá y los saca del efectivo a rendir del punto de venta (si ese efectivo ya se rindió, queda en negativo hasta corregir la rendición).' }),
+        el('p', { className: 'resumen-g', textContent: 'Al confirmar, cada cobro se acredita en esta cuenta y sale del efectivo a rendir del punto de venta.' }),
+        comoFunciona('Cobros que coinciden en importe y día con ventas que en el sistema de venta quedaron cobradas en efectivo. Si ese efectivo ya se rindió, '
+          + 'la cuenta de efectivo queda en negativo hasta corregir la rendición.'),
+        el('div', { className: 'pares' }, ...enEfectivo.map(x => filaPar(d.lineas.find(y => y.id === x.lineas[0]), x.pago, 'cobrada en efectivo'))),
         el('div', { className: 'acciones' }, todos)));
     }
     // Transferencias entre cuentas propias (pedido de Fer, 10/11/2026): la misma plata en dos extractos propios, o una reserva o
@@ -662,8 +674,9 @@ const Conc = (() => {
       };
       grupos.push(el('section', { className: 'card grupo-p' },
         el('h3', {}, 'Transferencias entre cuentas propias', el('small', { textContent: `${transf.length} · ${pesos(deCentavos(transf.reduce((t, x) => { const v = centavos(x.linea.importe); return t + (v < 0n ? -v : v); }, 0n)))}` })),
-        el('p', { className: 'cap', textContent: 'La misma plata en el extracto de dos cuentas propias (mismo importe, hasta 2 días de diferencia), o una reserva o retiro del apartado. '
-          + 'Confirmarlas asienta la transferencia entre las dos cuentas y concilia las dos líneas.' }),
+        el('p', { className: 'resumen-g', textContent: 'Al confirmar, se asienta la transferencia entre las dos cuentas y se concilian las dos líneas.' }),
+        comoFunciona('La misma plata en el extracto de dos cuentas propias (mismo importe, hasta 2 días de diferencia), una reserva o retiro del apartado, '
+          + 'o una transferencia cuyo CBU de destino es de una cuenta nuestra.'),
         ...transf.map(fila), el('div', { className: 'acciones' }, todas)));
     }
     const sinTransf = arr => arr.filter(l => !enTransf.has(l.id));
@@ -700,7 +713,7 @@ const Conc = (() => {
       const det = el('details', { className: 'card grupo-p' },
         el('summary', {}, el('b', { textContent: 'No se tienen en cuenta' }), el('small', { textContent: ` ${lista.length} · ${pesos(suma(lista))}` })));
       det.addEventListener('toggle', () => { if (det.open && det.children.length === 1) det.append(
-        el('p', { className: 'cap', textContent: 'Líneas del extracto que no se van a conciliar (por ejemplo, cobros de ventas anteriores al inicio de los cobros). No mueven plata: la diferencia con el saldo del sistema se resuelve con el saldo inicial.' }),
+        comoFunciona('Líneas del extracto que no se van a conciliar (por ejemplo, cobros de ventas anteriores al inicio de los cobros). No mueven plata: la diferencia con el saldo del sistema se resuelve con el saldo inicial.'),
         ...lista.map(filaDescartada)); });
       return det;
     };

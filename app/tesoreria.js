@@ -1003,7 +1003,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
       WHERE l.cuenta_id = $1::uuid AND l.descartada IS NOT NULL ORDER BY l.fecha, l.id`, [cuenta]);
   res.json({ ok: true, cuenta_id: cuenta, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
     descartadas: descartadas.map(l => ({ ...l, lado: ladoDe(l) })).filter(l => !lado || l.lado === lado),
-    sugerencias: lado === 'egresos' ? [] : await sugerenciasProcesador(cuenta), extractos, cobros,
+    sugerencias: lado === 'egresos' ? [] : await conDatosDeVenta(await sugerenciasProcesador(cuenta)), extractos, cobros,
     transferencias: (await transferenciasPropias(cuenta)).filter(x => !lado || ladoDe(x.linea) === lado) });
 }));
 
@@ -1487,6 +1487,20 @@ const EN_EFECTIVO_SQL = `
 // El día de la venta de una línea: el que dice el concepto ("venta del AAAA-MM-DD", Mercado Pago) o el de la línea.
 const diaVentaDe = l => (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1] || l.fecha;
 
+// Cómo quedó cargada en el sistema cada venta de una sugerencia (pedido de Fer, 15/11/2026: que se vea claro qué encontró): el
+// punto de venta, la hora, el medio tal como lo escribió el sistema de venta y el procesador al que lo asignamos.
+async function conDatosDeVenta(sug) {
+  const ids = [...new Set(sug.map(x => x.pago && x.pago.id).filter(Boolean))];
+  if (!ids.length) return sug;
+  const { rows } = await pool.query(
+    `SELECT p.id, i.nombre AS punto_venta, m.nombre AS medio_sistema, pr.nombre AS procesador, mp.tipo_operacion,
+            to_char(COALESCE(t.abierto_en, t.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') AS hora, t.mesa
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+       JOIN pos.medio m ON m.id = p.medio_id LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+      WHERE p.id = ANY($1::uuid[])`, [ids]);
+  const por = new Map(rows.map(r => [String(r.id), r]));
+  return sug.map(x => x.pago && por.has(String(x.pago.id)) ? { ...x, pago: { ...por.get(String(x.pago.id)), ...x.pago, venta: por.get(String(x.pago.id)) } } : x);
+}
 async function sugerenciasProcesador(cuenta) {
   const { rows: [pr] } = await pool.query(`SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid ORDER BY marca = 'transferencia', nombre LIMIT 1`, [cuenta]);
   if (!pr) return [];

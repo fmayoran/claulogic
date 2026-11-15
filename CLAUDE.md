@@ -605,6 +605,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cerrado, como respaldo (`GET /fin/conciliacion/hechas`, de a 100 y con búsqueda). Importar un extracto en la
   cuenta de un procesador concilia en el mismo paso. Los movimientos sin conciliar sólo cuentan desde el inicio de
   los extractos y sin los anulados.
+  **Cómo se muestra una sugerencia** (pedido de Fer, 15/11/2026: mucho texto y no quedaba claro qué encontró): en bloques rotulados,
+  *En el extracto* (sólo si no es la línea misma: ventas en partes y grupos en bloque), *En el sistema* (venta, hora, local y el medio como
+  lo escribió el sistema de venta, con la cuenta de cobro y el tipo entre paréntesis; `conDatosDeVenta` en `tesoreria.js` completa cada
+  sugerencia) y *Al confirmar* (qué movimiento hace). La explicación de cada grupo va plegada en "Cómo funciona".
   **Pareos sugeridos** (decisión de Fer, 26/10/2026; nunca automáticos, se confirman con un toque): una venta
   pagada en partes (2 o 3 ingresos pendientes que suman exacto un cobro) y un ingreso que difiere del cobro hasta
   el 10% o $5.000 (el mayor), con motivo obligatorio. `POST /fin/conciliacion/acreditar`: el cobro sale entero de

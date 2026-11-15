@@ -40,6 +40,20 @@ def api(route):
         datos = {'sociedades': [{'id': 'x', 'nombre': 'CORTAFUEGO SRL', 'activa': True}, {'id': 'y', 'nombre': 'SORELLE CIUCIO SA', 'activa': True}]}
     elif 'fin/cuentas' in u:
         datos = {'cuentas': [{'id': 'b1', 'nombre': 'BRUBANK', 'tipo': 'banco', 'activa': True}, {'id': 'b2', 'nombre': 'MERCADO PAGO SORE', 'tipo': 'banco', 'activa': True}]}
+    elif 'fin/conciliacion?' in u and 'lado=' not in u:
+        # Conciliación de BRUBANK con sugerencias de ejemplo (sin lado: la pantalla de Conciliación).
+        L = lambda i, f, imp, c: {'id': i, 'fecha': f, 'importe': imp, 'concepto': c, 'referencia': '', 'candidatos': [], 'lado': 'ingresos'}
+        V = lambda i, n, dia, imp, proc, tipo, pv, medio, **k: dict({'id': i, 'id_externo': n, 'dia': dia, 'importe': imp, 'procesador_cargado': proc, 'procesador': proc,
+             'tipo_operacion': tipo, 'punto_venta': pv, 'medio_sistema': medio, 'hora': '21:14'}, **k)
+        datos = {'cuenta_id': 'b1', 'extractos': [{'id': 1}], 'cobros': [], 'transferencias': [], 'descartadas': [], 'movimientos': [], 'conciliado': {'lineas': 120},
+                 'procesador': None, 'lineas': [L(31, '2026-11-11', '240000.00', 'Transferencia recibida - Juan Perez - 38123456'),
+                                                L(32, '2026-11-12', '27500.00', 'Transferencia recibida - Maria Gomez'),
+                                                L(33, '2026-11-10', '48600.00', 'Fudo Pagos - Liquidacion'),
+                                                L(34, '2026-11-09', '15000.00', 'Transferencia recibida - Lucas Diaz')],
+                 'sugerencias': [{'tipo': 'otro_por_fecha', 'lineas': [31], 'pago': V('p1', '1312', '2026-11-06', '240000.00', 'PAGO24 CORTAFUEGO', 'transferencia', 'CORTAFUEGO PARRILLA', 'Pago24', propio=False)},
+                                 {'tipo': 'otro_por_fecha', 'lineas': [32], 'pago': V('p2', '1330', '2026-11-08', '27500.00', 'PAGO24 CORTAFUEGO', 'qr', 'CORTAFUEGO PARRILLA', 'Pago24 QR', propio=False)},
+                                 {'tipo': 'diferencia', 'lineas': [33], 'diferencia': '-1400.00', 'pago': V('p3', '1301', '2026-11-08', '50000.00', 'TRANSFERENCIA BRUBANK CORTAFUEGO', 'transferencia', 'CORTAFUEGO PARRILLA', 'Transferencia Brubank')},
+                                 {'tipo': 'en_efectivo', 'lineas': [34], 'pago': V('p4', '1288', '2026-11-08', '15000.00', None, None, 'CORTAFUEGO PARRILLA', 'Efectivo')}]}
     elif 'fin/conciliacion?' in u:
         b1 = 'cuenta=b1' in u
         datos = {'extractos': [{'id': 1}], 'cobros': [], 'sugerencias': [], 'transferencias': [], 'descartadas': [], 'lineas': (
