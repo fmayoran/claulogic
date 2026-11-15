@@ -601,7 +601,7 @@ async function armarComprobantes(grupos) {
         if (!pid) {
           const { rows: [ya] } = await c.query('SELECT id FROM logic.proveedor WHERE lower(nombre) = lower($1)', [nombre]);
           pid = ya ? ya.id : (await c.query('INSERT INTO logic.proveedor (nombre, notas) VALUES ($1, $2) RETURNING id',
-            [nombre, 'Creado desde los pagos sin factura']).rows[0].id);
+            [nombre, 'Creado desde los pagos sin factura'])).rows[0].id;
         }
         let creados = 0;
         for (const id of ids) {
