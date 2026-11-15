@@ -66,13 +66,13 @@ def api(route):
         def d(dia, ventas=12, **k): return dict({'dia': dia, 'ventas': ventas, 'sincronizado': True, 'efectivo': '0', 'vendido': '1000', 'cobrado': '1000'}, **k)
         hoy_c = '2026-11-15T08:02:00Z'
         datos = {'puntos': [
-            {'id': 'i1', 'sede': 'CORTAFUEGO PARRILLA', 'nombre': 'CORTAFUEGO PARRILLA', 'sistema': 'fudo', 'modo': 'api', 'sincroniza_auto': True, 'efectivo_a_rendir': '0',
+            {'id': 'i1', 'sede': 'CORTAFUEGO PARRILLA', 'nombre': 'CORTAFUEGO PARRILLA', 'sistema': 'fudo', 'modo': 'api', 'sincroniza_auto': True, 'efectivo_a_rendir': '0', 'cuenta_efectivo_id': 'e1',
              'ultima_corrida': {'ok': True, 'automatica': True, 'iniciada_en': hoy_c, 'terminada_en': hoy_c}, 'tareas': [], 'dias': [d('2026-11-14')]},
-            {'id': 'i2', 'sede': 'SORELLE BODEGON Y SUSHI', 'nombre': 'SORELLE BODEGON Y SUSHI', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '412000',
+            {'id': 'i2', 'sede': 'SORELLE BODEGON Y SUSHI', 'nombre': 'SORELLE BODEGON Y SUSHI', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '412000', 'cuenta_efectivo_id': 'e2',
              'traer_desde': '2026-11-13', 'ultima_corrida': {'ok': True, 'automatica': False, 'iniciada_en': '2026-11-13T10:00:00Z'},
              'tareas': [{'tipo': 'corrida', 'nivel': 'aviso', 'texto': 'Faltan traer las ventas desde el 13/11.'}, {'tipo': 'efectivo', 'nivel': 'aviso', 'texto': 'Efectivo a rendir de 2 día(s).', 'desde': '2026-11-11'}],
              'dias': [d('2026-11-14', 0, sincronizado=False), d('2026-11-13', 0, sincronizado=False), d('2026-11-12', efectivo='200000')]},
-            {'id': 'i3', 'sede': 'SORELLE CAFETERIA', 'nombre': 'SORELLE CAFETERIA', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '0',
+            {'id': 'i3', 'sede': 'SORELLE CAFETERIA', 'nombre': 'SORELLE CAFETERIA', 'sistema': 'maxirest', 'modo': 'api', 'sincroniza_auto': False, 'efectivo_a_rendir': '0', 'cuenta_efectivo_id': 'e3',
              'ultima_corrida': {'ok': True, 'automatica': False, 'iniciada_en': '2026-11-15T10:59:00Z', 'terminada_en': '2026-11-15T10:59:20Z'},
              'tareas': [{'tipo': 'dia', 'clase': 'medios', 'nivel': 'mal', 'dias': ['2026-11-14'], 'texto': 'Hay cobros con un medio sin asignar.'}], 'dias': [d('2026-11-14')]},
             {'id': 'i4', 'sede': 'CORTAFUEGO PARRILLA', 'nombre': 'PedidosYa · CORTAFUEGO PARRILLA', 'sistema': 'pedidosya', 'modo': 'archivo', 'sincroniza_auto': False, 'efectivo_a_rendir': '0',
@@ -116,11 +116,12 @@ with sync_playwright() as p:
         nombre = '%s/%s-%s-%d.png' % (out, pag.split('.')[0].split('#')[0], tema, ancho)
         clic = partes[3] if len(partes) > 3 else None
         if clic and clic.startswith('='):
-            page.locator('button', has_text=clic[1:]).first.click()
-            page.wait_for_timeout(500)
-            nombre = nombre.replace('.png', '-%s.png' % clic[1:])
+            for t in clic[1:].split('+'):
+                page.get_by_role('button', name=t).first.click()
+                page.wait_for_timeout(300)
+            nombre = nombre.replace('.png', '-%s.png' % clic[1:].replace(' ', '_').replace('+', '_'))
             clic = None
-            page.screenshot(path=nombre)
+            page.screenshot(path=nombre, full_page=True)
             print(nombre, 'errores:', errores[:3]); ctx.close(); continue
         if clic:
             page.locator('.inferior button', has_text=clic).click()

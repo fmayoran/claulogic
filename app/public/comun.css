@@ -289,26 +289,39 @@ ol.jornada > li.actual::before{border-color:var(--acento);color:var(--acento);}
 ol.jornada > li.falta::before{border-color:var(--aviso);color:var(--aviso);}
 ol.jornada > li.hecha,ol.jornada > li.espera{padding-top:11px;padding-bottom:11px;}
 ol.jornada > li.hecha::before,ol.jornada > li.espera::before{top:10px;}
-.et-cab{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;min-height:26px;}
+.et-cab{display:flex;align-items:center;gap:4px 12px;flex-wrap:wrap;min-height:26px;cursor:pointer;user-select:none;}
 .et-cab h2{margin:0;font-size:1.12rem;}
 .et-cab .et-est{font-size:.88rem;color:var(--mut);}
 li.hecha .et-est{color:var(--ok);} li.falta .et-est,li.actual .et-est{color:var(--aviso);font-weight:600;}
-.et-cab .et-acc{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;}
+.et-cab .et-acc{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+/* La flecha que dice si la etapa está abierta: toda la cabecera la abre o la cierra. */
+.et-cab .et-flecha{width:9px;height:9px;border-right:2px solid var(--mut);border-bottom:2px solid var(--mut);transform:rotate(45deg);margin:0 4px 4px 6px;transition:transform .15s;}
+li.abierta > .et-cab .et-flecha{transform:rotate(-135deg);margin-bottom:-2px;}
 .et-ahora{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--acento);}
-.et-cuerpo{margin-top:10px;}
-.et-ayuda{color:var(--mut);font-size:.86rem;margin:2px 0 6px;}
-/* Un renglón de una etapa (un punto de venta, una cuenta, una tarea): punto de estado, quién, qué pasa y su acción. */
-.et-fila{display:grid;grid-template-columns:10px minmax(0,230px) minmax(0,1fr) auto;gap:3px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line);}
-.et-fila:first-child{border-top:0;}
-.et-fila .pt{width:10px;height:10px;border-radius:50%;background:var(--mut);} .et-fila .pt.ok{background:var(--ok);}
-.et-fila .pt.aviso{background:var(--aviso);} .et-fila .pt.mal{background:var(--mal);} .et-fila .pt.info{background:var(--info);}
+.et-cuerpo{margin-top:12px;}
+.et-ayuda{color:var(--mut);font-size:.86rem;margin:0 0 8px;}
+/* Los pasos de una etapa en chico, en la cabecera: un círculo por elemento, unidos; verde lo hecho. */
+.et-mini{display:inline-flex;align-items:center;}
+.et-mini i{width:10px;height:10px;border-radius:50%;border:2px solid var(--borde);background:var(--panel);display:block;}
+.et-mini i + i{margin-left:10px;position:relative;} .et-mini i + i::before{content:'';position:absolute;right:100%;top:2px;width:10px;height:2px;background:var(--borde);}
+.et-mini i.ok{background:var(--ok);border-color:var(--ok);} .et-mini i.aviso{border-color:var(--aviso);} .et-mini i.mal{border-color:var(--mal);background:var(--mal);}
+/* Un renglón de una etapa (un punto de venta, una cuenta, una tarea), como estación de una línea vertical: círculo de estado
+   (con el signo si está hecho), quién, qué pasa y su acción. El círculo siempre va con texto. */
+.et-fila{position:relative;display:grid;grid-template-columns:20px minmax(0,230px) minmax(0,1fr) auto;gap:3px 12px;align-items:center;padding:9px 0;}
+.et-fila::before{content:'';position:absolute;left:9px;top:0;bottom:0;width:2px;background:var(--borde);}
+.et-fila:first-of-type::before{top:50%;} .et-fila:last-of-type::before{bottom:50%;} .et-fila:only-of-type::before{display:none;}
+.et-fila .pt{position:relative;z-index:1;width:20px;height:20px;border-radius:50%;border:2px solid var(--mut);background:var(--panel);display:grid;place-items:center;}
+.et-fila .pt.ok{background:var(--ok);border-color:var(--ok);} .et-fila .pt.ok::after{content:'✓';color:var(--panel);font-size:.72rem;font-weight:700;line-height:1;}
+.et-fila .pt.aviso{border-color:var(--aviso);} .et-fila .pt.mal{border-color:var(--mal);background:var(--mal-bg);} .et-fila .pt.info{border-color:var(--info);}
 .et-fila .et-quien{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:0;} .et-fila .et-quien b{font-weight:600;line-height:1.25;} .et-fila .et-quien small{color:var(--mut);font-size:.8rem;}
 .et-fila .et-que{font-size:.9rem;line-height:1.35;} .et-fila .et-que small{display:block;color:var(--mut);font-size:.82rem;}
 .et-fila .et-que .mal{color:var(--mal);} .et-fila .et-que .aviso{color:var(--aviso);}
+.et-fila.ok .et-que{color:var(--mut);}
 .et-fila .et-facc{display:flex;gap:6px;justify-content:flex-end;}
 @media (max-width:700px){
   ol.jornada > li{padding:12px 14px 12px 50px;} ol.jornada > li::before{left:12px;}
-  .et-fila{grid-template-columns:10px minmax(0,1fr) auto;} .et-fila .et-que{grid-column:2 / -1;}
+  .et-fila{grid-template-columns:20px minmax(0,1fr) auto;} .et-fila .et-que{grid-column:2 / -1;}
+  .et-cab .et-mini{order:5;flex-basis:100%;}
   .et-fila .et-facc{grid-column:2 / -1;justify-content:flex-start;}
 }
 

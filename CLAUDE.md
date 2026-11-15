@@ -1071,8 +1071,11 @@ la guía y a `comun.css`, no a la pantalla.
   cobros quedaron procesados; "Traer ahora" corre `POST /pos/integraciones/:id/correr` desde ahí (y "Traer las N que faltan"), "Importar"
   lleva al paso 1 de Ingresos; 2 efectivo a rendir; 3 extractos; 4 conciliación de cobros; 5 egresos para clasificar; 6 compras y almacén
   (las antiguas tarjetas de "Para resolver"). Mismo criterio que la barra de pasos de Ingresos (`/pos/cierre?dias=14` y
-  `/fin/procesadores/resumen`). La etapa que sigue va resaltada y abierta ("Seguí por acá"), las hechas plegadas; arriba, la barra de
-  avance, y con todo al día "Estás al día" con los atajos para empezar otras gestiones. Los **indicadores del mes hasta ayer** van en la
+  `/fin/procesadores/resumen`). Todas las etapas van **cerradas** y se abren tocando la cabecera (se recuerda cuáles en el navegador,
+  `localStorage['inicio-abiertas']`); la que sigue va resaltada ("Seguí por acá"). Cada etapa muestra **todos** sus elementos (puntos de
+  venta, cuentas, temas) como **círculos conectados** en vertical, con check verde lo que está al día, y cerrada los mismos círculos en
+  chico en la cabecera (`.et-mini`). Arriba, la barra de avance y los **accesos directos** (Necesito comprar, Llegó mercadería, Cargar
+  factura, Proceso de ingresos, Clasificar egresos, Operaciones de tesorería, según permisos): Inicio es el panel operativo (Fer). Los **indicadores del mes hasta ayer** van en la
   columna del costado (debajo en el celular). Sin finanzas, sólo la etapa de compras y almacén.
 - **Cuatro moldes de pantalla**: tablero (cifras, gráficos, detalle en panel lateral), proceso (etapas, lo que hay para resolver y
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
