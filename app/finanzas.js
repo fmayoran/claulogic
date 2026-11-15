@@ -57,7 +57,7 @@ r.get('/fin/comprobantes/:id', h(async (req, res) => {
        JOIN org.sociedad so ON so.id = c.sociedad_id
       WHERE c.id = $1::uuid`, [req.params.id]);
   if (!c) throw new ErrorUsuario('No existe ese comprobante.', 404);
-  const [items, tributos, compras, iva, movs] = await Promise.all([
+  const [items, tributos, compras, iva, movs, previos] = await Promise.all([
     pool.query(
       `SELECT i.id, i.producto_id, i.compra_item_id, i.descripcion, i.unidad, trim_scale(i.cantidad)::text AS cantidad,
               trim_scale(i.precio_unitario)::text AS precio, trim_scale(i.descuento_pct)::text AS descuento,
@@ -71,10 +71,13 @@ r.get('/fin/comprobantes/:id', h(async (req, res) => {
                  WHERE comprobante_id = $1 ORDER BY alicuota DESC`, [c.id]),
     pool.query(`SELECT id, ocurrido_en, tipo, debe::text, haber::text, detalle, registrado_por
                   FROM fin.movimiento_cc WHERE comprobante_id = $1 ORDER BY id`, [c.id]),
+    pool.query(`SELECT pp.movimiento_id, pp.importe::text, to_char(m.fecha, 'YYYY-MM-DD') AS fecha, m.concepto, cu.nombre AS cuenta
+                  FROM fin.pago_previo pp JOIN fin.movimiento_tes m ON m.id = pp.movimiento_id JOIN fin.cuenta cu ON cu.id = m.cuenta_id
+                 WHERE pp.comprobante_id = $1 ORDER BY m.fecha`, [c.id]),
   ]);
   const asociado = c.asociado_id ? nro({ tipo: c.asociado_tipo, letra: c.asociado_letra, punto_venta: c.asociado_pv, numero: c.asociado_numero }) : null;
   res.json({ ok: true, comprobante: { ...c, nro: nro(c), asociado, items: items.rows, tributos: tributos.rows,
-    compras: compras.rows, alicuotas: iva.rows, movimientos: movs.rows } });
+    compras: compras.rows, alicuotas: iva.rows, movimientos: movs.rows, pagos_previos: previos.rows } });
 }));
 
 // ── Carga ────────────────────────────────────────────────────────────────────────────────────
@@ -412,4 +415,95 @@ r.get('/fin/sociedad-sugerida', h(async (req, res) => {
 
 // Para el proceso de abastecimiento (abastecimiento.js).
 Object.assign(r, { leerComprobante, insertarComprobante, actualizarComprobante, comprasConRenglones, sociedadSugerida });
+// ── Pagos sin factura (pedido de Fer, 15/11/2026; migración 20261147) ─────────────────────────────────────────────────────────
+// Egresos que ya están en tesorería (muchos registrados desde el extracto con su rubro) y que todavía no tienen la factura del
+// proveedor. Cargar la factura y vincularla con el pago la deja compensada en la cuenta corriente: no mueve plata ni cambia el
+// estado de resultados (el costo sigue saliendo del egreso, en el mes del pago).
+// Por defecto, las líneas del estado donde van las compras y los servicios; con `todo=1`, también sueldos, impuestos y bancarios.
+const LINEAS_COMPRA = ['cmv', 'locacion', 'operativos', 'comercializacion', 'administracion', 'inversiones', 'otros', 'fuera'];
+const PAGOS_SIN_FACTURA = `
+  SELECT m.id, to_char(m.fecha, 'YYYY-MM-DD') AS fecha, m.salida AS salida, m.concepto, c.id AS cuenta_id, c.nombre AS cuenta, c.tipo AS cuenta_tipo,
+         c.sociedad_id, so.nombre AS sociedad, r.nombre AS rubro, r.linea,
+         (SELECT string_agg(DISTINCT x.destinatario, ' · ') FROM fin.conciliacion k JOIN fin.extracto_linea x ON x.id = k.linea_id
+           WHERE k.movimiento_id = m.id AND x.destinatario IS NOT NULL) AS destinatario,
+         COALESCE((SELECT SUM(pp.importe) FROM fin.pago_previo pp WHERE pp.movimiento_id = m.id), 0) AS aplicado
+    FROM fin.movimiento_tes m
+    JOIN fin.cuenta c ON c.id = m.cuenta_id LEFT JOIN org.sociedad so ON so.id = c.sociedad_id
+    LEFT JOIN fin.clasificacion k ON k.movimiento_id = m.id LEFT JOIN fin.rubro r ON r.id = k.rubro_id
+   WHERE m.tipo = 'egreso' AND m.salida > 0 AND m.anula_a IS NULL AND m.orden_pago_id IS NULL AND m.gasto IS NULL
+     AND m.pos_cobro_id IS NULL AND m.ticket_pago_id IS NULL AND m.cheque_id IS NULL
+     AND c.tipo IN ('banco', 'caja', 'socios')
+     AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes z WHERE z.anula_a = m.id)`;
+
+r.get('/fin/pagos-sin-factura', h(async (req, res) => {
+  const desde = fecha(req.query.desde, { campo: 'Desde' }), hasta = fecha(req.query.hasta, { campo: 'Hasta' });
+  const todo = req.query.todo === '1', q = texto(req.query.q), sociedad = texto(req.query.sociedad), id = numero(req.query.id, { campo: 'el pago' });
+  const { rows } = await pool.query(
+    `SELECT x.*, (x.salida - x.aplicado)::text AS disponible, x.salida::text AS importe, x.aplicado::text AS aplicado FROM (${PAGOS_SIN_FACTURA}) x
+      WHERE x.salida > x.aplicado
+        AND ($1::date IS NULL OR x.fecha::date >= $1) AND ($2::date IS NULL OR x.fecha::date <= $2)
+        AND ($3 OR x.linea IS NULL OR x.linea = ANY($4::text[]))
+        AND ($5::text IS NULL OR translate(lower(COALESCE(x.concepto, '') || ' ' || COALESCE(x.destinatario, '') || ' ' || COALESCE(x.rubro, '')), 'áéíóúüñ', 'aeiouun') LIKE '%' || translate(lower($5), 'áéíóúüñ', 'aeiouun') || '%'
+             OR to_char(x.salida, 'FM999999999990') LIKE $5 || '%')
+        AND ($6::text IS NULL OR ($6 = 'grupo' AND x.sociedad_id IS NULL) OR x.sociedad_id::text = $6)
+        AND ($7::bigint IS NULL OR x.id = $7)
+      ORDER BY x.fecha DESC, x.id DESC LIMIT 501`,
+    [desde, hasta, todo || !!id, LINEAS_COMPRA, q, sociedad, id]);
+  res.json({ ok: true, recortado: rows.length > 500, pagos: rows.slice(0, 500) });
+}));
+
+// Vincular pagos con una factura registrada: cada uno por lo que se le aplica, sin pasar lo que salió ni lo pendiente. El pago
+// tiene que ser de una cuenta de la sociedad de la factura o del grupo (como una orden de pago).
+r.post('/fin/comprobantes/:id/pago-previo', h(async (req, res) => {
+  const items = (Array.isArray(req.body.pagos) ? req.body.pagos : []).map(p => ({
+    id: numero(p.id, { campo: 'el pago', requerido: true }), importe: numero(p.importe, { campo: 'el importe aplicado', requerido: true }) }));
+  if (!items.length) throw new ErrorUsuario('Elegí el pago.');
+  if (new Set(items.map(x => x.id)).size !== items.length) throw new ErrorUsuario('Un pago está repetido.');
+  await enTransaccion(async c => {
+    await c.query('SELECT org.exigir_finanzas()');
+    const { rows: [cp] } = await c.query(
+      `SELECT co.id, co.proveedor_id, co.sociedad_id, co.tipo, co.estado, p.pendiente FROM fin.comprobante co
+         LEFT JOIN fin.comprobante_pendiente p ON p.comprobante_id = co.id WHERE co.id = $1::uuid FOR UPDATE OF co`, [req.params.id]);
+    if (!cp) throw new ErrorUsuario('No existe ese comprobante.', 404);
+    if (cp.estado !== 'registrado' || cp.tipo === 'nota_credito') throw new ErrorUsuario('Sólo se vincula un pago con una factura o nota de débito registrada.');
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['proveedor:' + cp.proveedor_id]);
+    let pendiente = Number(cp.pendiente);
+    for (const it of items) {
+      await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['pago-previo:' + it.id]);
+      const { rows: [m] } = await c.query(
+        `SELECT x.*, (x.salida - x.aplicado) AS disponible FROM (${PAGOS_SIN_FACTURA}) x WHERE x.id = $1`, [it.id]);
+      if (!m) throw new ErrorUsuario(`El movimiento ${it.id} no es un pago que se pueda vincular (o ya está anulado).`);
+      if (m.sociedad_id && m.sociedad_id !== cp.sociedad_id) throw new ErrorUsuario(`El pago del ${m.fecha} es de ${m.sociedad}, no de la sociedad de la factura.`);
+      if (Number(it.importe) <= 0) throw new ErrorUsuario('El importe aplicado tiene que ser mayor que cero.');
+      if (Number(it.importe) > Number(m.disponible)) throw new ErrorUsuario(`Al pago del ${m.fecha} le quedan ${m.disponible} sin factura.`);
+      if (Number(it.importe) > pendiente + 0.004) throw new ErrorUsuario(`La factura tiene ${pendiente.toFixed(2)} pendiente: se aplica de más.`);
+      pendiente -= Number(it.importe);
+      const detalle = `Pagado con ${m.concepto || 'un egreso'} (${m.cuenta}, ${m.fecha.split('-').reverse().join('/')})`;
+      const { rows: [cc] } = await c.query(
+        `INSERT INTO fin.movimiento_cc (fecha, proveedor_id, tipo, comprobante_id, debe, detalle) VALUES ($1,$2,'pago',$3,$4,$5) RETURNING id`,
+        [m.fecha, cp.proveedor_id, cp.id, it.importe, detalle]);
+      await c.query('INSERT INTO fin.pago_previo (comprobante_id, movimiento_id, importe, cc_movimiento_id) VALUES ($1,$2,$3,$4)',
+        [cp.id, it.id, it.importe, cc.id]);
+    }
+  });
+  res.status(201).json({ ok: true });
+}));
+
+// Desvincular un pago: la cuenta corriente lo revierte con una anulación y la factura vuelve a quedar pendiente por eso.
+r.delete('/fin/comprobantes/:id/pago-previo/:mov', h(async (req, res) => {
+  const mov = numero(req.params.mov, { campo: 'el pago', requerido: true });
+  await enTransaccion(async c => {
+    await c.query('SELECT org.exigir_finanzas()');
+    const { rows: [pp] } = await c.query(
+      `SELECT pp.*, m.proveedor_id, m.detalle, m.debe FROM fin.pago_previo pp JOIN fin.movimiento_cc m ON m.id = pp.cc_movimiento_id
+        WHERE pp.comprobante_id = $1::uuid AND pp.movimiento_id = $2 FOR UPDATE OF pp`, [req.params.id, mov]);
+    if (!pp) throw new ErrorUsuario('Ese pago no está vinculado con la factura.', 404);
+    await c.query(`INSERT INTO fin.movimiento_cc (fecha, proveedor_id, tipo, comprobante_id, debe, haber, detalle, anula_a)
+                   VALUES (current_date, $1, 'anulacion', $2, 0, $3, $4, $5)`,
+      [pp.proveedor_id, pp.comprobante_id, pp.debe, 'Desvincula: ' + pp.detalle, pp.cc_movimiento_id]);
+    await c.query('DELETE FROM fin.pago_previo WHERE comprobante_id = $1 AND movimiento_id = $2', [pp.comprobante_id, mov]);
+  });
+  res.json({ ok: true });
+}));
+
 module.exports = r;

@@ -247,6 +247,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   SUMAR un vínculo con compra (migración 20261102); guardar un borrador no borra el vínculo con una
   compra todavía sin recibir. **Vencimiento** propuesto: fecha del
   comprobante + plazo del proveedor (sin plazo, la misma fecha), editable.
+- **Pagos sin factura** (pedido de Fer, 15/11/2026; migración 20261147): muchas compras se registraron desde el extracto como egresos
+  con rubro, sin proveedor ni factura (270 por $116,9 M al 15/11). `pagos-sin-factura.html` (Registros) los lista (por defecto las líneas
+  de compras y servicios; con un tilde, también sueldos, impuestos y bancarios) y "Cargar factura" abre `comprobantes.html?pago=<id>` con
+  fecha, sociedad, total y un renglón con el rubro, como no fiscal, y el proveedor si su nombre aparece en el concepto o el destinatario.
+  Al registrarla queda **pagada con ese pago**: `fin.pago_previo` (factura, movimiento de tesorería, importe) y un movimiento `pago` en la
+  cuenta corriente. **No mueve plata ni cambia el estado de resultados**: el costo sigue saliendo del egreso, en el mes del pago (decisión
+  de Fer). En una factura registrada, "Ya está pagado…" elige el pago entre los sin factura (sociedad de la factura o del grupo); se
+  desvincula con una anulación en la cuenta corriente. Un pago cubre varias facturas y una factura varios pagos, sin pasar lo que salió
+  (trigger diferido) ni lo pendiente (`comprobante_pendiente` lo descuenta); una factura con pagos vinculados no se anula. La mercadería
+  entra al stock sólo si se toca "Recibir mercadería" en la factura (opcional, decisión de Fer).
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.

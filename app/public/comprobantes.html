@@ -103,11 +103,17 @@
         <thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Desc.</th><th class="num">IVA</th><th class="num">Importe</th></tr></thead>
         <tbody id="vItems"></tbody></table></div>
       <div class="resumen" id="vResumen"></div>
+      <div id="vPrevios" hidden>
+        <h3>Pagado con</h3>
+        <div class="tabla-wrap"><table class="datos"><thead><tr><th>Fecha</th><th>Pago</th><th>Cuenta</th><th class="num">Aplicado</th><th></th></tr></thead>
+          <tbody id="vPreviosT"></tbody></table></div>
+      </div>
       <h3>Cuenta corriente</h3>
       <div class="tabla-wrap"><table class="datos"><thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Debe</th><th class="num">Haber</th><th>Por</th></tr></thead>
         <tbody id="vMovs"></tbody></table></div>
       <div class="acciones">
         <button type="button" class="prim" id="pagar" hidden>Pagar</button>
+        <button type="button" id="yaPagado" hidden>Ya está pagado…</button>
         <button type="button" id="recibirV" hidden>Recibir mercadería</button>
         <a id="verCC" href="cuenta-corriente.html">Ver cuenta corriente del proveedor</a>
         <span id="verCompras"></span>
@@ -123,7 +129,7 @@ const TIPO = { factura: 'Factura', nota_credito: 'Nota de crédito', nota_debito
 const TRIB = { percepcion_iibb: 'Percepción IIBB', percepcion_iva: 'Percepción IVA', percepcion_ganancias: 'Percepción Ganancias',
                impuesto_interno: 'Impuesto interno', otro: 'Otro' };
 const ALIC = [['21', '21%'], ['10.5', '10,5%'], ['27', '27%'], ['5', '5%'], ['2.5', '2,5%'], ['0', '0%'], ['', 'Exento']];
-let comprobantes = [], proveedores = [], productos = [], sociedades = [], actual = null, comp = null, calc = null, yo = null;
+let comprobantes = [], proveedores = [], productos = [], sociedades = [], actual = null, comp = null, calc = null, yo = null, pagoOrigen = null;
 // La sociedad que recibe el comprobante (su libro IVA y su deuda; decisión de Fer, 07/11/2026).
 const llenarSociedad = valor => opciones(f.sociedad_id, sociedades.filter(s => s.activa || s.id === valor).map(s => [s.id, s.nombre]), valor, 'Elegir…');
 const f = $('#f');
@@ -291,7 +297,7 @@ f.vencimiento.addEventListener('input', () => { vencTocado = true; });
 
 // ── Abrir, guardar, registrar ──
 async function nuevo() {
-  actual = null; comp = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante'; vencTocado = false;
+  actual = null; comp = null; pagoOrigen = null; f.reset(); msg(''); $('#titulo').textContent = 'Nuevo comprobante'; vencTocado = false;
   opcionesProveedor(f.proveedor_id, proveedores.filter(p => p.activo), null, 'Elegir…', p => proveedores.push(p));
   llenarSociedad($('#fsoc').value || null);
   f.fecha.value = hoy();
@@ -301,6 +307,32 @@ async function nuevo() {
   $('#recibirE').hidden = !yo.puede.catalogo;
   await alCambiarProveedor(); vista('editar'); history.replaceState(null, '', 'comprobantes.html');
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
+}
+// Desde un pago que ya está en tesorería (Pagos sin factura → "Cargar factura"): fecha, sociedad, total y un renglón con el rubro
+// propuestos, y el proveedor si su nombre aparece en el concepto o el destinatario. Al registrar, la factura queda pagada con él.
+const palabras = t => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/)
+  .filter(w => w.length > 3 && !['empresa', 'frigorifica', 'proveedor', 'transferencia', 'pago', 'desde', 'mercado', 'gasto', 'saldo', 'pagado', 'socios'].includes(w));
+function proveedorDe(texto) {
+  const ws = new Set(palabras(texto));
+  const cand = proveedores.filter(p => p.activo).map(p => ({ p, n: palabras(p.nombre).filter(w => ws.has(w)).length })).filter(x => x.n).sort((a, b) => b.n - a.n);
+  return cand.length && (cand.length === 1 || cand[1].n < cand[0].n) ? cand[0].p : null;
+}
+async function desdePago(id) {
+  const { pagos } = await api('fin/pagos-sin-factura?id=' + id);
+  const pg = pagos[0];
+  if (!pg) { await nuevo(); return msg('Ese pago ya no tiene nada sin factura.', 'mal'); }
+  await nuevo();
+  pagoOrigen = pg;
+  if (pg.sociedad_id) llenarSociedad(pg.sociedad_id);
+  f.fecha.value = pg.fecha; f.vencimiento.value = pg.fecha; vencTocado = true;
+  f.fiscal.checked = false; aplicarFiscal();
+  const prov = proveedorDe(`${pg.concepto || ''} ${pg.destinatario || ''}`);
+  if (prov) { f.proveedor_id.value = prov.id; await alCambiarProveedor(); f.fiscal.checked = false; aplicarFiscal(); }
+  $('#items tbody').replaceChildren(); filaItem({ descripcion: pg.rubro || '', cantidad: '1', precio: String(Math.round(Number(pg.disponible))) });
+  f.total.value = miles(String(Math.round(Number(pg.disponible))));
+  recalcular(); marcarCambios(f);
+  msg(`Factura del pago del ${fecha(pg.fecha)} (${pg.cuenta}, ${pesos(pg.disponible)}: ${pg.concepto || ''}). ${prov ? 'Proveedor propuesto por el nombre: revisalo.' : 'Elegí o agregá el proveedor.'} `
+    + 'Si es fiscal, tildalo y completá letra, número y el IVA. Al registrarla queda pagada con ese pago.', 'ok');
 }
 // Desde una compra recibida (compras.html → "Cargar factura"): proveedor elegido, compra vinculada y
 // sus renglones copiados. Falta lo que sólo dice la factura: letra, número, IVA real, percepciones, total.
@@ -356,6 +388,14 @@ function ver() {
     el('span', { className: 'tot', textContent: 'Total' }), el('span', { className: 'tot', textContent: pesos(c.total || c.calculado) }));
   filas($('#vMovs'), c.movimientos, m => el('tr', {}, td(fechaHora(m.ocurrido_en)), td(m.detalle, 'wrap'),
     td(!cero(m.debe) ? pesos(m.debe) : '', 'num'), td(!cero(m.haber) ? pesos(m.haber) : '', 'num'), td(m.registrado_por)), 'Sin movimientos.', 5);
+  $('#vPrevios').hidden = !c.pagos_previos.length;
+  filas($('#vPreviosT'), c.pagos_previos, x => el('tr', {}, td(fecha(x.fecha)), td(x.concepto || '', 'wrap'), td(x.cuenta), td(pesos(x.importe), 'num'),
+    el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Desvincular', onclick: async () => {
+      if (!confirm('La factura vuelve a quedar pendiente por ese importe y el pago, sin factura. ¿Desvincular?')) return;
+      try { await api(`fin/comprobantes/${c.id}/pago-previo/${x.movimiento_id}`, { method: 'DELETE' }); await abrir(c.id); msg('Pago desvinculado.', 'ok', '#msgV'); }
+      catch (e) { msg(e.message, 'mal', '#msgV'); } } }))), '', 5);
+  $('#yaPagado').hidden = $('#pagar').hidden = !(c.estado === 'registrado' && c.tipo !== 'nota_credito' && c.pendiente && alPeso(c.pendiente) > 0n);
+  $('#yaPagado').onclick = () => elegirPagoPrevio(c);
   $('#verCC').href = 'cuenta-corriente.html#' + c.proveedor_id;
   $('#anular').hidden = c.estado !== 'registrado';
   // Pagar: la orden de pago ya armada con este comprobante. Volver: a las compras vinculadas.
@@ -368,6 +408,34 @@ function ver() {
     && c.items.some(i => i.producto_id && !i.compra_item_id));
   $('#verCompras').replaceChildren(...c.compras.map(x => el('a', { href: 'compras.html#' + x.id, textContent: 'Ver compra ' + (x.numero || fecha(x.fecha)), style: 'margin-left:14px' })));
   vista('ver');
+}
+// "Ya está pagado…": elegir el pago (o los pagos) de tesorería con que se pagó, entre los que no tienen factura, primero los de
+// importe más parecido y fecha más cercana. Cada uno se aplica por lo que falta, hasta lo que le queda sin factura.
+async function elegirPagoPrevio(c) {
+  const q = el('input', { type: 'search', placeholder: 'Buscar por concepto, destinatario o importe' });
+  const lista = el('div', { className: 'tabla-wrap', style: 'max-height:50vh;overflow:auto' });
+  const m = el('span', { className: 'msg' });
+  const dlg = el('dialog', { style: 'width:min(760px,calc(100vw - 32px))' }, el('h2', { textContent: 'Ya está pagado' }),
+    el('p', { className: 'ayuda', style: 'margin:0 0 10px', textContent: `Pendiente: ${pesos(c.pendiente)}. Elegí el pago de tesorería con que se pagó: la factura queda compensada en la cuenta corriente, sin mover plata ni cambiar el estado de resultados.` }),
+    q, lista, el('div', { className: 'acciones' }, el('button', { type: 'button', textContent: 'Cerrar', onclick: () => dlg.close() }), m));
+  dlg.addEventListener('close', () => dlg.remove());
+  const pintar = async () => {
+    const p = new URLSearchParams({ todo: '1' }); if (q.value.trim()) p.set('q', q.value.trim());
+    if (c.sociedad_id) p.set('sociedad', c.sociedad_id);
+    const [{ pagos: deSoc }, { pagos: delGrupo }] = await Promise.all([api('fin/pagos-sin-factura?' + p), (p.set('sociedad', 'grupo'), api('fin/pagos-sin-factura?' + p))]);
+    const pend = Number(c.pendiente), dist = x => Math.abs(Number(x.disponible) - pend) / Math.max(pend, 1) + Math.abs(diasHasta(x.fecha) - diasHasta(c.fecha)) / 60;
+    const pagos = [...deSoc, ...delGrupo].sort((a, b) => dist(a) - dist(b)).slice(0, 60);
+    lista.replaceChildren(el('table', { className: 'datos' },
+      el('thead', {}, el('tr', {}, ...['Fecha', 'Pago', 'Rubro', 'Cuenta', 'Sin factura', ''].map((t, i) => el('th', { className: i === 4 ? 'num' : '', textContent: t })))),
+      el('tbody', {}, ...(pagos.length ? pagos.map(x => el('tr', {}, td(fecha(x.fecha)), td([x.concepto, x.destinatario].filter(Boolean).join(' · '), 'wrap'), td(x.rubro || 'sin rubro'), td(x.cuenta),
+        td(pesos(x.disponible), 'num'), el('td', {}, el('button', { type: 'button', className: 'chico prim', textContent: 'Elegir', onclick: async () => {
+          const imp = Math.min(Number(x.disponible), Number(c.pendiente));
+          try { await api(`fin/comprobantes/${c.id}/pago-previo`, { method: 'POST', body: { pagos: [{ id: x.id, importe: imp.toFixed(2) }] } }); dlg.close(); await abrir(c.id); msg(`Pagado con el pago del ${fecha(x.fecha)} (${pesos(imp.toFixed(2))}).`, 'ok', '#msgV'); }
+          catch (e) { m.textContent = e.message; m.className = 'msg mal'; } } }))))
+        : [el('tr', {}, el('td', { colSpan: 6, className: 'vacio', textContent: 'No hay pagos sin factura que coincidan.' }))]))));
+  };
+  let t; q.oninput = () => { clearTimeout(t); t = setTimeout(() => pintar().catch(e => { m.textContent = e.message; }), 250); };
+  document.body.append(dlg); dlg.showModal(); await pintar();
 }
 function leer() {
   return { proveedor_id: f.proveedor_id.value, sociedad_id: f.sociedad_id.value, tipo: f.tipo.value, letra: f.letra.value, punto_venta: f.punto_venta.value,
@@ -394,7 +462,17 @@ $('#registrar').onclick = async () => {
     const total = f.total.value;
     const id = await guardar();
     await api(`fin/comprobantes/${id}/registrar`, { method: 'POST', body: { total } });
-    await abrir(id); msg('Registrado.', 'ok', '#msgV');
+    let aviso = 'Registrado.';
+    if (pagoOrigen) {
+      const { comprobante: r } = await api('fin/comprobantes/' + id);
+      const imp = Math.min(Number(pagoOrigen.disponible), Number(r.pendiente || 0));
+      if (imp > 0) {
+        try { await api(`fin/comprobantes/${id}/pago-previo`, { method: 'POST', body: { pagos: [{ id: pagoOrigen.id, importe: imp.toFixed(2) }] } }); aviso = 'Registrado y pagado con el pago del ' + fecha(pagoOrigen.fecha) + '.'; }
+        catch (err) { aviso = 'Registrado, pero no se pudo vincular el pago: ' + err.message; }
+      }
+      pagoOrigen = null;
+    }
+    await abrir(id); msg(aviso, aviso.includes('no se pudo') ? 'mal' : 'ok', '#msgV');
   } catch (e) { msg(e.message, 'mal'); }
 };
 // Recibir mercadería: arma la compra con los renglones de producto, la vincula y abre la recepción.
@@ -439,6 +517,7 @@ $('#fest').onchange = $('#fsoc').onchange = cargarLista;
     const id = location.hash.slice(1), q = new URLSearchParams(location.search);
     if (id) await abrir(id);
     else if (q.get('compra')) await desdeCompra(q.get('compra'), q.get('proveedor'));
+    else if (q.get('pago')) await desdePago(q.get('pago'));
     else await nuevo();
   } catch (e) { msg(e.message, 'mal'); }
 })();

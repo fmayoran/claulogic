@@ -32,6 +32,12 @@ def api(route):
         datos = {'saldo_inicial': '16200000', 'saldo_final': '18420000', 'entradas': '41200000', 'salidas': '38980000', 'dias': dias}
     elif 'tablero/operativo' in u:
         datos = {'sedes': [{'ventas_netas': '40700000', 'real': '13900000', 'teorico': '12600000'}]}
+    elif 'fin/pagos-sin-factura' in u:
+        datos = {'recortado': False, 'pagos': [
+            {'id': 1, 'fecha': '2026-11-11', 'importe': '1752771.00', 'disponible': '1752771.00', 'aplicado': '0', 'concepto': 'PILOTTI SA EMPRESA FRIGORIFICA', 'destinatario': None, 'rubro': 'Mercadería · Carnes', 'cuenta': 'BRUBANK', 'sociedad': 'CORTAFUEGO SRL', 'sociedad_id': 'x'},
+            {'id': 2, 'fecha': '2026-11-04', 'importe': '920216.00', 'disponible': '420216.00', 'aplicado': '500000.00', 'concepto': 'Transferencia enviada', 'destinatario': 'Consorcio Av. Libertador 1200', 'rubro': 'Expensas', 'cuenta': 'MERCADO PAGO SORE', 'sociedad': 'SORELLE CIUCIO SA', 'sociedad_id': 'y'}]}
+    elif 'api/sociedades' in u:
+        datos = {'sociedades': [{'id': 'x', 'nombre': 'CORTAFUEGO SRL', 'activa': True}, {'id': 'y', 'nombre': 'SORELLE CIUCIO SA', 'activa': True}]}
     elif 'fin/resultados' in u:
         ant = 'desde=2026-10' in u
         datos = {'rubros': [{'linea': 'ventas', 'importe': '44100000' if ant else '49300000'}, {'linea': 'cmv', 'importe': '-17756000'},

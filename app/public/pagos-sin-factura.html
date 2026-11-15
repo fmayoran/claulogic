@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pagos sin factura · ClauLogic</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="comun.css">
+<style>
+  .barra select,.barra input[type=date]{width:auto;}
+  td.concepto{white-space:normal;min-width:240px;} td.concepto .m{display:block;color:var(--mut);font-size:.86rem;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Pagos sin factura</h1>
+  <p class="sub">Pagos que ya están en tesorería (muchos registrados desde el extracto) y todavía no tienen la factura del proveedor. "Cargar
+    factura" la arma con la fecha, la sociedad y el importe del pago; al registrarla queda pagada con él, sin mover plata ni cambiar el estado de
+    resultados. La mercadería entra al stock sólo si después tocás "Recibir mercadería" en la factura.</p>
+  <div class="franja" id="cifras"></div>
+  <div class="barra">
+    <input type="search" id="q" placeholder="Buscar por concepto, destinatario, rubro o importe" aria-label="Buscar">
+    <select id="soc" aria-label="Sociedad"></select>
+    <label>Desde<input type="date" id="desde"></label>
+    <label>Hasta<input type="date" id="hasta"></label>
+    <label class="check"><input type="checkbox" id="todo"> Incluir sueldos, impuestos y gastos bancarios</label>
+  </div>
+  <p class="msg" id="msg"></p>
+  <div class="tabla-wrap"><table class="datos movil">
+    <thead><tr><th>Fecha</th><th>Pago</th><th>Rubro</th><th>Cuenta</th><th class="num">Sin factura</th><th></th></tr></thead>
+    <tbody id="lista"><tr><td colspan="6" class="vacio">Consultando…</td></tr></tbody>
+  </table></div>
+  <p class="ayuda" id="recorte" hidden>Se muestran los 500 más recientes: filtrá por fecha o buscá para ver el resto.</p>
+</main>
+<script src="comun.js"></script>
+<script>
+let pagos = [];
+async function cargar() {
+  const p = new URLSearchParams();
+  for (const k of ['q', 'desde', 'hasta']) if ($('#' + k).value.trim()) p.set(k, $('#' + k).value.trim());
+  if ($('#soc').value) p.set('sociedad', $('#soc').value);
+  if ($('#todo').checked) p.set('todo', '1');
+  try {
+    const d = await api('fin/pagos-sin-factura?' + p);
+    pagos = d.pagos; $('#recorte').hidden = !d.recortado; msg('');
+    const total = pagos.reduce((s, x) => s + centavos(x.disponible), 0n);
+    $('#cifras').replaceChildren(
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Pagos sin factura' }), el('span', { className: 'va', textContent: num(String(pagos.length)) + (d.recortado ? '+' : '') })),
+      el('div', { className: 'k' }, el('span', { className: 'et', textContent: 'Importe sin factura' }), el('span', { className: 'va', textContent: pesos(deCentavos(total)) })));
+    filas($('#lista'), pagos, x => el('tr', {},
+      td(fecha(x.fecha)),
+      el('td', { className: 'concepto' }, x.concepto || 'Egreso', x.destinatario ? el('span', { className: 'm', textContent: x.destinatario }) : ''),
+      td(x.rubro || 'sin rubro'), td(x.cuenta + (x.sociedad ? ' · ' + x.sociedad : '')),
+      el('td', { className: 'num' }, pesos(x.disponible), centavos(x.aplicado) > 0n ? el('span', { className: 'mut', textContent: ` de ${pesos(x.importe)}` }) : ''),
+      el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Cargar factura', onclick: () => { location.href = 'comprobantes.html?pago=' + x.id; } }))),
+      'No hay pagos sin factura con esos filtros.', 6);
+    etiquetarTabla($('#lista').closest('table'));
+  } catch (e) { msg(e.message, 'mal'); }
+}
+let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(cargar, 250); };
+$('#soc').onchange = $('#desde').onchange = $('#hasta').onchange = $('#todo').onchange = cargar;
+(async () => {
+  try {
+    const { sociedades } = await api('sociedades');
+    opciones($('#soc'), [...sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), ['grupo', 'Del grupo (sin sociedad)']], null, 'Todas las sociedades');
+  } catch {}
+  cargar();
+})();
+</script>
+</body>
+</html>
