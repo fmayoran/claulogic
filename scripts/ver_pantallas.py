@@ -38,6 +38,18 @@ def api(route):
             {'id': 2, 'fecha': '2026-11-04', 'importe': '920216.00', 'disponible': '420216.00', 'aplicado': '500000.00', 'concepto': 'Transferencia enviada', 'destinatario': 'Consorcio Av. Libertador 1200', 'rubro': 'Expensas', 'cuenta': 'MERCADO PAGO SORE', 'sociedad': 'SORELLE CIUCIO SA', 'sociedad_id': 'y'}]}
     elif 'api/sociedades' in u:
         datos = {'sociedades': [{'id': 'x', 'nombre': 'CORTAFUEGO SRL', 'activa': True}, {'id': 'y', 'nombre': 'SORELLE CIUCIO SA', 'activa': True}]}
+    elif 'fin/cuentas' in u:
+        datos = {'cuentas': [{'id': 'b1', 'nombre': 'BRUBANK', 'tipo': 'banco', 'activa': True}, {'id': 'b2', 'nombre': 'MERCADO PAGO SORE', 'tipo': 'banco', 'activa': True}]}
+    elif 'fin/conciliacion?' in u:
+        b1 = 'cuenta=b1' in u
+        datos = {'extractos': [{'id': 1}], 'cobros': [], 'sugerencias': [], 'transferencias': [], 'descartadas': [], 'lineas': (
+            [{'id': 11, 'fecha': '2026-10-30', 'importe': '-326000.00', 'concepto': 'HUDSON BOHNCOC SRL', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'},
+             {'id': 12, 'fecha': '2026-11-13', 'importe': '-2615608.67', 'concepto': 'ARCA Vep', 'destinatario': None, 'candidatos': [], 'lado': 'egresos'}] if b1 else
+            [{'id': 21, 'fecha': '2026-10-16', 'importe': '-187175.14', 'concepto': 'Pago desde Mercado Pago - 184476250362', 'destinatario': 'Transferencia enviada TRANSVE SA', 'candidatos': [], 'lado': 'egresos'}])}
+    elif 'fin/rubros' in u:
+        datos = {'rubros': [{'id': 'r1', 'nombre': 'Mercadería · Almacén', 'linea': 'cmv', 'activo': True, 'del_centro': True}, {'id': 'r2', 'nombre': 'Ingresos Brutos', 'linea': 'impuestos', 'activo': True, 'del_centro': False}]}
+    elif 'api/sedes' in u:
+        datos = {'sedes': [{'id': 's0', 'nombre': 'CF CENTRAL', 'activa': True, 'es_central': True}, {'id': 's1', 'nombre': 'CORTAFUEGO PARRILLA', 'activa': True, 'es_central': False}]}
     elif 'fin/proveedores/resumen' in u:
         datos = {'proveedores': [{'id': 'p1', 'saldo': '0', 'ultimo': '2026-11-11', 'comprobantes': 18, 'comprado_30': '12450000', 'vencido': '0'},
                                  {'id': 'p2', 'saldo': '742500', 'ultimo': '2026-11-12', 'comprobantes': 4, 'comprado_30': '1604500', 'vencido': '386000'},

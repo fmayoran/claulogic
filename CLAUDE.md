@@ -780,6 +780,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `?lado=` y el resumen del procesador trae `lineas_ingresos` y `lineas_egresos`. El paso 4 de Ingresos cuenta y muestra sólo los
   ingresos; **`egresos.html`** (Tesorería, "Proceso de egresos") muestra, cuenta por cuenta (bancos con extracto), los egresos sin
   resolver, con "Aplicar las reglas"; ahí van a ir las órdenes de pago a proveedores. Conciliación sigue mostrando todo.
+  **Clasificar en grilla** (pedido de Fer, 15/11/2026; vista por defecto de `egresos.html`, "Por cuenta" queda al lado): todas las líneas de
+  egreso sin movimiento de todas las cuentas juntas, cada una con proveedor (sugerido del destinatario o del concepto), rubro y local (los rubros
+  del centro fijan CF CENTRAL). "Registrar" (o "Registrar las completas") crea el egreso conciliado (`POST /fin/conciliacion` con `crear`, que
+  ahora devuelve `movimiento_id`) y, con proveedor, el proveedor si es nuevo y su comprobante X pagado (`/fin/pagos-sin-factura/armar`).
 - **Pago24 por el portal** (pedido de Fer, 03/11/2026; migraciones 20261117 y 20261118, `app/pago24.js`). Pago24 (Traxion) no tiene API
   (lo confirmó Fer): el portal (`https://traxion.telerecargas.com.ar/`) lo arma el servidor con un framework propio ("Ajaxifier"). Todo pasa
   por `/tr4?_s=<sesión>&_k=<clave>` (`_k` nueva en cada respuesta), con las cookies SERVERID y SSESSIONID; los campos son números que

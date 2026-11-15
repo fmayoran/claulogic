@@ -17,7 +17,7 @@ const LINEAS_A_MANO = LINEAS.filter(l => l !== 'ventas');
 // ── Rubros ───────────────────────────────────────────────────────────────────────────────────
 r.get('/fin/rubros', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT r.id, r.nombre, r.linea, r.clave, r.activo, r.orden,
+    `SELECT r.id, r.nombre, r.linea, r.clave, r.activo, r.orden, r.del_centro,
             (SELECT COUNT(*)::int FROM fin.clasificacion k WHERE k.rubro_id = r.id) + (SELECT COUNT(*)::int FROM fin.regla g WHERE g.rubro_id = r.id) AS usos
        FROM fin.rubro r ORDER BY r.orden, r.nombre`);
   res.json({ ok: true, rubros: rows, lineas: LINEAS });

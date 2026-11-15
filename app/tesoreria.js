@@ -1130,11 +1130,12 @@ r.post('/fin/conciliacion', h(async (req, res) => {
     }
     if (!mov) throw new ErrorUsuario('Falta el movimiento a conciliar.');
     await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, mov]);
-    if (b.crear && b.crear.regla)
-      return crearRegla(c, { cuenta_id: l.cuenta_id, sentido: String(l.importe).startsWith('-') ? 'egreso' : 'ingreso', patron: b.crear.regla,
-                             rubro_id: b.crear.rubro_id, sede_id: b.crear.sede_id });
+    const regla = b.crear && b.crear.regla
+      ? await crearRegla(c, { cuenta_id: l.cuenta_id, sentido: String(l.importe).startsWith('-') ? 'egreso' : 'ingreso', patron: b.crear.regla,
+                              rubro_id: b.crear.rubro_id, sede_id: b.crear.sede_id }) : null;
+    return { regla, mov };
   });
-  res.status(201).json({ ok: true, regla: out || null });
+  res.status(201).json({ ok: true, regla: out.regla || null, movimiento_id: out.mov });
 }));
 
 // Deshacer un pareo. Si el movimiento lo creó la conciliación de un procesador (una acreditación o un cargo), no
