@@ -272,6 +272,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   de octubre y noviembre ($89,6 M; respaldo en `/root/claulogic_respaldos/clasificacion_antes_centro_20261115.sql`): en el estado de
   resultados quedan en "sólo el grupo" y no restan en los locales mientras no haya traslados. Sus facturas van siempre a la sociedad de
   `org.sociedad.compras_del_centro` (CORTAFUEGO), aunque las pague una cuenta de SORELLE (eso no se lleva como deuda entre sociedades).
+  El 15/11/2026 se armaron en bloque (con `proponerProveedores` y `armarComprobantes` desde la consola del contenedor) los 222 comprobantes X
+  de esos pagos, de 47 proveedores (41 nuevos, con la nota "Creado desde los pagos sin factura"). Criterios aplicados: "Pesce" (efectivo de
+  SORELLE) es Pecse Pescadería; "Juan" quedó "Juan (verdulería)"; lo comprado por el personal o sin nombre de comercio (Camila, Personal por
+  día, Gastos chicos varios, Vinos, "Carnicería", "Limpieza", "Verdulería", "Tortas") fue a "Compras varias sin proveedor identificado".
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
