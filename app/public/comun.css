@@ -276,26 +276,26 @@ dialog .acciones, .acciones.fijo{position:static;border:0;padding-bottom:0;backg
    Tres formas de mostrar en qué anda un proceso (referencia en estilo.html). El estado va siempre con texto o signo, no sólo
    con color. */
 
-/* Línea de un proceso: sus pasos como estaciones. `.h` hecha, `.act` la que sigue. --c es el color del proceso. */
+/* Línea de un proceso: sus pasos como estaciones (sólo dentro de .vias: `.est` suelto es la etiqueta de estado de Ingresos y Sedes). `.h` hecha, `.act` la que sigue. --c es el color del proceso. */
 .proc{display:grid;grid-template-columns:minmax(150px,200px) minmax(0,1fr) auto;gap:18px;align-items:center;padding:16px 0;
   border-top:1px solid var(--line);--c:var(--serie-3,var(--ok));}
 .proc:first-child{border-top:0;}
 .proc .nom{font-size:1.35rem;font-weight:600;font-stretch:80%;line-height:1.2;color:var(--fg);text-decoration:none;display:block;}
 .proc .est-txt{font-size:.9rem;color:var(--mut);} .proc .est-txt.aviso{color:var(--aviso);font-weight:600;}
 .vias{display:flex;}
-.est{flex:1 1 0;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;
+.vias .est{flex:1 1 0;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;
   font-size:.86rem;color:var(--mut);}
-.est::before{content:'';position:absolute;top:9px;left:-50%;width:100%;height:4px;background:var(--line);}
-.est:first-child::before{display:none;}
-.est i{position:relative;width:22px;height:22px;border-radius:50%;background:var(--panel);border:4px solid var(--line);display:block;}
-.est.h{color:var(--fg);} .est.h::before,.est.act::before{background:var(--c);}
-.est.h i{border-color:var(--c);background:var(--c);}
-.est.act{color:var(--fg);font-weight:600;}
-.est.act i{border-color:var(--c);width:28px;height:28px;margin-top:-3px;border-width:6px;box-shadow:0 0 0 4px var(--panel),0 0 0 6px var(--c);}
+.vias .est::before{content:'';position:absolute;top:9px;left:-50%;width:100%;height:4px;background:var(--line);}
+.vias .est:first-child::before{display:none;}
+.vias .est i{position:relative;z-index:1;width:22px;height:22px;border-radius:50%;background:var(--panel);border:4px solid var(--line);display:block;}
+.vias .est.h{color:var(--fg);} .vias .est.h::before,.vias .est.act::before{background:var(--c);}
+.vias .est.h i{border-color:var(--c);background:var(--c);}
+.vias .est.act{color:var(--fg);font-weight:600;}
+.vias .est.act i{border-color:var(--c);width:28px;height:28px;margin-top:-3px;border-width:6px;box-shadow:0 0 0 4px var(--panel),0 0 0 6px var(--c);}
 @media (max-width:700px){
   .proc{grid-template-columns:minmax(0,1fr) auto;gap:10px 12px;}
   .proc .vias{grid-column:1 / -1;grid-row:2;}
-  .est span{display:none;} .est.act span{display:block;position:absolute;top:34px;white-space:nowrap;}
+  .vias .est span{display:none;} .vias .est.act span{display:block;position:absolute;top:34px;white-space:nowrap;}
   .proc .vias{padding-bottom:22px;}
 }
 
