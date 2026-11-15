@@ -21,7 +21,7 @@
   .eg.cab{color:var(--mut);font-size:.8rem;font-weight:600;border-top:0;padding-bottom:6px;}
   .eg .f{color:var(--mut);white-space:nowrap;font-size:.9rem;} .eg .c{min-width:0;overflow-wrap:anywhere;font-size:.92rem;}
   .eg .c small{display:block;color:var(--mut);font-size:.8rem;} .eg .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
-  .eg.hecha{opacity:.55;} .eg.hecha .acc{color:var(--ok);font-size:.86rem;font-weight:600;}
+  .eg.hecha{opacity:.55;} .eg.sale{opacity:0;transition:opacity .3s;} .eg.hecha .acc{color:var(--ok);font-size:.86rem;font-weight:600;}
   .eg select,.eg input{padding:6px 8px;}
   .eg.grp{background:var(--sel);font-weight:600;padding-top:8px;padding-bottom:8px;} .eg.grp span{grid-column:1 / -1;}
   .eg.grp small{color:var(--mut);font-weight:400;margin-left:8px;}
@@ -220,10 +220,42 @@ function pintarCuentasG() {
   const boton = (valor, texto) => el('button', { type: 'button', className: cuentaG === valor ? 'act' : '', textContent: texto, onclick: () => {
     cuentaG = valor; try { localStorage.setItem('egresos-cuenta', valor); } catch {} pintarCuentasG(); } });
   $('#cuentasG').replaceChildren(boton('', `Todas · ${filasG.length}`), ...[...porCuenta].map(([c, fs]) => boton(c, `${c} · ${fs.length}`)));
+  [...$('#cuentasG').children].forEach((b, i) => { b.dataset.c = i ? [...porCuenta.keys()][i - 1] : ''; });
+  cabG.clear();
   const grupos = [...porCuenta].filter(([c]) => !cuentaG || c === cuentaG);
   $('#grilla').replaceChildren(el('div', { className: 'eg cab' }, ...['Fecha', 'Línea del extracto', 'Importe', 'Proveedor', 'Rubro', 'Local', ''].map(t => el('span', { textContent: t }))),
-    ...grupos.flatMap(([c, fs]) => [el('div', { className: 'eg grp' }, el('span', {}, c, el('small', { textContent: `${fs.length} sin clasificar · ${tot(fs)}` }))), ...fs.map(f => f.fila)]));
+    ...grupos.flatMap(([c, fs]) => {
+      const sm = el('small'), cab = el('div', { className: 'eg grp' }, el('span', {}, c, sm));
+      cabG.set(c, { cab, sm });
+      return [cab, ...fs.map(f => f.fila)];
+    }));
+  totalesG();
+}
+// Cantidad y total de cada cuenta, en el selector y en su encabezado, sin volver a armar la grilla (así no se pierde lo que se está
+// eligiendo en otra fila).
+const cabG = new Map();
+function totalesG() {
+  const porCuenta = new Map();
+  for (const f of filasG) { if (!porCuenta.has(f.l.cuenta)) porCuenta.set(f.l.cuenta, []); porCuenta.get(f.l.cuenta).push(f); }
+  const tot = fs => pesos(deCentavos(fs.reduce((t, f) => t - centavos(f.l.importe), 0n)));
+  for (const b of $$('#cuentasG button')) {
+    const c = b.dataset.c, n = c ? (porCuenta.get(c) || []).length : filasG.length;
+    b.textContent = `${c || 'Todas'} · ${n}`; b.hidden = !!c && !n;
+  }
+  for (const [c, { cab, sm }] of cabG) {
+    const fs = porCuenta.get(c) || [];
+    if (!fs.length) cab.remove(); else sm.textContent = `${fs.length} sin clasificar · ${tot(fs)}`;
+  }
+  if (!visibles().length) $('#grilla').replaceChildren(el('p', { className: 'vacio', textContent:
+    filasG.length ? 'No quedan egresos sin identificar en esta cuenta.' : 'No quedan egresos sin identificar.' }));
   contar();
+}
+// Lo registrado sale de la grilla (Fer, 15/11/2026: quedaba a la vista, apagado): se ve un momento con su resultado y se va.
+function quitar(f, nota) {
+  f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren(nota);
+  [f.rub, f.sede, f.prov].forEach(x => { if (x) x.disabled = true; });
+  filasG = filasG.filter(x => x !== f);
+  setTimeout(() => { f.fila.classList.add('sale'); setTimeout(() => { f.fila.remove(); totalesG(); }, 350); }, 1200);
 }
 const visibles = () => filasG.filter(f => !cuentaG || f.l.cuenta === cuentaG);
 async function registrarTransferencia(f) {
@@ -234,7 +266,7 @@ async function registrarTransferencia(f) {
     const r = await api('fin/conciliacion/transferencias', { method: 'POST',
       body: { pares: [{ linea_id: t.linea_id, cuenta_id: t.cuenta_id, otra_linea_id: t.otra_linea ? t.otra_linea.id : null }] } });
     if (r.errores && r.errores.length) throw new Error(r.errores[0]);
-    f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren('Transferencia registrada');
+    quitar(f, 'Transferencia registrada');
   } finally { f.ok.disabled = false; contar(); }
 }
 function contar() {
@@ -264,8 +296,7 @@ async function registrar(f) {
         if (pid && !existente) sumarProveedor({ id: pid, nombre, activo: true }, f.prov);
       }
     }
-    f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren(nota);
-    [f.rub, f.sede, f.prov].forEach(x => { x.disabled = true; });
+    quitar(f, nota);
   } finally { f.ok.disabled = false; contar(); }
 }
 $('#todas').onclick = async () => {

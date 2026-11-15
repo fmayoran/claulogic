@@ -62,6 +62,8 @@ def api(route):
             [{'id': 21, 'fecha': '2026-10-16', 'importe': '-187175.14', 'concepto': 'Pago desde Mercado Pago - 184476250362 · Transferencia enviada TRANSVE SA', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-10-16T17:13:39.000-03:00', 'operacion': '184476250362'},
              {'id': 22, 'fecha': '2026-11-11', 'importe': '-907500.00', 'concepto': 'Pago desde Mercado Pago - 189063998998', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:50:32.000-03:00', 'operacion': '189063998998'},
              {'id': 23, 'fecha': '2026-11-11', 'importe': '-820000.00', 'concepto': 'Transferencia a banco - 187992003535', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:45:34.000-03:00', 'operacion': '187992003535', 'cuenta_destino': '0170099220000071116352'}])}
+    elif 'pagos-sin-factura/armar' in u:
+        datos = {'hechos': [{'proveedor_id': 'pz', 'comprobantes': 1}], 'errores': []}
     elif 'fin/rubros' in u:
         datos = {'rubros': [{'id': 'r%d' % i, 'nombre': n, 'linea': 'operativos', 'activo': True, 'del_centro': n.startswith('Merc')} for i, n in enumerate(
             ['Sueldos', 'Mercadería · Almacén', 'Ingresos Brutos', 'Alquiler', 'Mercadería · Carnes', 'Cargas sociales (F.931)', 'Publicidad y marketing',
@@ -138,6 +140,8 @@ with sync_playwright() as p:
                 if t.startswith('>'):  # >Rubro/carn: escribe en la primera lista con búsqueda con ese nombre
                     cb, txt = t[1:].split('/', 1)
                     page.get_by_role('combobox', name=cb).first.click(); page.keyboard.type(txt)
+                elif t.startswith('!'):  # !Enter: una tecla; !2000: esperar esos milisegundos
+                    page.wait_for_timeout(int(t[1:])) if t[1:].isdigit() else page.keyboard.press(t[1:])
                 else:
                     page.get_by_role('button', name=t).first.click()
                 page.wait_for_timeout(300)
