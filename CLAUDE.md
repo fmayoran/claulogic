@@ -654,6 +654,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   completa `extracto_linea.destinatario` en las que ya están (`POST /fin/extractos/destinatarios`; la operación es el número al final
   del concepto; los impuestos y cargos de la operación no lo toman) y corre las reglas, que miran concepto, referencia y destinatario.
   La conciliación muestra "concepto · destinatario". Importado junto con el de liquidaciones sigue siendo el extracto viejo.
+  **A quién se pagó, por día: el CBU de destino** (pedido de Fer, 15/11/2026; migración 20261150). El resumen de cuenta sólo se baja por
+  mes. El reporte de liberaciones, con la columna **PAYOUT_BANK_ACCOUNT_NUMBER** tildada, trae el CBU o CVU de cada "Transferencia a
+  banco" (los "Pago desde Mercado Pago" la traen vacía: esos se clasifican a mano o con el resumen mensual). Va a
+  `extracto_linea.cuenta_destino`; volver a importar un reporte la completa en las líneas que ya están. El proveedor de cada CBU **no se
+  guarda: se deduce** (`fin.proveedor_cbu`) de las transferencias ya conciliadas con un egreso que paga un comprobante (`fin.pago_previo`);
+  manda el pago más reciente. La grilla de egresos lo propone como proveedor. Si el CBU es de una cuenta nuestra (`fin.cuenta.cbu`), la
+  línea se propone como **transferencia entre cuentas propias aunque sea entre sociedades** (el CBU lo confirma; SORELLE pasó $2.500.000
+  a BRUBANK de CORTAFUEGO el 13/11) y la grilla la registra con "Registrar transferencia" (también las que se proponen por importe).
   **Pareo manual y cobros que no llegan** (pedido de Fer, 08/11/2026; migración 20261133). En la cuenta de un procesador, cada ingreso
   sin identificar tiene "Es el cobro de una venta…": se elige el cobro pendiente (los más parecidos en importe primero) y, si no
   coincide, con motivo y sin el tope del 10% de las sugerencias (`/fin/conciliacion/acreditar` con `manual`). **No registrar como

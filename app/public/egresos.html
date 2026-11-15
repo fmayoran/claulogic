@@ -23,12 +23,13 @@
   .eg .c small{display:block;color:var(--mut);font-size:.8rem;} .eg .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
   .eg.hecha{opacity:.55;} .eg.hecha .acc{color:var(--ok);font-size:.86rem;font-weight:600;}
   .eg select,.eg input{padding:6px 8px;}
+  .eg .tr{grid-column:span 3;color:var(--info);font-size:.9rem;}
   .grilla-eg{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
   .pie-eg{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0 0;}
   @media (max-width:1100px){
     .eg{grid-template-columns:minmax(0,1fr) auto;} .eg.cab{display:none;}
     .eg .f{grid-column:1;} .eg .i{grid-column:2;grid-row:1;} .eg .c{grid-column:1 / -1;}
-    .eg > select,.eg > input,.eg .acc{grid-column:1 / -1;}
+    .eg > select,.eg > input,.eg .acc,.eg .tr{grid-column:1 / -1;}
   }
 </style>
 </head>
@@ -90,7 +91,9 @@ let rubros = [], sedes = [], provs = [], filasG = [];
 const sinAc = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const GENERICO = /^(transferencia a banco|pago desde mercado pago|transferencia enviada|reserva de dinero|cobro de deuda|debito|recaudacion|arca vep)/i;
 // El proveedor que sugiere la línea: el destinatario sin lo que va adelante, o el concepto si no es uno genérico del banco.
+// Primero, el proveedor que ya cobró en la cuenta de destino (el CBU que trae el reporte de liberaciones de Mercado Pago).
 function proveedorSugerido(l) {
+  if (l.proveedor_cbu) return l.proveedor_cbu;
   const limpiar = t => String(t || '').replace(/^(transferencia enviada|pago de suscripci[oó]n|pago de servicios?|pago a|pago)\s+/i, '').trim();
   if (l.destinatario) return limpiar(l.destinatario.split(' · ')[0]);
   const c = String(l.concepto || '').trim();
@@ -103,7 +106,9 @@ async function pintarGrilla() {
     sedes = s.sedes.filter(x => x.activa); provs = p.proveedores;
     $('#dlProv').replaceChildren(...provs.map(x => el('option', { value: x.nombre })));
   }
-  const lineas = cuentas.flatMap(({ c, d }) => d.lineas.filter(l => String(l.importe).startsWith('-')).map(l => ({ ...l, cuenta: c.nombre })))
+  // Las transferencias a cuentas propias que propone la conciliación (por importe en las dos cuentas, o por el CBU de destino).
+  const transf = new Map(cuentas.flatMap(({ d }) => (d.transferencias || []).map(t => [String(t.linea_id), t])));
+  const lineas = cuentas.flatMap(({ c, d }) => d.lineas.filter(l => String(l.importe).startsWith('-')).map(l => ({ ...l, cuenta: c.nombre, transf: transf.get(String(l.id)) })))
     .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   if (!lineas.length) { $('#grilla').replaceChildren(el('p', { className: 'vacio', textContent: 'No quedan egresos sin identificar.' })); $('#todas').disabled = true; return; }
   const central = sedes.find(x => x.es_central);
@@ -113,10 +118,23 @@ async function pintarGrilla() {
     const prov = el('input', { ariaLabel: 'Proveedor', placeholder: 'Proveedor (opcional)', value: proveedorSugerido(l) }); prov.setAttribute('list', 'dlProv');
     const ok = el('button', { type: 'button', className: 'chico', textContent: 'Registrar' });
     const acc = el('span', { className: 'acc' }, ok);
-    const fila = el('div', { className: 'eg' }, el('span', { className: 'f', textContent: fecha(l.fecha) }),
-      el('span', { className: 'c' }, l.concepto || 'Egreso', el('small', { textContent: [l.destinatario, l.cuenta].filter(Boolean).join(' · ') })),
-      el('span', { className: 'i', textContent: pesos(String(l.importe).slice(1)) }), prov, rub, sede, acc);
-    const f = { l, rub, sede, prov, ok, acc, fila, hecha: false };
+    const det = [l.destinatario, l.cuenta, l.cuenta_destino ? `CBU ${l.cuenta_destino}` : ''].filter(Boolean).join(' · ');
+    const celdas = [el('span', { className: 'f', textContent: fecha(l.fecha) }),
+      el('span', { className: 'c' }, l.concepto || 'Egreso', el('small', { textContent: det })),
+      el('span', { className: 'i', textContent: pesos(String(l.importe).slice(1)) })];
+    const f = { l, rub, sede, prov, ok, acc, hecha: false };
+    if (l.transf) {
+      // Una transferencia a otra cuenta nuestra no lleva proveedor ni rubro: se registra como transferencia.
+      const t = l.transf;
+      ok.textContent = 'Registrar transferencia';
+      ok.onclick = () => registrarTransferencia(f).catch(e => msg(e.message, 'mal', '#msgG'));
+      f.fila = el('div', { className: 'eg' }, ...celdas,
+        el('span', { className: 'tr' }, `Transferencia a ${t.cuenta}` + (t.por_cbu ? ' (el CBU es de esa cuenta)' : '')
+          + (t.otra_linea ? ` · entra el ${fecha(t.otra_linea.fecha)}` : '')), acc);
+      f.transf = true;
+      return f;
+    }
+    f.fila = el('div', { className: 'eg' }, ...celdas, prov, rub, sede, acc);
     rub.onchange = () => {
       const r = rubros.find(x => x.id === rub.value);
       if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false;
@@ -129,8 +147,19 @@ async function pintarGrilla() {
     ...filasG.map(f => f.fila));
   contar();
 }
+async function registrarTransferencia(f) {
+  if (f.hecha) return;
+  const t = f.l.transf;
+  f.ok.disabled = true;
+  try {
+    const r = await api('fin/conciliacion/transferencias', { method: 'POST',
+      body: { pares: [{ linea_id: t.linea_id, cuenta_id: t.cuenta_id, otra_linea_id: t.otra_linea ? t.otra_linea.id : null }] } });
+    if (r.errores && r.errores.length) throw new Error(r.errores[0]);
+    f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren('Transferencia registrada');
+  } finally { f.ok.disabled = false; contar(); }
+}
 function contar() {
-  const n = filasG.filter(f => !f.hecha && f.rub.value).length;
+  const n = filasG.filter(f => !f.hecha && !f.transf && f.rub.value).length;
   $('#todas').disabled = !n; $('#todas').textContent = n ? `Registrar las ${n} completas` : 'Registrar las completas';
 }
 // Registrar una línea: el egreso con su rubro y local, conciliado con la línea; con proveedor, además el proveedor (si es nuevo) y su
@@ -156,7 +185,7 @@ async function registrar(f) {
   } finally { f.ok.disabled = false; contar(); }
 }
 $('#todas').onclick = async () => {
-  const fs = filasG.filter(f => !f.hecha && f.rub.value);
+  const fs = filasG.filter(f => !f.hecha && !f.transf && f.rub.value);
   let ok = 0; const errs = [];
   for (const f of fs) { try { await registrar(f); ok++; } catch (e) { errs.push(`${fecha(f.l.fecha)} ${pesos(String(f.l.importe).slice(1))}: ${e.message}`); } }
   // Los proveedores nuevos ya están cargados: la próxima vez se reconocen.

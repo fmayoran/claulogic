@@ -838,6 +838,8 @@ async function importarExtracto(b) {
     l.operacion = operacionDe(l);
     // La hora de aprobación del cobro (Mercado Pago), para elegir la venta al conciliar; si no es una fecha y hora, no se toma.
     l.aprobada_en = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(f.aprobada_en || '')) && !isNaN(Date.parse(f.aprobada_en)) ? String(f.aprobada_en) : null;
+    // El CBU o CVU de destino de una transferencia que sale (Mercado Pago, PAYOUT_BANK_ACCOUNT_NUMBER).
+    l.cuenta_destino = /^\d{22}$/.test(String(f.cuenta_destino || '').trim()) ? String(f.cuenta_destino).trim() : null;
     const clave = [l.fecha, l.importe, l.concepto, l.referencia].join('|');
     l.ocurrencia = (vistas.get(clave) || 0) + 1; vistas.set(clave, l.ocurrencia);
     lineas.push(l);
@@ -886,19 +888,23 @@ async function importarExtracto(b) {
         apertura = saldoInicial.saldo;
       }
     }
-    let nuevas = 0;
+    let nuevas = 0, completadas = 0;
     for (const l of lineas) {
-      // Una línea ya importada sin la hora de aprobación la toma al volver a importar el archivo.
+      // Una línea ya importada sin la hora de aprobación o sin la cuenta destino las toma al volver a importar el archivo.
       const { rows: [ins] } = await c.query(
-        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia, operacion, aprobada_en)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (cuenta_id, fecha, importe, concepto, referencia, ocurrencia) DO UPDATE SET aprobada_en = EXCLUDED.aprobada_en
-           WHERE fin.extracto_linea.aprobada_en IS NULL AND EXCLUDED.aprobada_en IS NOT NULL
-         RETURNING (xmax = 0) AS nueva`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia, l.operacion, l.aprobada_en]);
+        `INSERT INTO fin.extracto_linea (extracto_id, cuenta_id, fecha, concepto, referencia, importe, ocurrencia, operacion, aprobada_en, cuenta_destino)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (cuenta_id, fecha, importe, concepto, referencia, ocurrencia) DO UPDATE
+           SET aprobada_en = COALESCE(fin.extracto_linea.aprobada_en, EXCLUDED.aprobada_en),
+               cuenta_destino = COALESCE(fin.extracto_linea.cuenta_destino, EXCLUDED.cuenta_destino)
+           WHERE (fin.extracto_linea.aprobada_en IS NULL AND EXCLUDED.aprobada_en IS NOT NULL)
+              OR (fin.extracto_linea.cuenta_destino IS NULL AND EXCLUDED.cuenta_destino IS NOT NULL)
+         RETURNING (xmax = 0) AS nueva`, [e.id, cuenta, l.fecha, l.concepto, l.referencia, l.importe, l.ocurrencia, l.operacion, l.aprobada_en, l.cuenta_destino]);
       if (ins && ins.nueva) nuevas++;
+      else if (ins && l.cuenta_destino) completadas++;
     }
     await c.query('UPDATE fin.extracto SET lineas_nuevas = $1, lineas_repetidas = $2 WHERE id = $3', [nuevas, lineas.length - nuevas, e.id]);
-    return { nuevas, repetidas: lineas.length - nuevas, apertura, saldo_final: saldoFinal };
+    return { nuevas, repetidas: lineas.length - nuevas, cuentas_destino: completadas, apertura, saldo_final: saldoFinal };
   });
   return out;
 }
@@ -933,8 +939,13 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const cuenta = texto(req.query.cuenta, { campo: 'la cuenta', requerido: true });
   const lado = ['ingresos', 'egresos'].includes(req.query.lado) ? req.query.lado : null;
   const [lineas, movs, cheques, hechas] = await Promise.all([
+    // Con la cuenta de destino (15/11/2026): el proveedor que ya cobró en ese CBU (fin.proveedor_cbu) o la cuenta propia.
     pool.query(`SELECT l.id, l.fecha, CASE WHEN l.destinatario IS NOT NULL THEN l.concepto || ' · ' || l.destinatario ELSE l.concepto END AS concepto,
-                       l.referencia, l.importe::text FROM fin.extracto_linea l
+                       l.referencia, l.importe::text, l.cuenta_destino, pc.proveedor_id AS proveedor_cbu_id, pv.nombre AS proveedor_cbu,
+                       cp.id AS cuenta_propia_id, cp.nombre AS cuenta_propia
+                  FROM fin.extracto_linea l
+                  LEFT JOIN fin.proveedor_cbu pc ON pc.cbu = l.cuenta_destino LEFT JOIN logic.proveedor pv ON pv.id = pc.proveedor_id
+                  LEFT JOIN LATERAL (SELECT id, nombre FROM fin.cuenta WHERE cbu = l.cuenta_destino AND id <> l.cuenta_id ORDER BY activa DESC LIMIT 1) cp ON true
                  WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
                  ORDER BY l.fecha, l.id`, [cuenta]),
     // Los movimientos que deberían aparecer en el extracto: desde que empiezan los extractos importados (la apertura
@@ -1004,10 +1015,21 @@ r.get('/fin/conciliacion', h(async (req, res) => {
 // Nunca automático: se confirman juntas desde la conciliación.
 async function transferenciasPropias(cuenta) {
   const { rows: lineas } = await pool.query(
-    `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto, l.referencia FROM fin.extracto_linea l
+    `SELECT l.id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto, l.referencia, cp.id AS cbu_cuenta_id, cp.nombre AS cbu_cuenta
+       FROM fin.extracto_linea l
+       LEFT JOIN LATERAL (SELECT id, nombre FROM fin.cuenta WHERE cbu = l.cuenta_destino AND id <> l.cuenta_id ORDER BY activa DESC LIMIT 1) cp ON true
       WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL
         AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) ORDER BY l.fecha, l.id`, [cuenta]);
   if (!lineas.length) return [];
+  // La cuenta de destino es una cuenta nuestra (15/11/2026: SORELLE transfirió $2.500.000 de Mercado Pago a BRUBANK de CORTAFUEGO):
+  // es una transferencia aunque sea entre sociedades, porque el CBU lo confirma. Se busca la entrada en esa cuenta.
+  const porCbu = lineas.filter(l => l.cbu_cuenta_id);
+  const { rows: delCbu } = porCbu.length ? await pool.query(
+    `SELECT l.id, l.cuenta_id, cu.nombre AS cuenta, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.importe::text, l.concepto FROM fin.extracto_linea l
+       JOIN fin.cuenta cu ON cu.id = l.cuenta_id
+      WHERE l.cuenta_id = ANY($1::uuid[]) AND l.compensa_a IS NULL AND l.descartada IS NULL AND l.importe = ANY($2::numeric[])
+        AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)`,
+    [[...new Set(porCbu.map(l => l.cbu_cuenta_id))], porCbu.map(l => opuesto(l.importe))]) : { rows: [] };
   const { rows: otras } = await pool.query(
     // Sólo entre cuentas de la misma sociedad (o del grupo): una transferencia entre sociedades no es "entre cuentas propias", y
     // un importe redondo coincide seguido (un retiro del apartado de SORELLE con un pago de CORTAFUEGO por el mismo importe).
@@ -1025,6 +1047,13 @@ async function transferenciasPropias(cuenta) {
   const usadas = new Set(), out = [];
   for (const l of lineas) {
     if (apartado && /apartado/i.test(l.concepto || '')) { out.push({ linea_id: l.id, linea: l, cuenta_id: apartado.id, cuenta: apartado.nombre, otra_linea: null }); continue; }
+    if (l.cbu_cuenta_id) {
+      const o = delCbu.filter(x => !usadas.has(x.id) && x.cuenta_id === l.cbu_cuenta_id && centavos(x.importe) === -centavos(l.importe) && dias(x.fecha, l.fecha) <= 3)
+        .sort((a, b) => dias(a.fecha, l.fecha) - dias(b.fecha, l.fecha))[0];
+      if (o) usadas.add(o.id);
+      out.push({ linea_id: l.id, linea: l, cuenta_id: l.cbu_cuenta_id, cuenta: l.cbu_cuenta, otra_linea: o || null, por_cbu: true });
+      continue;
+    }
     const o = otras.filter(x => !usadas.has(x.id) && !/apartado/i.test(x.concepto || '') && centavos(x.importe) === -centavos(l.importe) && dias(x.fecha, l.fecha) <= 2)
       .sort((a, b) => dias(a.fecha, l.fecha) - dias(b.fecha, l.fecha))[0];
     if (o) { usadas.add(o.id); out.push({ linea_id: l.id, linea: l, cuenta_id: o.cuenta_id, cuenta: o.cuenta, otra_linea: o }); }

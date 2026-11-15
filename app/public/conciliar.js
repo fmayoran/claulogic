@@ -108,6 +108,8 @@ const Conc = (() => {
   // SIRTAC y SIRCUPA), que suman exacto el neto. Las reservas que MP hace y libera al instante (reserve_for_*) y un
   // cobro devuelto entero se cancelan y no se importan. Si la venta se aprobó otro día (Point con crédito libera a los
   // ~10 días), el concepto lleva "venta del AAAA-MM-DD": el servidor parea contra ese día.
+  // Con PAYOUT_BANK_ACCOUNT_NUMBER tildada (15/11/2026), cada "Transferencia a banco" lleva el CBU o CVU de destino: así se
+  // reconoce al proveedor (o la cuenta propia) sin el resumen de cuenta, que es mensual.
   function liberacionesMP(filas) {
     const enc = (filas[0] || []).map(x => String(x).trim().toUpperCase()), col = n => enc.indexOf(n);
     if (!['RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT'].every(n => col(n) >= 0)) return null;
@@ -117,7 +119,8 @@ const Conc = (() => {
     const filasMP = filas.slice(1).map(f => ({ fecha: v(f, 'DATE').slice(0, 10), id: v(f, 'SOURCE_ID'), ref: v(f, 'EXTERNAL_REFERENCE'),
       tipo: v(f, 'RECORD_TYPE'), desc: v(f, 'DESCRIPTION'), neto: deCentavos(k(v(f, 'NET_CREDIT_AMOUNT')) - k(v(f, 'NET_DEBIT_AMOUNT'))),
       bruto: v(f, 'GROSS_AMOUNT') || '0', fee: deCentavos(k(v(f, 'MP_FEE_AMOUNT')) + k(v(f, 'FINANCING_FEE_AMOUNT'))), imp: v(f, 'TAXES_AMOUNT') || '0',
-      desglose: v(f, 'TAXES_DISAGGREGATED'), aprobada: v(f, 'TRANSACTION_APPROVAL_DATE').slice(0, 10), aprobada_en: v(f, 'TRANSACTION_APPROVAL_DATE'), saldo: v(f, 'BALANCE_AMOUNT'), pos: v(f, 'POS_NAME') }));
+      desglose: v(f, 'TAXES_DISAGGREGATED'), aprobada: v(f, 'TRANSACTION_APPROVAL_DATE').slice(0, 10), aprobada_en: v(f, 'TRANSACTION_APPROVAL_DATE'), saldo: v(f, 'BALANCE_AMOUNT'), pos: v(f, 'POS_NAME'),
+      cbu: /^\d{22}$/.test(v(f, 'PAYOUT_BANK_ACCOUNT_NUMBER')) ? v(f, 'PAYOUT_BANK_ACCOUNT_NUMBER') : '' }));
     const ini = filasMP.find(f => f.tipo === 'initial_available_balance'), movs = filasMP.filter(f => f.tipo === 'release');
     // Lo que se cancela dentro del archivo: las reservas y un cobro con su devolución, por número de operación.
     const netoDe = new Map();
@@ -147,13 +150,13 @@ const Conc = (() => {
       // Se abre sólo si bruto + comisión + impuestos da exacto el neto; si no, va por el neto.
       if (!esCero(f.bruto) && k(f.bruto) + partes.reduce((s, x) => s + x, 0n) === k(f.neto) && !reserva) {
         const det = venta ? [canal(f), f.aprobada && f.aprobada !== f.fecha ? `venta del ${f.aprobada}` : ''].filter(Boolean).join(' · ') : f.ref && !/^\d+$/.test(f.ref) ? '' : f.ref;
-        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}) });
+        out.push({ fecha: f.fecha, importe: f.bruto, referencia: venta ? canal(f) : '', concepto: `${que}${det ? ' ' + det : ''} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
         if (venta && !esCero(f.fee)) out.push({ fecha: f.fecha, importe: f.fee, referencia: '#' + f.id, concepto: `Comisión Mercado Pago - ${f.id}` });
         if (sumaImps === k(f.imp)) for (const x of imps) { if (!esCero(x.importe)) out.push({ fecha: f.fecha, importe: x.importe, referencia: '#' + f.id, concepto: `${nombreImp(x)} - ${f.id}` }); }
         else if (!esCero(f.imp)) out.push({ fecha: f.fecha, importe: f.imp, referencia: '#' + f.id, concepto: `Impuestos Mercado Pago - ${f.id}` });
         if (venta) cobros++;
       } else {
-        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}) });
+        out.push({ fecha: f.fecha, importe: f.neto, referencia: '', concepto: `${que} - ${f.id}`, ...(venta && f.aprobada_en ? { aprobada_en: f.aprobada_en } : {}), ...(f.cbu ? { cuenta_destino: f.cbu } : {}) });
         if (venta) sinAbrir++;
       }
     }
@@ -165,7 +168,8 @@ const Conc = (() => {
       out.unshift({ fecha: ini.fecha, concepto: 'Saldo inicial', saldo: ini.saldo, importe: '' });
       out.push({ fecha: ult.fecha, concepto: 'Saldo final', saldo: ult.saldo, importe: '' });
     }
-    return { filas: out, movimientos: movs.length, cobros, cancelados, sinAbrir, saldos: ini && ult ? { inicial: ini.saldo, final: ult.saldo } : null };
+    return { filas: out, movimientos: movs.length, cobros, cancelados, sinAbrir, saldos: ini && ult ? { inicial: ini.saldo, final: ult.saldo } : null,
+      cbus: out.filter(x => x.cuenta_destino).length, sinCbu: col('PAYOUT_BANK_ACCOUNT_NUMBER') < 0 };
   }
 
   // Conciliación automática de la cuenta de un procesador; devuelve el resultado en una frase.
@@ -285,7 +289,9 @@ const Conc = (() => {
           txt = `Formato reconocido: reporte de liberaciones de Mercado Pago, ${lib.movimientos} movimiento(s)`
             + (lib.saldos ? `, saldo inicial ${pesos(lib.saldos.inicial)} y final ${pesos(lib.saldos.final)}` : '') + `. ${lib.cobros} cobro(s) se abren en bruto, comisión e impuestos.`
             + (lib.cancelados ? ` ${lib.cancelados} fila(s) se cancelan entre sí (reservas de Mercado Pago y cobros devueltos) y no se importan.` : '')
-            + (lib.sinAbrir ? ` ${lib.sinAbrir} cobro(s) no cierran con su desglose y quedan por el neto.` : '');
+            + (lib.sinAbrir ? ` ${lib.sinAbrir} cobro(s) no cierran con su desglose y quedan por el neto.` : '')
+            + (lib.sinCbu ? ' Sin la columna PAYOUT_BANK_ACCOUNT_NUMBER no se sabe a qué cuenta fue cada transferencia: tildala en la configuración del reporte.'
+              : lib.cbus ? ` ${lib.cbus} transferencia(s) traen la cuenta de destino.` : '');
         }
       } else if (resA && !liqA) {
         // Solo, el resumen de cuenta completa a quién se pagó en las líneas ya importadas (el extracto es el de liberaciones).
@@ -349,7 +355,8 @@ const Conc = (() => {
       ok.disabled = true; avisar('Importando…');
       try {
         const d = await api('fin/extractos', { method: 'POST', body: { cuenta_id: opc.cuenta(), archivo: csv.nombre, decimal: dec, filas, formato: csv.mp ? 'mercadopago' : null } });
-        let t = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '') + '.';
+        let t = `Importado: ${d.nuevas} línea(s) nueva(s)` + (d.repetidas ? `, ${d.repetidas} ya estaban` : '') + (d.apertura ? `; saldo de apertura ${pesos(d.apertura)}` : '')
+          + (d.cuentas_destino ? `; ${d.cuentas_destino} ya importada(s) tomaron la cuenta de destino` : '') + '.';
         cerrar();
         // En la cuenta de un procesador se concilia en el mismo paso.
         // Se concilia en el mismo paso: los cobros de un procesador y, en cualquier cuenta, las reglas de clasificación.
