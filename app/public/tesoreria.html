@@ -40,6 +40,9 @@
   .mov .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;} .mov .i.sal{color:var(--baja);} .mov.anul{opacity:.6;}
   #abrirDet{margin-top:6px;}
   #vLado > * + *{margin-top:16px;}
+  .sel-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0;padding:8px 12px;
+    background:var(--panel);border:1px solid var(--acento);border-radius:var(--r);box-shadow:0 4px 14px rgba(0,0,0,.18);}
+  .sel-bar .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0;} .sel-bar #limpiarSel{margin-left:auto;}
   table.cruce td.num,table.cruce th.num{white-space:nowrap;} table.cruce tfoot td,table.cruce tfoot th{border-top:2px solid var(--line);}
   table.cruce button.sel{color:var(--acento);font-weight:700;border-bottom-color:var(--acento);}
   /* Las cifras de arriba abren su vista; la abierta queda marcada. */
@@ -115,6 +118,9 @@
     <p class="t-rango" id="rango"></p>
     <span class="msg" id="msgT0"></span>
     <div class="kpis" id="kpis"></div>
+    <!-- Lo elegido en los gráficos, siempre a la vista (pedido de Fer, 16/11/2026: no sabía cómo sacar la selección). -->
+    <div class="sel-bar" id="selBar" hidden><span class="cap">Filtrando por:</span><span class="chips" id="chipsArriba"></span>
+      <button type="button" class="chico" id="limpiarSel">Quitar todos los filtros</button></div>
 
     <!-- Cada cifra abre su vista (pedido de Fer, 07/11/2026: primero lo consolidado, el detalle a medida que se navega). -->
     <div class="vista" id="vDisponible">
@@ -343,7 +349,7 @@ function pintarTablero() {
     kpiB(kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
     kpiB(kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
     cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
-  mostrarVista();
+  mostrarVista(); pintarChips();
 }
 function mostrarVista() {
   for (const sel of new Set(Object.values(VISTAS))) $(sel).hidden = sel !== VISTAS[vista];
@@ -786,15 +792,25 @@ const NOMBRE_FILTRO = { dia: v => diaLargo(v), cat: v => {
   soc: v => 'Sociedad: ' + (((flujo.cruce || []).find(x => x.soc === v) || {}).sociedad || (v === 'grupo' ? 'Grupo' : v)) };
 // Tocar algo en un gráfico filtra los demás; los movimientos se piden con el botón (pedido de Fer, 16/11/2026: siempre a demanda) y,
 // si ya están abiertos, se actualizan.
+function quitarFiltros() {
+  if (!Object.keys(filtros).length) return;
+  limpiarFiltros(); pintarTablero(); pintarChips();
+  if (!$('#detalle').hidden) cargarMovs();
+}
+$('#limpiarSel').onclick = quitarFiltros;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) quitarFiltros(); });
 function alternar(k, v) {
   if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
   pintarTablero(); pintarChips();
   if (!$('#detalle').hidden) cargarMovs();
 }
 function pintarChips() {
-  $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
-    el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  const chips = () => Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
+    el('button', { type: 'button', textContent: '×', title: 'Quitar este filtro', onclick: () => alternar(k, v) })));
+  $('#chips').replaceChildren(...chips());
+  $('#chipsArriba').replaceChildren(...chips());
   const hay = Object.keys(filtros).length;
+  $('#selBar').hidden = !hay;
   $('#abrirDet').textContent = hay ? 'Ver los movimientos elegidos' : 'Ver los movimientos';
   $('#tDetalle').textContent = hay ? 'Movimientos elegidos' : vista === 'entradas' ? 'Entradas del período' : vista === 'salidas' ? 'Salidas del período' : 'Movimientos del período';
 }
