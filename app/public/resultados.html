@@ -57,7 +57,7 @@
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
-      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Rango de fechas</button>
     </div>
     <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
   </div>
@@ -119,6 +119,9 @@ function rango(p) {
   const h = hoy();
   if (p === 'mes') return [h.slice(0, 8) + '01', h];
   if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00Z'); x.setUTCDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
+  // Anual (pedido de Fer, 16/11/2026): el año en curso hasta hoy, o el anterior entero.
+  if (p === 'anio') return [h.slice(0, 4) + '-01-01', h];
+  if (p === 'anioant') { const a = Number(h.slice(0, 4)) - 1; return [`${a}-01-01`, `${a}-12-31`]; }
   return null;
 }
 function elegirPeriodo(p) {
@@ -126,11 +129,17 @@ function elegirPeriodo(p) {
   $('#fechas').hidden = p !== 'otro';
   const r = rango(p); if (r) [$('#desde').value, $('#hasta').value] = r;
 }
-// Para comparar: si el período arranca el 1, los mismos días del mes anterior (el mes en curso contra el anterior hasta
-// el mismo día); si no, el período anterior de la misma duración.
+// Para comparar: lo que arranca el 1 de enero y dura más de un mes, contra el mismo tramo del año anterior; si arranca el 1 y no pasa
+// de un mes, los mismos días del mes anterior (el mes en curso contra el anterior hasta el mismo día); si no, el período anterior de
+// la misma duración.
 function anterior() {
   const d = $('#desde').value, h = $('#hasta').value;
-  if (d.endsWith('-01')) {
+  const dias = Math.round((new Date(h) - new Date(d)) / 864e5) + 1;
+  if (d.endsWith('-01-01') && dias > 31) {
+    const menosUno = f => { const a = String(Number(f.slice(0, 4)) - 1); return f.slice(5) === '02-29' ? a + '-02-28' : a + f.slice(4); };
+    return [menosUno(d), menosUno(h)];
+  }
+  if (d.endsWith('-01') && dias <= 31) {
     const ini = new Date(d + 'T12:00:00Z'); ini.setUTCMonth(ini.getUTCMonth() - 1);
     const fin = new Date(ini); fin.setUTCDate(Number(h.slice(8, 10)));
     const tope = new Date(d + 'T12:00:00Z'); tope.setUTCDate(0);
@@ -306,7 +315,7 @@ async function cargar() {
 async function todo() {
   if (!$('#desde').value || !$('#hasta').value) return;
   const [a0, a1] = anterior();
-  $('#rango').textContent = `Del ${fecha($('#desde').value)} al ${fecha($('#hasta').value)} · anterior: ${fecha(a0).slice(0, 5)} al ${fecha(a1)}`;
+  $('#rango').textContent = `Del ${fecha($('#desde').value)} al ${fecha($('#hasta').value)} · anterior: del ${fecha(a0)} al ${fecha(a1)}`;
   msg('Cargando…');
   try { await cargar(); msg(''); } catch (e) { msg(e.message, 'mal'); }
 }

@@ -959,7 +959,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
 - `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
   fila por hecho: sede, día devengado, rubro, importe con signo). A futuro se consolida en la central; **por ahora todo es de la
   filial** (decisión de Fer). Líneas: Ventas, Costo de mercadería vendida, Margen bruto, Costos de cobro, Impuestos, Gastos
-  bancarios, Gastos operativos, Diferencias, Otros, Resultado. Comparado con el mismo tramo del mes anterior. Ventas se abre
+  bancarios, Gastos operativos, Diferencias, Otros, Resultado. Comparado con el mismo tramo del mes anterior. Períodos (16/11/2026): este mes, mes anterior, **este año** (hasta hoy), **año anterior** y rango de fechas; lo que arranca el 1 de enero y dura más de un mes se compara con el mismo tramo del año anterior. Ventas se abre
   **por tipo de venta** con la cantidad (pedido de Fer, 28/10/2026; `ventas_por_tipo`), con los nombres de Fudo: Salón,
   Mostrador (lo que se guarda "para llevar") y Delivery.
 - Decisiones de Fer: **devengado** (la venta y sus costos de cobro, en el día de la venta; lo demás, en el día del movimiento);
