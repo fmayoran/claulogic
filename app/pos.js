@@ -909,7 +909,8 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   // por venta (Maxirest), el informe de artículos del día, sólo sin filtros de medio, tipo, hora o mozo (ese informe no se puede
   // abrir así).
   // Cada artículo lleva su clase (comida, bebida u otro: pos.clase_articulo, por el rubro del sistema o el nombre) y se devuelven
-  // los 10 primeros de todo y los 10 de cada clase, para que la pantalla filtre sin volver a pedir (pedido de Fer, 16/11/2026).
+  // los 50 primeros de todo y los 50 de cada clase, para que la pantalla filtre y muestre de a 10 sin volver a pedir (pedido de
+  // Fer, 16/11/2026).
   const TOP = (orden, having = '') => `, x AS (
          SELECT a.nombre, t.sede_id, pos.clase_articulo(a.nombre, a.rubro) AS clase,
                 SUM(i.cantidad) AS cant, SUM(COALESCE(i.importe, i.cantidad * i.precio, 0)) AS venta
@@ -931,7 +932,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                 row_number() OVER (PARTITION BY clase ORDER BY ${orden} DESC NULLS LAST, nombre) AS rc
            FROM g)
        SELECT nombre, trim_scale(cant)::text AS unidades, venta::numeric(16,2)::text AS vendido, locales, clase
-         FROM r WHERE rt <= 10 OR rc <= 10 ORDER BY ${orden} DESC NULLS LAST, nombre`;
+         FROM r WHERE rt <= 50 OR rc <= 50 ORDER BY ${orden} DESC NULLS LAST, nombre`;
   // Con `mes=1` (este mes) el acumulado del gráfico por día se compara con el mes calendario anterior entero, día del mes
   // contra día del mes (pedido de Fer, 08/11/2026); las cifras siguen contra el período anterior corrido en semanas.
   let mesAnt = null;

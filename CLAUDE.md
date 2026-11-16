@@ -570,7 +570,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   corrido en semanas. Si el anterior no tiene ventas traídas (hay desde el 01/10/2026), se avisa y no se dibuja. Por cantidad no
   entran los artículos en $0 (el cubierto).
   **Comidas y bebidas en lo más vendido** (pedido de Fer, 16/11/2026; migración 20261151): "Todo · Comidas · Bebidas" sobre los dos
-  rankings (se recuerda, `ventas-top-clase`); el servidor manda los 10 primeros de todo y de cada clase. La clase la da
+  rankings (se recuerda, `ventas-top-clase`); el servidor manda los 50 primeros de todo y de cada clase y la pantalla los muestra de a 10, numerados, con "Ver los 10 siguientes" al pie de cada ranking (vuelve a 10 al cambiar de clase o de período). La clase la da
   `pos.clase_articulo(nombre, rubro)`: una corrección a mano por nombre (`pos.articulo_clase`, todavía sin pantalla), si no "otro" para
   lo que no es producto (cubiertos, envío, descuento, Art. Inex.), si no el rubro del sistema (Maxirest: `articulo_dia.rubro`; Fudo: la
   categoría del producto, que ahora se trae con `items.product.productCategory` y queda en `pos.articulo.rubro`), y si no dice nada

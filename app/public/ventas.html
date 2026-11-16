@@ -40,6 +40,7 @@
   .peya-h{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px;font-weight:600;}
   .cerrar-x{all:unset;position:absolute;top:14px;right:14px;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mut);font-size:1.3rem;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
+  .top-mas{margin:12px 0 0;} .top-mas:has(button[hidden]){display:none;}
   @media (max-width:600px){ .venta{grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;} .venta .dato:first-child{grid-column:1 / -1;flex-direction:row;gap:8px;align-items:baseline;} }
 </style>
 </head>
@@ -104,11 +105,13 @@
       <h2>Lo más vendido por importe</h2>
       <p class="cap" id="capTop">Los 10 productos que más facturaron en el período.</p>
       <div id="gTop"></div>
+      <p class="top-mas"><button type="button" class="chico" id="masTop" hidden>Ver los 10 siguientes</button></p>
     </section>
     <section class="card">
       <h2>Lo más vendido por cantidad</h2>
       <p class="cap" id="capTopCant">Los 10 productos de los que más unidades se vendieron.</p>
       <div id="gTopCant"></div>
+      <p class="top-mas"><button type="button" class="chico" id="masTopCant" hidden>Ver los 10 siguientes</button></p>
     </section>
   </div>
 
@@ -224,7 +227,7 @@ async function cargar() {
     const conMes = new URLSearchParams(p);
     if ($('#periodo button.act')?.dataset.p === 'mes') conMes.set('mes', '1');
     resumen = await api('pos/ventas/resumen?' + conMes);
-    msg(''); pintar();
+    topReiniciar(); msg(''); pintar();
     // La lista de ventas (pesada) se pide recién al abrir el detalle.
     ventas = []; ventasDe = null;
     const t = resumen.totales;
@@ -375,7 +378,9 @@ function pintarSemana() {
     + (hayAnt ? '' : ' No hay ventas traídas de ese período para comparar.');
 }
 const topClase = () => { try { return localStorage.getItem('ventas-top-clase') || ''; } catch { return ''; } };
-$$('#topClase button').forEach(b => b.onclick = () => { try { localStorage.setItem('ventas-top-clase', b.dataset.c); } catch {} if (resumen) pintarTop(); });
+// Cuántos se ven de cada ranking: vuelve a 10 al cambiar de clase o al traer otro período.
+const topMostrar = { gTop: 10, gTopCant: 10 }, topReiniciar = () => { topMostrar.gTop = topMostrar.gTopCant = 10; };
+$$('#topClase button').forEach(b => b.onclick = () => { try { localStorage.setItem('ventas-top-clase', b.dataset.c); } catch {} topReiniciar(); if (resumen) pintarTop(); });
 // Lo más vendido: los 10 productos que más facturaron (Fudo por venta; Maxirest por su informe de artículos del día).
 function pintarTop() {
   const hayFiltro = ['medio', 'tipo', 'hora', 'mozo'].some(k => filtros[k] != null), donde = it => !$('#integ').value && it.x.locales ? ` · ${it.x.locales}` : '';
@@ -384,12 +389,21 @@ function pintarTop() {
     Graf.ranking(cont, { items: top.map((x, i) => ({ clave: String(i), etiqueta: x.nombre, valor: valor(x), x })), fmt, nota });
     if (!top.length) cont.replaceChildren(el('p', { className: 'g-vacio', textContent: 'Sin artículos en el período.' }));
   };
-  // Comidas (entradas, principales, postres…) o bebidas: el servidor manda los 10 primeros de todo y de cada clase.
-  const clase = topClase(), de = xs => (clase ? xs.filter(x => x.clase === clase) : xs).slice(0, 10);
+  // Comidas (entradas, principales, postres…) o bebidas: el servidor manda los 50 primeros de todo y de cada clase; se muestran de
+  // a 10, y "Ver los 10 siguientes" suma otros 10 (pedido de Fer, 16/11/2026).
+  const clase = topClase(), de = xs => clase ? xs.filter(x => x.clase === clase) : xs;
   $$('#topClase button').forEach(b => b.classList.toggle('act', b.dataset.c === clase));
   const que = { '': 'Los 10 productos', comida: 'Las 10 comidas', bebida: 'Las 10 bebidas' }[clase];
-  rank($('#gTop'), de(resumen.top || []), x => x.vendido, undefined, it => `${num(it.x.unidades)} u` + donde(it));
-  rank($('#gTopCant'), de(resumen.top_cantidad || []), x => x.unidades, v => `${num(String(v))} u`, it => pesos(it.x.vendido) + donde(it));
+  const lista = (id, todos, valor, fmt, nota) => {
+    const cuantos = topMostrar[id];
+    rank($('#' + id), todos.slice(0, cuantos).map((x, i) => ({ ...x, nombre: `${i + 1}. ${x.nombre}` })), valor, fmt, nota);
+    const b = $('#mas' + id.slice(1));
+    b.hidden = todos.length <= cuantos;
+    b.textContent = `Ver los ${Math.min(10, todos.length - cuantos)} siguientes`;
+    b.onclick = () => { topMostrar[id] += 10; pintarTop(); };
+  };
+  lista('gTop', de(resumen.top || []), x => x.vendido, undefined, it => `${num(it.x.unidades)} u` + donde(it));
+  lista('gTopCant', de(resumen.top_cantidad || []), x => x.unidades, v => `${num(String(v))} u`, it => pesos(it.x.vendido) + donde(it));
   $('#capTop').textContent = `${que} que más facturaron en el período.` + aviso;
   $('#capTopCant').textContent = `${que} de ${clase ? 'las' : 'los'} que más unidades se vendieron.` + aviso;
 }
