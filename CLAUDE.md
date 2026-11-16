@@ -992,7 +992,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   **Administración** (honorarios, sistemas, internet y telefonía, seguros, seguridad, librería), Impuestos, Gastos bancarios →
   **Resultado operativo**; después **Inversiones** (equipamiento, obras, mobiliario: imputadas al mes, sin amortizar), Diferencias y
   Otros → Resultado. Arriba, el **prime cost** (mercadería + personal, lo usual es 55 a 65% de las ventas). No es resultado suma Pagos a
-  proveedores, Transferencias propias y Anticipos al personal. Los rubros se agregan y renombran en Rubros y reglas.
+  proveedores, Transferencias propias y Anticipos al personal. Los rubros se agregan y renombran en Rubros y reglas. Rubros y reglas los lista **agrupados por línea**, en el orden del estado, con "Del centro" y cuántas veces se usó. Un rubro nuevo de mercadería (desde ahí, egresos o conciliación) se llama "Mercadería · <qué>" (lo agrega el servidor; no se admite un nombre repetido sin contar acentos ni mayúsculas) y nace **del centro**, con un tilde para destildarlo; marcar un rubro como del centro lleva lo ya clasificado a la central y les saca la filial a sus reglas (al revés no se deshace solo). Las categorías de productos (Catálogo) son otra cosa: ordenan el stock.
   **Subcategorías de mercadería** (migración 20261142): rubros "Mercadería · Carnes / Aves / Pescados y mariscos / Fiambres y embutidos /
   Lácteos, quesos y huevos / Frutas y verduras / Almacén / Aceites y grasas / Panadería y pastelería / Congelados / Café e infusiones /
   Bebidas sin alcohol / Bebidas con alcohol / Helados" (Helados y "Envíos de delivery" en Comercialización, migración 20261144) y "Mercadería varios" (ex Compras de mercadería, para mayoristas); las mismas categorías

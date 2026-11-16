@@ -22,17 +22,40 @@ r.get('/fin/rubros', h(async (req, res) => {
        FROM fin.rubro r ORDER BY r.orden, r.nombre`);
   res.json({ ok: true, rubros: rows, lineas: LINEAS });
 }));
+// "Del centro" (fin.rubro.del_centro): lo que se compra en ese rubro es de CF CENTRAL, pague quien pague. Un rubro de mercadería
+// nace así salvo que se diga lo contrario (Fer, 15/11/2026: Aves, Pastas y Leña, creados desde egresos, quedaron en el local).
 function leerRubro(b, sistema) {
   const x = { nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }), linea: texto(b.linea), activo: b.activo === undefined ? true : !!b.activo };
   if (!sistema && !LINEAS_A_MANO.includes(x.linea)) throw new ErrorUsuario('Elegí en qué línea del estado va el rubro.');
+  x.del_centro = b.del_centro === undefined ? x.linea === 'cmv' : !!b.del_centro;
   return x;
+}
+// Los de mercadería se llaman "Mercadería · <qué>", como los originales: así se leen juntos en el estado de resultados.
+const PREFIJO_CMV = 'Mercadería · ';
+const conPrefijo = (nombre, linea) => linea === 'cmv' && !/^mercader[ií]a\b/i.test(nombre) ? PREFIJO_CMV + nombre : nombre;
+async function nombreLibre(c, nombre, id = null) {
+  const sinAc = "lower(translate(nombre, 'áéíóúÁÉÍÓÚ', 'aeiouAEIOU'))";
+  const { rows: [ya] } = await c.query(`SELECT nombre FROM fin.rubro WHERE ${sinAc} = lower(translate($1, 'áéíóúÁÉÍÓÚ', 'aeiouAEIOU')) AND id IS DISTINCT FROM $2::uuid`, [nombre, id]);
+  if (ya) throw new ErrorUsuario(`Ya existe el rubro "${ya.nombre}".`);
+}
+// Un rubro que pasa a ser del centro lleva lo ya clasificado a la central (el trigger de fin.clasificacion lo hace al tocarlo) y sus
+// reglas dejan de fijar filial. Al revés no se puede deshacer solo: no se sabe de qué local era cada gasto.
+async function alCentro(c, id) {
+  await c.query('UPDATE fin.clasificacion SET sede_id = sede_id WHERE rubro_id = $1', [id]);
+  await c.query('UPDATE fin.regla SET sede_id = NULL WHERE rubro_id = $1 AND sede_id IS NOT NULL', [id]);
 }
 r.post('/fin/rubros', h(async (req, res) => {
   const x = leerRubro(req.body);
-  const { rows: [n] } = await pool.query(
-    `INSERT INTO fin.rubro (nombre, linea, activo, orden) VALUES ($1,$2,$3,(SELECT COALESCE(MAX(orden), 100) FROM fin.rubro WHERE linea = $2) + 1) RETURNING id`,
-    [x.nombre, x.linea, x.activo]);
-  res.status(201).json({ ok: true, id: n.id });
+  x.nombre = conPrefijo(x.nombre, x.linea);
+  const id = await enTransaccion(async c => {
+    await nombreLibre(c, x.nombre);
+    const { rows: [n] } = await c.query(
+      `INSERT INTO fin.rubro (nombre, linea, activo, del_centro, orden)
+       VALUES ($1,$2,$3,$4,(SELECT COALESCE(MAX(orden), 100) FROM fin.rubro WHERE linea = $2) + 1) RETURNING id`,
+      [x.nombre, x.linea, x.activo, x.del_centro]);
+    return n.id;
+  });
+  res.status(201).json({ ok: true, id, nombre: x.nombre, del_centro: x.del_centro });
 }));
 // Un rubro del sistema cambia de nombre pero no de línea (lo usa la clasificación automática); ninguno se borra.
 r.put('/fin/rubros/:id', h(async (req, res) => {
@@ -40,8 +63,17 @@ r.put('/fin/rubros/:id', h(async (req, res) => {
   if (!ant) throw new ErrorUsuario('No existe ese rubro.', 404);
   const x = leerRubro(req.body, !!ant.clave);
   if (ant.clave && !x.activo) throw new ErrorUsuario('Ese rubro lo usa el sistema: no se desactiva.');
-  await pool.query('UPDATE fin.rubro SET nombre = $1, linea = COALESCE(CASE WHEN clave IS NULL THEN $2 END, linea), activo = $3 WHERE id = $4',
-    [x.nombre, x.linea, x.activo, req.params.id]);
+  if (req.body.del_centro === undefined) x.del_centro = null;
+  await enTransaccion(async c => {
+    await nombreLibre(c, x.nombre, req.params.id);
+    const { rows: [u] } = await c.query(
+      `UPDATE fin.rubro r SET nombre = $1, linea = COALESCE(CASE WHEN clave IS NULL THEN $2 END, linea), activo = $3,
+              del_centro = COALESCE($5, del_centro)
+         FROM (SELECT del_centro AS antes FROM fin.rubro WHERE id = $4) a
+        WHERE r.id = $4 RETURNING a.antes, r.del_centro`,
+      [x.nombre, x.linea, x.activo, req.params.id, x.del_centro]);
+    if (u.del_centro && !u.antes) await alCentro(c, req.params.id);
+  });
   res.json({ ok: true });
 }));
 async function rubroValido(c, id, campo = 'el rubro') {

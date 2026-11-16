@@ -64,8 +64,10 @@ def api(route):
              {'id': 23, 'fecha': '2026-11-11', 'importe': '-820000.00', 'concepto': 'Transferencia a banco - 187992003535', 'candidatos': [], 'lado': 'egresos', 'aprobada_en': '2026-11-11T14:45:34.000-03:00', 'operacion': '187992003535', 'cuenta_destino': '0170099220000071116352'}])}
     elif 'pagos-sin-factura/armar' in u:
         datos = {'hechos': [{'proveedor_id': 'pz', 'comprobantes': 1}], 'errores': []}
+    elif 'fin/reglas' in u:
+        datos = {'reglas': []}
     elif 'fin/rubros' in u:
-        datos = {'rubros': [{'id': 'r%d' % i, 'nombre': n, 'linea': 'operativos', 'activo': True, 'del_centro': n.startswith('Merc')} for i, n in enumerate(
+        datos = {'rubros': [{'id': 'r%d' % i, 'nombre': n, 'linea': 'cmv' if n.startswith('Merc') else 'operativos', 'activo': True, 'del_centro': n.startswith('Merc'), 'usos': i} for i, n in enumerate(
             ['Sueldos', 'Mercadería · Almacén', 'Ingresos Brutos', 'Alquiler', 'Mercadería · Carnes', 'Cargas sociales (F.931)', 'Publicidad y marketing',
              'Mercadería · Lácteos, quesos y huevos', 'Electricidad', 'Honorarios', 'Mercadería · Frutas y verduras'])]}
     elif 'api/sedes' in u:

@@ -136,8 +136,8 @@ function insertarOrdenado(s, v, t) {
 async function altaRubro(sel) {
   const r = await Conc.nuevoRubro('operativos', sel.dataset.buscado || '');
   if (!r) return null;
-  const [id, nombre] = r;
-  rubros.push({ id, nombre, activo: true, del_centro: false });
+  const [id, nombre, delCentro] = r;
+  rubros.push({ id, nombre, activo: true, del_centro: !!delCentro });
   rubros.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
   for (const f of filasG) if (f.rub && f.rub !== sel && !f.hecha && !f.rub.querySelector(`option[value="${id}"]`)) insertarOrdenado(f.rub, id, nombre);
   // opcionesConAlta lo agrega al final de este combo: se acomoda después del "change".

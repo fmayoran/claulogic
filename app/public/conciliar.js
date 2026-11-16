@@ -202,16 +202,27 @@ const Conc = (() => {
     return new Promise(listo => {
       const nombre = el('input', { required: true, maxLength: 80, value: nombreInicial }), linea = el('select');
       opciones(linea, Object.entries(LINEA), lineaSugerida);
+      // Mercadería: se llama "Mercadería · <qué>" (el servidor lo agrega) y, salvo que se destilde, lo compra el centro.
+      const centro = el('input', { type: 'checkbox', checked: linea.value === 'cmv' });
+      const ayuda = el('p', { className: 'ayuda' });
+      const pintarAyuda = () => {
+        const cmv = linea.value === 'cmv';
+        ayuda.textContent = cmv ? `Se va a llamar "Mercadería · ${nombre.value.trim().replace(/^mercader[ií]a\s*[·-]?\s*/i, '') || '…'}".` : '';
+        ayuda.hidden = !cmv;
+      };
+      linea.onchange = () => { centro.checked = linea.value === 'cmv'; pintarAyuda(); };
+      nombre.oninput = pintarAyuda; pintarAyuda();
       const msgR = el('span', { className: 'msg' });
       const dlg = el('dialog', {}, el('form', { method: 'dialog' }, el('h2', { textContent: 'Nuevo rubro' }),
         el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre)), el('div', { className: 'fila' }, el('label', {}, 'Línea del estado de resultados', linea)),
+        ayuda, el('label', { className: 'check' }, centro, ' Lo compra el centro (va a CF CENTRAL, pague quien pague)'),
         el('div', { className: 'acciones' }, el('button', { type: 'submit', className: 'prim', textContent: 'Crear' }),
           el('button', { type: 'button', textContent: 'Cancelar', onclick: () => { dlg.close(); } }), msgR)));
       dlg.querySelector('form').onsubmit = async e => {
         e.preventDefault();
         try {
-          const { id } = await api('fin/rubros', { method: 'POST', body: { nombre: nombre.value, linea: linea.value } });
-          await rubros(true); listo([id, nombre.value.trim()]); dlg.remove();
+          const r = await api('fin/rubros', { method: 'POST', body: { nombre: nombre.value, linea: linea.value, del_centro: centro.checked } });
+          await rubros(true); listo([r.id, r.nombre, r.del_centro]); dlg.remove();
         } catch (err) { msg(err.message, 'mal', msgR); }
       };
       dlg.addEventListener('close', () => { listo(null); dlg.remove(); });
