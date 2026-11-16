@@ -53,8 +53,7 @@
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
-      <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
-      <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="meses">Por mes</button><button type="button" data-p="otro">Fechas</button>
+      <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="meses">Últimos 12 meses</button><button type="button" data-p="otro">Fechas</button>
     </div>
     <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
   </div>
@@ -190,14 +189,11 @@ let integraciones = [], locales = [], resumen = null, ventas = [];
 const filtros = {};   // dia, medio, hora, tipo, mozo: lo que se fue eligiendo en los gráficos
 const ayer = () => { const d = new Date(hoy() + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
 function rango(p) {
-  const a = ayer(), d = new Date(a + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
-  if (p === 'ayer') return [a, a];
-  if (p === '7') { d.setDate(d.getDate() - 6); return [iso(d), a]; }
-  if (p === 'mes') { const h = hoy(); return [h.slice(0, 8) + '01', h.endsWith('-01') ? h : a]; }
-  // Por mes (pedido de Fer, 08/11/2026): los últimos doce meses hasta ayer; el gráfico principal va mes por mes.
+  const a = ayer(), iso = x => x.toISOString().slice(0, 10);
+  // Últimos 12 meses (pedido de Fer, 08/11/2026, "Por mes"): hasta ayer; el gráfico principal va mes por mes.
   if (p === 'meses') { const x = new Date(a.slice(0, 8) + '01T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() - 11); return [iso(x), a]; }
-  if (p === 'mesant') { const h = new Date(hoy().slice(0, 8) + '01T12:00:00'); h.setDate(0); return [iso(h).slice(0, 8) + '01', iso(h)]; }
-  return null;
+  // Lo demás, como en todos los tableros (comun.js), hasta ayer: el día en curso no se trae.
+  return rangoPeriodo(p, a);
 }
 function elegirPeriodo(p) {
   $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
@@ -302,7 +298,7 @@ let ctxV = null;
 function pintarEvolucion() {
   const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;
   // Principal: por día; si el período es un solo día, por hora.
-  const porMes = $('#periodo button.act')?.dataset.p === 'meses';
+  const porMes = ['meses', 'anio', 'anioant'].includes($('#periodo button.act')?.dataset.p);
   $('#leyPrincipal').hidden = unDia || porMes;
   if (porMes) return pintarMeses();
   if (unDia) {
@@ -556,7 +552,7 @@ $('#dlgVenta').addEventListener('click', e => { if (e.target === $('#dlgVenta'))
     opciones($('#integ'), locales, pedido || (locales.length === 1 ? locales[0][0] : ''), locales.length > 1 ? 'Todos los locales' : undefined);
     const max = ayer(); $('#desde').max = $('#hasta').max = max;
     if (p.get('desde') && p.get('hasta')) {
-      const coincide = ['ayer', '7', 'mes', 'mesant', 'meses'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });
+      const coincide = [...PERIODOS, 'meses'].find(k => { const r = rango(k); return r[0] === p.get('desde') && r[1] === p.get('hasta'); });
       elegirPeriodo(coincide || 'otro');
       if (!coincide) { $('#desde').value = p.get('desde'); $('#hasta').value = p.get('hasta'); }
     } else elegirPeriodo('7');

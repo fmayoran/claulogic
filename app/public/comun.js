@@ -701,6 +701,34 @@ function nuevaCuentaBanco() {
   });
 }
 
+// ── Período de los tableros ─────────────────────────────────────────────────────────────────
+// Todos los tableros eligen las fechas igual (pedido de Fer, 16/11/2026): Ayer, 7 días, Este mes, Mes anterior, Este año, Año anterior
+// y Fechas. `tope` es el último día que se muestra: hoy, o ayer donde el día en curso no está (las ventas no se traen hasta que
+// termina). Devuelve [desde, hasta] en AAAA-MM-DD, o null para "Fechas".
+const PERIODOS = ['ayer', '7', 'mes', 'mesant', 'anio', 'anioant'];
+function rangoPeriodo(p, tope = hoy()) {
+  const corrido = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const h = hoy(), ay = corrido(h, -1), max = (a, b) => a > b ? a : b;
+  if (p === 'ayer') return [ay, ay];
+  if (p === '7') return [corrido(tope, -6), tope];
+  if (p === 'mes') { const d = h.slice(0, 8) + '01'; return [d, max(d, tope)]; }
+  if (p === 'mesant') { const fin = corrido(h.slice(0, 8) + '01', -1); return [fin.slice(0, 8) + '01', fin]; }
+  if (p === 'anio') { const d = h.slice(0, 4) + '-01-01'; return [d, max(d, tope)]; }
+  if (p === 'anioant') { const a = Number(h.slice(0, 4)) - 1; return [`${a}-01-01`, `${a}-12-31`]; }
+  return null;
+}
+// Lo que arranca el 1 de enero y dura más de un mes se compara con el mismo tramo del año anterior; lo demás, con el período anterior
+// de la misma duración. (Ventas compara en semanas enteras, en el servidor; el estado de resultados, mes contra mes.)
+function anteriorPeriodo(desde, hasta) {
+  const corrido = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const dias = Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1;
+  if (desde.endsWith('-01-01') && dias > 31) {
+    const menos = f => { const a = String(Number(f.slice(0, 4)) - 1); return f.slice(5) === '02-29' ? a + '-02-28' : a + f.slice(4); };
+    return [menos(desde), menos(hasta)];
+  }
+  return [corrido(desde, -dias), corrido(desde, -1)];
+}
+
 // ── Lista de valores con búsqueda ───────────────────────────────────────────────────────────
 // El <select> nativo sólo salta por la primera letra; con listas largas (rubros, proveedores) se escribe una parte del nombre y se
 // filtra por lo que contiene, en cualquier lugar, sin acentos ni mayúsculas (pedido de Fer, 15/11/2026). El select queda oculto

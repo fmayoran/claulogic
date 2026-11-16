@@ -110,8 +110,7 @@
     </div>
     <div class="t-cab" style="margin-top:-8px">
       <div class="segm" id="periodo" role="group" aria-label="Período">
-        <button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button>
-        <button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="otro">Fechas</button>
+        <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Fechas</button>
       </div>
       <div id="fechas" class="t-filtros" hidden><input id="tDesde" type="date" aria-label="Desde"><input id="tHasta" type="date" aria-label="Hasta"></div>
     </div>
@@ -269,11 +268,7 @@ function diasEntre(desde, hasta) {
   return out;
 }
 function rango(p) {
-  const h = hoy(), d = new Date(h + 'T12:00:00'), iso = x => x.toISOString().slice(0, 10);
-  if (p === '7') { d.setDate(d.getDate() - 6); return [iso(d), h]; }
-  if (p === 'mes') return [h.slice(0, 8) + '01', h];
-  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00'); x.setDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
-  return null;
+  return rangoPeriodo(p);
 }
 function elegirPeriodo(p) {
   $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
@@ -915,7 +910,7 @@ $('#dlgAcr').addEventListener('click', e => { if (e.target === $('#dlgAcr')) $('
 addEventListener('hashchange', ruta);
 (async () => {
   const pg = (() => { try { return localStorage.getItem('tesoreria-periodo'); } catch { return null; } })();
-  elegirPeriodo(['7', 'mes', 'mesant'].includes(pg) ? pg : 'mes');
+  elegirPeriodo(PERIODOS.includes(pg) ? pg : 'mes');
   try { await cargar(); ruta(); }
   catch (e) { alert(e.message); }
 })();

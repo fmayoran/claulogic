@@ -343,9 +343,12 @@ r.get('/fin/tesoreria/tablero', h(async (req, res) => {
   const filial = filialTes(req.query.filial);
   const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
   if (desde > hasta) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
-  // El período anterior, de la misma duración y pegado al elegido.
+  // El período anterior, de la misma duración y pegado al elegido; lo que arranca el 1 de enero y dura más de un mes, contra el mismo
+  // tramo del año anterior (como en todos los tableros, 16/11/2026).
   const largo = Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1;
-  const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta, true), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)),
+  const anioAntes = f => { const a = String(Number(f.slice(0, 4)) - 1); return f.slice(5) === '02-29' ? a + '-02-28' : a + f.slice(4); };
+  const [aDesde, aHasta] = desde.endsWith('-01-01') && largo > 31 ? [anioAntes(desde), anioAntes(hasta)] : [sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)];
+  const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta, true), flujoTes(filial, aDesde, aHasta),
     // Dónde está el disponible al cierre del período (pedido de Fer, 03/11/2026): el saldo de cada banco y caja a esa fecha.
     pool.query(
       `SELECT c.id, c.nombre, c.tipo, COALESCE(s.nombre, 'Grupo') AS sede, SUM(m.entrada - m.salida)::text AS saldo

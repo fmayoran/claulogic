@@ -37,8 +37,7 @@
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
-      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button>
-      <button type="button" data-p="7">7 días</button><button type="button" data-p="otro">Fechas</button>
+      <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Fechas</button>
     </div>
     <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
   </div>
@@ -133,22 +132,15 @@ const corrido = (d, dias) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDat
 // ── Período y filtros ──
 let yo = null, sedesCargadas = false, operativoAct = null, ordenProd = null;
 function rango(p) {
-  const h = hoy();
-  if (p === 'mes') return [h.slice(0, 8) + '01', h];
-  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00Z'); x.setUTCDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
-  if (p === '7') return [corrido(h, -6), h];
-  return null;
+  return rangoPeriodo(p);
 }
 function elegirPeriodo(p) {
   $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
   $('#fechas').hidden = p !== 'otro';
   const r = rango(p); if (r) [$('#desde').value, $('#hasta').value] = r;
 }
-// El período anterior de la misma duración, que termina el día antes.
-function anterior() {
-  const d = $('#desde').value, h = $('#hasta').value, largo = Math.round((new Date(h) - new Date(d)) / 864e5) + 1;
-  return [corrido(d, -largo), corrido(d, -1)];
-}
+// El período anterior de la misma duración, que termina el día antes (lo anual, contra el mismo tramo del año anterior).
+const anterior = () => anteriorPeriodo($('#desde').value, $('#hasta').value);
 function params(extra = {}, [desde, hasta] = [$('#desde').value, $('#hasta').value]) {
   const p = new URLSearchParams({ iva: $('#iva').value, desde, hasta });
   if ($('#sede').value) p.set('sede', $('#sede').value);

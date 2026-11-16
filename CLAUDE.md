@@ -576,6 +576,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Stock abren el food cost por local; Consumo real (con el desvío en la nota) la composición y los productos; **Platos con receta** la
   rentabilidad por plato; los productos se piden al abrir su vista. Las ventas del Tablero son el total de cada venta (antes la suma de
   sus artículos: Maxirest y PedidosYa, que no los traen, daban cero).
+- **Períodos de los tableros, iguales en todos** (pedido de Fer, 16/11/2026): Ventas, Tesorería, Food cost y caja y Estado de resultados tienen Ayer, 7 días, Este mes, Mes anterior, Este año, Año anterior y Fechas (Ventas además "Últimos 12 meses", el ex "Por mes"; con Este año y Año anterior también va mes por mes). Un solo cálculo, `rangoPeriodo(p, tope)` en `comun.js` (`tope` = ayer en Ventas, donde el día en curso no se trae; hoy en los demás), y `anteriorPeriodo`: lo que arranca el 1 de enero y dura más de un mes se compara con el mismo tramo del año anterior (también en el servidor de tesorería); Ventas sigue comparando en semanas enteras y el estado de resultados, mes contra mes.
 - **Gráficos de los tableros**: `graficos.js` (`Graf.area`, `columnas`, `dona`, `mini`, `ranking`, `variacion`) y
   `graficos.css` (tarjetas, cifras, botones de período, chips, panel lateral `dialog.panel-lado`; ojo: la clase
   `lateral` es la barra del menú). Paleta categórica de 6 en orden fijo validada para claro y oscuro contra los

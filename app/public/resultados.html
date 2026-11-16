@@ -57,7 +57,7 @@
   </div>
   <div class="t-cab" style="margin-top:-8px">
     <div class="segm" id="periodo" role="group" aria-label="Período">
-      <button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Rango de fechas</button>
+      <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Fechas</button>
     </div>
     <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
   </div>
@@ -116,13 +116,7 @@ const pct = (a, b) => { if (b <= 0n) return ''; const d = (a * 2000n / b + (a < 
 
 // ── Período ──
 function rango(p) {
-  const h = hoy();
-  if (p === 'mes') return [h.slice(0, 8) + '01', h];
-  if (p === 'mesant') { const x = new Date(h.slice(0, 8) + '01T12:00:00Z'); x.setUTCDate(0); return [iso(x).slice(0, 8) + '01', iso(x)]; }
-  // Anual (pedido de Fer, 16/11/2026): el año en curso hasta hoy, o el anterior entero.
-  if (p === 'anio') return [h.slice(0, 4) + '-01-01', h];
-  if (p === 'anioant') { const a = Number(h.slice(0, 4)) - 1; return [`${a}-01-01`, `${a}-12-31`]; }
-  return null;
+  return rangoPeriodo(p);
 }
 function elegirPeriodo(p) {
   $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
