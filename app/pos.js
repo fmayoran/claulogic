@@ -602,8 +602,18 @@ const responsablePeYa = v => { const s = String(v ?? '').trim(); if (!s) return 
 const MEDIO_CANCELACION = 'Cancelaciones · liquidación PedidosYa';
 const OBLIGATORIAS_PEYA = ['nro', 'estado', 'fecha', 'forma', 'subtotal', 'ingreso', 'articulos'];
 const MEDIO_COMISION_EFECTIVO = 'Pedidos en efectivo · liquidación PedidosYa';
+// "1 Lomo a la crema de hongos [1 A punto, 1 Pure], 2 Coca": se corta en ", <número> " sólo fuera de los corchetes (el agregado
+// elegido va adentro; antes del 16/11/2026 se cortaba también ahí y quedaban renglones como "Pure]").
 function articulosPeYa(txt) {
-  return String(txt || '').split(/,\s*(?=\d+\s)/).map(x => x.trim()).filter(Boolean).map(x => {
+  const s = String(txt || ''), partes = [];
+  let nivel = 0, desde = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '[') nivel++;
+    else if (s[i] === ']') nivel = Math.max(0, nivel - 1);
+    else if (s[i] === ',' && nivel === 0 && /^,\s*\d+\s/.test(s.slice(i, i + 12))) { partes.push(s.slice(desde, i)); desde = i + 1; }
+  }
+  partes.push(s.slice(desde));
+  return partes.map(x => x.trim()).filter(Boolean).map(x => {
     const m = x.match(/^(\d+)\s+(.+)$/);
     return m ? { cantidad: m[1], nombre: m[2].trim() } : { cantidad: '1', nombre: x };
   });
@@ -943,10 +953,30 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   }
   // PedidosYa: recibidos, aceptados, entregados y cancelados, con el importe cancelado, quién canceló, el motivo y el cargo o la
   // compensación de los cancelados (pedido de Fer, 13/11/2026). Un entregado se aceptó aunque se haya importado sin la hora.
-  const PEYA = `, c AS (SELECT t.*, (SELECT SUM(-p.neto) FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND NOT p.anulado AND p.costos IS NOT NULL) AS cargo
-                         FROM t WHERE t.tipo = 'pedidosya')
+  // Ventas de PedidosYa (pedido de Fer, 16/11/2026: más foco en lo vendido que en las cancelaciones): lo vendido y el ticket
+  // promedio de los entregados, lo que cuesta vender ahí (comisiones, pago en línea, IVA, marketing y descuentos del local que el
+  // archivo trae por pedido: pos.ticket_pago.costos; la publicidad y las percepciones llegan con la liquidación semanal y no están),
+  // por día, por store (la tienda de cada pedido, exacta) y lo más pedido: los artículos del archivo por nombre sin el agregado
+  // entre corchetes, con unidades y en cuántos pedidos aparecen (PedidosYa no da el precio de cada artículo).
+  const PEYA = `, c AS (SELECT t.*, (SELECT SUM(-p.neto) FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND NOT p.anulado AND p.costos IS NOT NULL) AS cargo,
+                               (SELECT SUM((e->>'importe')::numeric) FROM pos.ticket_pago p, jsonb_array_elements(p.costos) e
+                                 WHERE p.ticket_id = t.id AND NOT p.anulado AND t.estado = 'cerrado') AS costo
+                          FROM t WHERE t.tipo = 'pedidosya')
     SELECT count(*)::int AS recibidos, count(*) FILTER (WHERE estado = 'cerrado' OR aceptado_en IS NOT NULL)::int AS aceptados,
            count(*) FILTER (WHERE estado = 'cerrado')::int AS entregados, count(*) FILTER (WHERE estado = 'anulado')::int AS cancelados,
+           COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado'), 0)::numeric(16,2)::text AS vendido,
+           COALESCE(SUM(costo), 0)::numeric(16,2)::text AS costo,
+           COALESCE((SELECT json_agg(x ORDER BY x.vendido DESC) FROM (
+             SELECT COALESCE(co.nombre, c.punto_venta) AS clave, count(*)::int AS pedidos, SUM(c.vendido)::numeric(16,2)::text AS vendido
+               FROM c LEFT JOIN org.comercio co ON co.sede_id = c.sede_id AND c.tienda = ANY(co.tiendas)
+              WHERE c.estado = 'cerrado' GROUP BY 1) x), '[]') AS por_store,
+           COALESCE((SELECT json_agg(x ORDER BY x.unidades::numeric DESC, x.nombre) FROM (
+             SELECT MIN(btrim(split_part(a.nombre, '[', 1))) AS nombre, trim_scale(SUM(i.cantidad))::text AS unidades,
+                    count(DISTINCT c.id)::int AS pedidos, string_agg(DISTINCT COALESCE(co.nombre, c.punto_venta), ', ') AS stores
+               FROM c JOIN pos.ticket_item i ON i.ticket_id = c.id AND NOT i.anulado JOIN pos.articulo a ON a.id = i.articulo_id
+               LEFT JOIN org.comercio co ON co.sede_id = c.sede_id AND c.tienda = ANY(co.tiendas)
+              WHERE c.estado = 'cerrado' AND a.nombre !~ '^[^\\[]*\\]$'
+              GROUP BY upper(btrim(split_part(a.nombre, '[', 1))) ORDER BY SUM(i.cantidad) DESC LIMIT 50) x), '[]') AS articulos,
            COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS importe_cancelado,
            COALESCE(SUM(cargo) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS cargo_cancelados,
            COALESCE((SELECT json_agg(x ORDER BY x.pedidos DESC) FROM (
@@ -958,6 +988,8 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                FROM c WHERE estado = 'anulado' GROUP BY 1) x), '[]') AS por_motivo,
            COALESCE((SELECT json_agg(x ORDER BY x.dia) FROM (
              SELECT to_char(dia, 'YYYY-MM-DD') AS dia, count(*)::int AS recibidos, count(*) FILTER (WHERE estado = 'anulado')::int AS cancelados,
+                    count(*) FILTER (WHERE estado = 'cerrado')::int AS entregados,
+                    COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado'), 0)::numeric(16,2)::text AS vendido,
                     COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS importe_cancelado
                FROM c GROUP BY dia) x), '[]') AS dias
       FROM c`;

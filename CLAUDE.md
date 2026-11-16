@@ -562,7 +562,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   compara con un sábado); **por store**, **por canal** (Salón, Take Away, Delivery propio, PedidosYa: "para llevar" se muestra Take Away,
   también en el estado de resultados) y **por medio de pago** (abajo sólo se avisa si lo cobrado difiere de lo vendido); **lo más
   vendido** por importe y por cantidad, en dos rankings (top 10: los artículos de cada venta de Fudo más el informe de artículos del día
-  de Maxirest; PedidosYa no los informa). Por hora queda sólo como gráfico principal de un período de un día. La lista de ventas se pide
+  de Maxirest; PedidosYa trae los artículos sin precio y va en su sección). Por hora queda sólo como gráfico principal de un período de un día. La lista de ventas se pide
   al abrir el detalle. Ajustes del 08/11/2026: el orden es cifras, después store, canal y medio de pago, después **vendido acumulado**
   (reemplaza a ventas por día) y por día de la semana (primero el promedio anterior), y al final lo más vendido. Con **"este mes"** el
   acumulado va sobre el mes entero contra el **mes calendario anterior**, día del mes contra día del mes (`mes=1` en
@@ -886,6 +886,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   importar un archivo los completa y le pone el cargo a un cancelado viejo si su semana no está liquidada. En el Tablero de ventas,
   "PedidosYa: pedidos y cancelaciones": recibidos, aceptados (%), cancelados (cantidad y % de lo recibido), importe cancelado y cargo,
   contra el período anterior, con cancelados por día, quién canceló y motivo (`pedidosya` en `/pos/ventas/resumen`).
+  **La sección PedidosYa del tablero, con foco en las ventas** (pedido de Fer, 16/11/2026): cifras de recibidos, aceptados (%), vendido
+  (entregados), ticket promedio y **costo PedidosYa** (% de lo vendido: la suma de `ticket_pago.costos` de los entregados, comisiones, pago
+  en línea, IVA y descuentos del local; la publicidad y las percepciones de la liquidación semanal no están), vendido por día, dona por
+  store (exacta por la tienda de cada pedido, `org.comercio.tiendas`) y **lo más pedido**: unidades y en cuántos pedidos aparece cada
+  producto, por el nombre sin el agregado entre corchetes, de a 10 hasta 50. Las cancelaciones quedan plegadas debajo, con su resumen en
+  el título. El archivo trae los artículos de cada pedido ("Artículos del pedido") pero sin precio; desde el 16/11/2026 no se cortan
+  dentro de los corchetes (antes quedaban renglones como "Pure]", que lo más pedido descarta).
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
   (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
   cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por
@@ -962,7 +969,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cobra y devuelve; cifrado y nunca de vuelta al navegador): `POST|GET|PUT /v1/account/release_report/config` (columnas, una vez),
   `POST /v1/account/release_report` {begin_date, end_date} (202, asíncrono), `GET /v1/account/release_report/list`,
   `GET /v1/account/release_report/{file_name}`; también `POST|DELETE …/schedule` para que lo genere solo.
-- Pendiente: modificadores de Fudo (subitems), propinas. **Artículos de PedidosYa** (Fer, 08/11/2026, para más adelante): el `orderDetails.csv` no trae la venta por producto, así que PedidosYa no entra en "lo más vendido" ni en el reparto por artículos; falta ver de dónde sacarla (otro reporte del portal o algún acceso por API).
+- Pendiente: modificadores de Fudo (subitems), propinas. **Importe por artículo de PedidosYa**: el `orderDetails.csv` trae los artículos de cada pedido con cantidad pero sin precio, así que PedidosYa entra en "lo más pedido" de su sección por unidades, no en "lo más vendido" por importe ni en el reparto por artículos; falta ver de dónde sacar el precio (otro reporte del portal o algún acceso por API).
 
 ### Estado de resultados por filial (pedido de Fer, 28/10/2026; migración 20261113)
 - `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
