@@ -230,11 +230,12 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
     `INSERT INTO pos.importacion (integracion_id, origen, archivo, desde, hasta) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
     [integ.id, origen, archivo, desde, hasta]);
   const articulos = new Map(), medios = new Map();
-  const idArticulo = async (codigo, nombre) => {
+  const idArticulo = async (codigo, nombre, rubro) => {
     if (!articulos.has(codigo)) {
       const { rows: [a] } = await c.query(
-        `INSERT INTO pos.articulo (integracion_id, codigo_externo, nombre) VALUES ($1,$2,$3)
-         ON CONFLICT (integracion_id, codigo_externo) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id`, [integ.id, codigo, nombre || codigo]);
+        `INSERT INTO pos.articulo (integracion_id, codigo_externo, nombre, rubro) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (integracion_id, codigo_externo) DO UPDATE SET nombre = EXCLUDED.nombre, rubro = COALESCE(EXCLUDED.rubro, pos.articulo.rubro)
+         RETURNING id`, [integ.id, codigo, nombre || codigo, rubro || null]);
       articulos.set(codigo, a.id);
     }
     return articulos.get(codigo);
@@ -289,7 +290,7 @@ async function recibir(c, integ, origen, { archivo = null, desde = null, hasta =
     nuevos++;
     for (const it of t.items)
       await c.query('INSERT INTO pos.ticket_item (ticket_id, articulo_id, cantidad, precio, importe, anulado) VALUES ($1,$2,$3,$4,$5,$6)',
-        [nt.id, await idArticulo(it.codigo, it.nombre), it.cantidad, it.precio, it.importe ?? null, !!it.anulado]);
+        [nt.id, await idArticulo(it.codigo, it.nombre, it.rubro), it.cantidad, it.precio, it.importe ?? null, !!it.anulado]);
     for (const p of t.pagos)
       await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, id_externo, neto, costos) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [nt.id, await idMedio(p.codigo, p.nombre), p.importe, !!p.anulado, p.id || null, p.neto ?? null, p.costos ? JSON.stringify(p.costos) : null]);
@@ -907,20 +908,30 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
   // Lo más vendido (top 10, por importe y por cantidad): los artículos de cada venta (Fudo) y, de los sistemas que no los traen
   // por venta (Maxirest), el informe de artículos del día, sólo sin filtros de medio, tipo, hora o mozo (ese informe no se puede
   // abrir así).
+  // Cada artículo lleva su clase (comida, bebida u otro: pos.clase_articulo, por el rubro del sistema o el nombre) y se devuelven
+  // los 10 primeros de todo y los 10 de cada clase, para que la pantalla filtre sin volver a pedir (pedido de Fer, 16/11/2026).
   const TOP = (orden, having = '') => `, x AS (
-         SELECT a.nombre, t.sede_id, SUM(i.cantidad) AS cant, SUM(COALESCE(i.importe, i.cantidad * i.precio, 0)) AS venta
+         SELECT a.nombre, t.sede_id, pos.clase_articulo(a.nombre, a.rubro) AS clase,
+                SUM(i.cantidad) AS cant, SUM(COALESCE(i.importe, i.cantidad * i.precio, 0)) AS venta
            FROM t JOIN pos.ticket_item i ON i.ticket_id = t.id AND NOT i.anulado JOIN pos.articulo a ON a.id = i.articulo_id
-          WHERE t.estado = 'cerrado' GROUP BY a.nombre, t.sede_id
+          WHERE t.estado = 'cerrado' GROUP BY a.nombre, a.rubro, t.sede_id
          UNION ALL
-         SELECT ad.nombre, ig.sede_id, SUM(ad.unidades), SUM(ad.venta)
+         SELECT ad.nombre, ig.sede_id, pos.clase_articulo(ad.nombre, ad.rubro), SUM(ad.unidades), SUM(ad.venta)
            FROM pos.articulo_dia ad JOIN pos.integracion ig ON ig.id = ad.integracion_id
           WHERE ($1::uuid[] IS NULL OR ig.sede_id = ANY($1)) AND ($2::uuid IS NULL OR ad.integracion_id = $2) AND ad.dia BETWEEN $3::date AND $4::date
             AND $5::text IS NULL AND $6::text IS NULL AND $7::int IS NULL AND $8::text IS NULL
-          GROUP BY ad.nombre, ig.sede_id)
-       SELECT MIN(x.nombre) AS nombre, trim_scale(SUM(x.cant))::text AS unidades, SUM(x.venta)::numeric(16,2)::text AS vendido,
-              string_agg(DISTINCT s.nombre, ', ') AS locales
-         FROM x JOIN org.sede s ON s.id = x.sede_id
-        GROUP BY upper(btrim(x.nombre)) ${having} ORDER BY ${orden} DESC NULLS LAST LIMIT 10`;
+          GROUP BY ad.nombre, ad.rubro, ig.sede_id),
+       g AS (
+         SELECT MIN(x.nombre) AS nombre, SUM(x.cant) AS cant, SUM(x.venta) AS venta, string_agg(DISTINCT s.nombre, ', ') AS locales,
+                (array_agg(x.clase ORDER BY x.venta DESC NULLS LAST))[1] AS clase
+           FROM x JOIN org.sede s ON s.id = x.sede_id
+          GROUP BY upper(btrim(x.nombre)) ${having}),
+       r AS (
+         SELECT g.*, row_number() OVER (ORDER BY ${orden} DESC NULLS LAST, nombre) AS rt,
+                row_number() OVER (PARTITION BY clase ORDER BY ${orden} DESC NULLS LAST, nombre) AS rc
+           FROM g)
+       SELECT nombre, trim_scale(cant)::text AS unidades, venta::numeric(16,2)::text AS vendido, locales, clase
+         FROM r WHERE rt <= 10 OR rc <= 10 ORDER BY ${orden} DESC NULLS LAST, nombre`;
   // Con `mes=1` (este mes) el acumulado del gráfico por día se compara con el mes calendario anterior entero, día del mes
   // contra día del mes (pedido de Fer, 08/11/2026); las cifras siguen contra el período anterior corrido en semanas.
   let mesAnt = null;
@@ -984,9 +995,9 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                  WHERE t.estado = 'cerrado')
        SELECT id, nombre, sede_id, ROUND(SUM(peso))::int AS ventas, SUM(vendido * peso)::numeric(16,2)::text AS vendido
          FROM w GROUP BY 1, 2, 3 ORDER BY SUM(vendido * peso) DESC`),
-    q(TOP('SUM(x.venta)')),
+    q(TOP('venta')),
     // Por cantidad, sin lo que no factura (el cubierto en $0 encabezaba la lista; pedido de Fer, 08/11/2026).
-    q(TOP('SUM(x.cant)', 'HAVING SUM(x.venta) > 0')),
+    q(TOP('cant', 'HAVING SUM(x.venta) > 0')),
     mesAnt ? q(DIAS, mesAnt) : null,
     q(PEYA), q(PEYA, ant),
   ]);

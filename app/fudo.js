@@ -90,7 +90,7 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
   for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
     const q = new URLSearchParams({
       'filter[createdAt]': `and(gte.${desdeUtc},lte.${hastaUtc})`,
-      include: 'items,items.product,payments,payments.paymentMethod,table,waiter',
+      include: 'items,items.product,items.product.productCategory,payments,payments.paymentMethod,table,waiter',
       'page[size]': String(TAMANO), 'page[number]': String(pagina), sort: 'createdAt',
     });
     const r = await pedir(`${API_URL}/sales?${q}`, { headers: { Authorization: `Bearer ${tk}` } });
@@ -124,7 +124,10 @@ async function ventas(integracionId, cred, desdeUtc, hastaUtc) {
       const items = ids(rel.items).map(id => de('Item', id)).filter(Boolean).map(it => {
         const ia = it.attributes || {}, pid = ids((it.relationships || {}).product)[0];
         const prod = pid && de('Product', pid), q = Number(ia.quantity ?? 0);
+        // La categoría del producto (Bebidas sin alcohol, Principales…): con ella se separan comidas y bebidas en lo más vendido.
+        const cid = prod && ids((prod.relationships || {}).productCategory)[0], cat = cid && de('ProductCategory', cid);
         return { codigo: pid ? String(pid) : 'sin-producto', nombre: prod ? (prod.attributes || {}).name || `Producto ${pid}` : 'Sin producto',
+                 rubro: cat ? (cat.attributes || {}).name || null : null,
                  cantidad: String(ia.quantity ?? 0), importe: ia.price != null ? String(ia.price) : null,
                  precio: ia.price != null && q ? String(Math.round(Number(ia.price) / q * 10000) / 10000) : null, anulado: !!ia.canceled };
       }).filter(x => Number(x.cantidad) > 0);

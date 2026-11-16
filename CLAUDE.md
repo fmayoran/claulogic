@@ -569,6 +569,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `/pos/ventas/resumen`, devuelve `mes_anterior`); las cifras y el promedio por día de la semana siguen contra el período anterior
   corrido en semanas. Si el anterior no tiene ventas traídas (hay desde el 01/10/2026), se avisa y no se dibuja. Por cantidad no
   entran los artículos en $0 (el cubierto).
+  **Comidas y bebidas en lo más vendido** (pedido de Fer, 16/11/2026; migración 20261151): "Todo · Comidas · Bebidas" sobre los dos
+  rankings (se recuerda, `ventas-top-clase`); el servidor manda los 10 primeros de todo y de cada clase. La clase la da
+  `pos.clase_articulo(nombre, rubro)`: una corrección a mano por nombre (`pos.articulo_clase`, todavía sin pantalla), si no "otro" para
+  lo que no es producto (cubiertos, envío, descuento, Art. Inex.), si no el rubro del sistema (Maxirest: `articulo_dia.rubro`; Fudo: la
+  categoría del producto, que ahora se trae con `items.product.productCategory` y queda en `pos.articulo.rubro`), y si no dice nada
+  (PedidosYa, "Sin Rubro", "Promo") el nombre: bebidas conocidas, café incluido; lo demás es comida. Lo de entre corchetes (el agregado
+  elegido) no cuenta. Eventos y menús van como comida.
   Período **Por mes** (08/11/2026): los últimos doce meses hasta ayer; el gráfico principal pasa a columnas por mes desde el primero
   con ventas (el mes en curso dice cuántos días van y el tooltip compara el promedio por día con el mes anterior); tocar un mes lo abre.
 - **Tablero por vistas** (como el de tesorería): arriba sólo las cifras; tocar una abre su vista y se recuerda (`tablero-vista`).
