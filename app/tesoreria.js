@@ -307,8 +307,8 @@ function filialTes(v) {
   if (f && f !== 'sin' && !/^[0-9a-f-]{36}$/i.test(f)) throw new ErrorUsuario('Filial inválida.');
   return f;
 }
-async function flujoTes(filial, desde, hasta) {
-  const [{ rows: [ini] }, { rows: dias }, { rows: cats }] = await Promise.all([
+async function flujoTes(filial, desde, hasta, conCruce = false) {
+  const [{ rows: [ini] }, { rows: dias }, { rows: cats }, { rows: cruce }] = await Promise.all([
     pool.query(
       `SELECT COALESCE(SUM(m.entrada - m.salida), 0)::text AS saldo FROM fin.movimiento_tes m JOIN fin.cuenta c ON c.id = m.cuenta_id
         WHERE c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
@@ -323,11 +323,20 @@ async function flujoTes(filial, desde, hasta) {
     pool.query(`${CATEGORIA_TES}
       SELECT es_entrada, cat, MIN(rubro) AS rubro, SUM(valor)::text AS importe, COUNT(*) FILTER (WHERE NOT anulacion)::int AS movimientos
         FROM cat WHERE cat NOT IN ('interna', 'apertura') GROUP BY es_entrada, cat HAVING SUM(valor) <> 0 ORDER BY SUM(valor) DESC`, [filial, desde, hasta]),
+    // El cruce para las vistas de Entradas y Salidas (pedido de Fer, 16/11/2026: cómo entró la plata, por forma y por sociedad, y la
+    // combinación): por día, lado, categoría y sociedad de la cuenta (sin sociedad = el grupo). La pantalla filtra y suma de ahí.
+    conCruce ? pool.query(`${CATEGORIA_TES}
+      SELECT to_char(cat.fecha, 'YYYY-MM-DD') AS dia, es_entrada, cat.cat, MIN(cat.rubro) AS rubro, cu.sociedad_id, so.nombre AS sociedad,
+             SUM(valor)::text AS importe, COUNT(*) FILTER (WHERE NOT anulacion)::int AS movimientos
+        FROM cat JOIN fin.cuenta cu ON cu.id = cat.cuenta_id LEFT JOIN org.sociedad so ON so.id = cu.sociedad_id
+       WHERE cat NOT IN ('interna', 'apertura') GROUP BY 1, 2, 3, 5, 6 HAVING SUM(valor) <> 0`, [filial, desde, hasta]) : { rows: [] },
   ]);
   const tot = k => deCentavos(dias.reduce((t, d) => t + centavos(d[k]), 0n));
   return { desde, hasta, saldo_inicial: ini.saldo, entradas: tot('entradas'), salidas: tot('salidas'), apertura: tot('apertura'),
     saldo_final: deCentavos(centavos(ini.saldo) + dias.reduce((t, d) => t + centavos(d.neto), 0n)), dias,
-    categorias: cats.map(c => ({ lado: c.es_entrada ? 'entrada' : 'salida', cat: c.cat, nombre: nombreCat(c.cat, c.es_entrada, c.rubro), importe: c.importe, movimientos: c.movimientos })) };
+    categorias: cats.map(c => ({ lado: c.es_entrada ? 'entrada' : 'salida', cat: c.cat, nombre: nombreCat(c.cat, c.es_entrada, c.rubro), importe: c.importe, movimientos: c.movimientos })),
+    ...(conCruce ? { cruce: cruce.map(c => ({ dia: c.dia, lado: c.es_entrada ? 'entrada' : 'salida', cat: c.cat, nombre: nombreCat(c.cat, c.es_entrada, c.rubro),
+      soc: c.sociedad_id || 'grupo', sociedad: c.sociedad || 'Grupo', importe: c.importe, movimientos: c.movimientos })) } : {}) };
 }
 const sumarDiasTes = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 r.get('/fin/tesoreria/tablero', h(async (req, res) => {
@@ -336,7 +345,7 @@ r.get('/fin/tesoreria/tablero', h(async (req, res) => {
   if (desde > hasta) throw new ErrorUsuario('"Desde" es posterior a "hasta".');
   // El período anterior, de la misma duración y pegado al elegido.
   const largo = Math.round((Date.parse(hasta) - Date.parse(desde)) / 864e5) + 1;
-  const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)),
+  const [actual, anterior, { rows: donde }] = await Promise.all([flujoTes(filial, desde, hasta, true), flujoTes(filial, sumarDiasTes(desde, -largo), sumarDiasTes(desde, -1)),
     // Dónde está el disponible al cierre del período (pedido de Fer, 03/11/2026): el saldo de cada banco y caja a esa fecha.
     pool.query(
       `SELECT c.id, c.nombre, c.tipo, COALESCE(s.nombre, 'Grupo') AS sede, SUM(m.entrada - m.salida)::text AS saldo
@@ -351,12 +360,17 @@ r.get('/fin/tesoreria/tablero/movimientos', h(async (req, res) => {
   const filial = filialTes(req.query.filial);
   const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
   const lado = ['entrada', 'salida'].includes(req.query.lado) ? req.query.lado : null, cat = texto(req.query.cat);
+  // La sociedad de la cuenta ('grupo' = sin sociedad), para el cruce de Entradas y Salidas.
+  const soc = texto(req.query.soc);
+  if (soc && soc !== 'grupo' && !/^[0-9a-f-]{36}$/i.test(soc)) throw new ErrorUsuario('Sociedad inválida.');
   const { rows } = await pool.query(`${CATEGORIA_TES}
     SELECT cat.id, to_char(cat.fecha, 'YYYY-MM-DD') AS fecha, cat.cuenta_id, cu.nombre AS cuenta, cat.concepto, cat.cat, cat.rubro, cat.anulacion,
-           CASE WHEN es_entrada THEN 'entrada' ELSE 'salida' END AS lado, cat.valor::text AS importe, cat.otra_nombre
-      FROM cat JOIN fin.cuenta cu ON cu.id = cat.cuenta_id
+           CASE WHEN es_entrada THEN 'entrada' ELSE 'salida' END AS lado, cat.valor::text AS importe, cat.otra_nombre,
+           COALESCE(so.nombre, 'Grupo') AS sociedad
+      FROM cat JOIN fin.cuenta cu ON cu.id = cat.cuenta_id LEFT JOIN org.sociedad so ON so.id = cu.sociedad_id
      WHERE cat NOT IN ('interna', 'apertura') AND ($4::text IS NULL OR cat = $4) AND ($5::text IS NULL OR es_entrada = ($5 = 'entrada'))
-     ORDER BY cat.fecha DESC, cat.id DESC LIMIT 1001`, [filial, desde, hasta, cat, lado]);
+       AND ($6::text IS NULL OR ($6 = 'grupo' AND cu.sociedad_id IS NULL) OR cu.sociedad_id::text = $6)
+     ORDER BY cat.fecha DESC, cat.id DESC LIMIT 1001`, [filial, desde, hasta, cat, lado, soc]);
   res.json({ ok: true, recortado: rows.length > 1000,
     movimientos: rows.slice(0, 1000).map(m => ({ ...m, categoria: nombreCat(m.cat, m.lado === 'entrada', m.rubro) })) });
 }));

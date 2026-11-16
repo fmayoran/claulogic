@@ -39,6 +39,9 @@
   .mov .c{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .mov .m{color:var(--mut);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .mov .i{font-weight:650;font-variant-numeric:tabular-nums;text-align:right;} .mov .i.sal{color:var(--baja);} .mov.anul{opacity:.6;}
   #abrirDet{margin-top:6px;}
+  #vLado > * + *{margin-top:16px;}
+  table.cruce td.num,table.cruce th.num{white-space:nowrap;} table.cruce tfoot td,table.cruce tfoot th{border-top:2px solid var(--line);}
+  table.cruce button.sel{color:var(--acento);font-weight:700;border-bottom-color:var(--acento);}
   /* Las cifras de arriba abren su vista; la abierta queda marcada. */
   .kpi-b{cursor:pointer;transition:box-shadow .15s;} .kpi-b:hover{box-shadow:0 0 0 1px var(--borde);}
   .kpi-b.act{box-shadow:0 0 0 2px var(--acento);} .kpi-b:focus-visible{outline:2px solid var(--acento);}
@@ -130,16 +133,23 @@
       </div>
       <div id="grupos"></div>
     </div>
-    <div class="vista" id="vFlujo" hidden>
+    <!-- Entradas y Salidas (pedido de Fer, 16/11/2026): cada cifra abre su vista, con la forma (o el rubro), la sociedad y el cruce
+         de las dos. Lo que se toca filtra los otros gráficos; los movimientos, a pedido. -->
+    <div class="vista" id="vLado" hidden>
       <section class="card">
-        <h2>Entradas y salidas por día</h2>
-        <p class="cap">Sin las transferencias entre cuentas disponibles.</p>
-        <div id="gFlujo"></div>
+        <div class="card-cab"><h2 id="lTDia">Entradas por día</h2></div>
+        <p class="cap" id="lCapDia"></p>
+        <div id="gLadoDia"></div>
       </section>
       <div class="t-grid t-g2">
-        <section class="card"><h2>De dónde entró</h2><p class="cap">Tocá una parte para ver esos movimientos.</p><div id="gEntradas"></div></section>
-        <section class="card"><h2>En qué salió</h2><p class="cap">Por rubro si está clasificado; si no, por lo que es.</p><div id="gSalidas"></div></section>
+        <section class="card"><h2 id="lTForma">Por forma</h2><p class="cap" id="lCapForma"></p><div id="gForma"></div></section>
+        <section class="card" id="cSoc"><h2>Por sociedad</h2><p class="cap">La sociedad de la cuenta; "Grupo" es la caja mayor. Tocá una para filtrar.</p><div id="gSoc"></div></section>
       </div>
+      <section class="card" id="cCruce">
+        <div class="card-cab"><h2 id="lTCruce">Forma y sociedad</h2></div>
+        <p class="cap">Tocá un importe para filtrar por esa combinación; un total, por la fila o la columna.</p>
+        <div class="tabla-wrap" id="cruce"></div>
+      </section>
     </div>
     <div class="vista" id="vAcreditar" hidden>
       <section class="card">
@@ -290,13 +300,13 @@ function elegirFilial(id) {
 }
 
 // La vista abierta: la cifra que se tocó. Se recuerda.
-const VISTAS = { disponible: '#vDisponible', flujo: '#vFlujo', acreditar: '#vAcreditar', efectivo: '#vEfectivo' };
-let vista = (() => { try { const v = localStorage.getItem('tesoreria-vista'); return VISTAS[v] ? v : 'disponible'; } catch { return 'disponible'; } })();
+const VISTAS = { disponible: '#vDisponible', entradas: '#vLado', salidas: '#vLado', acreditar: '#vAcreditar', efectivo: '#vEfectivo' };
+let vista = (() => { try { const v = localStorage.getItem('tesoreria-vista'); return v === 'flujo' ? 'entradas' : VISTAS[v] ? v : 'disponible'; } catch { return 'disponible'; } })();
 let ctx = null;   // lo calculado para la filial y el período, que usan las vistas
 function abrirVista(v) {
   vista = v; try { localStorage.setItem('tesoreria-vista', v); } catch {}
   limpiarFiltros(); $('#detalle').hidden = true; $('#abrirDet').hidden = false; $('#chips').replaceChildren(); $('#cuentaDet').textContent = '';
-  mostrarVista();
+  mostrarVista(); pintarChips();
 }
 // Una cifra que se toca: la de la vista abierta queda marcada.
 const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vista) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
@@ -328,21 +338,21 @@ function pintarTablero() {
   ctx = { todas, fs, activas, aAcreditar, efectivoPV, disponibles, sa, sp, hasta, hastaHoy };
   $('#kpis').replaceChildren(
     kpiB(kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
-    kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'flujo'),
-    kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'flujo'),
+    kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'entradas'),
+    kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'salidas'),
     kpiB(kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
     kpiB(kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
     cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
   mostrarVista();
 }
 function mostrarVista() {
-  for (const [v, sel] of Object.entries(VISTAS)) $(sel).hidden = v !== vista;
+  for (const sel of new Set(Object.values(VISTAS))) $(sel).hidden = sel !== VISTAS[vista];
   $$('#kpis .kpi-b').forEach(k => k.classList.toggle('act', k.dataset.v === vista));
   // Los movimientos del período van con lo que se mira por día: el disponible y las entradas y salidas.
-  $('#cDetalle').hidden = !['disponible', 'flujo'].includes(vista);
+  $('#cDetalle').hidden = !['disponible', 'entradas', 'salidas'].includes(vista);
   if (!ctx) return;
   if (vista === 'disponible') pintarDisponible();
-  else if (vista === 'flujo') pintarFlujo();
+  else if (vista === 'entradas' || vista === 'salidas') pintarLado(vista === 'entradas' ? 'entrada' : 'salida');
   else if (vista === 'acreditar') pintarAcreditar().catch(e => msg(e.message, 'mal', '#msgT0'));
   else pintarEfectivo();
 }
@@ -381,13 +391,63 @@ function pintarDisponible() {
   $('#grupos').replaceChildren(...g);
 }
 
-function pintarFlujo() {
-  const f = flujo, { sa } = ctx;
-  Graf.columnasSeries($('#gFlujo'), { etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d), alto: alto(),
-    series: [{ nombre: 'Entradas', valores: sa.ent }, { nombre: 'Salidas', valores: sa.sal }] });
-  const items = lado => f.categorias.filter(c => c.lado === lado).map(c => ({ clave: `${lado}|${c.cat}`, etiqueta: `${c.nombre} (${c.movimientos})`, valor: c.importe }));
-  Graf.dona($('#gEntradas'), { items: items('entrada'), sub: 'entró', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
-  Graf.dona($('#gSalidas'), { items: items('salida'), sub: 'salió', alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
+// Entradas o salidas (pedido de Fer, 16/11/2026): por día, por forma (en las salidas, el rubro o lo que es), por sociedad y el cruce de
+// las dos. Sale todo de `flujo.cruce` (día × lado × categoría × sociedad): cada gráfico se filtra con lo elegido en los otros, y los
+// movimientos se piden recién con el botón.
+function pintarLado(lado) {
+  const { sa } = ctx, ent = lado === 'entrada';
+  const filas = (flujo.cruce || []).filter(x => x.lado === lado);
+  const catSel = filtros.cat && filtros.cat.startsWith(lado + '|') ? filtros.cat.slice(lado.length + 1) : null;
+  const pasa = (x, sin) => (sin === 'dia' || !filtros.dia || x.dia === filtros.dia) && (sin === 'cat' || !catSel || x.cat === catSel)
+    && (sin === 'soc' || !filtros.soc || x.soc === filtros.soc);
+  const agrupar = (xs, k, nombre) => {
+    const m = new Map();
+    for (const x of xs) { const g = m.get(x[k]) || { clave: x[k], nombre: x[nombre], c: 0n, movs: 0 }; g.c += centavos(x.importe); g.movs += x.movimientos; m.set(x[k], g); }
+    return [...m.values()].sort((a, b) => (b.c > a.c) - (b.c < a.c));
+  };
+  const palabra = ent ? 'entró' : 'salió';
+  $('#lTDia').textContent = ent ? 'Entradas por día' : 'Salidas por día';
+  $('#lTForma').textContent = ent ? 'Por forma de ingreso' : 'Por rubro';
+  $('#lCapForma').textContent = ent ? 'Acreditaciones de cada procesador, rendiciones de efectivo, transferencias y otros ingresos. Tocá una para filtrar.'
+    : 'Por rubro si está clasificado; si no, por lo que es. Tocá uno para filtrar.';
+  $('#lTCruce').textContent = ent ? 'Forma de ingreso y sociedad' : 'Rubro y sociedad';
+  const porDia = new Map(); for (const x of filas.filter(x => pasa(x, 'dia'))) porDia.set(x.dia, (porDia.get(x.dia) || 0) + n(x.importe));
+  $('#lCapDia').textContent = `Sin las transferencias entre cuentas disponibles${catSel || filtros.soc ? ', con lo elegido' : ''}. Tocá un día para filtrar.`;
+  Graf.columnas($('#gLadoDia'), { etiquetas: sa.dias, valores: sa.dias.map(d => porDia.get(d) || 0), ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
+    texto: i => `${palabra} ${pesos(String(porDia.get(sa.dias[i]) || 0))}`, alElegir: i => alternar('dia', sa.dias[i]),
+    elegido: filtros.dia ? sa.dias.indexOf(filtros.dia) : null, alto: alto() });
+  const formas = agrupar(filas.filter(x => pasa(x, 'cat')), 'cat', 'nombre');
+  Graf.dona($('#gForma'), { items: formas.map(g => ({ clave: `${lado}|${g.clave}`, etiqueta: `${g.nombre} (${g.movs})`, valor: deCentavos(g.c) })),
+    sub: palabra, alElegir: k => alternar('cat', k), elegido: filtros.cat ?? null });
+  // Con una sociedad elegida arriba, el reparto por sociedad no dice nada.
+  const socs = agrupar(filas.filter(x => pasa(x, 'soc')), 'soc', 'sociedad');
+  $('#cSoc').hidden = !!filial;
+  if (!filial) Graf.dona($('#gSoc'), { items: socs.map(g => ({ clave: g.clave, etiqueta: `${g.nombre} (${g.movs})`, valor: deCentavos(g.c) })),
+    sub: palabra, alElegir: k => alternar('soc', k), elegido: filtros.soc ?? null });
+  // El cruce: filas = formas (o rubros), columnas = sociedades, con lo filtrado por día.
+  const base = filas.filter(x => !filtros.dia || x.dia === filtros.dia);
+  const cols = agrupar(base, 'soc', 'sociedad'), rows = agrupar(base, 'cat', 'nombre');
+  const celda = new Map(); for (const x of base) { const k = x.cat + '|' + x.soc; celda.set(k, (celda.get(k) || 0n) + centavos(x.importe)); }
+  const boton = (c, alTocar, act, cls = '') => c ? el('button', { type: 'button', className: 'imp ' + cls + (act ? ' sel' : ''), textContent: pesosC(c), onclick: alTocar }) : '';
+  const elegir = (cat, soc) => {
+    const k = cat == null ? null : `${lado}|${cat}`;
+    const igual = (filtros.cat ?? null) === k && (filtros.soc ?? null) === soc;
+    if (igual) { delete filtros.cat; delete filtros.soc; }
+    else { if (k) filtros.cat = k; else delete filtros.cat; if (soc) filtros.soc = soc; else delete filtros.soc; }
+    pintarTablero(); pintarChips(); if (!$('#detalle').hidden) cargarMovs();
+  };
+  const total = base.reduce((t, x) => t + centavos(x.importe), 0n);
+  $('#cCruce').hidden = !rows.length;
+  $('#cruce').replaceChildren(el('table', { className: 'datos cruce' },
+    el('thead', {}, el('tr', {}, el('th', { textContent: ent ? 'Forma' : 'Rubro' }),
+      ...cols.map(c => el('th', { className: 'num' }, el('button', { type: 'button', className: 'link' + (filtros.soc === c.clave && !catSel ? ' sel' : ''), textContent: c.nombre, onclick: () => elegir(null, c.clave) }))),
+      ...(cols.length > 1 ? [el('th', { className: 'num', textContent: 'Total' })] : []))),
+    el('tbody', {}, ...rows.map(r => el('tr', {}, el('td', { textContent: `${r.nombre} (${r.movs})` }),
+      ...cols.map(c => el('td', { className: 'num' }, boton(celda.get(r.clave + '|' + c.clave), () => elegir(r.clave, c.clave), catSel === r.clave && filtros.soc === c.clave))),
+      ...(cols.length > 1 ? [el('td', { className: 'num' }, boton(r.c, () => elegir(r.clave, null), catSel === r.clave && !filtros.soc, 'tot'))] : [])))),
+    el('tfoot', {}, el('tr', {}, el('th', { textContent: 'Total' }),
+      ...cols.map(c => el('td', { className: 'num' }, boton(c.c, () => elegir(null, c.clave), filtros.soc === c.clave && !catSel, 'tot'))),
+      ...(cols.length > 1 ? [el('td', { className: 'num' }, el('b', { textContent: pesosC(total) }))] : [])))));
 }
 
 // Por acreditar (pedido de Fer, 07/11/2026: ver de dónde tiene que venir lo que falta cobrar; y sin mezclar números con texto).
@@ -722,10 +782,21 @@ function soloDe(pc, id) {
 // ── Detalle: los movimientos del período, a medida que se elige algo en los gráficos ──
 const NOMBRE_FILTRO = { dia: v => diaLargo(v), cat: v => {
   const [lado, cat] = v.split('|'), c = flujo.categorias.find(x => x.lado === lado && x.cat === cat);
-  return (lado === 'entrada' ? 'Entró: ' : 'Salió: ') + (c ? c.nombre : cat); } };
+  return (lado === 'entrada' ? 'Entró: ' : 'Salió: ') + (c ? c.nombre : cat); },
+  soc: v => 'Sociedad: ' + (((flujo.cruce || []).find(x => x.soc === v) || {}).sociedad || (v === 'grupo' ? 'Grupo' : v)) };
+// Tocar algo en un gráfico filtra los demás; los movimientos se piden con el botón (pedido de Fer, 16/11/2026: siempre a demanda) y,
+// si ya están abiertos, se actualizan.
 function alternar(k, v) {
   if (filtros[k] === v) delete filtros[k]; else filtros[k] = v;
-  pintarTablero(); abrirDetalle(true); cargarMovs();
+  pintarTablero(); pintarChips();
+  if (!$('#detalle').hidden) cargarMovs();
+}
+function pintarChips() {
+  $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
+    el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  const hay = Object.keys(filtros).length;
+  $('#abrirDet').textContent = hay ? 'Ver los movimientos elegidos' : 'Ver los movimientos';
+  $('#tDetalle').textContent = hay ? 'Movimientos elegidos' : vista === 'entradas' ? 'Entradas del período' : vista === 'salidas' ? 'Salidas del período' : 'Movimientos del período';
 }
 function abrirDetalle(desplazar) {
   $('#detalle').hidden = false; $('#abrirDet').hidden = true;
@@ -739,13 +810,13 @@ async function cargarMovs() {
   const p = baseFlujo();
   if (filtros.dia) { p.set('desde', filtros.dia); p.set('hasta', filtros.dia); }
   if (filtros.cat) { const [lado, cat] = filtros.cat.split('|'); p.set('lado', lado); p.set('cat', cat); }
-  $('#chips').replaceChildren(...Object.entries(filtros).map(([k, v]) => el('span', { className: 'chip' }, NOMBRE_FILTRO[k](v),
-    el('button', { type: 'button', textContent: '×', title: 'Quitar filtro', onclick: () => alternar(k, v) }))));
+  else if (vista === 'entradas' || vista === 'salidas') p.set('lado', vista === 'entradas' ? 'entrada' : 'salida');
+  if (filtros.soc) p.set('soc', filtros.soc);
+  pintarChips();
   try {
     const r = await api('fin/tesoreria/tablero/movimientos?' + p);
     movs = r.movimientos; mostrar = DE_A; $('#recorte').hidden = !r.recortado;
     const ent = movs.filter(m => m.lado === 'entrada').reduce((t, m) => t + centavos(m.importe), 0n), sal = movs.filter(m => m.lado === 'salida').reduce((t, m) => t + centavos(m.importe), 0n);
-    $('#tDetalle').textContent = Object.keys(filtros).length ? 'Movimientos elegidos' : 'Movimientos del período';
     $('#cuentaDet').textContent = `${movs.length}${r.recortado ? '+' : ''} movimientos · entró ${pesosC(ent)} · salió ${pesosC(sal)}`;
     pintarMovs();
   } catch (e) { msg(e.message, 'mal', '#msgT0'); }
@@ -757,7 +828,7 @@ function pintarMovs() {
     const b = el('button', { type: 'button', className: 'mov' + (m.anulacion ? ' anul' : '') },
       el('span', { className: 'f', textContent: fecha(m.fecha) }),
       el('span', { className: 'd' }, el('span', { className: 'c', textContent: (m.anulacion ? 'Anulación · ' : '') + (m.concepto || m.categoria) }),
-        el('span', { className: 'm', textContent: [m.categoria, m.cuenta, m.otra_nombre && (m.lado === 'entrada' ? 'desde ' : 'hacia ') + m.otra_nombre].filter(Boolean).join(' · ') })),
+        el('span', { className: 'm', textContent: [m.categoria, m.cuenta, !filial && m.sociedad, m.otra_nombre && (m.lado === 'entrada' ? 'desde ' : 'hacia ') + m.otra_nombre].filter(Boolean).join(' · ') })),
       el('span', { className: 'i' + (sal ? ' sal' : ''), textContent: (sal ? '−' : '+') + pesos(abs) }));
     b.onclick = () => { location.hash = m.cuenta_id; };
     return b;

@@ -28,8 +28,26 @@ def api(route):
     datos = {}
     if 'pos/ventas/resumen' in u:
         datos = {'totales': {'vendido': '49300000'}, 'dias': dias, 'anterior': {'totales': {'vendido': '44100000'}}}
+    elif 'tablero/movimientos' in u:
+        datos = {'recortado': False, 'movimientos': [{'id': 1, 'fecha': '2026-11-12', 'cuenta_id': 'b1', 'cuenta': 'BRUBANK', 'concepto': 'Liquidación Fudo Pagos', 'cat': 'acr:fudo', 'categoria': 'Acreditaciones Fudo Pagos', 'lado': 'entrada', 'importe': '1250000.00', 'sociedad': 'CORTAFUEGO SRL'}]}
     elif 'fin/tesoreria/tablero' in u:
-        datos = {'saldo_inicial': '16200000', 'saldo_final': '18420000', 'entradas': '41200000', 'salidas': '38980000', 'dias': dias}
+        formas = [('acr:mercadopago', 'Acreditaciones Mercado Pago'), ('acr:fudo', 'Acreditaciones Fudo Pagos'), ('efectivo', 'Rendiciones de efectivo'), ('transf', 'Transferencias recibidas'), ('rubro:a', 'Aportes, retiros y préstamos')]
+        rubros = [('rubro:c', 'Mercadería · Carnes'), ('rubro:s', 'Sueldos y jornales'), ('proveedores', 'Pagos a proveedores'), ('rubro:al', 'Alquiler'), ('gasto:imp', 'Impuesto a los débitos y créditos')]
+        socs = [('x', 'CORTAFUEGO SRL'), ('y', 'SORELLE CIUCIO S.A.'), ('grupo', 'Grupo')]
+        cruce = []
+        for i, d in enumerate(dias):
+            for j, (c, nom) in enumerate(formas):
+                for k, (so, sn) in enumerate(socs):
+                    if (i + j + k) % 3 == 0 and not (c == 'efectivo' and so == 'grupo'):
+                        cruce.append({'dia': d['dia'], 'lado': 'entrada', 'cat': c, 'nombre': nom, 'soc': so, 'sociedad': sn, 'importe': str((5 - j) * 180000 + k * 90000 + i * 7000), 'movimientos': 1 + (i % 3)})
+            for j, (c, nom) in enumerate(rubros):
+                for k, (so, sn) in enumerate(socs):
+                    if (i + j + 2 * k) % 4 == 0:
+                        cruce.append({'dia': d['dia'], 'lado': 'salida', 'cat': c, 'nombre': nom, 'soc': so, 'sociedad': sn, 'importe': str((5 - j) * 210000 + k * 60000), 'movimientos': 1})
+        datos = {'desde': '2026-11-01', 'hasta': '2026-11-13', 'saldo_inicial': '16200000', 'saldo_final': '18420000', 'entradas': '41200000', 'salidas': '38980000', 'dias': dias,
+                 'categorias': [{'lado': 'entrada', 'cat': c, 'nombre': nm, 'importe': '1', 'movimientos': 1} for c, nm in formas] + [{'lado': 'salida', 'cat': c, 'nombre': nm, 'importe': '1', 'movimientos': 1} for c, nm in rubros],
+                 'cruce': cruce, 'donde': [{'id': 'b1', 'nombre': 'BRUBANK', 'tipo': 'banco', 'sede': 'CORTAFUEGO SRL', 'saldo': '12000000'}],
+                 'anterior': {'desde': '2026-10-19', 'hasta': '2026-10-31', 'saldo_inicial': '15000000', 'saldo_final': '16200000', 'entradas': '38000000', 'salidas': '36800000', 'dias': dias}}
     elif 'tablero/operativo' in u:
         datos = {'sedes': [{'ventas_netas': '40700000', 'real': '13900000', 'teorico': '12600000'}]}
     elif 'fin/pagos-sin-factura' in u:
@@ -38,6 +56,8 @@ def api(route):
             {'id': 2, 'fecha': '2026-11-04', 'importe': '920216.00', 'disponible': '420216.00', 'aplicado': '500000.00', 'concepto': 'Transferencia enviada', 'destinatario': 'Consorcio Av. Libertador 1200', 'rubro': 'Expensas', 'cuenta': 'MERCADO PAGO SORE', 'sociedad': 'SORELLE CIUCIO SA', 'sociedad_id': 'y'}]}
     elif 'api/sociedades' in u:
         datos = {'sociedades': [{'id': 'x', 'nombre': 'CORTAFUEGO SRL', 'activa': True}, {'id': 'y', 'nombre': 'SORELLE CIUCIO SA', 'activa': True}]}
+    elif 'fin/tesoreria/por-acreditar' in u:
+        datos = {'por_acreditar': []}
     elif 'fin/cuentas' in u:
         datos = {'cuentas': [{'id': 'b1', 'nombre': 'BRUBANK', 'tipo': 'banco', 'activa': True}, {'id': 'b2', 'nombre': 'MERCADO PAGO SORE', 'tipo': 'banco', 'activa': True}]}
     elif 'fin/conciliacion?' in u and 'lado=' not in u:
