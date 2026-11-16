@@ -124,10 +124,7 @@
     <h2>PedidosYa</h2>
     <p class="cap" id="capPeya"></p>
     <div class="kpis peya-kpis" id="kPeya"></div>
-    <div class="t-grid t-g2" style="margin:0 0 16px">
-      <div><h3 class="peya-h">Vendido por día</h3><div id="gPeyaVend"></div></div>
-      <div><h3 class="peya-h">Por store</h3><div id="gPeyaStore"></div></div>
-    </div>
+    <div style="margin:0 0 16px"><h3 class="peya-h">Vendido por día</h3><div id="gPeyaVend"></div></div>
     <div>
       <h3 class="peya-h">Lo más pedido</h3>
       <p class="cap" style="margin-top:0">Unidades de cada producto en los pedidos entregados (PedidosYa no informa el precio de cada uno).</p>
@@ -313,11 +310,9 @@ function pintarPeya() {
     kpi('Costo PedidosYa', fp(co), co, coA, { puntos: true, malo: true }, pesos(y.costo)));
   // Vendido por día, con los pedidos y el ticket del día en el detalle.
   const dias = diasEntre($('#desde').value, $('#hasta').value), porDia = new Map(y.dias.map(d => [d.dia, d]));
-  Graf.columnas($('#gPeyaVend'), { etiquetas: dias, valores: dias.map(d => n((porDia.get(d) || {}).vendido)), alto: matchMedia('(max-width:899px)').matches ? 200 : 300,
+  Graf.columnas($('#gPeyaVend'), { etiquetas: dias, valores: dias.map(d => n((porDia.get(d) || {}).vendido)), alto: matchMedia('(max-width:899px)').matches ? 200 : 240,
     ejeX: d => d.slice(8, 10), titulo: d => diaLargo(d),
     texto: i => { const d = porDia.get(dias[i]); return d && d.entregados ? `${pesos(d.vendido)} · ${d.entregados} pedido(s) · ticket ${pesos(String(Math.round(n(d.vendido) / d.entregados)))}` : 'Sin pedidos entregados'; } });
-  Graf.dona($('#gPeyaStore'), { items: y.por_store.map(x => ({ clave: x.clave, etiqueta: `${x.clave} (${x.pedidos})`, valor: n(x.vendido) })),
-    centro: Graf.compacto(n(y.vendido)), sub: 'vendido' });
   // Lo más pedido, de a 10 (hasta 50).
   const arts = y.articulos || [], cuantos = topMostrar.gPeyaArt;
   Graf.ranking($('#gPeyaArt'), { items: arts.slice(0, cuantos).map((x, i) => ({ clave: String(i), etiqueta: `${i + 1}. ${x.nombre}`, valor: n(x.unidades), x })),

@@ -888,9 +888,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   contra el período anterior, con cancelados por día, quién canceló y motivo (`pedidosya` en `/pos/ventas/resumen`).
   **La sección PedidosYa del tablero, con foco en las ventas** (pedido de Fer, 16/11/2026): cifras de recibidos, aceptados (%), vendido
   (entregados), ticket promedio y **costo PedidosYa** (% de lo vendido: la suma de `ticket_pago.costos` de los entregados, comisiones, pago
-  en línea, IVA y descuentos del local; la publicidad y las percepciones de la liquidación semanal no están), vendido por día, dona por
-  store (exacta por la tienda de cada pedido, `org.comercio.tiendas`) y **lo más pedido**: unidades y en cuántos pedidos aparece cada
-  producto, por el nombre sin el agregado entre corchetes, de a 10 hasta 50. Las cancelaciones quedan plegadas debajo, con su resumen en
+  en línea, IVA y descuentos del local; la publicidad y las percepciones de la liquidación semanal no están), vendido por día y **lo más pedido**: unidades y en cuántos pedidos aparece cada
+  producto (con su store, por la tienda de cada pedido, si hay más de uno), por el nombre sin el agregado entre corchetes, de a 10 hasta
+  50. Sin dona por store (Fer: distorsionaba la pantalla y el store ya se filtra arriba, para todo el tablero). Las cancelaciones quedan plegadas debajo, con su resumen en
   el título. El archivo trae los artículos de cada pedido ("Artículos del pedido") pero sin precio; desde el 16/11/2026 no se cortan
   dentro de los corchetes (antes quedaban renglones como "Pure]", que lo más pedido descarta).
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
