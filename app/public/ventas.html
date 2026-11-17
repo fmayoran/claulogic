@@ -107,15 +107,15 @@
   <div class="t-grid t-g3">
     <section class="card">
       <h2>Lo más vendido por importe</h2>
-      <p class="cap" id="capTop">Los 10 productos que más facturaron en el período.</p>
+      <p class="cap" id="capTop">Los productos que más facturaron en el período.</p>
       <div id="gTop"></div>
-      <p class="top-mas"><button type="button" class="chico" id="masTop" hidden>Ver los 10 siguientes</button></p>
+      <p class="top-mas"><button type="button" class="chico" id="masTop" hidden>Ver más</button></p>
     </section>
     <section class="card">
       <h2>Lo más vendido por cantidad</h2>
-      <p class="cap" id="capTopCant">Los 10 productos de los que más unidades se vendieron.</p>
+      <p class="cap" id="capTopCant">Los productos de los que más unidades se vendieron.</p>
       <div id="gTopCant"></div>
-      <p class="top-mas"><button type="button" class="chico" id="masTopCant" hidden>Ver los 10 siguientes</button></p>
+      <p class="top-mas"><button type="button" class="chico" id="masTopCant" hidden>Ver más</button></p>
     </section>
   </div>
 
@@ -131,7 +131,7 @@
       <h3 class="peya-h">Lo más pedido</h3>
       <p class="cap" style="margin-top:0">Unidades de cada producto en los pedidos entregados (PedidosYa no informa el precio de cada uno).</p>
       <div id="gPeyaArt"></div>
-      <p class="top-mas"><button type="button" class="chico" id="masPeyaArt" hidden>Ver los 10 siguientes</button></p>
+      <p class="top-mas"><button type="button" class="chico" id="masPeyaArt" hidden>Ver más</button></p>
     </div>
     <details class="peya-canc" id="dPeyaCanc">
       <summary><span class="peya-h" style="margin:0">Cancelaciones y reclamos</span> <span id="resPeyaCanc"></span></summary>
@@ -144,6 +144,7 @@
       <h3 class="peya-h" style="margin-top:16px">Pedidos cancelados o con reclamo</h3>
       <div class="tabla-wrap"><table class="movil" id="tPeyaCanc"><thead><tr><th>Día</th><th>Pedido</th><th>Store</th><th>Qué pasó</th><th>Quién</th><th>Motivo PedidosYa</th>
         <th class="num">Importe</th><th class="num">Cargo o descuento</th><th>Motivo del local</th></tr></thead><tbody></tbody></table></div>
+      <p class="top-mas"><button type="button" class="chico" id="masPeyaCanc" hidden>Ver más</button></p>
     </details>
   </section>
 
@@ -342,9 +343,7 @@ function pintarPeya() {
   Graf.ranking($('#gPeyaArt'), { items: arts.slice(0, cuantos).map((x, i) => ({ clave: String(i), etiqueta: `${i + 1}. ${x.nombre}`, valor: n(x.unidades), x })),
     fmt: v => `${num(String(v))} u`, nota: it => `en ${it.x.pedidos} pedido${it.x.pedidos === 1 ? '' : 's'}` + (y.por_store.length > 1 && it.x.stores ? ` · ${it.x.stores}` : '') });
   if (!arts.length) $('#gPeyaArt').replaceChildren(el('p', { className: 'g-vacio', textContent: 'Sin productos en el período.' }));
-  const bm = $('#masPeyaArt');
-  bm.hidden = arts.length <= cuantos; bm.textContent = `Ver los ${Math.min(10, arts.length - cuantos)} siguientes`;
-  bm.onclick = () => { topMostrar.gPeyaArt += 10; pintarPeya(); };
+  botonesMas('gPeyaArt', arts.length, pintarPeya);
   // Cancelaciones, plegadas: el resumen en la línea del título.
   $('#resPeyaCanc').textContent = (y.cancelados ? `${num(String(y.cancelados))} (${fp(ca)} de lo recibido) · ${pesos(y.importe_cancelado)}`
     + (n(y.cargo_cancelados) ? ` · cargo ${pesos(y.cargo_cancelados)}` : '') : 'ninguna cancelación')
@@ -361,7 +360,8 @@ function pintarPeya() {
   Graf.ranking($('#gPeyaMotivo'), { items: y.por_motivo.map(x => ({ clave: x.clave, etiqueta: MOTIVO_PEYA[x.clave.toLowerCase()] || x.clave, valor: x.pedidos, importe: x.importe })),
     fmt: v => `${v} pedido${v === 1 ? '' : 's'}`, nota: x => pesos(x.importe) });
   const lista = y.cancelados_lista || [];
-  $('#tPeyaCanc tbody').replaceChildren(...(lista.length ? lista.map(x => el('tr', {},
+  botonesMas('tPeyaCanc', lista.length, pintarPeya);
+  $('#tPeyaCanc tbody').replaceChildren(...(lista.length ? lista.slice(0, topMostrar.tPeyaCanc).map(x => el('tr', {},
     el('td', { textContent: `${fecha(x.dia)} ${x.hora || ''}` }), el('td', { textContent: '#' + x.numero }), el('td', { textContent: x.store }),
     el('td', {}, el('span', { className: 'tag ' + (x.cancelado ? 'mal' : 'aviso'), textContent: x.cancelado ? 'Cancelado' : 'Reclamo' })),
     el('td', { textContent: x.cancelado ? QUIEN_CANCELA[x.cancelado_por || 'sin dato'] || x.cancelado_por : '—' }),
@@ -456,7 +456,21 @@ function pintarSemana() {
 }
 const topClase = () => { try { return localStorage.getItem('ventas-top-clase') || ''; } catch { return ''; } };
 // Cuántos se ven de cada ranking: vuelve a 10 al cambiar de clase o al traer otro período.
-const topMostrar = { gTop: 10, gTopCant: 10, gPeyaArt: 10 }, topReiniciar = () => { topMostrar.gTop = topMostrar.gTopCant = topMostrar.gPeyaArt = 10; };
+// Los rankings arrancan con 5 renglones para no ocupar el tablero al cargar; "Ver los N siguientes" suma de a 10 (hasta los 50 que
+// manda el servidor) y "Ver menos" vuelve a 5 (pedido de Fer, 17/11/2026; antes arrancaban en 10).
+const TOP_INICIAL = 5, TOP_PASO = 10;
+const topMostrar = { gTop: TOP_INICIAL, gTopCant: TOP_INICIAL, gPeyaArt: TOP_INICIAL, tPeyaCanc: TOP_INICIAL };
+const topReiniciar = () => { for (const k in topMostrar) topMostrar[k] = TOP_INICIAL; };
+// Los botones de abajo de un ranking: más y menos.
+function botonesMas(id, total, repintar) {
+  const cuantos = topMostrar[id], b = $('#mas' + id.slice(1));
+  let menos = b.parentNode.querySelector('.ver-menos');
+  if (!menos) { menos = el('button', { type: 'button', className: 'chico ver-menos', textContent: 'Ver menos' }); b.after(' ', menos); }
+  b.hidden = total <= cuantos; b.textContent = `Ver los ${Math.min(TOP_PASO, total - cuantos)} siguientes`;
+  b.onclick = () => { topMostrar[id] += TOP_PASO; repintar(); };
+  menos.hidden = cuantos <= TOP_INICIAL || total <= TOP_INICIAL;
+  menos.onclick = () => { topMostrar[id] = TOP_INICIAL; repintar(); b.closest('section, div').scrollIntoView({ block: 'nearest' }); };
+}
 $$('#topClase button').forEach(b => b.onclick = () => { try { localStorage.setItem('ventas-top-clase', b.dataset.c); } catch {} topReiniciar(); if (resumen) pintarTop(); });
 // Lo más vendido: los 10 productos que más facturaron (Fudo por venta; Maxirest por su informe de artículos del día).
 function pintarTop() {
@@ -467,17 +481,14 @@ function pintarTop() {
     if (!top.length) cont.replaceChildren(el('p', { className: 'g-vacio', textContent: 'Sin artículos en el período.' }));
   };
   // Comidas (entradas, principales, postres…) o bebidas: el servidor manda los 50 primeros de todo y de cada clase; se muestran de
-  // a 10, y "Ver los 10 siguientes" suma otros 10 (pedido de Fer, 16/11/2026).
+  // a 5 y después de a 10 (botonesMas).
   const clase = topClase(), de = xs => clase ? xs.filter(x => x.clase === clase) : xs;
   $$('#topClase button').forEach(b => b.classList.toggle('act', b.dataset.c === clase));
-  const que = { '': 'Los 10 productos', comida: 'Las 10 comidas', bebida: 'Las 10 bebidas' }[clase];
+  const que = { '': 'Los productos', comida: 'Las comidas', bebida: 'Las bebidas' }[clase];
   const lista = (id, todos, valor, fmt, nota) => {
     const cuantos = topMostrar[id];
     rank($('#' + id), todos.slice(0, cuantos).map((x, i) => ({ ...x, nombre: `${i + 1}. ${x.nombre}` })), valor, fmt, nota);
-    const b = $('#mas' + id.slice(1));
-    b.hidden = todos.length <= cuantos;
-    b.textContent = `Ver los ${Math.min(10, todos.length - cuantos)} siguientes`;
-    b.onclick = () => { topMostrar[id] += 10; pintarTop(); };
+    botonesMas(id, todos.length, pintarTop);
   };
   lista('gTop', de(resumen.top || []), x => x.vendido, undefined, it => `${num(it.x.unidades)} u` + donde(it));
   lista('gTopCant', de(resumen.top_cantidad || []), x => x.unidades, v => `${num(String(v))} u`, it => pesos(it.x.vendido) + donde(it));
