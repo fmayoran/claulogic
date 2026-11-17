@@ -358,6 +358,64 @@ r.get('/fin/tesoreria/tablero', h(async (req, res) => {
         GROUP BY c.id, s.nombre HAVING SUM(m.entrada - m.salida) <> 0 ORDER BY SUM(m.entrada - m.salida) DESC`, [filial, hasta])]);
   res.json({ ok: true, ...actual, anterior, donde });
 }));
+// Flujo planificado (pedido de Fer, 17/11/2026: lo primero es el disponible en tiempo real y lo que va a entrar y salir). Día por día
+// desde hoy: entra lo por acreditar por el neto en la fecha en que se espera (`porCobrar`; lo atrasado, hoy, marcado) y sale lo
+// comprometido: facturas pendientes por vencimiento (lo vencido, hoy) y cheques propios por fecha de pago. El saldo arranca en el
+// disponible de hoy (bancos y cajas sin el efectivo de los puntos de venta). De la sociedad elegida: lo por acreditar, por la del
+// punto de venta que cobró; facturas, por la suya; cheques y saldo, por la de la cuenta.
+r.get('/fin/tesoreria/plan', h(async (req, res) => {
+  const filial = filialTes(req.query.filial);
+  const dias = Math.min(90, Math.max(7, Number(req.query.dias) || 30));
+  const deSoc = sid => !filial || (filial === 'sin' ? !sid : sid === filial);
+  const [pc, { rows: [{ hoy, disponible }] }, { rows: facturas }, { rows: cheques }] = await Promise.all([
+    porCobrar({ porSede: true }),
+    pool.query(
+      `SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy, COALESCE(SUM(sc.saldo), 0)::numeric(16,2)::text AS disponible
+         FROM fin.saldo_cuenta sc JOIN fin.cuenta c ON c.id = sc.cuenta_id
+        WHERE c.activa AND c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1)`, [filial]),
+    pool.query(
+      `SELECT cp.comprobante_id AS id, pr.nombre AS proveedor, cp.tipo, cp.letra, cp.punto_venta, cp.numero,
+              to_char(cp.vencimiento, 'YYYY-MM-DD') AS vencimiento, cp.pendiente::numeric(16,2)::text AS importe, cp.vencimiento < current_date AS vencida
+         FROM fin.comprobante_pendiente cp JOIN logic.proveedor pr ON pr.id = cp.proveedor_id
+        WHERE cp.pendiente > 0 AND cp.vencimiento < current_date + $2::int
+          AND ($1::text = '' OR ($1 = 'sin' AND cp.sociedad_id IS NULL) OR cp.sociedad_id::text = $1)
+        ORDER BY cp.vencimiento`, [filial, dias]),
+    pool.query(
+      `SELECT ch.id, ch.banco, ch.numero, to_char(GREATEST(ch.fecha_pago, current_date), 'YYYY-MM-DD') AS fecha, ch.importe::text AS importe,
+              pr.nombre AS proveedor
+         FROM fin.cheque ch JOIN fin.cuenta c ON c.id = ch.cuenta_id LEFT JOIN logic.proveedor pr ON pr.id = ch.proveedor_id
+        WHERE ch.tipo = 'propio' AND ch.estado = 'emitido' AND ch.fecha_pago < current_date + $2::int
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1)`, [filial, dias]),
+  ]);
+  const fin = sumarDias(hoy, dias - 1), por = new Map();
+  const dia = f => { if (!por.has(f)) por.set(f, { dia: f, entradas: 0n, salidas: 0n, acreditaciones: new Map(), facturas: [], cheques: [] }); return por.get(f); };
+  // Lo por acreditar, por procesador y día (lo atrasado va hoy, con su marca).
+  for (const [lista, atr] of [[pc.dias, false], [pc.atrasado, true]]) for (const x of lista) {
+    if (!deSoc(x.sociedad_id)) continue;
+    const f = atr ? hoy : x.fecha;
+    if (f > fin) continue;
+    const d = dia(f), k = x.procesador + (atr ? '|atr' : ''), a = d.acreditaciones.get(k) || { procesador: x.procesador, atrasado: atr, neto: 0n, pagos: 0, estimado: false };
+    a.neto += centavos(x.neto); a.pagos += x.pagos; a.estimado ||= x.fuente !== 'informado'; d.acreditaciones.set(k, a);
+    d.entradas += centavos(x.neto);
+  }
+  for (const x of facturas) { const d = dia(x.vencida ? hoy : x.vencimiento); d.facturas.push(x); d.salidas += centavos(x.importe); }
+  for (const x of cheques) { const d = dia(x.fecha); d.cheques.push(x); d.salidas += centavos(x.importe); }
+  let saldo = centavos(disponible), minimo = null;
+  const serie = [];
+  for (let i = 0; i < dias; i++) {
+    const f = sumarDias(hoy, i), d = por.get(f) || { dia: f, entradas: 0n, salidas: 0n, acreditaciones: new Map(), facturas: [], cheques: [] };
+    saldo += d.entradas - d.salidas;
+    if (!minimo || saldo < minimo.saldo) minimo = { dia: f, saldo };
+    serie.push({ dia: f, entradas: deCentavos(d.entradas), salidas: deCentavos(d.salidas), saldo: deCentavos(saldo),
+      acreditaciones: [...d.acreditaciones.values()].map(a => ({ ...a, neto: deCentavos(a.neto) })), facturas: d.facturas, cheques: d.cheques });
+  }
+  const tot = k => deCentavos(serie.reduce((t, d) => t + centavos(d[k]), 0n));
+  res.json({ ok: true, hoy, hasta: fin, disponible, entradas: tot('entradas'), salidas: tot('salidas'), saldo_final: serie[serie.length - 1].saldo,
+    minimo: { dia: minimo.dia, saldo: deCentavos(minimo.saldo) }, dias: serie,
+    atrasado: deCentavos(pc.atrasado.filter(x => deSoc(x.sociedad_id)).reduce((t, x) => t + centavos(x.neto), 0n)),
+    vencido: deCentavos(facturas.filter(x => x.vencida).reduce((t, x) => t + centavos(x.importe), 0n)) });
+}));
 // Los movimientos detrás del tablero: los del período (un día, una categoría o un lado), sin las transferencias internas.
 r.get('/fin/tesoreria/tablero/movimientos', h(async (req, res) => {
   const filial = filialTes(req.query.filial);

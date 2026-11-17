@@ -357,6 +357,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   con cobros corregidos a mano (medio cambiado, cobrado en efectivo o que no llega) no se anula sin deshacerlos. La cifra dice "Por acreditar", no "hoy": cuándo
   entra lo dice el detalle. La consulta del flujo
   (`CATEGORIA_TES`) va materializada y con índice en `movimiento_tes.transferencia_id` (migración 20261128): octubre tardaba 14 s.
+- **Tablero de tesorería: Hoy primero** (pedido de Fer, 17/11/2026: lo más importante es el disponible en tiempo real y el flujo
+  planificado; el corte a una fecha es secundario). Al entrar, **"Hoy y lo que viene"**: cuatro cifras (disponible ahora, por acreditar,
+  efectivo a rendir, saldo proyectado al final del horizonte, en rojo si en algún día queda negativo), **dónde está la plata** (cada banco y
+  caja con su saldo, por sociedad si se mira todo el grupo, cada cuenta "a acreditar" y el efectivo de cada local), el **saldo proyectado**
+  día por día con lo que entra y sale, y **día por día** (14, 30 o 60 días; sólo los días con algo, cada uno abre de dónde sale).
+  `GET /fin/tesoreria/plan?filial=&dias=`: entra lo por acreditar por el neto en su fecha (`porCobrar`, de la sociedad del punto de venta;
+  lo atrasado va hoy y se avisa), sale lo comprometido (facturas pendientes por vencimiento, lo vencido hoy, y cheques propios por fecha).
+  **"Lo que pasó"** es el tablero por período de antes (vistas, cruce, movimientos), sin cambios. Ojo: el disponible "ahora" llega hasta el
+  último extracto importado, y casi no hay facturas pendientes (los gastos se registran ya pagados), así que los egresos todavía no se
+  proyectan (pendiente con Fer: compromisos recurrentes o estimado por rubro).
 - **Entradas y Salidas del tablero de tesorería** (pedido de Fer, 16/11/2026): cada cifra abre su vista (antes las dos abrían "Entradas y salidas"). Entradas: por día, **por forma de ingreso** (acreditaciones de cada procesador, rendiciones de efectivo, transferencias, otros), **por sociedad** de la cuenta ("Grupo" = sin sociedad) y el **cruce** forma × sociedad en una tabla; Salidas, lo mismo por rubro. Todo sale de `cruce` en `/fin/tesoreria/tablero` (día × lado × categoría × sociedad) y lo que se toca (día, forma, sociedad, una celda o un total) filtra los otros gráficos. Los movimientos se piden **con el botón**, siempre a demanda, con los filtros como chips (`/tablero/movimientos` acepta `soc`); si ya están abiertos, se actualizan. Lo elegido se ve además en una barra fija arriba ("Filtrando por:", cada filtro con su × y "Quitar todos los filtros"; Escape también los quita).
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
   `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:

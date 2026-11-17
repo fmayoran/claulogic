@@ -19,10 +19,16 @@ base = 'http://127.0.0.1:%d/' % srv.server_address[1]
 SES = {'usuario': {'id': 1, 'usuario': 'fer', 'nombre': 'Fernando Mayorano', 'es_admin': True, 'finanzas': True, 'roles': [],
                    'puede': {'finanzas': True, 'catalogo': True, 'gestionar': True, 'admin': True, 'proveedor': True}}, 'dispositivo': None}
 
+FIJOS = json.load(open(os.environ['VER_DATOS'])) if os.environ.get('VER_DATOS') else {}
+
 def api(route):
     u = route.request.url
     if '/api/sesion' in u:
         return route.fulfill(status=200, content_type='application/json', body=json.dumps(dict(SES, ok=True)))
+    # VER_DATOS: un JSON {"fragmento de la ruta": respuesta} para ver una pantalla con datos reales bajados de la API.
+    for frag, resp in FIJOS.items():
+        if frag in u:
+            return route.fulfill(status=200, content_type='application/json', body=json.dumps(resp))
     v = [5.9, 3.6, 2.4, 2.0, 3.2, 4.3, 5.4, 6.1, 3.7, 2.5, 2.2, 3.4, 4.6]
     dias = [{'dia': '2026-11-%02d' % (i + 1), 'vendido': str(x * 1e6), 'neto': str((x - 3.4) * 4e5)} for i, x in enumerate(v)]
     datos = {}

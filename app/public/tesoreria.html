@@ -93,6 +93,25 @@
   #dlgAcr .v-det .anul{opacity:.55;text-decoration:line-through;} #dlgAcr .v-det .sub{color:var(--mut);}
   #dlgAcr .v-acc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;} #dlgAcr .v-acc select,#dlgAcr .v-acc input{flex:1 1 100%;min-width:0;}
   #dlgAcr .v-acc small{flex:1 1 100%;color:var(--mut);}
+  /* Hoy: las cuentas en grupos y los días que vienen. */
+  .hoy-g{margin:0 0 14px;} .hoy-g:last-child{margin-bottom:0;}
+  .hoy-g .cab-t{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0 0 2px;}
+  .hoy-g h3{margin:0;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:600;}
+  .hoy-g .tot{font-weight:700;font-variant-numeric:tabular-nums;}
+  .hoy-soc{margin:8px 0 0;font-size:.82rem;color:var(--mut);font-weight:600;}
+  .h-plan{margin:16px 0 4px;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);font-weight:600;}
+  details.pdia{border-top:1px solid var(--g-grilla);padding:9px 6px;}
+  details.pdia > summary{cursor:pointer;display:grid;grid-template-columns:minmax(90px,auto) 1fr 1fr 1fr;gap:4px 14px;align-items:baseline;list-style:none;}
+  details.pdia > summary::-webkit-details-marker{display:none;}
+  details.pdia > summary .i{text-align:right;font-variant-numeric:tabular-nums;} details.pdia > summary .e{color:var(--ok);} details.pdia > summary .s{color:var(--baja, var(--mal));}
+  details.pdia > summary .sal{font-weight:700;} details.pdia > summary .sal.neg{color:var(--mal);}
+  details.pdia .r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:4px 0 4px 12px;font-size:.88rem;color:var(--mut);}
+  details.pdia .r .i{font-variant-numeric:tabular-nums;color:var(--fg);text-align:right;}
+  .pdia-cab{display:grid;grid-template-columns:minmax(90px,auto) 1fr 1fr 1fr;gap:4px 14px;padding:0 6px 6px;font-size:.78rem;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;}
+  .pdia-cab span:not(:first-child){text-align:right;}
+  @media (max-width:600px){ details.pdia > summary, .pdia-cab{grid-template-columns:1fr 1fr;} .pdia-cab span:nth-child(2), .pdia-cab span:nth-child(3){display:none;}
+    details.pdia > summary .e, details.pdia > summary .s{display:none;} }
+  .kpi.alarma-k{border:1px solid var(--mal);background:var(--mal-bg);} .kpi.alarma-k .va{color:var(--mal);}
   .cerrar-x{all:unset;position:absolute;top:14px;right:16px;font-size:1.6rem;line-height:1;cursor:pointer;color:var(--mut);padding:4px 8px;border-radius:8px;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
 </style>
@@ -108,6 +127,38 @@
         movimientos; la plata se mueve desde Operaciones de tesorería.</p>
       <div class="t-filtros"><select id="filial" aria-label="Sociedad"></select></div>
     </div>
+    <!-- Hoy primero (pedido de Fer, 17/11/2026): el disponible en tiempo real, lo por acreditar y lo que va a entrar y salir. El
+         período queda para mirar lo que pasó. -->
+    <div class="segm" id="modo" role="group" aria-label="Qué mirar" style="margin:0 0 14px">
+      <button type="button" data-m="hoy">Hoy y lo que viene</button><button type="button" data-m="periodo">Lo que pasó</button>
+    </div>
+    <div id="mHoy">
+      <p class="t-rango" id="hoyRango"></p>
+      <span class="msg" id="msgHoy"></span>
+      <div class="kpis" id="kHoy"></div>
+      <div class="t-grid t-g2">
+        <section class="card">
+          <div class="card-cab"><h2>Dónde está la plata</h2><span class="cap" id="hoyHora" style="margin:0"></span></div>
+          <p class="cap">Saldo de cada cuenta en este momento. Tocá una para ver sus movimientos.</p>
+          <div id="hoyCuentas"></div>
+        </section>
+        <section class="card">
+          <div class="card-cab"><h2 id="tPlan">Saldo proyectado</h2></div>
+          <p class="cap" id="capPlan"></p>
+          <div id="gPlanSaldo"></div>
+          <h3 class="h-plan">Entra y sale por día</h3>
+          <div id="gPlanCols"></div>
+          <p class="ayuda" id="avisoPlan"></p>
+        </section>
+      </div>
+      <section class="card">
+        <div class="card-cab"><h2>Día por día</h2><div class="segm" id="planDias" role="group" aria-label="Horizonte">
+          <button type="button" data-d="14">14 días</button><button type="button" data-d="30">30 días</button><button type="button" data-d="60">60 días</button></div></div>
+        <p class="cap">Sólo los días en que se espera que entre o salga algo. Tocá un día para ver de dónde sale.</p>
+        <div id="planLista"></div>
+      </section>
+    </div>
+    <div id="mPeriodo" hidden>
     <div class="t-cab" style="margin-top:-8px">
       <div class="segm" id="periodo" role="group" aria-label="Período">
         <button type="button" data-p="ayer">Ayer</button><button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Fechas</button>
@@ -182,6 +233,7 @@
         <p class="ayuda" id="recorte" hidden>Se muestran los 1.000 movimientos más recientes: acotá el período o elegí un filtro.</p>
       </div>
     </section>
+    </div>
   </section>
 
   <section id="vCuenta" hidden>
@@ -286,7 +338,111 @@ async function cargar() {
   const [{ cuentas: cs }, { por_acreditar: pa }] = await Promise.all([api('fin/cuentas'), api('fin/tesoreria/por-acreditar')]);
   // Lo que viene de por-cobrar (cuándo entra y por qué no entró) se pide recién al abrir "Por acreditar".
   cuentas = cs; datos = { pa, pc: null };
-  await cargarFlujo();
+  opcionesFilial();
+  await (modo === 'hoy' ? cargarPlan() : cargarFlujo());
+}
+// Las sociedades que tienen alguna cuenta, con su nombre; las del grupo (sin sociedad) al final.
+function opcionesFilial() {
+  const todas = cuentas.filter(c => c.activa);
+  const fs = [...new Map(todas.map(c => [filialDe(c), c.sociedad || 'Grupo'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
+  if (filial && !fs.some(([id]) => id === filial)) filial = '';
+  opciones($('#filial'), fs, filial, 'Todo el grupo');
+  return fs;
+}
+
+// ── Hoy y lo que viene (pedido de Fer, 17/11/2026) ──
+// Lo primero al entrar: el saldo de cada cuenta en este momento, lo por acreditar, el efectivo de los locales, y lo que se espera que
+// entre (acreditaciones de los procesadores, por el neto y en su fecha) y salga (facturas por vencimiento, cheques) día por día, con
+// el saldo que va quedando. "Lo que pasó" es el tablero por período de antes.
+let modo = 'hoy', plan = null;
+let planDias = (() => { try { return Number(localStorage.getItem('tesoreria-plan-dias')) || 30; } catch { return 30; } })();
+function elegirModo(m) {
+  modo = m;
+  $$('#modo button').forEach(b => b.classList.toggle('act', b.dataset.m === m));
+  $('#mHoy').hidden = m !== 'hoy'; $('#mPeriodo').hidden = m !== 'periodo';
+  if (m === 'hoy') { if (plan) pintarHoy(); else cargarPlan(); }
+  else if (flujo) pintarTablero(); else cargarFlujo();
+}
+$$('#modo button').forEach(b => b.onclick = () => elegirModo(b.dataset.m));
+$$('#planDias button').forEach(b => b.onclick = () => { planDias = Number(b.dataset.d); try { localStorage.setItem('tesoreria-plan-dias', planDias); } catch {} cargarPlan(); });
+async function cargarPlan() {
+  msg('Cargando…', '', '#msgHoy');
+  try { plan = await api(`fin/tesoreria/plan?filial=${encodeURIComponent(filial)}&dias=${planDias}`); msg('', '', '#msgHoy'); pintarHoy(); }
+  catch (e) { msg(e.message, 'mal', '#msgHoy'); }
+}
+const ahora = () => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+function pintarHoy() {
+  const p = plan, todas = cuentas.filter(c => c.activa);
+  const activas = filial ? todas.filter(c => filialDe(c) === filial) : todas;
+  const disponibles = disponiblesDe(activas), aAcreditar = filial ? acreditarDe(todas, filial) : todas.filter(c => c.tipo === 'cobranza');
+  const efectivoPV = activas.filter(c => c.punto_venta);
+  $$('#planDias button').forEach(b => b.classList.toggle('act', Number(b.dataset.d) === planDias));
+  $('#hoyRango').textContent = `Hoy ${diaLargo(p.hoy)} · lo que viene, hasta el ${fecha(p.hasta)}`;
+  $('#hoyHora').textContent = 'a las ' + ahora();
+  const neg = v => String(v).startsWith('-');
+  // Cuatro cifras: lo que hay, lo que está en camino (procesadores y locales) y cómo queda al final del horizonte.
+  const kProy = kpiSimple(`Saldo al ${fecha(p.hasta).slice(0, 5)}`, pesos(p.saldo_final),
+    `entra ${pesos(p.entradas)} · sale ${pesos(p.salidas)}` + (neg(p.minimo.saldo) ? ` · en negativo el ${diaCorto(p.minimo.dia)}` : ''));
+  if (neg(p.minimo.saldo)) kProy.classList.add('alarma-k');
+  $('#kHoy').replaceChildren(
+    kpiSimple('Disponible ahora', pesosC(suma(disponibles)), `bancos ${pesosC(suma(disponibles.filter(c => c.tipo === 'banco')))} · cajas ${pesosC(suma(disponibles.filter(c => c.tipo === 'caja')))}`),
+    kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'),
+    kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), `en ${efectivoPV.length} punto${efectivoPV.length === 1 ? '' : 's'} de venta`),
+    kProy);
+
+  // Dónde está la plata: disponible (por sociedad si se mira todo el grupo), por acreditar y efectivo de los locales.
+  const nombreSoc = id => id === SIN ? 'Grupo' : (todas.find(c => c.sociedad_id === id) || {}).sociedad || '';
+  const bloque = (titulo, cs, detalle) => {
+    if (!cs.length) return null;
+    const filas = [];
+    const porSoc = !filial && new Set(cs.map(filialDe)).size > 1;
+    const orden = [...cs].sort((a, b) => (porSoc ? nombreSoc(filialDe(a)).localeCompare(nombreSoc(filialDe(b))) : 0) || n(b.saldo) - n(a.saldo));
+    let soc = null;
+    for (const c of orden) {
+      if (porSoc && filialDe(c) !== soc) { soc = filialDe(c); filas.push(el('p', { className: 'hoy-soc', textContent: `${nombreSoc(soc)} · ${pesosC(suma(orden.filter(x => filialDe(x) === soc)))}` })); }
+      filas.push(filaCuenta(c, detalle(c)));
+    }
+    return el('div', { className: 'hoy-g' }, el('div', { className: 'cab-t' }, el('h3', { textContent: titulo }), el('span', { className: 'tot', textContent: pesosC(suma(cs)) })), ...filas);
+  };
+  $('#hoyCuentas').replaceChildren(...[
+    bloque('Disponible', disponibles.filter(c => !cero(c.saldo) || c.procesador_deposita), c => [c.tipo === 'banco' ? 'Banco' : 'Caja', c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c)]),
+    bloque('Por acreditar', aAcreditar.filter(c => !cero(c.saldo)), c => [c.procesador_pendiente ? `de ${c.procesador_pendiente}` : 'Cobranza']),
+    bloque('Efectivo en los locales', efectivoPV.filter(c => !cero(c.saldo)), c => [c.punto_venta ? `a rendir de ${c.punto_venta}` : 'Efectivo']),
+  ].filter(Boolean));
+
+  // Saldo proyectado y entradas y salidas por día.
+  $('#tPlan').textContent = `Saldo proyectado a ${planDias} días`;
+  $('#capPlan').textContent = `Arranca en el disponible de hoy (${pesos(p.disponible)}) y suma lo que se espera que entre y salga cada día.`
+    + (neg(p.minimo.saldo) ? ` Queda en negativo el ${diaLargo(p.minimo.dia)}.` : '');
+  Graf.area($('#gPlanSaldo'), { etiquetas: p.dias.map(d => d.dia), ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
+    serie: { nombre: 'Saldo', valores: p.dias.map(d => n(d.saldo)), texto: i => `${pesos(p.dias[i].saldo)} · entra ${pesos(p.dias[i].entradas)}, sale ${pesos(p.dias[i].salidas)}` },
+    alElegir: i => abrirDiaPlan(p.dias[i].dia), alto: alto() });
+  Graf.columnasSeries($('#gPlanCols'), { etiquetas: p.dias.map(d => d.dia), ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d), alto: 180,
+    series: [{ nombre: 'Entra', valores: p.dias.map(d => n(d.entradas)), color: '--ok' }, { nombre: 'Sale', valores: p.dias.map(d => n(d.salidas)), color: '--mal' }] });
+  const avisos = [];
+  if (n(p.atrasado)) avisos.push(`${pesos(p.atrasado)} de acreditaciones que ya tendrían que haber llegado van en hoy (revisalas en Por acreditar, en "Lo que pasó").`);
+  if (n(p.vencido)) avisos.push(`${pesos(p.vencido)} de facturas vencidas sin pagar van en hoy.`);
+  if (!n(p.salidas)) avisos.push('No hay facturas pendientes ni cheques por debitar: los gastos que se pagan sin factura cargada (sueldos, alquileres, impuestos) todavía no se proyectan.');
+  $('#avisoPlan').textContent = avisos.join(' ');
+
+  // Día por día: sólo los días con algo, plegados; cada uno abre de dónde sale.
+  const conAlgo = p.dias.filter(d => n(d.entradas) || n(d.salidas));
+  $('#planLista').replaceChildren(conAlgo.length ? el('div', { className: 'pdia-cab' }, el('span', { textContent: 'Día' }), el('span', { textContent: 'Entra' }), el('span', { textContent: 'Sale' }), el('span', { textContent: 'Saldo' })) : '',
+    ...(conAlgo.length ? conAlgo.map(d => {
+      const r = (t, v, sub) => el('div', { className: 'r' }, el('span', {}, t, sub ? el('small', { textContent: ' · ' + sub }) : ''), el('span', { className: 'i', textContent: pesos(v) }));
+      return el('details', { className: 'pdia', id: 'pd-' + d.dia },
+        el('summary', {}, el('b', { textContent: d.dia === p.hoy ? 'Hoy' : diaCorto(d.dia) }),
+          el('span', { className: 'i e', textContent: n(d.entradas) ? pesos(d.entradas) : '' }), el('span', { className: 'i s', textContent: n(d.salidas) ? '−' + pesos(d.salidas) : '' }),
+          el('span', { className: 'i sal' + (neg(d.saldo) ? ' neg' : ''), textContent: pesos(d.saldo) })),
+        ...d.acreditaciones.map(a => r(`Acreditación ${a.procesador}`, a.neto, [a.atrasado ? 'atrasada' : a.estimado ? 'estimada' : 'informada', `${a.pagos} cobro${a.pagos === 1 ? '' : 's'}`].join(', '))),
+        ...d.facturas.map(f => r(`Factura ${f.proveedor}`, '-' + f.importe, `${f.letra} ${String(f.punto_venta || 0).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` + (f.vencida ? `, vencida el ${fecha(f.vencimiento)}` : ''))),
+        ...d.cheques.map(c => r(`Cheque ${c.banco} ${c.numero}`, '-' + c.importe, c.proveedor || '')));
+    }) : [el('p', { className: 'g-vacio', textContent: 'No se espera que entre ni salga nada en estos días.' })]));
+}
+function abrirDiaPlan(dia) {
+  const d = document.getElementById('pd-' + dia);
+  if (!d) return;
+  d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 async function cargarFlujo() {
   if (!$('#tDesde').value || !$('#tHasta').value) return;
@@ -297,7 +453,8 @@ async function cargarFlujo() {
 $('#filial').onchange = () => elegirFilial($('#filial').value);
 function elegirFilial(id) {
   filial = id; try { localStorage.setItem('tesoreria-filial', id); } catch {}
-  limpiarFiltros(); cargarFlujo();
+  limpiarFiltros(); flujo = null; plan = null;
+  if (modo === 'hoy') cargarPlan(); else cargarFlujo();
 }
 
 // La vista abierta: la cifra que se tocó. Se recuerda.
@@ -317,9 +474,8 @@ function pintarTablero() {
   const f = flujo, a = f.anterior;
   const todas = cuentas.filter(c => c.activa);
   // Las sociedades que tienen alguna cuenta, con su nombre; las del grupo (sin sociedad) al final.
-  const fs = [...new Map(todas.map(c => [filialDe(c), c.sociedad || 'Grupo'])).entries()].sort((a, b) => (a[0] === SIN) - (b[0] === SIN) || a[1].localeCompare(b[1]));
-  if (filial && !fs.some(([id]) => id === filial)) { filial = ''; return cargarFlujo(); }
-  opciones($('#filial'), fs, filial, 'Todo el grupo');
+  const antes = filial, fs = opcionesFilial();
+  if (antes !== filial) return cargarFlujo();
   const desde = $('#tDesde').value, hasta = $('#tHasta').value;
   $('#rango').textContent = `Del ${fecha(desde)} al ${fecha(hasta)} · comparado con ${fecha(a.desde)} al ${fecha(a.hasta)}`;
 
@@ -902,7 +1058,7 @@ function ruta() {
   const id = location.hash.slice(1);
   $('#vLista').hidden = !!id; $('#vCuenta').hidden = !id;
   // Los gráficos se dibujan al ancho de su caja: al volver a la lista se redibujan.
-  if (!id) { actual = null; if (flujo) pintarTablero(); return; }
+  if (!id) { actual = null; if (modo === 'hoy') { if (plan) pintarHoy(); } else if (flujo) pintarTablero(); return; }
   verCuenta(id).catch(e => alert(e.message));
 }
 $('#aCerrar').onclick = () => $('#dlgAcr').close();
@@ -911,6 +1067,7 @@ addEventListener('hashchange', ruta);
 (async () => {
   const pg = (() => { try { return localStorage.getItem('tesoreria-periodo'); } catch { return null; } })();
   elegirPeriodo(PERIODOS.includes(pg) ? pg : 'mes');
+  $$('#modo button').forEach(b => b.classList.toggle('act', b.dataset.m === modo)); $('#mPeriodo').hidden = true;
   try { await cargar(); ruta(); }
   catch (e) { alert(e.message); }
 })();
