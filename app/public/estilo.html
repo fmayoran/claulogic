@@ -81,6 +81,13 @@
   </section>
 
   <section>
+    <h2>Datos para transferir</h2>
+    <p class="regla"><code>dl.datos-tr</code>, armado con <code>datosTransferencia(proveedor)</code>: banco, titular, CBU o CVU y alias
+      de un proveedor, cada uno con "Copiar" para pegarlo en el home banking. Va en la ficha del proveedor y donde se le paga.</p>
+    <div id="ejTr"></div>
+  </section>
+
+  <section>
     <h2>Franja de cifras</h2>
     <p class="regla"><code>.franja</code> con <code>.k</code>: los números de arriba de una pantalla. En los tableros con mini curva siguen las <code>.kpis</code>.</p>
     <div class="franja">
@@ -201,6 +208,7 @@ Graf.ranking($('#rank'), { items: [['Cortafuego Parrilla', 24800000], ['Lo de Ti
   .map(([etiqueta, valor]) => ({ clave: etiqueta, etiqueta, valor })) });
 const dias = [5.9, 3.6, 2.4, 2.0, 3.2, 4.3, 5.4, 6.1, 3.7, 2.5, 2.2, 3.4, 4.6];
 Graf.columnas($('#cols'), { etiquetas: dias.map((_, i) => String(i + 1)), valores: dias.map(v => v * 1e6) });
+$('#ejTr').append(datosTransferencia({ banco: 'Banco Galicia', titular: 'Distribuidora Sur SRL', cbu: '0070999030004012345678', alias: 'DISTRI.SUR.GALICIA' }));
 </script>
 </body>
 </html>

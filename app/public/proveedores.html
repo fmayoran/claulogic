@@ -73,6 +73,15 @@
       <label>Teléfono<input name="telefono" type="tel"></label>
       <label>Email<input name="email" type="email"></label>
     </div>
+    <h3 style="margin:16px 0 4px">Para transferir</h3>
+    <div class="fila">
+      <label>CBU o CVU<input name="cbu" inputmode="numeric" maxlength="26" placeholder="22 dígitos"></label>
+      <label>Alias<input name="alias" maxlength="20" autocapitalize="characters" placeholder="NOMBRE.ALIAS.BANCO"></label>
+    </div>
+    <div class="fila">
+      <label>Banco<input name="banco"></label>
+      <label>Titular de la cuenta<input name="titular" placeholder="si no es el proveedor"></label>
+    </div>
     <div class="fila"><label>Notas<input name="notas" placeholder="días de entrega, condiciones…"></label></div>
     <label class="check" id="activoWrap" hidden style="margin-top:12px"><input type="checkbox" name="activo" checked> Activo</label>
     <div class="acciones">
@@ -90,6 +99,7 @@
   </div>
   <p class="sub" id="pSub"></p>
   <dl class="datos-p" id="pDatos"></dl>
+  <div id="pTransf"></div>
   <div class="acciones fijo" style="margin:0 0 6px">
     <button type="button" id="pEditar">Editar</button>
     <a id="pCC" href="cuenta-corriente.html">Cuenta corriente completa</a>
@@ -103,7 +113,7 @@
 <script>
 let proveedores = [], resumen = new Map(), yo = null, filtro = '', editando = null;
 const f = $('#f');
-const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias'];
+const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias', 'cbu', 'alias', 'banco', 'titular'];
 const IVA = { responsable_inscripto: 'Responsable inscripto', monotributo: 'Monotributo', exento: 'Exento', no_categorizado: 'No categorizado' };
 const cuitFmt = c => c && c.length === 11 ? `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}` : c || '';
 const fin = () => yo && yo.puede.finanzas;
@@ -120,7 +130,7 @@ function pintar() {
   let xs = proveedores.filter(p => filtro === 'inactivos' ? !p.activo : p.activo);
   if (filtro === 'saldo') xs = xs.filter(p => centavos(rs(p.id).saldo || '0') !== 0n);
   if (filtro === 'sincuit') xs = xs.filter(p => !p.cuit);
-  if (q) xs = xs.filter(p => [p.nombre, p.cuit, p.contacto, p.telefono, p.email].filter(Boolean).join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q));
+  if (q) xs = xs.filter(p => [p.nombre, p.cuit, p.contacto, p.telefono, p.email, p.alias, p.cbu].filter(Boolean).join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q));
   if (fin()) xs.sort((a, b) => Number(rs(b.id).comprado_30 || 0) - Number(rs(a.id).comprado_30 || 0) || String(rs(b.id).ultimo || '').localeCompare(String(rs(a.id).ultimo || '')) || a.nombre.localeCompare(b.nombre));
 
   const activos = proveedores.filter(p => p.activo);
@@ -183,6 +193,7 @@ async function movimientos(p) {
     r.comprobantes ? `${r.comprobantes} comprobante(s)` : null].filter(Boolean).join(' · ');
   $('#pDatos').replaceChildren(...[['CUIT', p.cuit ? cuitFmt(p.cuit) : 'sin cargar'], ['IVA', IVA[p.condicion_iva] || 'sin indicar'], ['Contacto', [p.contacto, p.telefono, p.email].filter(Boolean).join(' · ') || '—'],
     ['Plazo', p.plazo_pago_dias ? p.plazo_pago_dias + ' días' : '—'], ...(p.notas ? [['Notas', p.notas]] : [])].flatMap(([t, v]) => [el('dt', { textContent: t }), el('dd', { textContent: v })]));
+  $('#pTransf').replaceChildren(...(datosTransferencia(p) ? [el('h3', { textContent: 'Para transferir', style: 'margin:0 0 6px' }), datosTransferencia(p)] : []));
   $('#pEditar').onclick = () => { $('#panel').close(); editar(p); };
   $('#pCC').href = 'cuenta-corriente.html#' + p.id;
   $('#pMovs').replaceChildren(el('p', { className: 'vacio', textContent: 'Consultando…' }));

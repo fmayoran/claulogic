@@ -604,7 +604,9 @@ async function pagarComprobante({ proveedor_id, comprobante_id, cuenta, importe,
 // Se paga desde una cuenta de la sociedad del comprobante o del grupo (la caja mayor): lo controla también la base.
 const cuentasParaPagar = (cuentas, sociedad) => cuentas.filter(c => c.activa && (c.tipo === 'banco' || c.tipo === 'caja') && (!c.sociedad_id || c.sociedad_id === sociedad));
 async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPagar }) {
-  const [{ cuentas }, { comprobante: cp }] = await Promise.all([api('fin/cuentas'), api('fin/comprobantes/' + comprobante_id)]);
+  const [{ cuentas }, { comprobante: cp }, { proveedores: provs }] = await Promise.all([api('fin/cuentas'), api('fin/comprobantes/' + comprobante_id),
+    api('proveedores?inactivos=1').catch(() => ({ proveedores: [] }))]);
+  const prov = provs.find(x => x.id === proveedor_id);
   const usables = cuentasParaPagar(cuentas, cp.sociedad_id);
   const completa = `ordenes-pago.html?proveedor=${proveedor_id}&comprobante=${comprobante_id}`;
   if (!usables.length) {
@@ -620,7 +622,16 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
   const dlg = el('dialog', {}, el('h2', { textContent: 'Pagar ' + nro }),
     el('p', { className: 'ayuda', style: 'margin:0 0 12px', textContent: `Pendiente: ${pesos(pendiente)}. Se registra como orden de pago, con transferencia o efectivo.` }),
     f);
-  f.append(el('div', { className: 'fila' }, el('label', {}, 'Sale de *', cuenta)),
+  // Al pagar por transferencia, los datos del proveedor para copiar al home banking (o dónde cargarlos si faltan).
+  const tr = el('div', {});
+  const pintarTr = () => {
+    const c = usables.find(x => x.id === cuenta.value);
+    const d = datosTransferencia(prov);
+    tr.replaceChildren(...(!c || c.tipo === 'caja' ? [] : d ? [d] : [el('p', { className: 'ayuda', style: 'margin:0 0 12px' },
+      'El proveedor no tiene CBU ni alias cargados. ', el('a', { href: 'proveedores.html', textContent: 'Cargalos en Proveedores' }), '.')]));
+  };
+  cuenta.addEventListener('change', pintarTr);
+  f.append(el('div', { className: 'fila' }, el('label', {}, 'Sale de *', cuenta)), tr,
     el('div', { className: 'fila' }, el('label', {}, 'Importe *', importe), el('label', {}, 'Fecha', fechaI)),
     el('div', { className: 'fila' }, el('label', {}, 'Referencia', ref)),
     el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
@@ -635,7 +646,30 @@ async function pagoRapido({ proveedor_id, comprobante_id, pendiente, nro, alPaga
     finally { btn.disabled = false; }
   };
   dlg.addEventListener('close', () => dlg.remove());
+  pintarTr();
   document.body.append(dlg); dlg.showModal(); importe.focus();
+}
+
+// Datos para transferir a un proveedor (banco, titular, CBU o CVU, alias), cada uno con "Copiar". Devuelve null si no tiene
+// CBU ni alias cargados.
+function cbuFmt(c) { return c && c.length === 22 ? c.slice(0, 8) + ' ' + c.slice(8) : c || ''; }
+function datosTransferencia(p) {
+  if (!p || (!p.cbu && !p.alias)) return null;
+  const copiar = (valor, b) => {
+    const listo = () => { b.textContent = 'Copiado'; setTimeout(() => { b.textContent = 'Copiar'; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(valor).then(listo, () => prompt('Copialo de acá:', valor));
+    else prompt('Copialo de acá:', valor);
+  };
+  const fila = (t, v, valorCopia) => {
+    const b = valorCopia ? el('button', { type: 'button', className: 'chico', textContent: 'Copiar' }) : null;
+    if (b) b.onclick = () => copiar(valorCopia, b);
+    return [el('dt', { textContent: t }), el('dd', { className: b ? '' : 'solo', textContent: v }), ...(b ? [b] : [])];
+  };
+  return el('dl', { className: 'datos-tr' },
+    ...(p.banco ? fila('Banco', p.banco) : []),
+    ...(p.titular ? fila('Titular', p.titular) : []),
+    ...(p.cbu ? fila(p.cbu.startsWith('000') ? 'CVU' : 'CBU', cbuFmt(p.cbu), p.cbu) : []),
+    ...(p.alias ? fila('Alias', p.alias, p.alias) : []));
 }
 
 // ── Proveedor nuevo sin salir de la pantalla ────────────────────────────────────────────────

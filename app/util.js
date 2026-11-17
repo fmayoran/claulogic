@@ -77,6 +77,8 @@ const UNICOS = {
   unidad_productiva_nombre_ux: 'Ya existe una unidad productiva con ese nombre en la sede.',
   remito_pedido_ux: 'Ese pedido ya tiene un remito.',
   proveedor_cuit_ux: 'Ya existe un proveedor con ese CUIT.',
+  proveedor_cbu_check: 'El CBU o CVU no es válido: revisá los 22 dígitos.',
+  proveedor_alias_check: 'El alias va de 6 a 20 caracteres: letras, números, punto o guion.',
   comprobante_numero_ux: 'Ese comprobante ya está cargado para este proveedor.',
   cuenta_nombre_ux: 'Ya existe una cuenta con ese nombre.',
   cheque_ux: 'Ese cheque ya está cargado.',

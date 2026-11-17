@@ -282,6 +282,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   mismo diálogo; "Movimientos" abre un panel lateral con los datos y los últimos 20 comprobantes, **una fila por comprobante** con lo
   facturado y lo pagado (no una línea por la factura y otra por el pago; Fer, 15/11/2026), lo pendiente debajo y "Ver detalle" con las
   líneas de la cuenta corriente; y el enlace a la cuenta corriente completa. `proveedores.html#nuevo` abre el alta.
+- **Datos para transferir** (pedido de Fer, 17/11/2026; migración 20261154): el proveedor tiene banco, titular de la cuenta, **CBU o CVU**
+  (22 dígitos, sin espacios; la base controla los dos verificadores con `fin.cbu_valido`, el mismo cálculo para CVU) y **alias** (6 a 20
+  letras, números, punto o guion). Se cargan en Proveedores ("Para transferir"); en su panel y en el **pago rápido** (al elegir un banco)
+  se muestran con "Copiar" (`datosTransferencia` en `comun.js`, `dl.datos-tr`). El CBU cargado entra en `fin.proveedor_cbu` y **manda**
+  sobre el deducido de los pagos, así la grilla de egresos reconoce al proveedor desde la primera transferencia.
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.

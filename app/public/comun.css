@@ -228,6 +228,11 @@ td{padding:8px 10px;vertical-align:middle;}
 .alarma b{display:block;color:var(--mal);font-stretch:80%;font-size:1.05rem;} .alarma.aviso b{color:var(--aviso);}
 .alarma p{margin:4px 0 0;color:var(--fg);font-size:.92rem;}
 .alarma .alarma-acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+/* Datos para transferir (CBU, alias): cada dato con su botón de copiar. */
+.datos-tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 12px;align-items:center;margin:0 0 12px;
+  padding:10px 12px;border:1px solid var(--borde);border-radius:var(--r);font-size:.92rem;}
+.datos-tr dt{color:var(--mut);} .datos-tr dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
+.datos-tr .solo{grid-column:2 / 4;}
 
 /* Tarjetas del panel */
 .tarjetas{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin:0 0 24px;}
