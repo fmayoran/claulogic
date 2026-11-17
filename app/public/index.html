@@ -425,7 +425,7 @@ async function alarmas() {
         el('p', { textContent: `${g.sede} · ${DIAS_SEM[d.getDay()]} ${corta(g.dia)}` }),
         ...g.pedidos.map(x => el('p', { textContent: textoCancelado(x) + (x.motivo ? ` · motivo: ${x.motivo}${x.nota ? ' (' + x.nota + ')' : ''}` : '') }))),
       el('span', { className: 'alarma-acc' },
-        el('button', { type: 'button', className: 'chico', textContent: 'Poner los motivos…', onclick: () => revisar(g) }),
+        el('button', { type: 'button', className: 'chico', textContent: 'Justificar', onclick: () => revisar(g) }),
         el('a', { href: `ventas.html?sede=${g.sede_id}`, textContent: 'Tablero' })));
   }));
 }
