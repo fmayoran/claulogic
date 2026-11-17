@@ -366,7 +366,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   lo atrasado va hoy y se avisa), sale lo comprometido (facturas pendientes por vencimiento, lo vencido hoy, y cheques propios por fecha).
   **"Lo que pasó"** es el tablero por período de antes (vistas, cruce, movimientos), sin cambios. Ojo: el disponible "ahora" llega hasta el
   último extracto importado, y casi no hay facturas pendientes (los gastos se registran ya pagados), así que los egresos todavía no se
-  proyectan (pendiente con Fer: compromisos recurrentes o estimado por rubro).
+  proyectan. **Pendiente para más adelante** (decisión de Fer, 17/11/2026: no hay información confiable todavía): una funcionalidad de
+  **planificación financiera** donde se arme el presupuesto (compromisos fijos, estimado por rubro desde la historia) antes de llevarlo al
+  flujo; se retoma cuando lo operativo esté aceitado.
 - **Entradas y Salidas del tablero de tesorería** (pedido de Fer, 16/11/2026): cada cifra abre su vista (antes las dos abrían "Entradas y salidas"). Entradas: por día, **por forma de ingreso** (acreditaciones de cada procesador, rendiciones de efectivo, transferencias, otros), **por sociedad** de la cuenta ("Grupo" = sin sociedad) y el **cruce** forma × sociedad en una tabla; Salidas, lo mismo por rubro. Todo sale de `cruce` en `/fin/tesoreria/tablero` (día × lado × categoría × sociedad) y lo que se toca (día, forma, sociedad, una celda o un total) filtra los otros gráficos. Los movimientos se piden **con el botón**, siempre a demanda, con los filtros como chips (`/tablero/movimientos` acepta `soc`); si ya están abiertos, se actualizan. Lo elegido se ve además en una barra fija arriba ("Filtrando por:", cada filtro con su × y "Quitar todos los filtros"; Escape también los quita).
 - **Cuándo entra lo por acreditar** (pedido de Fer, 27/10/2026; etapa 2 del rediseño, sin tablas nuevas): `porCobrar` en
   `tesoreria.js` (`GET /fin/tesoreria/por-cobrar`) toma los mismos cobros que `/por-acreditar` y les pone fecha y neto. **Informado**:
