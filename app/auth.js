@@ -273,6 +273,8 @@ const POLITICA = [
   [/^\/pos\/importaciones\/[^/]+\/consumo$/, 'operar'],
   // Anular: el encargado del local, o finanzas (que es quien la anula si tiene cobros procesados).
   [/^\/pos\/importaciones\/[^/]+\/anular$/, 'anular_pos'],
+  // Revisar una cancelación de PedidosYa: quien opera en el local o finanzas (el handler verifica la sede).
+  [/^\/pos\/cancelaciones\//, 'anular_pos'],
   [/^\/pos\/importaciones\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/jornadas\/[^/]+\/[^/]+\/cobros$/, 'finanzas'],
   [/^\/pos\/jornadas\/[^/]+\/procesar$/, 'finanzas'],

@@ -37,6 +37,7 @@
   .lineas .sub{display:block;color:var(--mut);font-size:.8rem;}
   #dlgVenta h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 4px;font-weight:600;}
   .peya-kpis{margin:6px 0 14px;} .peya-kpis .kpi{box-shadow:none;border:1px solid var(--line);}
+  .peya-kpis .kpi.alarma-k{border-color:var(--mal);background:var(--mal-bg);} .peya-kpis .kpi.alarma-k .va{color:var(--mal);}
   .peya-h{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 8px;font-weight:600;}
   .cerrar-x{all:unset;position:absolute;top:14px;right:14px;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--mut);font-size:1.3rem;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
@@ -123,6 +124,7 @@
   <section class="card" id="cPeya" hidden>
     <h2>PedidosYa</h2>
     <p class="cap" id="capPeya"></p>
+    <div id="alPeya"></div>
     <div class="kpis peya-kpis" id="kPeya"></div>
     <div style="margin:0 0 16px"><h3 class="peya-h">Vendido por día</h3><div id="gPeyaVend"></div></div>
     <div>
@@ -139,6 +141,9 @@
         <div><h3 class="peya-h">Quién canceló</h3><div id="gPeyaQuien"></div></div>
         <div><h3 class="peya-h">Motivo</h3><div id="gPeyaMotivo"></div></div>
       </div>
+      <h3 class="peya-h" style="margin-top:16px">Pedidos cancelados</h3>
+      <div class="tabla-wrap"><table class="movil" id="tPeyaCanc"><thead><tr><th>Día</th><th>Pedido</th><th>Store</th><th>Quién</th><th>Motivo</th>
+        <th class="num">Importe</th><th class="num">Cargo</th><th>Revisión</th></tr></thead><tbody></tbody></table></div>
     </details>
   </section>
 
@@ -286,7 +291,7 @@ function pintar() {
 // PedidosYa: recibidos, tasa de aceptación, cancelados (cantidad, importe y % de lo recibido) y el cargo que cobró PedidosYa por
 // los cancelados (negativo: compensación). Contra el período anterior, como las demás cifras.
 const QUIEN_CANCELA = { local: 'El local', cliente: 'El cliente', pedidosya: 'PedidosYa', otro: 'Otro', 'sin dato': 'Sin dato' };
-const MOTIVO_PEYA = { unreachable: 'No se confirmó a tiempo', 'item unavailable': 'Producto no disponible', 'closed': 'Local cerrado',
+const MOTIVO_PEYA = { unreachable: 'No se confirmó a tiempo', 'item unavailable': 'Producto no disponible', 'closed': 'Local cerrado', 'vendor closed': 'El local estaba cerrado',
   'too busy': 'Local saturado', 'customer request': 'Pedido del cliente', 'sin dato': 'Sin dato' };
 function pintarPeya() {
   const y = resumen.pedidosya;
@@ -302,8 +307,22 @@ function pintarPeya() {
   const co = pct(n(y.costo), n(y.vendido)), coA = pct(n(a.costo), n(a.vendido));
   $('#capPeya').textContent = `${num(String(y.recibidos))} pedidos recibidos, ${num(String(y.entregados))} entregados, contra el período anterior.`
     + ' El costo es lo que PedidosYa descuenta por pedido (comisiones, pago en línea, IVA y descuentos del local); la publicidad y las percepciones llegan con la liquidación semanal y no están.';
+  // Cancelados al frente (pedido de Fer, 17/11/2026: 2 de 5 pedidos cancelados es una alarma y quedaba plegado): la cifra va
+  // segunda, en rojo arriba del umbral, con una alarma arriba de las cifras y el detalle de cancelaciones abierto.
+  const alto = y.cancelados > 0 && ca > y.umbral;
+  const kCanc = kpi('Cancelados', fp(ca), ca, caA, { puntos: true, malo: true }, `${num(String(y.cancelados))} de ${num(String(y.recibidos))} pedidos`);
+  if (alto) kCanc.classList.add('alarma-k');
+  const sinRev = (y.cancelados_lista || []).filter(x => !x.nota).length;
+  $('#alPeya').replaceChildren(...(y.cancelados ? [el('div', { className: 'alarma' + (alto ? '' : ' aviso') },
+    el('div', {}, el('b', { textContent: `${num(String(y.cancelados))} de ${num(String(y.recibidos))} pedidos cancelados (${fp(ca)})` }),
+      el('p', { textContent: (alto ? `Pasa el ${y.umbral}% de lo recibido: PedidosYa baja al local en la app y lo que cancela el local tiene cargo.` : 'Dentro de lo esperable, pero conviene mirarlo.')
+        + (sinRev ? ` ${sinRev} sin revisar: se revisan desde Inicio.` : ' Todos revisados.') })),
+    el('span', { className: 'alarma-acc' }, el('button', { type: 'button', className: 'chico', textContent: 'Ver los pedidos',
+      onclick: () => { $('#dPeyaCanc').open = true; $('#dPeyaCanc').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })))] : []));
+  if (alto && !$('#dPeyaCanc').dataset.tocado) $('#dPeyaCanc').open = true;
   $('#kPeya').replaceChildren(
     kpi('Recibidos', num(String(y.recibidos)), y.recibidos, a.recibidos),
+    kCanc,
     kpi('Aceptados', fp(ac), ac, acA, { puntos: true }, `${num(String(y.aceptados))} pedidos`),
     kpi('Vendido', pesos(y.vendido), y.vendido, a.vendido, {}, `${num(String(y.entregados))} entregados`),
     kpi('Ticket promedio', tk == null ? '—' : pesos(String(Math.round(tk))), tk, tkA),
@@ -335,9 +354,20 @@ function pintarPeya() {
     fmt: v => `${v} pedido${v === 1 ? '' : 's'}`, nota: x => pesos(x.importe) + (n(x.cargo) ? ` · cargo ${pesos(x.cargo)}` : '') });
   Graf.ranking($('#gPeyaMotivo'), { items: y.por_motivo.map(x => ({ clave: x.clave, etiqueta: MOTIVO_PEYA[x.clave.toLowerCase()] || x.clave, valor: x.pedidos, importe: x.importe })),
     fmt: v => `${v} pedido${v === 1 ? '' : 's'}`, nota: x => pesos(x.importe) });
+  const lista = y.cancelados_lista || [];
+  $('#tPeyaCanc tbody').replaceChildren(...(lista.length ? lista.map(x => el('tr', {},
+    el('td', { textContent: `${fecha(x.dia)} ${x.hora || ''}` }), el('td', { textContent: '#' + x.numero }), el('td', { textContent: x.store }),
+    el('td', { textContent: QUIEN_CANCELA[x.cancelado_por || 'sin dato'] || x.cancelado_por }),
+    el('td', { textContent: x.cancelado_motivo ? (MOTIVO_PEYA[x.cancelado_motivo.toLowerCase()] || x.cancelado_motivo) : '—' }),
+    el('td', { className: 'num', textContent: pesos(x.importe) }), el('td', { className: 'num', textContent: x.cargo ? pesos(x.cargo) : '—' }),
+    el('td', {}, x.nota ? el('span', { textContent: `${x.nota} (${x.revisado_por})` }) : el('span', { className: 'tag mal', textContent: 'Sin revisar' }))))
+    : [el('tr', {}, el('td', { colSpan: 8, className: 'cap', textContent: 'Ninguna en el período.' }))]));
+  etiquetarTabla($('#tPeyaCanc'));
 }
 // Plegados no tienen ancho: los gráficos de cancelaciones se vuelven a dibujar al abrirlos.
 $('#dPeyaCanc').addEventListener('toggle', e => { if (e.target.open && resumen) pintarPeya(); });
+// Si el usuario lo pliega o despliega a mano, se respeta (no se vuelve a abrir solo al cambiar de período).
+$('#dPeyaCanc summary').addEventListener('click', () => { $('#dPeyaCanc').dataset.tocado = '1'; });
 let ctxV = null;
 function pintarEvolucion() {
   const r = resumen, { dias, vend, cant, diasAnt, porDiaAnt, unDia } = ctxV;

@@ -43,6 +43,7 @@
     <div><h1>Inicio</h1><p class="cuando" id="cuando"></p></div>
     <div class="avance" id="avance" hidden><div class="t"><span>Para quedar al día</span><b id="avanceTxt"></b></div><div class="seg" id="avanceSeg"></div></div>
   </div>
+  <div id="alarmas"></div>
   <div class="atajos" id="atajos"></div>
   <div class="inicio">
     <section>
@@ -397,6 +398,53 @@ async function indicadores(u) {
   $('#indTitulo').hidden = $('#indicadores').hidden = false;
 }
 
+// ── Alarmas: lo del negocio que alguien tiene que mirar hoy (pedido de Fer, 17/11/2026) ──
+// Por ahora, las cancelaciones de PedidosYa de los últimos 14 días, por local y día, hasta que alguien las revisa con una nota.
+const QUIEN_CANC = { local: 'el local', cliente: 'el cliente', pedidosya: 'PedidosYa', otro: 'otro' };
+const MOTIVO_CANC = { unreachable: 'no se confirmó a tiempo', 'item unavailable': 'producto no disponible', closed: 'local cerrado',
+  'vendor closed': 'el local estaba cerrado', 'too busy': 'local saturado', 'customer request': 'pedido del cliente' };
+const pctA = v => v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
+function textoCancelado(x) {
+  const motivo = x.cancelado_motivo ? (MOTIVO_CANC[x.cancelado_motivo.toLowerCase()] || x.cancelado_motivo) : 'sin motivo';
+  return `#${x.numero} ${x.hora || ''} · ${x.store} · ${pesos(x.total)} · canceló ${QUIEN_CANC[x.cancelado_por] || 'sin dato'} (${motivo})`
+    + (x.cargo && Number(x.cargo) ? ` · cargo ${pesos(x.cargo)}` : '');
+}
+async function alarmas() {
+  const { pedidosya } = await api('pos/alertas');
+  $('#alarmas').replaceChildren(...pedidosya.map(g => {
+    const d = new Date(g.dia + 'T12:00:00');
+    return el('div', { className: 'alarma' + (g.nivel === 'mal' ? '' : ' aviso') },
+      el('div', {}, el('b', { textContent: `PedidosYa: ${g.cancelados} de ${g.recibidos} pedido${g.recibidos === 1 ? '' : 's'} cancelado${g.cancelados === 1 ? '' : 's'} (${pctA(g.tasa)})` }),
+        el('p', { textContent: `${g.sede} · ${DIAS_SEM[d.getDay()]} ${corta(g.dia)}` }),
+        ...g.pedidos.map(x => el('p', { textContent: textoCancelado(x) + (x.nota ? ` · revisado: ${x.nota}` : '') }))),
+      el('span', { className: 'alarma-acc' },
+        el('button', { type: 'button', className: 'chico', textContent: 'Revisado…', onclick: () => revisar(g) }),
+        el('a', { href: `ventas.html?sede=${g.sede_id}`, textContent: 'Tablero' })));
+  }));
+}
+function revisar(g) {
+  const pend = g.pedidos.filter(x => !x.nota);
+  const nota = el('textarea', { name: 'nota', rows: 3, required: true, placeholder: 'Qué pasó y qué se hizo (por ejemplo: la tablet quedó sin conexión; se avisó al encargado)' });
+  const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Marcar como revisado' });
+  const f = el('form', { novalidate: true },
+    el('div', { className: 'fila' }, el('label', {}, 'Nota *', nota)),
+    el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m));
+  const dlg = el('dialog', {}, el('h2', { textContent: `Cancelaciones de ${g.sede} del ${corta(g.dia)}` }),
+    el('ul', { className: 'ayuda', style: 'margin:0 0 12px;padding-left:18px' }, ...pend.map(x => el('li', { textContent: textoCancelado(x) }))), f);
+  f.onsubmit = async e => {
+    e.preventDefault();
+    if (!nota.value.trim()) { m.textContent = 'Anotá qué pasó.'; m.className = 'msg mal'; return; }
+    btn.disabled = true;
+    try {
+      await api('pos/cancelaciones/revisar', { method: 'POST', body: { tickets: pend.map(x => x.id), nota: nota.value } });
+      dlg.close(); await alarmas();
+    } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
+    finally { btn.disabled = false; }
+  };
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg); dlg.showModal(); nota.focus();
+}
+
 (async () => {
   const { usuario: u } = await cargarSesion();
   usuario = u;
@@ -404,6 +452,7 @@ async function indicadores(u) {
   const h = new Date(hoy() + 'T12:00:00');
   $('#cuando').textContent = `${DIAS_SEM[h.getDay()][0].toUpperCase()}${DIAS_SEM[h.getDay()].slice(1)} ${fecha(hoy())} · la jornada arranca con las ventas de ayer, ${corta(AYER)}`;
   indicadores(u).catch(() => {});
+  alarmas().catch(() => {});
   try { await cargar(); } catch (e) { $('#jornada').replaceChildren(el('li', { className: 'falta' }, el('p', { className: 'msg mal', textContent: e.message }))); }
 })();
 fetch('salud').then(r => r.json()).then(d => {

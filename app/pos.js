@@ -991,7 +991,16 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                     count(*) FILTER (WHERE estado = 'cerrado')::int AS entregados,
                     COALESCE(SUM(vendido) FILTER (WHERE estado = 'cerrado'), 0)::numeric(16,2)::text AS vendido,
                     COALESCE(SUM(vendido) FILTER (WHERE estado = 'anulado'), 0)::numeric(16,2)::text AS importe_cancelado
-               FROM c GROUP BY dia) x), '[]') AS dias
+               FROM c GROUP BY dia) x), '[]') AS dias,
+           -- Los pedidos cancelados uno por uno, con la revisión (pedido de Fer, 17/11/2026: el indicador va al frente).
+           COALESCE((SELECT json_agg(x ORDER BY x.dia DESC, x.hora) FROM (
+             SELECT c.id, c.id_externo AS numero, to_char(c.dia, 'YYYY-MM-DD') AS dia,
+                    to_char(COALESCE(c.abierto_en, c.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') AS hora,
+                    COALESCE(co.nombre, c.punto_venta) AS store, c.cancelado_por, c.cancelado_motivo,
+                    c.vendido::numeric(16,2)::text AS importe, c.cargo::numeric(16,2)::text AS cargo, rv.nota, rv.revisado_por
+               FROM c LEFT JOIN org.comercio co ON co.sede_id = c.sede_id AND c.tienda = ANY(co.tiendas)
+               LEFT JOIN pos.cancelacion_revision rv ON rv.ticket_id = c.id
+              WHERE c.estado = 'anulado' LIMIT 200) x), '[]') AS cancelados_lista
       FROM c`;
   const [[tot], [totAnt], diasAnt, medios, dias, horas, tipos, puntos, mozos, comercios, top, topCant, diasMesAnt, [peya], [peyaAnt]] = await Promise.all([
     q(TOTALES), q(TOTALES, ant), q(DIAS, ant),
@@ -1035,7 +1044,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
     q(PEYA), q(PEYA, ant),
   ]);
   res.json({ ok: true, totales: tot, medios, dias, horas, tipos, puntos, mozos, comercios, top, top_cantidad: topCant,
-    pedidosya: peya.recibidos || peyaAnt.recibidos ? { ...peya, anterior: peyaAnt } : null,
+    pedidosya: peya.recibidos || peyaAnt.recibidos ? { ...peya, anterior: peyaAnt, umbral: UMBRAL_CANCELACION } : null,
     anterior: { desde: ant[2], hasta: ant[3], totales: totAnt, dias: diasAnt },
     mes_anterior: mesAnt && { desde: mesAnt[2], hasta: mesAnt[3], dias: diasMesAnt } });
 }));
@@ -1431,6 +1440,69 @@ r.put('/pos/medios/:id', h(async (req, res) => {
   }
   const { rowCount } = await pool.query('UPDATE pos.medio SET medio_pago_id = NULL, cuenta_id = $1 WHERE id = $2::uuid', [cuenta, req.params.id]);
   if (!rowCount) throw new ErrorUsuario('No existe ese medio.', 404);
+  res.json({ ok: true });
+}));
+
+// ── Alertas: cancelaciones de PedidosYa (pedido de Fer, 17/11/2026) ──────────────────────────
+// Una cancelación en PedidosYa baja el ranking del local en la app y, si es del local, tiene cargo: no puede pasar de largo.
+// Cada pedido cancelado de los últimos 14 días queda como alerta en Inicio hasta que alguien lo revisa y anota qué pasó
+// (pos.cancelacion_revision). Se agrupa por local y día, con lo recibido ese día para ver la tasa.
+const UMBRAL_CANCELACION = 5;   // % de lo recibido: arriba de esto, el día (o el período del tablero) es alarma
+const CANCELADOS_SQL = `
+  SELECT t.id, t.id_externo AS numero, to_char(t.dia, 'YYYY-MM-DD') AS dia, i.sede_id, s.nombre AS sede,
+         COALESCE(co.nombre, s.nombre) AS store, t.cancelado_por, t.cancelado_motivo, t.total::text AS total,
+         to_char(COALESCE(t.abierto_en, t.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') AS hora,
+         (SELECT SUM(-p.neto) FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND NOT p.anulado AND p.costos IS NOT NULL)::numeric(16,2)::text AS cargo,
+         rv.nota, rv.revisado_por, rv.revisado_en
+    FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+    JOIN pos.integracion i ON i.id = t.integracion_id JOIN org.sede s ON s.id = i.sede_id
+    LEFT JOIN org.comercio co ON co.sede_id = i.sede_id AND t.tienda = ANY(co.tiendas)
+    LEFT JOIN pos.cancelacion_revision rv ON rv.ticket_id = t.id
+   WHERE t.tipo = 'pedidosya' AND t.estado = 'anulado'`;
+r.get('/pos/alertas', h(async (req, res) => {
+  const { rows } = await pool.query(
+    `WITH c AS (${CANCELADOS_SQL} AND t.dia >= current_date - 14 AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1)))
+     SELECT c.*, (SELECT count(*)::int FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+                   JOIN pos.integracion i ON i.id = t.integracion_id
+                  WHERE t.tipo = 'pedidosya' AND i.sede_id = c.sede_id AND t.dia = c.dia::date) AS recibidos_dia
+       FROM c ORDER BY c.dia DESC, c.sede, c.hora`, [sedesPos(req)]);
+  // Un grupo por local y día con al menos una cancelación sin revisar; se muestran también las ya revisadas de ese día.
+  const grupos = new Map();
+  for (const x of rows) {
+    const k = x.sede_id + '|' + x.dia;
+    if (!grupos.has(k)) grupos.set(k, { sede_id: x.sede_id, sede: x.sede, dia: x.dia, recibidos: x.recibidos_dia, pedidos: [] });
+    const { recibidos_dia, ...p } = x; grupos.get(k).pedidos.push(p);
+  }
+  const pedidosya = [...grupos.values()].filter(g => g.pedidos.some(p => !p.nota)).map(g => {
+    const tasa = g.recibidos ? g.pedidos.length / g.recibidos * 100 : 100;
+    return { ...g, cancelados: g.pedidos.length, tasa: Math.round(tasa * 10) / 10,
+      nivel: tasa > UMBRAL_CANCELACION || g.pedidos.some(p => p.cancelado_por === 'local') ? 'mal' : 'aviso' };
+  });
+  res.json({ ok: true, umbral: UMBRAL_CANCELACION, pedidosya });
+}));
+// Revisar: una nota para uno o varios pedidos cancelados (todos los de un día, por ejemplo). Quien opera en el local o finanzas.
+r.post('/pos/cancelaciones/revisar', h(async (req, res) => {
+  const ids = Array.isArray(req.body.tickets) ? req.body.tickets.map(String) : [];
+  if (!ids.length || ids.some(x => !UUID.test(x))) throw new ErrorUsuario('Elegí los pedidos que revisaste.');
+  const nota = texto(req.body.nota);
+  if (!nota) throw new ErrorUsuario('Anotá qué pasó: es lo que queda de la revisión.');
+  const n = await enTransaccion(async c => {
+    const { rows } = await c.query(`${CANCELADOS_SQL} AND t.id = ANY($1::uuid[])`, [ids]);
+    if (rows.length !== ids.length) throw new ErrorUsuario('Alguno de los pedidos no es una cancelación de PedidosYa.');
+    for (const x of rows) if (!accede(req, x.sede_id)) throw new ErrorUsuario(`No tenés acceso a ${x.sede}.`, 403);
+    const { rowCount } = await c.query(
+      `INSERT INTO pos.cancelacion_revision (ticket_id, nota) SELECT unnest($1::uuid[]), $2
+       ON CONFLICT (ticket_id) DO UPDATE SET nota = EXCLUDED.nota, revisado_por = EXCLUDED.revisado_por, revisado_en = now()`, [ids, nota]);
+    return rowCount;
+  });
+  res.status(201).json({ ok: true, revisados: n });
+}));
+r.delete('/pos/cancelaciones/:id/revision', h(async (req, res) => {
+  if (!UUID.test(req.params.id)) throw new ErrorUsuario('Pedido inválido.');
+  const { rows: [x] } = await pool.query(`${CANCELADOS_SQL} AND t.id = $1`, [req.params.id]);
+  if (!x) throw new ErrorUsuario('No es una cancelación de PedidosYa.', 404);
+  if (!accede(req, x.sede_id)) throw new ErrorUsuario(`No tenés acceso a ${x.sede}.`, 403);
+  await pool.query('DELETE FROM pos.cancelacion_revision WHERE ticket_id = $1', [req.params.id]);
   res.json({ ok: true });
 }));
 
