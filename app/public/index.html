@@ -412,8 +412,10 @@ function textoCancelado(x) {
   return `#${x.numero} ${x.hora || ''} · ${x.store} · ${pesos(x.total)} · canceló ${QUIEN_CANC[x.cancelado_por] || 'sin dato'} (${motivo})`
     + (x.cargo && Number(x.cargo) ? ` · cargo ${pesos(x.cargo)}` : '');
 }
+let motivosPeya = { cancelado: [], reclamo: [] };
 async function alarmas() {
-  const { pedidosya } = await api('pos/alertas');
+  const { pedidosya, motivos } = await api('pos/alertas');
+  motivosPeya = motivos;
   $('#alarmas').replaceChildren(...pedidosya.map(g => {
     const d = new Date(g.dia + 'T12:00:00');
     return el('div', { className: 'alarma' + (g.nivel === 'mal' ? '' : ' aviso') },
@@ -421,33 +423,41 @@ async function alarmas() {
           g.cancelados ? `${g.cancelados} de ${g.recibidos} pedido${g.recibidos === 1 ? '' : 's'} cancelado${g.cancelados === 1 ? '' : 's'} (${pctA(g.tasa)})` : '',
           g.reclamos ? `${g.reclamos} con reclamo (${pesos(g.importe_reclamos)} descontado${g.reclamos === 1 ? '' : 's'})` : ''].filter(Boolean).join(' y ') }),
         el('p', { textContent: `${g.sede} · ${DIAS_SEM[d.getDay()]} ${corta(g.dia)}` }),
-        ...g.pedidos.map(x => el('p', { textContent: textoCancelado(x) + (x.nota ? ` · revisado: ${x.nota}` : '') }))),
+        ...g.pedidos.map(x => el('p', { textContent: textoCancelado(x) + (x.motivo ? ` · motivo: ${x.motivo}${x.nota ? ' (' + x.nota + ')' : ''}` : '') }))),
       el('span', { className: 'alarma-acc' },
-        el('button', { type: 'button', className: 'chico', textContent: 'Revisado…', onclick: () => revisar(g) }),
+        el('button', { type: 'button', className: 'chico', textContent: 'Poner los motivos…', onclick: () => revisar(g) }),
         el('a', { href: `ventas.html?sede=${g.sede_id}`, textContent: 'Tablero' })));
   }));
 }
+// Un motivo por pedido, de la lista (cancelado o reclamo); "Otro" pide el detalle. La alarma sale cuando todos lo tienen.
 function revisar(g) {
-  const pend = g.pedidos.filter(x => !x.nota);
-  const nota = el('textarea', { name: 'nota', rows: 3, required: true, placeholder: 'Qué pasó y qué se hizo (por ejemplo: la tablet quedó sin conexión; faltó la bebida en el pedido, se habló con el encargado)' });
-  const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Marcar como revisado' });
-  const f = el('form', { novalidate: true },
-    el('div', { className: 'fila' }, el('label', {}, 'Nota *', nota)),
+  const pend = g.pedidos.filter(x => !x.motivo);
+  const filas = pend.map(x => {
+    const motivo = el('select', { required: true }), detalle = el('input', { placeholder: 'Detalle (obligatorio con "Otro")' });
+    opciones(motivo, [['', 'Elegí el motivo…'], ...motivosPeya[x.cancelado ? 'cancelado' : 'reclamo'].map(m => [m, m])]);
+    return { x, motivo, detalle, caja: el('fieldset', { style: 'margin:0 0 12px' },
+      el('legend', { textContent: (x.cancelado ? 'Cancelado ' : 'Reclamo ') + textoCancelado(x).replace(/ · reclamo:.*| · canceló.*/, '') }),
+      el('p', { className: 'ayuda', style: 'margin:0 0 8px', textContent: textoCancelado(x).split(' · ').slice(3).join(' · ') }),
+      el('div', { className: 'fila' }, el('label', {}, 'Motivo *', motivo), el('label', {}, 'Detalle', detalle))) };
+  });
+  const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Guardar los motivos' });
+  const f = el('form', { novalidate: true }, ...filas.map(r => r.caja),
     el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m));
   const dlg = el('dialog', {}, el('h2', { textContent: `PedidosYa: ${g.sede}, ${corta(g.dia)}` }),
-    el('ul', { className: 'ayuda', style: 'margin:0 0 12px;padding-left:18px' }, ...pend.map(x => el('li', { textContent: textoCancelado(x) }))), f);
+    el('p', { className: 'ayuda', style: 'margin:0 0 12px', textContent: 'Cada pedido necesita su motivo para salir de las alarmas.' }), f);
   f.onsubmit = async e => {
     e.preventDefault();
-    if (!nota.value.trim()) { m.textContent = 'Anotá qué pasó.'; m.className = 'msg mal'; return; }
+    const falta = filas.find(r => !r.motivo.value || (r.motivo.value === 'Otro' && !r.detalle.value.trim()));
+    if (falta) { m.textContent = falta.motivo.value ? 'Con "Otro", contá qué pasó en el detalle.' : 'Falta el motivo de algún pedido.'; m.className = 'msg mal'; (falta.motivo.value ? falta.detalle : falta.motivo).focus(); return; }
     btn.disabled = true;
     try {
-      await api('pos/cancelaciones/revisar', { method: 'POST', body: { tickets: pend.map(x => x.id), nota: nota.value } });
+      await api('pos/cancelaciones/revisar', { method: 'POST', body: { revisiones: filas.map(r => ({ ticket: r.x.id, motivo: r.motivo.value, nota: r.detalle.value })) } });
       dlg.close(); await alarmas();
     } catch (err) { m.textContent = err.message; m.className = 'msg mal'; }
     finally { btn.disabled = false; }
   };
   dlg.addEventListener('close', () => dlg.remove());
-  document.body.append(dlg); dlg.showModal(); nota.focus();
+  document.body.append(dlg); dlg.showModal(); filas[0] && filas[0].motivo.focus();
 }
 
 (async () => {

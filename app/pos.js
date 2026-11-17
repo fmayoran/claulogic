@@ -1000,7 +1000,7 @@ r.get('/pos/ventas/resumen', h(async (req, res) => {
                     to_char(COALESCE(c.abierto_en, c.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') AS hora,
                     COALESCE(co.nombre, c.punto_venta) AS store, c.estado = 'anulado' AS cancelado, c.cancelado_por, c.cancelado_motivo,
                     c.vendido::numeric(16,2)::text AS importe, CASE WHEN c.estado = 'anulado' THEN c.cargo END::numeric(16,2)::text AS cargo,
-                    c.reclamo::numeric(16,2)::text AS reclamo, rv.nota, rv.revisado_por
+                    c.reclamo::numeric(16,2)::text AS reclamo, rv.motivo AS motivo_local, rv.nota, rv.revisado_por
                FROM c LEFT JOIN org.comercio co ON co.sede_id = c.sede_id AND c.tienda = ANY(co.tiendas)
                LEFT JOIN pos.cancelacion_revision rv ON rv.ticket_id = c.id
               WHERE c.estado = 'anulado' OR c.reclamo > 0 LIMIT 200) x), '[]') AS cancelados_lista
@@ -1462,7 +1462,7 @@ const CANCELADOS_SQL = `
          to_char(COALESCE(t.abierto_en, t.cerrado_en) AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') AS hora,
          CASE WHEN t.estado = 'anulado' THEN (SELECT SUM(-p.neto) FROM pos.ticket_pago p WHERE p.ticket_id = t.id AND NOT p.anulado AND p.costos IS NOT NULL) END::numeric(16,2)::text AS cargo,
          CASE WHEN t.estado = 'cerrado' THEN rc.reclamo END::numeric(16,2)::text AS reclamo,
-         rv.nota, rv.revisado_por, rv.revisado_en
+         rv.motivo, rv.nota, rv.revisado_por, rv.revisado_en
     FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
     JOIN pos.integracion i ON i.id = t.integracion_id JOIN org.sede s ON s.id = i.sede_id
     LEFT JOIN org.comercio co ON co.sede_id = i.sede_id AND t.tienda = ANY(co.tiendas)
@@ -1483,7 +1483,7 @@ r.get('/pos/alertas', h(async (req, res) => {
     if (!grupos.has(k)) grupos.set(k, { sede_id: x.sede_id, sede: x.sede, dia: x.dia, recibidos: x.recibidos_dia, pedidos: [] });
     const { recibidos_dia, ...p } = x; grupos.get(k).pedidos.push(p);
   }
-  const pedidosya = [...grupos.values()].filter(g => g.pedidos.some(p => !p.nota)).map(g => {
+  const pedidosya = [...grupos.values()].filter(g => g.pedidos.some(p => !p.motivo)).map(g => {
     const cancelados = g.pedidos.filter(p => p.cancelado).length, reclamos = g.pedidos.length - cancelados;
     const tasa = g.recibidos ? cancelados / g.recibidos * 100 : 0;
     // Rojo: más cancelados que el umbral, o algo que le cuesta al local (lo canceló él, o un reclamo descontado).
@@ -1491,22 +1491,37 @@ r.get('/pos/alertas', h(async (req, res) => {
       importe_reclamos: g.pedidos.reduce((a, p) => a + Number(p.reclamo || 0), 0).toFixed(2),
       nivel: tasa > UMBRAL_CANCELACION || reclamos || g.pedidos.some(p => p.cancelado_por === 'local') ? 'mal' : 'aviso' };
   });
-  res.json({ ok: true, umbral: UMBRAL_CANCELACION, pedidosya });
+  res.json({ ok: true, umbral: UMBRAL_CANCELACION, motivos: MOTIVOS_PEYA, pedidosya });
 }));
-// Revisar: una nota para uno o varios pedidos cancelados (todos los de un día, por ejemplo). Quien opera en el local o finanzas.
+// Un motivo por pedido (pedido de Fer, 17/11/2026), de una lista para poder contarlos; "Otro" exige el detalle. Quien opera en el
+// local o finanzas. Se pueden mandar varios a la vez (los de un día).
+const MOTIVOS_PEYA = {
+  cancelado: ['Local cerrado o fuera de horario', 'Sin stock de un producto', 'Tablet o sistema sin conexión', 'No se aceptó a tiempo',
+    'Local saturado o demora en la cocina', 'Lo canceló el cliente', 'Problema con el repartidor', 'Otro'],
+  reclamo: ['Faltó un producto', 'Producto equivocado', 'Producto en mal estado o frío', 'Pedido demorado', 'Reclamo sin fundamento', 'Otro'] };
 r.post('/pos/cancelaciones/revisar', h(async (req, res) => {
-  const ids = Array.isArray(req.body.tickets) ? req.body.tickets.map(String) : [];
-  if (!ids.length || ids.some(x => !UUID.test(x))) throw new ErrorUsuario('Elegí los pedidos que revisaste.');
-  const nota = texto(req.body.nota);
-  if (!nota) throw new ErrorUsuario('Anotá qué pasó: es lo que queda de la revisión.');
+  const rev = Array.isArray(req.body.revisiones) ? req.body.revisiones : [];
+  if (!rev.length) throw new ErrorUsuario('Poné el motivo de cada pedido.');
+  for (const x of rev) {
+    if (!UUID.test(String(x.ticket || ''))) throw new ErrorUsuario('Pedido inválido.');
+    x.motivo = texto(x.motivo); x.nota = texto(x.nota) || null;
+    if (!x.motivo) throw new ErrorUsuario('Falta el motivo de algún pedido.');
+    if (x.motivo === 'Otro' && !x.nota) throw new ErrorUsuario('Con "Otro", contá qué pasó en el detalle.');
+  }
   const n = await enTransaccion(async c => {
-    const { rows } = await c.query(`${CANCELADOS_SQL} AND t.id = ANY($1::uuid[])`, [ids]);
-    if (rows.length !== ids.length) throw new ErrorUsuario('Alguno de los pedidos no es una cancelación ni un reclamo de PedidosYa.');
-    for (const x of rows) if (!accede(req, x.sede_id)) throw new ErrorUsuario(`No tenés acceso a ${x.sede}.`, 403);
-    const { rowCount } = await c.query(
-      `INSERT INTO pos.cancelacion_revision (ticket_id, nota) SELECT unnest($1::uuid[]), $2
-       ON CONFLICT (ticket_id) DO UPDATE SET nota = EXCLUDED.nota, revisado_por = EXCLUDED.revisado_por, revisado_en = now()`, [ids, nota]);
-    return rowCount;
+    const { rows } = await c.query(`${CANCELADOS_SQL} AND t.id = ANY($1::uuid[])`, [rev.map(x => x.ticket)]);
+    if (rows.length !== rev.length) throw new ErrorUsuario('Alguno de los pedidos no es una cancelación ni un reclamo de PedidosYa.');
+    const porId = new Map(rows.map(x => [x.id, x]));
+    for (const x of rev) {
+      const t = porId.get(x.ticket);
+      if (!accede(req, t.sede_id)) throw new ErrorUsuario(`No tenés acceso a ${t.sede}.`, 403);
+      if (!MOTIVOS_PEYA[t.cancelado ? 'cancelado' : 'reclamo'].includes(x.motivo)) throw new ErrorUsuario(`Motivo inválido para el pedido #${t.numero}.`);
+      await c.query(
+        `INSERT INTO pos.cancelacion_revision (ticket_id, motivo, nota) VALUES ($1, $2, $3)
+         ON CONFLICT (ticket_id) DO UPDATE SET motivo = EXCLUDED.motivo, nota = EXCLUDED.nota, revisado_por = EXCLUDED.revisado_por, revisado_en = now()`,
+        [x.ticket, x.motivo, x.nota]);
+    }
+    return rev.length;
   });
   res.status(201).json({ ok: true, revisados: n });
 }));
