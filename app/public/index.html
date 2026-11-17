@@ -399,12 +399,15 @@ async function indicadores(u) {
 }
 
 // ── Alarmas: lo del negocio que alguien tiene que mirar hoy (pedido de Fer, 17/11/2026) ──
-// Por ahora, las cancelaciones de PedidosYa de los últimos 14 días, por local y día, hasta que alguien las revisa con una nota.
+// Por ahora, las cancelaciones y los reclamos (producto faltante: PedidosYa lo descuenta) de PedidosYa de los últimos 14 días,
+// por local y día, hasta que alguien los revisa con una nota.
 const QUIEN_CANC = { local: 'el local', cliente: 'el cliente', pedidosya: 'PedidosYa', otro: 'otro' };
 const MOTIVO_CANC = { unreachable: 'no se confirmó a tiempo', 'item unavailable': 'producto no disponible', closed: 'local cerrado',
   'vendor closed': 'el local estaba cerrado', 'too busy': 'local saturado', 'customer request': 'pedido del cliente' };
 const pctA = v => v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
 function textoCancelado(x) {
+  if (!x.cancelado) return `#${x.numero} ${x.hora || ''} · ${x.store} · ${pesos(x.total)} · reclamo: PedidosYa descontó ${pesos(x.reclamo)}`
+    + ` (${Math.round(Number(x.reclamo) / Number(x.total) * 100)}% del pedido)`;
   const motivo = x.cancelado_motivo ? (MOTIVO_CANC[x.cancelado_motivo.toLowerCase()] || x.cancelado_motivo) : 'sin motivo';
   return `#${x.numero} ${x.hora || ''} · ${x.store} · ${pesos(x.total)} · canceló ${QUIEN_CANC[x.cancelado_por] || 'sin dato'} (${motivo})`
     + (x.cargo && Number(x.cargo) ? ` · cargo ${pesos(x.cargo)}` : '');
@@ -414,7 +417,9 @@ async function alarmas() {
   $('#alarmas').replaceChildren(...pedidosya.map(g => {
     const d = new Date(g.dia + 'T12:00:00');
     return el('div', { className: 'alarma' + (g.nivel === 'mal' ? '' : ' aviso') },
-      el('div', {}, el('b', { textContent: `PedidosYa: ${g.cancelados} de ${g.recibidos} pedido${g.recibidos === 1 ? '' : 's'} cancelado${g.cancelados === 1 ? '' : 's'} (${pctA(g.tasa)})` }),
+      el('div', {}, el('b', { textContent: 'PedidosYa: ' + [
+          g.cancelados ? `${g.cancelados} de ${g.recibidos} pedido${g.recibidos === 1 ? '' : 's'} cancelado${g.cancelados === 1 ? '' : 's'} (${pctA(g.tasa)})` : '',
+          g.reclamos ? `${g.reclamos} con reclamo (${pesos(g.importe_reclamos)} descontado${g.reclamos === 1 ? '' : 's'})` : ''].filter(Boolean).join(' y ') }),
         el('p', { textContent: `${g.sede} · ${DIAS_SEM[d.getDay()]} ${corta(g.dia)}` }),
         ...g.pedidos.map(x => el('p', { textContent: textoCancelado(x) + (x.nota ? ` · revisado: ${x.nota}` : '') }))),
       el('span', { className: 'alarma-acc' },
@@ -424,12 +429,12 @@ async function alarmas() {
 }
 function revisar(g) {
   const pend = g.pedidos.filter(x => !x.nota);
-  const nota = el('textarea', { name: 'nota', rows: 3, required: true, placeholder: 'Qué pasó y qué se hizo (por ejemplo: la tablet quedó sin conexión; se avisó al encargado)' });
+  const nota = el('textarea', { name: 'nota', rows: 3, required: true, placeholder: 'Qué pasó y qué se hizo (por ejemplo: la tablet quedó sin conexión; faltó la bebida en el pedido, se habló con el encargado)' });
   const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Marcar como revisado' });
   const f = el('form', { novalidate: true },
     el('div', { className: 'fila' }, el('label', {}, 'Nota *', nota)),
     el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m));
-  const dlg = el('dialog', {}, el('h2', { textContent: `Cancelaciones de ${g.sede} del ${corta(g.dia)}` }),
+  const dlg = el('dialog', {}, el('h2', { textContent: `PedidosYa: ${g.sede}, ${corta(g.dia)}` }),
     el('ul', { className: 'ayuda', style: 'margin:0 0 12px;padding-left:18px' }, ...pend.map(x => el('li', { textContent: textoCancelado(x) }))), f);
   f.onsubmit = async e => {
     e.preventDefault();

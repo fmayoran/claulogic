@@ -134,16 +134,16 @@
       <p class="top-mas"><button type="button" class="chico" id="masPeyaArt" hidden>Ver los 10 siguientes</button></p>
     </div>
     <details class="peya-canc" id="dPeyaCanc">
-      <summary><span class="peya-h" style="margin:0">Cancelaciones</span> <span id="resPeyaCanc"></span></summary>
+      <summary><span class="peya-h" style="margin:0">Cancelaciones y reclamos</span> <span id="resPeyaCanc"></span></summary>
       <div class="kpis peya-kpis" id="kPeyaCanc"></div>
       <div class="t-grid t-g3" style="margin:0">
         <div><h3 class="peya-h">Cancelados por día</h3><div id="gPeyaDias"></div></div>
         <div><h3 class="peya-h">Quién canceló</h3><div id="gPeyaQuien"></div></div>
         <div><h3 class="peya-h">Motivo</h3><div id="gPeyaMotivo"></div></div>
       </div>
-      <h3 class="peya-h" style="margin-top:16px">Pedidos cancelados</h3>
-      <div class="tabla-wrap"><table class="movil" id="tPeyaCanc"><thead><tr><th>Día</th><th>Pedido</th><th>Store</th><th>Quién</th><th>Motivo</th>
-        <th class="num">Importe</th><th class="num">Cargo</th><th>Revisión</th></tr></thead><tbody></tbody></table></div>
+      <h3 class="peya-h" style="margin-top:16px">Pedidos cancelados o con reclamo</h3>
+      <div class="tabla-wrap"><table class="movil" id="tPeyaCanc"><thead><tr><th>Día</th><th>Pedido</th><th>Store</th><th>Qué pasó</th><th>Quién</th><th>Motivo</th>
+        <th class="num">Importe</th><th class="num">Cargo o descuento</th><th>Revisión</th></tr></thead><tbody></tbody></table></div>
     </details>
   </section>
 
@@ -313,13 +313,18 @@ function pintarPeya() {
   const kCanc = kpi('Cancelados', fp(ca), ca, caA, { puntos: true, malo: true }, `${num(String(y.cancelados))} de ${num(String(y.recibidos))} pedidos`);
   if (alto) kCanc.classList.add('alarma-k');
   const sinRev = (y.cancelados_lista || []).filter(x => !x.nota).length;
-  $('#alPeya').replaceChildren(...(y.cancelados ? [el('div', { className: 'alarma' + (alto ? '' : ' aviso') },
-    el('div', {}, el('b', { textContent: `${num(String(y.cancelados))} de ${num(String(y.recibidos))} pedidos cancelados (${fp(ca)})` }),
-      el('p', { textContent: (alto ? `Pasa el ${y.umbral}% de lo recibido: PedidosYa baja al local en la app y lo que cancela el local tiene cargo.` : 'Dentro de lo esperable, pero conviene mirarlo.')
+  // Un reclamo (producto faltante, PedidosYa se lo descuenta al local) es una cancelación parcial: también es alarma.
+  const titulo = [y.cancelados ? `${num(String(y.cancelados))} de ${num(String(y.recibidos))} pedidos cancelados (${fp(ca)})` : '',
+    y.reclamos ? `${num(String(y.reclamos))} con reclamo (${pesos(y.importe_reclamos)} descontado${y.reclamos === 1 ? '' : 's'})` : ''].filter(Boolean).join(' y ');
+  $('#alPeya').replaceChildren(...(y.cancelados || y.reclamos ? [el('div', { className: 'alarma' + (alto || y.reclamos ? '' : ' aviso') },
+    el('div', {}, el('b', { textContent: titulo }),
+      el('p', { textContent: (alto ? `Pasa el ${y.umbral}% de lo recibido: PedidosYa baja al local en la app y lo que cancela el local tiene cargo.`
+        : y.reclamos ? 'Un reclamo es un pedido entregado con algo mal o faltante: PedidosYa le devuelve al cliente y se lo descuenta al local.'
+        : 'Dentro de lo esperable, pero conviene mirarlo.')
         + (sinRev ? ` ${sinRev} sin revisar: se revisan desde Inicio.` : ' Todos revisados.') })),
     el('span', { className: 'alarma-acc' }, el('button', { type: 'button', className: 'chico', textContent: 'Ver los pedidos',
       onclick: () => { $('#dPeyaCanc').open = true; $('#dPeyaCanc').scrollIntoView({ behavior: 'smooth', block: 'start' }); } })))] : []));
-  if (alto && !$('#dPeyaCanc').dataset.tocado) $('#dPeyaCanc').open = true;
+  if ((alto || y.reclamos) && !$('#dPeyaCanc').dataset.tocado) $('#dPeyaCanc').open = true;
   $('#kPeya').replaceChildren(
     kpi('Recibidos', num(String(y.recibidos)), y.recibidos, a.recibidos),
     kCanc,
@@ -341,8 +346,9 @@ function pintarPeya() {
   bm.hidden = arts.length <= cuantos; bm.textContent = `Ver los ${Math.min(10, arts.length - cuantos)} siguientes`;
   bm.onclick = () => { topMostrar.gPeyaArt += 10; pintarPeya(); };
   // Cancelaciones, plegadas: el resumen en la línea del título.
-  $('#resPeyaCanc').textContent = y.cancelados ? `${num(String(y.cancelados))} (${fp(ca)} de lo recibido) · ${pesos(y.importe_cancelado)}`
-    + (n(y.cargo_cancelados) ? ` · cargo ${pesos(y.cargo_cancelados)}` : '') : 'ninguna en el período';
+  $('#resPeyaCanc').textContent = (y.cancelados ? `${num(String(y.cancelados))} (${fp(ca)} de lo recibido) · ${pesos(y.importe_cancelado)}`
+    + (n(y.cargo_cancelados) ? ` · cargo ${pesos(y.cargo_cancelados)}` : '') : 'ninguna cancelación')
+    + (y.reclamos ? ` · ${num(String(y.reclamos))} reclamo${y.reclamos === 1 ? '' : 's'}, ${pesos(y.importe_reclamos)} descontado` : '');
   $('#kPeyaCanc').replaceChildren(
     kpi('Cancelados', num(String(y.cancelados)), ca, caA, { puntos: true, malo: true }, `${fp(ca)} de lo recibido`),
     kpi('Importe cancelado', pesos(y.importe_cancelado), y.importe_cancelado, a.importe_cancelado, { malo: true }),
@@ -357,11 +363,14 @@ function pintarPeya() {
   const lista = y.cancelados_lista || [];
   $('#tPeyaCanc tbody').replaceChildren(...(lista.length ? lista.map(x => el('tr', {},
     el('td', { textContent: `${fecha(x.dia)} ${x.hora || ''}` }), el('td', { textContent: '#' + x.numero }), el('td', { textContent: x.store }),
-    el('td', { textContent: QUIEN_CANCELA[x.cancelado_por || 'sin dato'] || x.cancelado_por }),
-    el('td', { textContent: x.cancelado_motivo ? (MOTIVO_PEYA[x.cancelado_motivo.toLowerCase()] || x.cancelado_motivo) : '—' }),
-    el('td', { className: 'num', textContent: pesos(x.importe) }), el('td', { className: 'num', textContent: x.cargo ? pesos(x.cargo) : '—' }),
+    el('td', {}, el('span', { className: 'tag ' + (x.cancelado ? 'mal' : 'aviso'), textContent: x.cancelado ? 'Cancelado' : 'Reclamo' })),
+    el('td', { textContent: x.cancelado ? QUIEN_CANCELA[x.cancelado_por || 'sin dato'] || x.cancelado_por : '—' }),
+    el('td', { textContent: !x.cancelado ? `Descontó el ${Math.round(Number(x.reclamo) / Number(x.importe) * 100)}% del pedido`
+      : x.cancelado_motivo ? (MOTIVO_PEYA[x.cancelado_motivo.toLowerCase()] || x.cancelado_motivo) : '—' }),
+    el('td', { className: 'num', textContent: pesos(x.importe) }),
+    el('td', { className: 'num', textContent: x.cancelado ? (x.cargo ? pesos(x.cargo) : '—') : pesos(x.reclamo) }),
     el('td', {}, x.nota ? el('span', { textContent: `${x.nota} (${x.revisado_por})` }) : el('span', { className: 'tag mal', textContent: 'Sin revisar' }))))
-    : [el('tr', {}, el('td', { colSpan: 8, className: 'cap', textContent: 'Ninguna en el período.' }))]));
+    : [el('tr', {}, el('td', { colSpan: 9, className: 'cap', textContent: 'Ninguno en el período.' }))]));
   etiquetarTabla($('#tPeyaCanc'));
 }
 // Plegados no tienen ancho: los gráficos de cancelaciones se vuelven a dibujar al abrirlos.
