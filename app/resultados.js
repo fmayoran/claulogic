@@ -173,7 +173,8 @@ r.post('/fin/resultados/clasificar', h(async (req, res) => {
   await enTransaccion(async c => {
     const { rows: [m] } = await c.query(`SELECT tipo FROM fin.movimiento_tes WHERE id = $1`, [b.movimiento_id]);
     if (!m) throw new ErrorUsuario('No existe ese movimiento.', 404);
-    if (!['ingreso', 'egreso'].includes(m.tipo)) throw new ErrorUsuario('Sólo se clasifican ingresos y egresos.');
+    // Un pago con orden de pago se reparte solo entre los rubros de lo que paga; clasificarlo a mano lo lleva entero a un rubro.
+    if (!['ingreso', 'egreso', 'pago', 'debito_cheque'].includes(m.tipo)) throw new ErrorUsuario('Sólo se clasifican ingresos, egresos y pagos.');
     // El comercio, si el gasto es de uno solo (si no, se prorratea por las ventas del mes); con comercio, la filial es la suya.
     let sede = texto(b.sede_id);
     const comercio = texto(b.comercio_id);

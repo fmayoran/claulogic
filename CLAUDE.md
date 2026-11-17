@@ -1030,6 +1030,21 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   Lácteos, quesos y huevos / Frutas y verduras / Almacén / Aceites y grasas / Panadería y pastelería / Congelados / Café e infusiones /
   Bebidas sin alcohol / Bebidas con alcohol / Helados" (Helados y "Envíos de delivery" en Comercialización, migración 20261144) y "Mercadería varios" (ex Compras de mercadería, para mayoristas); las mismas categorías
   en Productos, así el costo del consumo se abre igual que la historia.
+- **Catálogo y estado de resultados unificados** (decisión de Fer, 17/11/2026, migración 20261155: "no podemos reclasificar a mano para
+  siempre"). **Cada categoría de productos ES un rubro** (`logic.categoria.rubro_id`, único): "Carnes" ↔ "Mercadería · Carnes". Crear,
+  renombrar o desactivar una hace lo mismo con la otra (triggers `categoria_rubro_alta`, `categoria_rubro_sync`, `rubro_categoria_sync`):
+  una categoría nueva toma o crea su "Mercadería · <nombre>" (del centro) y un rubro "Mercadería · X" nuevo crea la categoría X. Los
+  insumos del centro que no son mercadería (Descartables y packaging, Limpieza, Vajilla y utensilios) también son categorías y su rubro
+  sigue en Gastos operativos. **Elaborados** (ex SANDWICHS) es la única categoría sin rubro (`elaborados`): se producen, su costo sale de
+  los ingredientes. "Mercadería varios" (compras sin detalle) no es categoría. En Categorías se ve y se cambia el rubro de cada una.
+  El renglón de un comprobante sin producto lleva su **rubro** (`fin.comprobante_item.rubro_id`, columna "Rubro" en Facturas); con
+  producto, el de su categoría. **El pago de un comprobante se reparte solo** (`fin.reparto_pago`, derivado): un movimiento de una orden
+  de pago (`pago`, `debito_cheque`) o un egreso vinculado (`fin.pago_previo`) sin clasificación manual se abre en `fin.resultado` entre
+  los rubros de los renglones que paga, en proporción a sus importes (notas de crédito en negativo), exacto al centavo; lo del centro va a
+  la sede central. Clasificarlo a mano lo lleva entero a un rubro (ahora también los pagos). **Los pagos con orden de pago entran al
+  estado de resultados** (antes no entraban; no había ninguno). Costo por lo pagado, en el día del pago, como los egresos. Cuando haya
+  recetas, el costo de la mercadería debería salir del consumo (por la misma categoría → rubro) y no del pago: hay que decidirlo entonces
+  para no contarlo dos veces.
 - **Comercios dentro de un local** (pedido de Fer, 07/11/2026; migración 20261126). SORELLE BODEGON Y SUSHI es un punto de venta (un
   Maxirest, una caja, una cuenta de Mercado Pago) con dos comercios que se miran por separado: **Wera Sushi** y **Lo de Titi Bodegón**
   (`org.comercio`: rubros propios del sistema de venta y tiendas de PedidosYa; se configuran en la ficha de la sede). Maxirest no dice de

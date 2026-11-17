@@ -61,8 +61,12 @@ r.get('/fin/comprobantes/:id', h(async (req, res) => {
     pool.query(
       `SELECT i.id, i.producto_id, i.compra_item_id, i.descripcion, i.unidad, trim_scale(i.cantidad)::text AS cantidad,
               trim_scale(i.precio_unitario)::text AS precio, trim_scale(i.descuento_pct)::text AS descuento,
-              trim_scale(i.alicuota)::text AS alicuota, i.importe::text AS importe
-         FROM fin.comprobante_item i WHERE i.comprobante_id = $1 ORDER BY i.orden`, [c.id]),
+              trim_scale(i.alicuota)::text AS alicuota, i.importe::text AS importe, i.rubro_id,
+              COALESCE(ri.nombre, rc.nombre) AS rubro
+         FROM fin.comprobante_item i LEFT JOIN fin.rubro ri ON ri.id = i.rubro_id
+         LEFT JOIN logic.producto p ON p.id = i.producto_id LEFT JOIN logic.categoria ca ON ca.id = p.categoria_id
+         LEFT JOIN fin.rubro rc ON rc.id = ca.rubro_id
+        WHERE i.comprobante_id = $1 ORDER BY i.orden`, [c.id]),
     pool.query(`SELECT id, tipo, jurisdiccion, descripcion, importe::text FROM fin.comprobante_tributo WHERE comprobante_id = $1`, [c.id]),
     pool.query(
       `SELECT co.id, co.numero, co.fecha FROM fin.comprobante_compra x JOIN logic.compra co ON co.id = x.compra_id
@@ -92,6 +96,8 @@ function leerItems(b, letra) {
       precio: monto(x.precio, { campo: `Precio del renglón ${i + 1}`, requerido: true }),
       descuento: numero(x.descuento, { campo: `Descuento del renglón ${i + 1}` }) || '0',
       alicuota: texto(x.alicuota),
+      // Rubro del renglón: con producto, el de su categoría (no se guarda); sin producto, el elegido.
+      rubro_id: texto(x.producto_id) ? null : texto(x.rubro_id),
     };
     if (it.alicuota) it.alicuota = it.alicuota.replace(',', '.');
     if (it.alicuota && !ALICUOTAS.includes(it.alicuota)) throw new ErrorUsuario(`Alícuota inválida en el renglón ${i + 1}.`);
@@ -152,9 +158,9 @@ async function guardarDetalle(cn, id, c) {
   for (const [i, x] of c.items.entries())
     await cn.query(
       `INSERT INTO fin.comprobante_item (comprobante_id, orden, producto_id, compra_item_id, descripcion, unidad,
-                                         cantidad, precio_unitario, descuento_pct, alicuota)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [id, i, x.producto_id, x.compra_item_id, x.descripcion, x.unidad, x.cantidad, x.precio, x.descuento, x.alicuota]);
+                                         cantidad, precio_unitario, descuento_pct, alicuota, rubro_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [id, i, x.producto_id, x.compra_item_id, x.descripcion, x.unidad, x.cantidad, x.precio, x.descuento, x.alicuota, x.rubro_id]);
   for (const t of c.tributos)
     await cn.query('INSERT INTO fin.comprobante_tributo (comprobante_id, tipo, jurisdiccion, descripcion, importe) VALUES ($1,$2,$3,$4,$5)',
       [id, t.tipo, t.jurisdiccion, t.descripcion, t.importe]);
@@ -438,7 +444,7 @@ Object.assign(r, { leerComprobante, insertarComprobante, actualizarComprobante, 
 const LINEAS_COMPRA = ['cmv', 'locacion', 'operativos', 'comercializacion', 'administracion', 'inversiones', 'otros', 'fuera'];
 const PAGOS_SIN_FACTURA = `
   SELECT m.id, to_char(m.fecha, 'YYYY-MM-DD') AS fecha, m.salida AS salida, m.concepto, c.id AS cuenta_id, c.nombre AS cuenta, c.tipo AS cuenta_tipo,
-         c.sociedad_id, so.nombre AS sociedad, r.nombre AS rubro, r.linea,
+         c.sociedad_id, so.nombre AS sociedad, r.nombre AS rubro, r.linea, r.id AS rubro_id,
          (SELECT string_agg(DISTINCT x.destinatario, ' · ') FROM fin.conciliacion k JOIN fin.extracto_linea x ON x.id = k.linea_id
            WHERE k.movimiento_id = m.id AND x.destinatario IS NOT NULL) AS destinatario,
          COALESCE((SELECT SUM(pp.importe) FROM fin.pago_previo pp WHERE pp.movimiento_id = m.id), 0) AS aplicado
@@ -635,8 +641,8 @@ async function armarComprobantes(grupos) {
              VALUES ($1, 'factura', 'X', $2, $2, $3, $4) RETURNING id`,
             [pid, p.fecha, `Armado desde el pago del ${p.fecha.split('-').reverse().join('/')} (${p.cuenta})`, soc]);
           await c.query(
-            `INSERT INTO fin.comprobante_item (comprobante_id, orden, descripcion, cantidad, precio_unitario, descuento_pct, alicuota)
-             VALUES ($1, 1, $2, 1, $3, 0, NULL)`, [cp.id, desc, p.disponible]);
+            `INSERT INTO fin.comprobante_item (comprobante_id, orden, descripcion, cantidad, precio_unitario, descuento_pct, alicuota, rubro_id)
+             VALUES ($1, 1, $2, 1, $3, 0, NULL, $4)`, [cp.id, desc, p.disponible, p.rubro_id || null]);
           await c.query('SELECT fin.registrar_comprobante($1::uuid, $2::numeric)', [cp.id, p.disponible]);
           const detalle = `Pagado con ${p.concepto || 'un egreso'} (${p.cuenta}, ${p.fecha.split('-').reverse().join('/')})`;
           const { rows: [cc] } = await c.query(

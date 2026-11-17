@@ -65,12 +65,14 @@
         <fieldset>
           <legend>Renglones</legend>
           <div style="overflow-x:auto"><table class="edit" id="items">
-            <thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th id="thPrecio">Precio neto</th><th>Desc. %</th><th class="col-iva">IVA</th><th class="num">Importe</th><th></th></tr></thead>
+            <thead><tr><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th id="thPrecio">Precio neto</th><th>Desc. %</th><th class="col-iva">IVA</th><th class="num">Importe</th><th>Rubro</th><th></th></tr></thead>
             <tbody></tbody></table></div>
           <button type="button" class="chico" id="agregar" style="margin-top:8px">Agregar renglón</button>
           <datalist id="dlProductos"></datalist>
           <p class="ayuda">En la descripción, elegí un producto de la lista (trae unidad y alícuota) o escribí un concepto: flete,
-            servicio, gas. La factura registra la deuda; la mercadería entra al stock cuando se recibe la compra.</p>
+            servicio, gas. La factura registra la deuda; la mercadería entra al stock cuando se recibe la compra. El rubro del
+            estado de resultados lo da la categoría del producto; a un concepto se lo elegís. Al pagarla, el pago se reparte
+            entre esos rubros.</p>
           <div id="percepWrap">
           <h3>Percepciones e impuestos</h3>
           <div style="overflow-x:auto"><table class="edit" id="tributos">
@@ -129,6 +131,7 @@ const TIPO = { factura: 'Factura', nota_credito: 'Nota de crédito', nota_debito
 const TRIB = { percepcion_iibb: 'Percepción IIBB', percepcion_iva: 'Percepción IVA', percepcion_ganancias: 'Percepción Ganancias',
                impuesto_interno: 'Impuesto interno', otro: 'Otro' };
 const ALIC = [['21', '21%'], ['10.5', '10,5%'], ['27', '27%'], ['5', '5%'], ['2.5', '2,5%'], ['0', '0%'], ['', 'Exento']];
+let rubros = [], rubroDeCategoria = new Map();
 let comprobantes = [], proveedores = [], productos = [], sociedades = [], actual = null, comp = null, calc = null, yo = null, pagoOrigen = null;
 // La sociedad que recibe el comprobante (su libro IVA y su deuda; decisión de Fer, 07/11/2026).
 const llenarSociedad = valor => opciones(f.sociedad_id, sociedades.filter(s => s.activa || s.id === valor).map(s => [s.id, s.nombre]), valor, 'Elegir…');
@@ -166,17 +169,28 @@ function filaItem(x = {}) {
   // Renglón nuevo: 21%. Guardado o copiado de la compra: la que trae (null = exento).
   const alic = el('select'); opciones(alic, ALIC, 'alicuota' in x ? (x.alicuota ?? '') : '21');
   const imp = el('td', { className: 'imp' });
+  // Rubro: con producto, el de su categoría (sólo se muestra); sin producto, una lista con búsqueda.
+  const rub = el('td', { style: 'min-width:190px' });
+  const rubSel = el('select', { 'aria-label': 'Rubro del renglón' });
+  opciones(rubSel, rubros.map(r => [r.id, r.nombre]), x.rubro_id || '', 'Sin clasificar');
+  const pintarRubro = () => {
+    const p = tr.datos.producto_id && productos.find(p => p.id === tr.datos.producto_id);
+    rub.replaceChildren(tr.datos.producto_id
+      ? el('span', { className: 'ayuda', textContent: (p && rubroDeCategoria.get(p.categoria_id)) || (p ? 'Elaborados: sin rubro' : x.rubro || '—') })
+      : comboBuscable(rubSel));
+  };
   const tr = el('tr', {}, el('td', {}, desc), el('td', {}, unidad), el('td', {}, cantidad), el('td', {}, precio), el('td', {}, descu),
-    el('td', { className: 'col-iva' }, alic), imp,
+    el('td', { className: 'col-iva' }, alic), imp, rub,
     el('td', {}, el('button', { type: 'button', className: 'chico', textContent: 'Quitar', onclick: () => { tr.remove(); recalcular(); } })));
   Object.assign(tr, { imp, datos: { producto_id: x.producto_id || null, compra_item_id: x.compra_item_id || null } });
-  tr.leer = () => ({ ...tr.datos, descripcion: desc.value, unidad: unidad.value, cantidad: cantidad.value, precio: precio.value,
+  pintarRubro();
+  tr.leer = () => ({ ...tr.datos, rubro_id: tr.datos.producto_id ? null : rubSel.value || null, descripcion: desc.value, unidad: unidad.value, cantidad: cantidad.value, precio: precio.value,
                      descuento: descu.value, alicuota: discrimina() ? alic.value : '' });
   // Producto elegido de la lista: queda vinculado y trae su unidad de referencia y su alícuota habitual.
   desc.addEventListener('change', () => {
     const p = productos.find(p => etiquetaProducto(p) === desc.value);
     if (!p) return;
-    tr.datos.producto_id = p.id; desc.value = p.nombre;
+    tr.datos.producto_id = p.id; desc.value = p.nombre; pintarRubro();
     if (!unidad.value) unidad.value = p.costo_unidad || p.unidad_base;
     if (discrimina()) alic.value = p.alicuota_iva ?? '';
     if (!cantidad.value) cantidad.focus();
@@ -328,7 +342,7 @@ async function desdePago(id) {
   f.fiscal.checked = false; aplicarFiscal();
   const prov = proveedorDe(`${pg.concepto || ''} ${pg.destinatario || ''}`);
   if (prov) { f.proveedor_id.value = prov.id; await alCambiarProveedor(); f.fiscal.checked = false; aplicarFiscal(); }
-  $('#items tbody').replaceChildren(); filaItem({ descripcion: pg.rubro || '', cantidad: '1', precio: String(Math.round(Number(pg.disponible))) });
+  $('#items tbody').replaceChildren(); filaItem({ descripcion: pg.rubro || '', rubro_id: pg.rubro_id || null, cantidad: '1', precio: String(Math.round(Number(pg.disponible))) });
   f.total.value = miles(String(Math.round(Number(pg.disponible))));
   recalcular(); marcarCambios(f);
   msg(`Factura del pago del ${fecha(pg.fecha)} (${pg.cuenta}, ${pesos(pg.disponible)}: ${pg.concepto || ''}). ${prov ? 'Proveedor propuesto por el nombre: revisalo.' : 'Elegí o agregá el proveedor.'} `
@@ -377,7 +391,8 @@ function ver() {
     c.asociado ? 'corrige ' + c.asociado : null, c.compras.length ? 'compras ' + c.compras.map(x => x.numero || fecha(x.fecha)).join(', ') : null,
     c.estado === 'registrado' ? `registrado por ${c.registrado_por || '—'} el ${fechaHora(c.registrado_en)}` : null,
     c.estado === 'anulado' ? `ANULADO por ${c.anulado_por || '—'}: ${c.motivo_anulacion}` : null].filter(Boolean).join(' · ');
-  filas($('#vItems'), c.items, i => el('tr', {}, td(i.descripcion + (i.unidad ? ` (${i.unidad})` : ''), 'wrap'), td(num(i.cantidad), 'num'),
+  filas($('#vItems'), c.items, i => el('tr', {}, el('td', { className: 'wrap' }, i.descripcion + (i.unidad ? ` (${i.unidad})` : ''),
+      el('div', { className: 'ayuda', style: 'margin:0', textContent: i.rubro || (i.producto_id ? 'Elaborados: sin rubro' : 'Sin rubro') })), td(num(i.cantidad), 'num'),
     td(pesos(i.precio), 'num'), td(i.descuento !== '0' ? coma(i.descuento) + '%' : '', 'num'),
     td(i.alicuota != null ? coma(i.alicuota) + '%' : (['A', 'M'].includes(c.letra) ? 'exento' : ''), 'num'), td(pesos(i.importe), 'num')), 'Sin renglones.', 6);
   const filasR = [...lineasIva(c.alicuotas),
@@ -509,7 +524,12 @@ let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(cargarLista,
 $('#fest').onchange = $('#fsoc').onchange = cargarLista;
 (async () => {
   try {
-    [{ proveedores }, productos, { usuario: yo }, { sociedades }] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos(), cargarSesion(), api('sociedades')]);
+    let rs, cats;
+    [{ proveedores }, productos, { usuario: yo }, { sociedades }, rs, cats] = await Promise.all([api('proveedores?inactivos=1'), catalogo.productos(), cargarSesion(), api('sociedades'),
+      api('fin/rubros'), api('categorias')]);
+    // Los rubros que se eligen a mano (sin ventas ni el costo de mercadería vendida, que los arma el sistema), por nombre.
+    rubros = rs.rubros.filter(r => r.activo && r.linea !== 'ventas' && r.clave !== 'cmv').sort((a, b) => a.nombre.localeCompare(b.nombre));
+    rubroDeCategoria = new Map(cats.categorias.filter(c => c.rubro).map(c => [c.id, c.rubro]));
     opciones($('#fsoc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
     $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
     $('#mes').value = hoy().slice(0, 7);

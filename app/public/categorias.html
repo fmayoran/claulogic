@@ -19,7 +19,8 @@
   <main>
     <h1 id="titulo">Nueva categoría</h1>
     <p class="sub">Todo producto pertenece a una categoría. El prefijo arma el SKU automático de sus productos
-      (LAC-0001, LAC-0002…): si lo dejás vacío, se sugiere desde el nombre.</p>
+      (LAC-0001, LAC-0002…): si lo dejás vacío, se sugiere desde el nombre. Cada categoría es además un rubro del estado de
+      resultados: lo que se paga de sus productos va ahí solo. Cambiarle el nombre o desactivarla hace lo mismo con su rubro.</p>
     <form id="f" novalidate>
       <fieldset>
         <legend>Datos</legend>
@@ -28,6 +29,8 @@
           <label>Prefijo del SKU<input name="prefijo" maxlength="6" autocomplete="off" placeholder="se sugiere solo" style="text-transform:uppercase"></label>
         </div>
         <p class="ayuda" id="ayudaPrefijo" hidden></p>
+        <div class="fila"><label>Rubro del estado de resultados<select name="rubro"></select></label></div>
+        <p class="ayuda" id="ayudaRubro"></p>
         <label class="check" id="activaWrap" hidden style="margin-top:12px"><input type="checkbox" name="activa" checked> Activa</label>
         <p class="ayuda" id="ayudaActiva" hidden>Una categoría inactiva no se ofrece al dar de alta productos; los que ya la tienen la conservan.</p>
       </fieldset>
@@ -40,17 +43,37 @@
 </div>
 <script src="comun.js"></script>
 <script>
-let categorias = [], actual = null;
+let categorias = [], rubros = [], actual = null;
+const LINEA = { cmv: 'Costo de mercadería', operativos: 'Gastos operativos' };
+const nombreLinea = l => LINEA[l] || l;
+const textoNuevo = () => 'Nuevo: Mercadería · ' + (f.nombre.value.trim() || '<nombre>');
+// Rubros que puede tomar: los libres y el suyo; "nuevo" (se crea "Mercadería · <nombre>") sólo si todavía no tiene, y al final
+// los elaborados.
+function opcionesRubro(c) {
+  const libres = rubros.filter(r => !r.categoria_id || (c && r.categoria_id === c.id));
+  const tiene = c && c.rubro_id;
+  f.rubro.replaceChildren(...(tiene ? [] : [el('option', { value: '', textContent: textoNuevo() })]),
+    ...libres.map(r => el('option', { value: r.id, textContent: `${r.nombre} (${nombreLinea(r.linea)})` })),
+    el('option', { value: 'elaborados', textContent: 'Elaborados: no se compran, sin rubro' }));
+  f.rubro.value = c ? (c.elaborados ? 'elaborados' : c.rubro_id || '') : '';
+  ayudaRubro();
+}
+function ayudaRubro() {
+  const v = f.rubro.value;
+  $('#ayudaRubro').textContent = v === 'elaborados' ? 'Sus productos se producen con una receta: el costo sale de los ingredientes.'
+    : v ? 'Al pagar una factura, cada renglón de un producto de esta categoría va a este rubro.'
+    : 'Se crea el rubro en Costo de mercadería, del centro. Se puede mover de línea en Rubros y reglas.';
+}
 const f = $('#f');
 
 async function cargar() {
-  ({ categorias } = await api('categorias'));
+  ({ categorias, rubros } = await api('categorias'));
   const vista = categorias.filter(c => c.activa || $('#finact').checked);
   if (!vista.length) return $('#lista').replaceChildren(el('p', { className: 'vacio', textContent: 'Todavía no hay categorías.' }));
   $('#lista').replaceChildren(...vista.map(c => {
     const b = el('button', { type: 'button', className: 'item' + (c.id === actual ? ' sel' : '') + (c.activa ? '' : ' inactivo') },
       el('div', { className: 'n', textContent: c.nombre }),
-      el('div', { className: 'm', textContent: `${c.prefijo} · ${c.productos} producto${c.productos === 1 ? '' : 's'}` }));
+      el('div', { className: 'm', textContent: `${c.prefijo} · ${c.productos} producto${c.productos === 1 ? '' : 's'} · ${c.elaborados ? 'elaborados' : nombreLinea(c.rubro_linea)}` }));
     b.onclick = () => abrir(c.id);
     return b;
   }));
@@ -59,11 +82,13 @@ function nuevo() {
   actual = null; f.reset(); msg(''); $('#titulo').textContent = 'Nueva categoría';
   $('#activaWrap').hidden = $('#ayudaActiva').hidden = $('#ayudaPrefijo').hidden = true;
   $$('.item.sel').forEach(i => i.classList.remove('sel'));
+  opcionesRubro(null);
 }
 function abrir(id) {
   const c = categorias.find(c => c.id === id); if (!c) return nuevo();
   actual = id; msg(''); $('#titulo').textContent = c.nombre;
   f.nombre.value = c.nombre; f.prefijo.value = c.prefijo; f.activa.checked = c.activa;
+  opcionesRubro(c);
   $('#activaWrap').hidden = $('#ayudaActiva').hidden = false;
   $('#ayudaPrefijo').hidden = false;
   $('#ayudaPrefijo').textContent = `El próximo producto sin SKU va a ser ${c.siguiente_sku}. Cambiar el prefijo no modifica los SKU que ya existen.`;
@@ -72,7 +97,8 @@ function abrir(id) {
 }
 f.onsubmit = async e => {
   e.preventDefault();
-  const body = { nombre: f.nombre.value, prefijo: f.prefijo.value, activa: actual ? f.activa.checked : true };
+  const body = { nombre: f.nombre.value, prefijo: f.prefijo.value, activa: actual ? f.activa.checked : true,
+    elaborados: f.rubro.value === 'elaborados', rubro_id: f.rubro.value === 'elaborados' ? null : f.rubro.value || null };
   $('#guardar').disabled = true;
   try {
     const d = await api(actual ? 'categorias/' + actual : 'categorias', { method: actual ? 'PUT' : 'POST', body });
@@ -82,6 +108,8 @@ f.onsubmit = async e => {
   finally { $('#guardar').disabled = false; }
 };
 $('#nuevo').onclick = nuevo;
+f.rubro.onchange = ayudaRubro;
+f.nombre.addEventListener('input', () => { const o = f.rubro.querySelector('option[value=""]'); if (o) o.textContent = textoNuevo(); });
 $('#finact').onchange = cargar;
 cargar().then(nuevo).catch(e => msg(e.message, 'mal'));
 </script>

@@ -12,10 +12,14 @@ const r = express.Router();
 r.get('/categorias', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.id, c.nombre, c.prefijo, c.activa, COUNT(p.id)::int AS productos,
-            logic.siguiente_sku(c.id) AS siguiente_sku
-       FROM logic.categoria c LEFT JOIN logic.producto p ON p.categoria_id = c.id
-      GROUP BY c.id ORDER BY c.nombre`);
-  res.json({ ok: true, categorias: rows });
+            logic.siguiente_sku(c.id) AS siguiente_sku, c.elaborados, c.rubro_id, r.nombre AS rubro, r.linea AS rubro_linea
+       FROM logic.categoria c LEFT JOIN logic.producto p ON p.categoria_id = c.id LEFT JOIN fin.rubro r ON r.id = c.rubro_id
+      GROUP BY c.id, r.id ORDER BY c.nombre`);
+  // Rubros que puede tomar una categoría (los de compras: mercadería y los del centro), con la categoría que ya los tiene.
+  const { rows: rubros } = await pool.query(
+    `SELECT r.id, r.nombre, r.linea, c.id AS categoria_id FROM fin.rubro r LEFT JOIN logic.categoria c ON c.rubro_id = r.id
+      WHERE r.activo AND r.clave IS NULL AND (r.linea = 'cmv' OR r.del_centro OR c.id IS NOT NULL) ORDER BY r.nombre`);
+  res.json({ ok: true, categorias: rows, rubros });
 }));
 
 function leerCategoria(b) {
@@ -23,13 +27,16 @@ function leerCategoria(b) {
   if (prefijo && !/^[A-Z0-9]{2,6}$/.test(prefijo))
     throw new ErrorUsuario('El prefijo va de 2 a 6 letras o números, sin espacios ni acentos.');
   return { nombre: texto(b.nombre, { campo: 'el nombre de la categoría', requerido: true }), prefijo,
-           activa: b.activa === undefined ? true : !!b.activa };
+           activa: b.activa === undefined ? true : !!b.activa,
+           // Cada categoría es un rubro del estado de resultados: sin elegir, la base toma o crea "Mercadería · <nombre>".
+           elaborados: !!b.elaborados, rubro_id: b.elaborados ? null : texto(b.rubro_id) };
 }
 
 r.post('/categorias', h(async (req, res) => {
   const c = leerCategoria(req.body);
   const { rows: [n] } = await pool.query(
-    'INSERT INTO logic.categoria (nombre, prefijo) VALUES ($1, $2) RETURNING id, nombre, prefijo, activa', [c.nombre, c.prefijo]);
+    'INSERT INTO logic.categoria (nombre, prefijo, elaborados, rubro_id) VALUES ($1, $2, $3, $4) RETURNING id, nombre, prefijo, activa',
+    [c.nombre, c.prefijo, c.elaborados, c.rubro_id]);
   res.status(201).json({ ok: true, categoria: n });
 }));
 
@@ -38,8 +45,9 @@ r.put('/categorias/:id', h(async (req, res) => {
   const c = leerCategoria(req.body);
   if (!c.prefijo) throw new ErrorUsuario('Falta el prefijo.');
   const { rows: [n] } = await pool.query(
-    `UPDATE logic.categoria SET nombre = $1, prefijo = $2, activa = $3 WHERE id = $4
-     RETURNING id, nombre, prefijo, activa`, [c.nombre, c.prefijo, c.activa, req.params.id]);
+    `UPDATE logic.categoria SET nombre = $1, prefijo = $2, activa = $3, elaborados = $5,
+            rubro_id = CASE WHEN $5 THEN NULL ELSE COALESCE($6::uuid, rubro_id) END
+      WHERE id = $4 RETURNING id, nombre, prefijo, activa`, [c.nombre, c.prefijo, c.activa, req.params.id, c.elaborados, c.rubro_id]);
   if (!n) return res.status(404).json({ ok: false, error: 'No existe esa categoría.' });
   res.json({ ok: true, categoria: n });
 }));
