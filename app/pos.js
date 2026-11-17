@@ -1449,6 +1449,7 @@ r.get('/pos/cierre', h(async (req, res) => {
                                                 to_char(c.desde, 'YYYY-MM-DD') AS desde, to_char(c.hasta, 'YYYY-MM-DD') AS hasta
                                            FROM pos.corrida c WHERE c.integracion_id = i.id ORDER BY c.iniciada_en DESC LIMIT 1) c) AS ultima_corrida,
             extract(hour FROM now())::int >= 5 AS paso_la_hora,
+            EXISTS (SELECT 1 FROM pos.corrida c WHERE c.integracion_id = i.id AND c.automatica AND c.fecha = current_date) AS corrio_hoy,
             to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde,
             s.sociedad_id, so.nombre AS sociedad, i.tiendas
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id LEFT JOIN org.sociedad so ON so.id = s.sociedad_id
@@ -1517,7 +1518,8 @@ r.get('/pos/cierre', h(async (req, res) => {
     const ayerTraido = dias[0] && (dias[0].ventas || dias[0].sincronizado);
     if (i.modo === 'api') {
       if (ult && ult.ok === false) tareas.push({ tipo: 'corrida', nivel: 'mal', texto: `La última sincronización falló: ${ult.error}` });
-      else if (i.sincroniza_auto && i.paso_la_hora && !(ult && ult.automatica && ult.fecha === hoyIso()))
+      // La automática de hoy se busca aparte: un "Traer ahora" posterior pasa a ser la última corrida y la tapaba (17/11/2026).
+      else if (i.sincroniza_auto && i.paso_la_hora && !i.corrio_hoy)
         tareas.push({ tipo: 'corrida', nivel: 'aviso', texto: 'La sincronización automática de hoy todavía no corrió.' });
       else if (!ayerTraido) {
         // Lo que falta empieza el día siguiente al último traído.
@@ -1556,7 +1558,7 @@ r.get('/pos/cierre', h(async (req, res) => {
       texto: `${a.procesador}: ${a.pagos} cobro(s) sin acreditar desde el ${a.desde}.` });
     for (const l of lotesSinBanco) tareas.push({ tipo: 'acreditacion', nivel: 'mal', cuenta_id: l.cuenta_acredita_id, importe: l.neto,
       texto: `${l.procesador}: el lote del ${l.fecha} no apareció en el banco (hace ${l.dias} días).` });
-    const { efectivo_a_rendir, ultima_corrida, paso_la_hora, ...resto } = i;
+    const { efectivo_a_rendir, ultima_corrida, paso_la_hora, corrio_hoy, ...resto } = i;
     out.push({ ...resto, efectivo_a_rendir, ultima_corrida, tareas, dias });
   }
   res.json({ ok: true, puntos: out });
