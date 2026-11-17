@@ -25,8 +25,10 @@ async function api(url, opt = {}) {
     ? `El servidor no respondió (HTTP ${r.status}): puede estar reiniciándose. Probá de nuevo en un minuto.`
     : `Respuesta inesperada del servidor (HTTP ${r.status} en ${url.split('?')[0]}).` }));
   // Sin sesión, al login; con clave temporal, a cambiarla. Vuelve a donde estaba después.
-  if (r.status === 401 && d.sesion === false) irA('login.html');
-  if (r.status === 403 && d.cambiar_clave) irA('cuenta.html');
+  // Con _irAPagina y no irA: una pantalla puede tener su propio irA (Ingresos lo tenía para los pasos y la sesión vencida
+  // terminaba en "#login.html" con el mensaje, sin pedir la clave).
+  if (r.status === 401 && d.sesion === false) _irAPagina('login.html');
+  if (r.status === 403 && d.cambiar_clave) _irAPagina('cuenta.html');
   if (!d.ok) { _guardando = null; throw new Error(d.error || 'Error del servidor.'); }
   if (modifica && _guardando) { sinCambios(_guardando); _guardando = null; }
   return d;
@@ -48,7 +50,8 @@ function avisoFlotante(t, tipo) {
   caja.textContent = t; caja.className = 'visible ' + (tipo || '');
   clearTimeout(_avisoT); _avisoT = setTimeout(() => { caja.className = ''; }, 7000);
 }
-function irA(pagina) {
+function irA(pagina) { _irAPagina(pagina); }
+function _irAPagina(pagina) {
   const aca = location.pathname.split('/').pop() || 'index.html';
   if (aca === pagina) return;
   location.href = pagina + '?volver=' + encodeURIComponent(aca + location.search + location.hash);

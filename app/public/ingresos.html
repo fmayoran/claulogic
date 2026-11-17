@@ -257,20 +257,20 @@ function pintarPasos() {
     const k = li.dataset.paso, [ok, txt] = e[k];
     li.classList.toggle('hecho', ok === true && k !== paso); li.classList.toggle('actual', k === paso); li.classList.toggle('falta', ok === false);
     li.querySelector('small').textContent = txt;
-    li.onclick = () => irA(k);
+    li.onclick = () => irPaso(k);
   });
   const i = PASOS.indexOf(paso);
   $('#volver').hidden = i === 0; $('#seguir').hidden = i === PASOS.length - 1;
   $('#seguir').textContent = i < PASOS.length - 1 ? `Seguir: ${NOMBRE[PASOS[i + 1]]}` : '';
 }
-$('#seguir').onclick = () => irA(PASOS[PASOS.indexOf(paso) + 1]);
-$('#volver').onclick = () => irA(PASOS[PASOS.indexOf(paso) - 1]);
+$('#seguir').onclick = () => irPaso(PASOS[PASOS.indexOf(paso) + 1]);
+$('#volver').onclick = () => irPaso(PASOS[PASOS.indexOf(paso) - 1]);
 
 async function cargarDatos() {
   const [c, p, l] = await Promise.all([api('pos/cierre?dias=60'), api('fin/procesadores/resumen'), api('fin/liquidaciones').catch(() => ({ procesadores: [] }))]);
   puntos = c.puntos; procs = p.procesadores; liqs = l.procesadores;
 }
-async function irA(k, { recargar = false } = {}) {
+async function irPaso(k, { recargar = false } = {}) {
   if (recargar) await cargarDatos();
   paso = k; history.replaceState(null, '', '#' + k);
   PASOS.forEach(x => { $('#p-' + x).hidden = x !== k; });
@@ -898,7 +898,7 @@ function pintarResultado() {
   $('#rTituloR').textContent = faltan.length ? `Quedan ${faltan.length} paso(s) con algo pendiente` : `Ingresos cerrados hasta el ${fecha(ayer)}`;
   $('#rTituloR').className = 'titulo' + (faltan.length ? '' : ' ok');
   $('#rDetalleR').textContent = faltan.length ? 'Lo de abajo es lo que falta; el resto de los números ya es definitivo.' : 'Las ventas están cobradas, el efectivo rendido y los extractos conciliados.';
-  $('#rPendientes').replaceChildren(...faltan.map(k => el('li', {}, el('span', {}, el('b', { textContent: NOMBRE[k] + ': ' }), e[k][1]), boton('Ir', () => irA(k)))));
+  $('#rPendientes').replaceChildren(...faltan.map(k => el('li', {}, el('span', {}, el('b', { textContent: NOMBRE[k] + ': ' }), e[k][1]), boton('Ir', () => irPaso(k)))));
   // Por punto de venta: lo de los últimos 30 días.
   const hace30 = sumarDias(ayer, -29), enRango = p => p.dias.filter(d => d.dia >= hace30);
   const suma = (arr, k) => arr.reduce((s, d) => s + centavos(d[k] || '0'), 0n);
@@ -949,13 +949,13 @@ function pintarCuando(caja, pc) {
 }
 
 // El paso va en el # de la dirección: los enlaces (y el botón atrás) cambian de paso sin recargar.
-window.addEventListener('hashchange', () => { const k = location.hash.slice(1); if (PASOS.includes(k) && k !== paso) irA(k).catch(e => msg(e.message, 'mal')); });
+window.addEventListener('hashchange', () => { const k = location.hash.slice(1); if (PASOS.includes(k) && k !== paso) irPaso(k).catch(e => msg(e.message, 'mal')); });
 const PINTAR = { ventas: pintarVentas, efectivo: pintarEfectivo, extractos: pintarExtractos, conciliar: pintarConciliar, resultado: pintarResultado };
 (async () => {
   try {
     await cargarDatos();
     const e = estadoPasos(), pedido = location.hash.slice(1);
-    await irA(PASOS.includes(pedido) ? pedido : PASOS.find(k => e[k][0] === false) || 'resultado');
+    await irPaso(PASOS.includes(pedido) ? pedido : PASOS.find(k => e[k][0] === false) || 'resultado');
   } catch (err) { msg(err.message, 'mal'); }
 })();
 </script>
