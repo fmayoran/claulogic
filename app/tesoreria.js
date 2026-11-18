@@ -1272,8 +1272,11 @@ r.post('/fin/conciliacion/partes', h(async (req, res) => {
     const ps = [];
     for (const [i, x] of partes.entries()) {
       const n = `la parte ${i + 1}`;
+      // Una parte puede ser una transferencia a otra cuenta propia (pedido de Fer, 18/11/2026) en lugar de un gasto.
+      const otra = texto(x.cuenta_id);
+      if (otra === l.cuenta_id) throw new ErrorUsuario(`La transferencia de ${n} tiene que ser a otra cuenta.`);
       ps.push({ imp: centavos(monto(x.importe, { campo: `el importe de ${n}`, requerido: true, positivo: true })), concepto: texto(x.concepto, { campo: `el concepto de ${n}`, requerido: true }),
-        rubro: await rubroValido(c, x.rubro_id), sede: texto(x.sede_id) });
+        otra, rubro: otra ? null : await rubroValido(c, x.rubro_id), sede: otra ? null : texto(x.sede_id) });
     }
     const resto = total - ps.reduce((t, x) => t + x.imp, 0n);
     if (resto <= -100n || resto >= 100n) throw new ErrorUsuario(`Las partes suman ${deCentavos(total - resto)} y la línea es de ${deCentavos(total)}.`);
@@ -1281,9 +1284,19 @@ r.post('/fin/conciliacion/partes', h(async (req, res) => {
     if (ps.at(-1).imp <= 0n) throw new ErrorUsuario('La última parte quedó en cero.');
     const ids = [];
     for (const x of ps) {
-      const { rows: [{ id }] } = await c.query(
+      let id;
+      if (x.otra) {
+        // Las dos patas con la fecha de la línea; la de la otra cuenta queda para conciliarse con su extracto.
+        const { rows: [{ tr }] } = await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, $4::date, $5) AS tr',
+          sale ? [l.cuenta_id, x.otra, deCentavos(x.imp), l.fecha, x.concepto] : [x.otra, l.cuenta_id, deCentavos(x.imp), l.fecha, x.concepto]);
+        ({ rows: [{ id }] } = await c.query('SELECT id FROM fin.movimiento_tes WHERE transferencia_id = $1 AND cuenta_id = $2', [tr, l.cuenta_id]));
+        ids.push(id);
+        await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, id]);
+        continue;
+      }
+      ({ rows: [{ id }] } = await c.query(
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-        [l.fecha, l.cuenta_id, sale ? 'egreso' : 'ingreso', sale ? 0 : deCentavos(x.imp), sale ? deCentavos(x.imp) : 0, x.concepto]);
+        [l.fecha, l.cuenta_id, sale ? 'egreso' : 'ingreso', sale ? 0 : deCentavos(x.imp), sale ? deCentavos(x.imp) : 0, x.concepto]));
       await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1,$2,$3)', [id, x.rubro, x.sede]);
       await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, id]);
       ids.push(id);

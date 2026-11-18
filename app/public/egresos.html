@@ -87,6 +87,8 @@
 let cuentas = [], cuenta = null;
 async function cargar() {
   const { cuentas: cs } = await api('fin/cuentas');
+  // A qué cuentas propias puede ir una parte de una línea dividida (bancos, cajas, préstamos de socios).
+  cuentasPropias = cs.filter(c => c.activa && ['banco', 'caja', 'socios'].includes(c.tipo)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const conExt = cs.filter(c => c.activa && c.tipo === 'banco');
   const datos = await Promise.all(conExt.map(c => api(`fin/conciliacion?cuenta=${c.id}&lado=egresos`).then(d => ({ c, d }))));
   // Sólo las que tienen algún extracto importado.
@@ -102,7 +104,7 @@ async function cargar() {
 }
 
 // ── Grilla para clasificar ──
-let rubros = [], sedes = [], provs = [], filasG = [];
+let rubros = [], sedes = [], provs = [], filasG = [], cuentasPropias = [];
 const sinAc = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const GENERICO = /^(transferencia a banco|pago desde mercado pago|transferencia enviada|reserva de dinero|cobro de deuda|debito|recaudacion|arca vep)/i;
 // El proveedor que sugiere la línea: el destinatario sin lo que va adelante, o el concepto si no es uno genérico del banco.
@@ -179,7 +181,7 @@ async function pintarGrilla() {
   }
   // Las transferencias a cuentas propias que propone la conciliación (por importe en las dos cuentas, o por el CBU de destino).
   const transf = new Map(cuentas.flatMap(({ d }) => (d.transferencias || []).map(t => [String(t.linea_id), t])));
-  const lineas = cuentas.flatMap(({ c, d }) => d.lineas.filter(l => String(l.importe).startsWith('-')).map(l => ({ ...l, cuenta: c.nombre, transf: transf.get(String(l.id)) })))
+  const lineas = cuentas.flatMap(({ c, d }) => d.lineas.filter(l => String(l.importe).startsWith('-')).map(l => ({ ...l, cuenta: c.nombre, cuenta_id: c.id, transf: transf.get(String(l.id)) })))
     .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   if (!lineas.length) { $('#grilla').replaceChildren(el('p', { className: 'vacio', textContent: 'No quedan egresos sin identificar.' })); $('#todas').disabled = true; return; }
   const central = sedes.find(x => x.es_central);
@@ -305,14 +307,23 @@ function dividir(f) {
   const agregar = importe => {
     const imp = el('input', { className: 'imp', inputMode: 'numeric', placeholder: 'Importe', ariaLabel: 'Importe de la parte', value: importe ? miles(deCentavos(importe)) : '' });
     const rub = el('select', { ariaLabel: 'Rubro' });
-    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
+    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro o transferencia…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
+    // Una parte puede ser una transferencia a otra cuenta propia (pedido de Fer, 18/11/2026): va primero en la lista del rubro.
+    for (const c of cuentasPropias.filter(c => c.id !== f.l.cuenta_id).reverse())
+      rub.insertBefore(el('option', { value: 'tr:' + c.id, textContent: `Transferencia a ${c.nombre}` }), rub.options[1] || null);
     const sede = el('select', { ariaLabel: 'Local' }); opciones(sede, sedes.map(x => [x.id, x.nombre]), null, 'Según la cuenta');
     const prov = comboProveedor({});
     const x = { imp, rub, sede, prov };
     const quitarP = el('button', { type: 'button', className: 'chico', textContent: '×', title: 'Quitar esta parte', ariaLabel: 'Quitar esta parte' });
     quitarP.onclick = () => { if (pz.length <= 2) return; pz.splice(pz.indexOf(x), 1); x.fila.remove(); revisar(); };
     const central = sedes.find(y => y.es_central);
-    rub.onchange = () => { const r = rubros.find(y => y.id === rub.value); if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false; revisar(); };
+    rub.onchange = () => {
+      const tr = rub.value.startsWith('tr:'), r = rubros.find(y => y.id === rub.value);
+      // Una transferencia no lleva proveedor ni local.
+      if (tr) { prov.value = ''; sede.value = ''; } prov.disabled = tr; if (prov._sync) prov._sync();
+      if (tr) sede.disabled = true; else if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false;
+      revisar();
+    };
     imp.oninput = revisar;
     imp.onblur = () => { const v = leer(imp.value); if (v) imp.value = miles(deCentavos(v)); };
     x.fila = el('div', { className: 'parte' }, imp, comboBuscable(prov), comboBuscable(rub), sede, quitarP);
@@ -338,15 +349,22 @@ async function registrarPartes(f, pz) {
   if (f.hecha) return;
   const nombreDe = x => { const v = x.prov.value; return v === NUEVO ? x.prov.dataset.sugerido : v ? (provs.find(p => p.id === v) || {}).nombre || '' : ''; };
   const linea = [f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ') || 'Egreso';
-  const partes = pz.map(x => ({ importe: String(x.imp.value).replace(/\./g, ''), rubro_id: x.rub.value, sede_id: x.sede.disabled ? null : x.sede.value || null,
-    concepto: nombreDe(x) || `${(rubros.find(r => r.id === x.rub.value) || {}).nombre || 'Gasto'} · ${linea}` }));
+  const partes = pz.map(x => {
+    const importe = String(x.imp.value).replace(/\./g, '');
+    if (x.rub.value.startsWith('tr:')) {
+      const c = cuentasPropias.find(y => y.id === x.rub.value.slice(3));
+      return { importe, cuenta_id: c.id, concepto: `Transferencia a ${c.nombre} · ${linea}` };
+    }
+    return { importe, rubro_id: x.rub.value, sede_id: x.sede.disabled ? null : x.sede.value || null,
+      concepto: nombreDe(x) || `${(rubros.find(r => r.id === x.rub.value) || {}).nombre || 'Gasto'} · ${linea}` };
+  });
   f.reg.disabled = true;
   try {
     const r = await api('fin/conciliacion/partes', { method: 'POST', body: { linea_id: f.l.id, partes } });
     // Con proveedor, su comprobante X ya pagado con esa parte (las partes del mismo proveedor, juntas).
     const grupos = new Map();
     pz.forEach((x, i) => {
-      const v = x.prov.value; if (!v) return;
+      const v = x.prov.value; if (!v || x.rub.value.startsWith('tr:')) return;
       const existente = v !== NUEVO ? provs.find(p => p.id === v) : null, nombre = nombreDe(x), k = existente ? existente.id : 'n:' + sinAc(nombre);
       if (!grupos.has(k)) grupos.set(k, { nombre: existente ? null : nombre, proveedor_id: existente ? existente.id : null, sociedad_id: null, pagos: [] });
       grupos.get(k).pagos.push(r.movimiento_ids[i]);

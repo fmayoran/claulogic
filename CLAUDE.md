@@ -844,7 +844,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   nombre sugerido. El creado (por el alta o al registrar un "Nuevo: …") pasa a los combos de las otras filas en orden alfabético, y las que lo proponían como "Nuevo: <nombre>" lo toman ya elegido (`sumarProveedor`). Proveedor y rubro son **listas con búsqueda** (`comboBuscable` en `comun.js`, pedido de Fer, 15/11/2026): se escribe una parte del nombre y filtra por lo que contiene, en cualquier lugar, sin acentos; los rubros van en orden alfabético y terminan en "+ Agregar rubro nuevo…" (nombre y línea del estado; pasa a las otras filas). El alta abre con lo que se escribió en la búsqueda. Lo registrado se ve un momento con su resultado y sale de la grilla; el selector y los encabezados de cada cuenta se actualizan sin rearmarla.
   **Dividir** (pedido de Fer, 18/11/2026: una "Recaudacion" de Pago24 de $4.816.700 pagó varios gastos): una línea se registra en partes,
   cada una con importe, proveedor, rubro y local (`POST /fin/conciliacion/partes`: un egreso clasificado por parte, todos conciliados con
-  la línea; en pesos enteros, los centavos de la línea van a la última). Con proveedor, cada parte lleva su comprobante X pagado.
+  la línea; en pesos enteros, los centavos de la línea van a la última). Con proveedor, cada parte lleva su comprobante X pagado. Una parte
+  puede ser una **transferencia a otra cuenta propia** (banco, caja o préstamos de socios: "Transferencia a …" al principio de la lista del
+  rubro; `cuenta_id` en la parte): se asientan las dos patas con la fecha de la línea y la de la otra cuenta espera su extracto.
   **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
   un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
   encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.
