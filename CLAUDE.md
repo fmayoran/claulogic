@@ -1106,6 +1106,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   estado en el título (los medios se abren solos si falta asignar alguno).
   Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
 - **Detalle de un rubro** (pedido de Fer, 15/11/2026): primero lo simple, fecha, proveedor (el de la factura que pagó el movimiento o el de su orden de pago; si no hay, el concepto) e importe. Tocar un renglón abre su detalle y la reclasificación; "Ver el detalle completo y reclasificar" los muestra todos así (se recuerda, `localStorage['resultados-detalle']`). "Sin clasificar" abre siempre el completo. El rubro, al reclasificar, es una lista con búsqueda (también al registrar una línea en Conciliación y en las reglas).
+- **Ajustes de resultado sin plata** (pedido de Fer, 18/11/2026; migración 20261158): `fin.ajuste_resultado` (local, día, rubro, importe con
+  signo, concepto; inmutable) entra en `fin.resultado` con origen `ajuste` y no mueve ninguna cuenta. Lo usa **septiembre**: las ventas de
+  antes del 01/10 están cargadas y sus gastos no, así que el año mostraba septiembre como ganancia. Rubro del sistema "Gastos anteriores al
+  sistema (sin detalle)" (`previo_sistema`, Gastos operativos), al 30/09: CORTAFUEGO lo vendido más la pérdida de $16.866.602 que cubrió un
+  aporte de los socios (gastado antes del 01/10, ya fuera de los saldos iniciales); SORELLE arranca el 01/10 en cero (lo vendido, por local).
+  Septiembre da −$16.866.602. Se corrige asentando otro ajuste, sin pantalla por ahora.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)
