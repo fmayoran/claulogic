@@ -946,6 +946,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   viernes 12 días después del domingo (26/10 al 01/11 → 13/11, $868.629,61 = la suma exacta de nuestros netos de esa semana), con hasta
   72 h hábiles del banco. `porCobrar` lo usa como fecha (fuente `calendario`) y lo da para revisar recién 5 días después de esa fecha.
   Pendiente: confirmar el depósito contra la suma de netos de la semana cuando llegue el primero.
+  **QR de Mercado Pago pagado con tarjeta** (pedido de Fer, 18/11/2026): en el QR el cliente puede pagar con una tarjeta de crédito cargada
+  en la app, y Mercado Pago lo libera a plazo (en SORELLE, hasta 10 días después; el reporte de liberaciones lo trae como "QR · venta del …"
+  y la conciliación lo parea contra ese día). Por eso en Mercado Pago un cobro **QR, online o crédito espera 12 días** antes de pasar a
+  "para revisar" (`A_PLAZO_MP`/`MARGEN_MP` en `tesoreria.js`; también la lista de cobros que no aparecen en el extracto y la alerta del
+  cierre en `pos.js`); mientras tanto el tablero de tesorería lo muestra como **"Puede ser con tarjeta"** (`a_plazo`). Se habían dado
+  por perdidos cobros que llegaron después: la conciliación propone un **cobro dado por perdido** ("No va a llegar") cuando entra una
+  línea del mismo importe y día de venta (sugerencia `perdido`, `PERDIDO_SQL`); confirmar anula la pérdida y lo acredita en una
+  transacción (`/fin/conciliacion/acreditar` con `perdido`). Los perdidos se listan plegados en Conciliación con "Volver a pendiente"
+  (`deshacerResuelto`). El 18/11 se corrigieron así 3 de SORELLE ($330.600, firmados por `sistema`); quedaron sugeridos otros 3 de
+  $85.000 del 31/10 que llegaron como Point el 10/11.
   **Cobros por importe y fecha** (pedido de Fer, 13/11/2026: con Pago24 caído, en CORTAFUEGO se cobró por transferencia a BRUBANK lo que
   en Fudo quedó como Pago24, y algunas llegaron al banco días después). Sugerencia `otro_por_fecha` en la cuenta donde deposita: un ingreso
   sin identificar con un cobro pendiente del mismo importe exacto, de la venta hasta 7 días antes (el más cercano; cada cobro una vez), de
