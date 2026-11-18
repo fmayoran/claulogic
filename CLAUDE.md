@@ -293,6 +293,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   **mercadería por recibir** (compras pedidas o en borrador, "Recibir"/"Seguir" en el asistente), **recibido sin factura** (compras
   recibidas sin comprobante registrado, "Cargar factura"), notas de crédito a favor y cheques propios por debitar. No guarda nada. Las
   compras son del centro y no se filtran por sociedad.
+  Pestañas (mismo día): **Calendario de pagos** (`/fin/cuentas-por-pagar/calendario?semanas=`: lo que vence por semana de lunes a domingo,
+  lo vencido en la semana en curso, cheques por fecha de pago, contra el disponible de hoy en bancos y cajas de la sociedad y del grupo;
+  no suma lo que entra), **Compras del período** (`/compras`: por proveedor contra el período anterior, por rubro de los renglones, y
+  precios: último costo por unidad de referencia de cada producto recibido contra la compra anterior) y **Pagos realizados** (`/pagos`:
+  valores de las órdenes de pago, retenciones y egresos vinculados a facturas por `fin.pago_previo`, por medio y por proveedor). Los
+  270 comprobantes X armados desde los pagos recibieron el rubro de su egreso en el renglón (migración 20261156).
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.

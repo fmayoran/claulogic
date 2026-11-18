@@ -7,9 +7,11 @@
 // Los importes se calculan en la base, en NUMERIC: el navegador muestra lo que la base devuelve.
 const express = require('express');
 const { pool } = require('./db');
-const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion } = require('./util');
+const { ErrorUsuario, numero, monto, texto, fecha, h, enTransaccion, UNIDAD_REF, enRef } = require('./util');
 
 const r = express.Router();
+const centavos = v => { const s = String(v ?? '0'), neg = s.startsWith('-'), [e, d = ''] = s.replace('-', '').split('.'); const c = BigInt(e || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -c : c; };
+const deCentavos = c => { const a = c < 0n ? -c : c; return (c < 0n ? '-' : '') + String(a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
 
 const TIPOS = ['factura', 'nota_debito', 'nota_credito'];
 // X = no fiscal: sin IVA discriminado, número opcional, fuera del libro IVA.
@@ -401,6 +403,132 @@ r.get('/fin/cuentas-por-pagar', h(async (req, res) => {
   const creditos = cred.rows.map(f => ({ ...f, nro: `NC ${f.letra} ${String(f.punto_venta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` }));
   res.json({ ok: true, hoy: new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }),
     facturas, creditos, cheques: cheq.rows, por_recibir: pedidas.rows, sin_factura: sinFactura.rows });
+}));
+
+// Calendario de pagos: lo que vence por semana (lunes a domingo) de las próximas `semanas`, con el disponible al lado. Lo vencido va
+// en la semana en curso. Con una sociedad, el disponible es el de sus bancos y cajas más los del grupo (la caja mayor también le paga).
+r.get('/fin/cuentas-por-pagar/calendario', h(async (req, res) => {
+  const soc = texto(req.query.sociedad);
+  const semanas = Math.min(Math.max(parseInt(req.query.semanas, 10) || 6, 2), 12);
+  const [{ rows: disp }, { rows: fac }, { rows: cheq }, { rows: [hoy] }] = await Promise.all([
+    pool.query(
+      `SELECT c.sociedad_id, COALESCE(so.nombre, 'Grupo') AS sociedad, SUM(sc.saldo)::numeric(16,2)::text AS disponible
+         FROM fin.cuenta c JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id LEFT JOIN org.sociedad so ON so.id = c.sociedad_id
+        WHERE c.activa AND c.tipo IN ('banco', 'caja') AND NOT EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id)
+          AND ($1::uuid IS NULL OR c.sociedad_id = $1::uuid OR c.sociedad_id IS NULL)
+        GROUP BY 1, 2 ORDER BY (c.sociedad_id IS NULL), 2`, [soc]),
+    pool.query(
+      `SELECT cp.comprobante_id AS id, cp.proveedor_id, pv.nombre AS proveedor, cp.tipo, cp.letra, cp.punto_venta, cp.numero,
+              to_char(cp.vencimiento, 'YYYY-MM-DD') AS vencimiento, cp.pendiente::text AS pendiente, so.nombre AS sociedad
+         FROM fin.comprobante_pendiente cp JOIN logic.proveedor pv ON pv.id = cp.proveedor_id LEFT JOIN org.sociedad so ON so.id = cp.sociedad_id
+        WHERE cp.pendiente >= 1 AND ($1::uuid IS NULL OR cp.sociedad_id = $1::uuid) ORDER BY cp.vencimiento NULLS FIRST`, [soc]),
+    pool.query(
+      `SELECT ch.id, ch.numero, ch.banco, ch.importe::text AS importe, to_char(ch.fecha_pago, 'YYYY-MM-DD') AS fecha_pago, pv.nombre AS proveedor
+         FROM fin.cheque ch JOIN fin.cuenta cu ON cu.id = ch.cuenta_id LEFT JOIN logic.proveedor pv ON pv.id = ch.proveedor_id
+        WHERE ch.tipo = 'propio' AND ch.estado = 'emitido' AND ($1::uuid IS NULL OR cu.sociedad_id = $1::uuid OR cu.sociedad_id IS NULL)
+        ORDER BY ch.fecha_pago`, [soc]),
+    pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS dia, to_char(date_trunc('week', current_date), 'YYYY-MM-DD') AS lunes`),
+  ]);
+  const corrido = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const sem = Array.from({ length: semanas }, (_, i) => ({ desde: corrido(hoy.lunes, 7 * i), hasta: corrido(hoy.lunes, 7 * i + 6), facturas: [], cheques: [], total: 0n }));
+  const ultima = sem[sem.length - 1].hasta;
+  const corto = { factura: 'FC', nota_debito: 'ND' };
+  const enSemana = d => !d || d < sem[0].desde ? sem[0] : sem.find(w => d >= w.desde && d <= w.hasta);
+  let despues = 0n, nDespues = 0, vencido = 0n;
+  for (const f of fac) {
+    const v = centavos(f.pendiente);
+    if (f.vencimiento && f.vencimiento < hoy.dia) vencido += v;
+    if (f.vencimiento && f.vencimiento > ultima) { despues += v; nDespues++; continue; }
+    const w = enSemana(f.vencimiento);
+    w.facturas.push({ ...f, nro: `${corto[f.tipo] || 'FC'} ${f.letra} ${String(f.punto_venta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}`,
+      vencida: !!f.vencimiento && f.vencimiento < hoy.dia });
+    w.total += v;
+  }
+  for (const c of cheq) {
+    const v = centavos(c.importe);
+    if (c.fecha_pago > ultima) { despues += v; nDespues++; continue; }
+    const w = enSemana(c.fecha_pago); w.cheques.push(c); w.total += v;
+  }
+  const disponible = disp.reduce((t, x) => t + centavos(x.disponible), 0n);
+  let saldo = disponible;
+  const salida = sem.map(w => { saldo -= w.total; return { ...w, total: deCentavos(w.total), saldo: deCentavos(saldo) }; });
+  res.json({ ok: true, hoy: hoy.dia, disponible: deCentavos(disponible), por_sociedad: disp, vencido: deCentavos(vencido),
+    semanas: salida, despues: deCentavos(despues), n_despues: nDespues });
+}));
+
+// Compras de un período: por proveedor (comprobantes registrados, notas de crédito en negativo), por rubro (los renglones: el rubro
+// elegido o el de la categoría del producto) y la variación de precio de cada producto comprado (último costo del período contra la
+// compra anterior). Comparado con el período anterior que mande la pantalla (`ant_desde`, `ant_hasta`).
+r.get('/fin/cuentas-por-pagar/compras', h(async (req, res) => {
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  const aDesde = fecha(req.query.ant_desde, { campo: 'Desde anterior' }), aHasta = fecha(req.query.ant_hasta, { campo: 'Hasta anterior' });
+  const soc = texto(req.query.sociedad);
+  const signo = `CASE WHEN c.tipo = 'nota_credito' THEN -1 ELSE 1 END`;
+  const [{ rows: provs }, { rows: rubros }, { rows: precios }] = await Promise.all([
+    pool.query(
+      `SELECT c.proveedor_id, pv.nombre AS proveedor,
+              SUM(${signo} * c.total) FILTER (WHERE c.fecha BETWEEN $1 AND $2)::text AS total,
+              COUNT(*) FILTER (WHERE c.fecha BETWEEN $1 AND $2)::int AS comprobantes,
+              COALESCE(SUM(${signo} * c.total) FILTER (WHERE c.fecha BETWEEN $3 AND $4), 0)::text AS anterior
+         FROM fin.comprobante c JOIN logic.proveedor pv ON pv.id = c.proveedor_id
+        WHERE c.estado = 'registrado' AND (c.fecha BETWEEN $1 AND $2 OR c.fecha BETWEEN $3 AND $4)
+          AND ($5::uuid IS NULL OR c.sociedad_id = $5::uuid)
+        GROUP BY 1, 2 HAVING COUNT(*) FILTER (WHERE c.fecha BETWEEN $1 AND $2) > 0
+        ORDER BY SUM(${signo} * c.total) FILTER (WHERE c.fecha BETWEEN $1 AND $2) DESC`, [desde, hasta, aDesde || desde, aHasta || desde, soc]),
+    pool.query(
+      `SELECT COALESCE(ci.rubro_id, ca.rubro_id) AS rubro_id, COALESCE(r.nombre, CASE WHEN ca.elaborados THEN 'Elaborados' ELSE 'Sin rubro' END) AS rubro,
+              r.linea, SUM(${signo} * ci.importe)::text AS total, COUNT(DISTINCT c.proveedor_id)::int AS proveedores
+         FROM fin.comprobante c JOIN fin.comprobante_item ci ON ci.comprobante_id = c.id
+         LEFT JOIN logic.producto p ON p.id = ci.producto_id LEFT JOIN logic.categoria ca ON ca.id = p.categoria_id
+         LEFT JOIN fin.rubro r ON r.id = COALESCE(ci.rubro_id, ca.rubro_id)
+        WHERE c.estado = 'registrado' AND c.fecha BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR c.sociedad_id = $3::uuid)
+        GROUP BY 1, 2, 3 ORDER BY SUM(${signo} * ci.importe) DESC`, [desde, hasta, soc]),
+    // Precio: el costo por unidad de referencia de cada compra recibida (lo que dice la mercadería, no la factura).
+    pool.query(
+      `WITH cc AS (
+         SELECT ci.producto_id, co.fecha, co.recibida_en, pv.nombre AS proveedor, ci.costo_base, ci.cantidad_base,
+                row_number() OVER (PARTITION BY ci.producto_id ORDER BY co.fecha DESC, co.recibida_en DESC) AS n
+           FROM logic.compra_item ci JOIN logic.compra co ON co.id = ci.compra_id JOIN logic.proveedor pv ON pv.id = co.proveedor_id
+          WHERE co.estado = 'recibida' AND ci.costo_base IS NOT NULL AND co.fecha <= $2)
+       SELECT p.id, p.codigo, p.nombre, ca.nombre AS categoria, ${UNIDAD_REF} AS unidad,
+              to_char(u.fecha, 'YYYY-MM-DD') AS fecha, u.proveedor, ${enRef('u.costo_base')} AS costo,
+              to_char(a.fecha, 'YYYY-MM-DD') AS fecha_ant, a.proveedor AS proveedor_ant, ${enRef('a.costo_base')} AS costo_ant,
+              CASE WHEN a.costo_base > 0 THEN round((u.costo_base / a.costo_base - 1) * 100, 1)::text END AS variacion,
+              (SELECT COUNT(*)::int FROM cc x WHERE x.producto_id = p.id AND x.fecha BETWEEN $1 AND $2) AS compras
+         FROM cc u JOIN logic.producto p ON p.id = u.producto_id LEFT JOIN logic.categoria ca ON ca.id = p.categoria_id
+         LEFT JOIN cc a ON a.producto_id = u.producto_id AND a.n = 2
+        WHERE u.n = 1 AND u.fecha BETWEEN $1 AND $2
+        ORDER BY abs(COALESCE(u.costo_base / NULLIF(a.costo_base, 0) - 1, 0)) DESC, p.nombre`, [desde, hasta]),
+  ]);
+  res.json({ ok: true, desde, hasta, proveedores: provs, rubros, precios });
+}));
+
+// Pagos realizados en un período: los valores de las órdenes de pago registradas (transferencia, efectivo, cheque) y los egresos de
+// tesorería vinculados a facturas (pagos que ya estaban hechos: fin.pago_previo). Por fecha del pago.
+r.get('/fin/cuentas-por-pagar/pagos', h(async (req, res) => {
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  const soc = texto(req.query.sociedad);
+  const { rows } = await pool.query(
+    `SELECT 'op' AS origen, op.id AS ref_id, 'OP-' || lpad(op.numero::text, 6, '0') AS ref, to_char(op.fecha, 'YYYY-MM-DD') AS fecha,
+            op.proveedor_id, pv.nombre AS proveedor, v.medio, cu.nombre AS cuenta, v.importe::text AS importe, so.nombre AS sociedad
+       FROM fin.orden_pago op JOIN fin.orden_pago_valor v ON v.orden_pago_id = op.id JOIN logic.proveedor pv ON pv.id = op.proveedor_id
+       LEFT JOIN fin.cuenta cu ON cu.id = v.cuenta_id LEFT JOIN org.sociedad so ON so.id = op.sociedad_id
+      WHERE op.estado = 'registrada' AND op.fecha BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR op.sociedad_id = $3::uuid)
+     UNION ALL
+     SELECT 'op', op.id, 'OP-' || lpad(op.numero::text, 6, '0'), to_char(op.fecha, 'YYYY-MM-DD'), op.proveedor_id, pv.nombre,
+            'retencion', NULL, op.total_retenciones::text, so.nombre
+       FROM fin.orden_pago op JOIN logic.proveedor pv ON pv.id = op.proveedor_id LEFT JOIN org.sociedad so ON so.id = op.sociedad_id
+      WHERE op.estado = 'registrada' AND op.total_retenciones > 0 AND op.fecha BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR op.sociedad_id = $3::uuid)
+     UNION ALL
+     SELECT 'previo', c.id, CASE WHEN c.letra = 'X' THEN 'X ' ELSE 'FC ' || c.letra || ' ' END || lpad(c.punto_venta::text, 5, '0') || '-' || lpad(c.numero::text, 8, '0'),
+            to_char(m.fecha, 'YYYY-MM-DD'), c.proveedor_id, pv.nombre,
+            CASE cu.tipo WHEN 'caja' THEN 'efectivo' WHEN 'socios' THEN 'socios' ELSE 'transferencia' END, cu.nombre, pp.importe::text, so.nombre
+       FROM fin.pago_previo pp JOIN fin.movimiento_tes m ON m.id = pp.movimiento_id JOIN fin.comprobante c ON c.id = pp.comprobante_id
+       JOIN logic.proveedor pv ON pv.id = c.proveedor_id JOIN fin.cuenta cu ON cu.id = m.cuenta_id LEFT JOIN org.sociedad so ON so.id = c.sociedad_id
+      WHERE c.estado <> 'anulado' AND m.fecha BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR c.sociedad_id = $3::uuid)
+        AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes z WHERE z.anula_a = m.id)
+      ORDER BY 4 DESC, 6`, [desde, hasta, soc]);
+  res.json({ ok: true, desde, hasta, pagos: rows });
 }));
 
 r.get('/fin/proveedores/resumen', h(async (req, res) => {
