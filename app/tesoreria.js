@@ -122,7 +122,12 @@ r.get('/fin/tesoreria/por-acreditar', h(async (req, res) => {
 const sumarDias = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 // Días desde la venta (o su liquidación) hasta que un cobro que no apareció en el extracto pasa a "para revisar".
 const INMEDIATOS = ['qr', 'transferencia', 'online', 'otro'];
-const margenRevisar = tipo => INMEDIATOS.includes(tipo) ? 1 : 4;
+// Mercado Pago: un QR (o un cobro online, o un crédito en el Point) puede pagarse con una tarjeta de crédito cargada en la app, y
+// entonces Mercado Pago lo libera a plazo, no en el momento (pedido de Fer, 18/11/2026: en SORELLE se liberaron QR hasta 10 días
+// después, y tres que se dieron por perdidos llegaron después). Esos cobros esperan 12 días antes de pasar a "para revisar".
+const A_PLAZO_MP = ['qr', 'online', 'credito'], MARGEN_MP = 12;
+const aPlazoMP = (tipo, marca) => marca === 'mercadopago' && A_PLAZO_MP.includes(tipo);
+const margenRevisar = (tipo, marca) => aPlazoMP(tipo, marca) ? MARGEN_MP : INMEDIATOS.includes(tipo) ? 1 : 4;
 async function porCobrar({ porSede = false, detalle = false } = {}) {
   const [{ rows: [{ hoy }] }, { rows: pagos }, { rows: demoras }, { rows: procs }, { rows: exts }] = await Promise.all([
     pool.query(`SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy`),
@@ -207,9 +212,12 @@ async function porCobrar({ porSede = false, detalle = false } = {}) {
       // QR, transferencia, online y "otro" (SIN NOMBRE) acreditan en el momento: para revisar al día siguiente (pedido de Fer,
       // 09/11/2026: con 4 días de margen, los QR de la semana que no llegaron recién aparecían el lunes siguiente).
       const limite = p.marca === 'pedidosya' && !p.liquida_el ? sumarDias(fecha, 5)
-        : [fecha, sumarDias(p.liquida_el || p.dia, margenRevisar(p.tipo_operacion))].sort()[1];
-      const estado = !p.cuenta_acredita_id ? 'sin_deposito' : p.en_lote ? 'lote' : fecha >= hoy ? 'por_venir'
-        : !ext || !ext.hasta || limite > ext.hasta ? 'falta_extracto' : 'revisar';
+        : [fecha, sumarDias(p.liquida_el || p.dia, margenRevisar(p.tipo_operacion, p.marca))].sort()[1];
+      // `a_plazo`: un cobro de Mercado Pago que, si hubiera sido en el momento, ya tendría que estar en el extracto, pero puede
+      // haberse pagado con tarjeta de crédito y liberarse después (hasta `limite`).
+      const plazo = aPlazoMP(p.tipo_operacion, p.marca) && ext && ext.hasta && sumarDias(p.liquida_el || p.dia, margenRevisar(p.tipo_operacion)) <= ext.hasta;
+      const estado = !p.cuenta_acredita_id ? 'sin_deposito' : p.en_lote ? 'lote' : fecha >= hoy && !plazo ? 'por_venir'
+        : !ext || !ext.hasta ? 'falta_extracto' : limite > ext.hasta ? (plazo ? 'a_plazo' : 'falta_extracto') : 'revisar';
       const k = p.procesador_id + '|' + p.punto_venta + '|' + estado;
       const g = det.get(k) || { procesador_id: p.procesador_id, procesador: p.procesador, deposita: ext ? ext.nombre : null, extracto_hasta: ext ? ext.hasta : null,
         punto_venta: p.punto_venta, sede_id: p.sede_id, sociedad_id: p.sociedad_id, estado, pagos: 0, bruto: 0n, neto: 0n, saldo: 0n, ventas_desde: p.dia, ventas_hasta: p.dia, espera_desde: fecha, espera_hasta: fecha, limite, ventas: [] };
@@ -1065,20 +1073,22 @@ r.get('/fin/conciliacion', h(async (req, res) => {
   const { rows: cobros } = lado === 'egresos' ? { rows: [] } : await pool.query(
     `SELECT p.id, t.id_externo, to_char(t.dia, 'YYYY-MM-DD') AS dia, p.importe::text, mp.tipo_operacion, i.nombre AS punto_venta,
             (i.cuenta_efectivo_id IS NOT NULL) AS con_efectivo,
-            COALESCE(p.liquida_el, t.dia) + CASE WHEN mp.tipo_operacion = ANY($2::text[]) THEN 1 ELSE 4 END
+            COALESCE(p.liquida_el, t.dia) + CASE WHEN pr.marca = 'mercadopago' AND mp.tipo_operacion = ANY($3::text[]) THEN $4::int
+                                                 WHEN mp.tipo_operacion = ANY($2::text[]) THEN 1 ELSE 4 END
               <= (SELECT MAX(e.hasta) FROM fin.extracto e WHERE e.cuenta_id = $1::uuid) AS revisar
        FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
        JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
        JOIN fin.procesador pr ON pr.id = mp.procesador_id AND pr.cuenta_acredita_id = $1::uuid AND pr.marca <> 'pedidosya'
       WHERE NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
         AND p.lote_id IS NULL
-      ORDER BY t.dia, t.id_externo`, [cuenta, INMEDIATOS]);
+      ORDER BY t.dia, t.id_externo`, [cuenta, INMEDIATOS, A_PLAZO_MP, MARGEN_MP]);
   const { rows: descartadas } = await pool.query(
     `SELECT l.id, l.fecha, l.concepto, l.referencia, l.importe::text, l.descartada, l.descartada_por, l.descartada_en FROM fin.extracto_linea l
       WHERE l.cuenta_id = $1::uuid AND l.descartada IS NOT NULL ORDER BY l.fecha, l.id`, [cuenta]);
   res.json({ ok: true, cuenta_id: cuenta, lado, lineas: out, movimientos: movsLado, conciliado: hechas.rows[0], procesador: await resumenProcesador(cuenta),
     descartadas: descartadas.map(l => ({ ...l, lado: ladoDe(l) })).filter(l => !lado || l.lado === lado),
     sugerencias: lado === 'egresos' ? [] : await conDatosDeVenta(await sugerenciasProcesador(cuenta)), extractos, cobros,
+    perdidos: lado === 'egresos' ? [] : (await pool.query(PERDIDO_SQL, [cuenta])).rows,
     transferencias: (await transferenciasPropias(cuenta)).filter(x => !lado || ladoDe(x.linea) === lado) });
 }));
 
@@ -1583,6 +1593,30 @@ async function conDatosDeVenta(sug) {
   const por = new Map(rows.map(r => [String(r.id), r]));
   return sug.map(x => x.pago && por.has(String(x.pago.id)) ? { ...x, pago: { ...por.get(String(x.pago.id)), ...x.pago, venta: por.get(String(x.pago.id)) } } : x);
 }
+// Cobros de los procesadores que depositan en la cuenta ($1) que se dieron por perdidos ("No va a llegar").
+const PERDIDO_SQL = `SELECT p.id, p.importe::text, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, mp.tipo_operacion, m.cuenta_id,
+         mv.concepto AS resuelto_concepto
+    FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+    JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.movimiento_tes mv ON mv.id = p.resuelto_movimiento_id
+   WHERE mp.procesador_id IN (SELECT x.id FROM fin.procesador x WHERE x.cuenta_acredita_id = $1::uuid AND x.marca <> 'pedidosya')
+     AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL
+     AND p.resuelto_como = 'no_llega' AND p.lote_id IS NULL
+   ORDER BY t.dia`;
+// Deshace "se cobró en efectivo" o "no va a llegar" de un cobro: anula lo que se asentó y el cobro vuelve a pendiente.
+async function deshacerResuelto(c, pagoId) {
+  const { rows: [p] } = await c.query(
+    `SELECT p.resuelto_movimiento_id AS mov, m.transferencia_id FROM pos.ticket_pago p JOIN fin.movimiento_tes m ON m.id = p.resuelto_movimiento_id
+      WHERE p.id = $1::uuid FOR UPDATE OF p`, [pagoId]);
+  if (!p) throw new ErrorUsuario('Ese cobro no está resuelto.');
+  const { rows: patas } = await c.query(
+    `SELECT * FROM fin.movimiento_tes x WHERE (x.id = $1 OR ($2::uuid IS NOT NULL AND x.transferencia_id = $2::uuid)) AND x.tipo <> 'anulacion'
+        AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`, [p.mov, p.transferencia_id]);
+  for (const x of patas)
+    await c.query(
+      `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a) VALUES ($1,$2,'anulacion',$3,$4,$5,$6,$7)`,
+      [x.fecha, x.cuenta_id, x.salida, x.entrada, 'Anula (se deshizo): ' + x.concepto, x.transferencia_id, x.id]);
+  await c.query('UPDATE pos.ticket_pago SET resuelto_movimiento_id = NULL, resuelto_como = NULL WHERE id = $1', [pagoId]);
+}
 async function sugerenciasProcesador(cuenta) {
   const { rows: [pr] } = await pool.query(`SELECT id FROM fin.procesador WHERE cuenta_acredita_id = $1::uuid ORDER BY marca = 'transferencia', nombre LIMIT 1`, [cuenta]);
   if (!pr) return [];
@@ -1664,6 +1698,18 @@ async function sugerenciasProcesador(cuenta) {
                    : { tipo: 'lote_diferencia', lineas: [x.l.id], lotes: [x.lote], diferencia: deCentavos(x.D) });
     }
   }
+  // Un cobro que se dio por perdido ("No va a llegar") y llegó después (pedido de Fer, 18/11/2026: en MERCADO PAGO SORELLE, QR
+  // pagados con tarjeta de crédito que Mercado Pago liberó a los 10 días). Mismo importe exacto, del día de la venta ("venta del"
+  // o el anterior) o, si la línea no lo dice, hasta 14 días después. Al confirmar se deshace la pérdida y se acredita.
+  {
+    const ya = new Set(sug.flatMap(x => x.lineas)), usadosP = new Set();
+    const { rows: perdidos } = await pool.query(PERDIDO_SQL, [cuenta]);
+    for (const l of lineas.filter(l => !ya.has(l.id))) {
+      const ok = p => { const d = dias(l, p); return d >= 0 && d <= (conDia(l) ? 1 : 14); };
+      const p = perdidos.filter(p => !usadosP.has(p.id) && centavos(p.importe) === centavos(l.importe) && ok(p)).sort((a, b) => dias(l, a) - dias(l, b))[0];
+      if (p) { usadosP.add(p.id); sug.push({ tipo: 'perdido', pago: p, lineas: [l.id] }); }
+    }
+  }
   // Un cobro de otro procesador por importe exacto y fecha (antes que las diferencias: coincide exacto). Cada línea con el
   // cobro más cercano en días, y cada cobro una sola vez.
   {
@@ -1734,6 +1780,14 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     if (!pr) throw new ErrorUsuario('La cuenta no es la de un procesador.');
     // Un cobro cargado con otro procesador sólo si la venta tiene anulado un pago de éste por el mismo importe.
     const porFecha = b.otro_procesador === 'fecha', otro = b.otro_procesador === true || porFecha, efectivo = b.en_efectivo === true;
+    // Un cobro dado por perdido que llegó: se deshace la pérdida y sigue como un cobro pendiente, por el mismo importe.
+    const perdido = b.perdido === true && !otro && !efectivo;
+    if (perdido) {
+      const { rows: [x] } = await c.query(`SELECT * FROM (${PERDIDO_SQL}) x WHERE x.id = $2::uuid`, [cuenta, pagoId]);
+      if (!x) throw new ErrorUsuario('Ese cobro no figura como perdido en un procesador de esta cuenta.');
+      if (ls.length > 1 || centavos(ls[0].importe) !== centavos(x.importe)) throw new ErrorUsuario('Un cobro dado por perdido se acredita sólo por el mismo importe.');
+      await deshacerResuelto(c, pagoId);
+    }
     const { rows: [p] } = porFecha
       ? await c.query(`SELECT * FROM (${OTRO_POR_FECHA_SQL}) x WHERE x.id = $2::uuid`, [cuenta, pagoId])
       : otro ? await c.query(`SELECT * FROM (${OTRO_PROCESADOR_SQL}) x WHERE x.id = $2::uuid`, [pr.id, pagoId])
@@ -1761,6 +1815,7 @@ r.post('/fin/conciliacion/acreditar', h(async (req, res) => {
     const concepto = `Acreditación ${pr.nombre} · venta ${p.id_externo} del ${p.dia}` + (otro && !p.propio ? ` · cargada en el sistema de venta con ${p.procesador_cargado}` : '')
       + (porFecha ? ' · por importe y fecha' : '')
       + (efectivo ? ' · cargada en el sistema de venta como efectivo' : '')
+      + (perdido ? ' · se había dado por perdido' : '')
       + (ls.length > 1 ? ` · en ${ls.length} partes` : '')
       + (D !== 0n ? ` · diferencia ${deCentavos(D)}: ${motivo}` : '');
     const { rows: [{ id: tr }] } = await c.query('SELECT gen_random_uuid() AS id');
@@ -1902,22 +1957,10 @@ r.post('/fin/conciliacion/cobro-resuelto', h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 r.delete('/fin/conciliacion/cobro-resuelto/:pago', h(async (req, res) => {
-  await enTransaccion(async c => {
-    const { rows: [p] } = await c.query(
-      `SELECT p.resuelto_movimiento_id AS mov, m.transferencia_id FROM pos.ticket_pago p JOIN fin.movimiento_tes m ON m.id = p.resuelto_movimiento_id
-        WHERE p.id = $1::uuid FOR UPDATE OF p`, [req.params.pago]);
-    if (!p) throw new ErrorUsuario('Ese cobro no está resuelto.');
-    const { rows: patas } = await c.query(
-      `SELECT * FROM fin.movimiento_tes x WHERE (x.id = $1 OR ($2::uuid IS NOT NULL AND x.transferencia_id = $2::uuid)) AND x.tipo <> 'anulacion'
-          AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`, [p.mov, p.transferencia_id]);
-    for (const x of patas)
-      await c.query(
-        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a) VALUES ($1,$2,'anulacion',$3,$4,$5,$6,$7)`,
-        [x.fecha, x.cuenta_id, x.salida, x.entrada, 'Anula (se deshizo): ' + x.concepto, x.transferencia_id, x.id]);
-    await c.query('UPDATE pos.ticket_pago SET resuelto_movimiento_id = NULL, resuelto_como = NULL WHERE id = $1', [req.params.pago]);
-  });
+  await enTransaccion(c => deshacerResuelto(c, req.params.pago));
   res.json({ ok: true });
 }));
+
 
 // Confirmar un depósito contra sus lotes: la suma de los lotes, más un cobro sin neto informado (se arma su lote con
 // el neto que explica el depósito) o más la diferencia con su motivo (queda como ingreso o egreso de la cuenta).
@@ -2367,5 +2410,5 @@ async function asentarLote(c, loteId, fecha) {
   return ent.id;
 }
 
-Object.assign(r, { MEDIOS_SQL, acreditarLotes, asentarLote, porCobrar, traerPortalesAutomaticos, traerPortal, deshacerConciliacion });
+Object.assign(r, { MEDIOS_SQL, sugerenciasProcesador, acreditarLotes, asentarLote, porCobrar, traerPortalesAutomaticos, traerPortal, deshacerConciliacion });
 module.exports = r;

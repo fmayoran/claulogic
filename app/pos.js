@@ -1590,7 +1590,9 @@ r.get('/pos/cierre', h(async (req, res) => {
            FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
            JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id JOIN fin.procesador pr ON pr.id = mp.procesador_id
           WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND NOT p.anulado AND p.cobro_id IS NOT NULL
-            AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND p.lote_id IS NULL AND current_date - COALESCE(p.liquida_el, t.dia) > $2
+            AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL AND p.lote_id IS NULL
+            -- Mercado Pago libera a plazo un QR, online o crédito pagado con tarjeta de crédito (18/11/2026): 12 días.
+            AND current_date - COALESCE(p.liquida_el, t.dia) > CASE WHEN pr.marca = 'mercadopago' AND mp.tipo_operacion IN ('qr', 'online', 'credito') THEN 12 ELSE $2 END
           GROUP BY pr.nombre, pr.cuenta_acredita_id ORDER BY MIN(t.dia)`, [i.id, ATRASO_DIAS]),
       pool.query(
         `SELECT DISTINCT pr.nombre AS procesador, pr.cuenta_acredita_id, to_char(l.fecha, 'YYYY-MM-DD') AS fecha, l.neto::text, (current_date - l.fecha)::int AS dias

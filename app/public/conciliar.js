@@ -445,6 +445,11 @@ const Conc = (() => {
         return pareo(null, [...sistema, `Mismo importe; llegó ${Math.round((Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5)} día(s) después de la venta.`],
           [p.propio ? 'El cobro se acredita con esta línea (llegó más tarde de lo normal).' : `El cobro se acredita en esta cuenta y sale de lo que esperaba ${p.procesador_cargado}.`], ok);
       }
+      if (x.tipo === 'perdido') {
+        ok.onclick = () => confirmar({ perdido: true });
+        return pareo(null, [...sistema, `Se había dado por perdido ("No va a llegar"); llegó ${Math.round((Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5)} día(s) después de la venta.`],
+          ['Se anula la pérdida (sale de Diferencias de acreditación) y el cobro se acredita con esta línea.'], ok);
+      }
       if (x.tipo === 'en_efectivo') {
         ok.onclick = () => confirmar({ en_efectivo: true });
         return pareo(null, [ventaTxt(p), `${pesos(p.importe)} · cobrado en efectivo`],
@@ -705,7 +710,8 @@ const Conc = (() => {
     // ("Es el cobro de una venta…") o, si no van a llegar por este procesador, se resuelven acá.
     const revisar = (d.cobros || []).filter(c => c.revisar);
     if (d.procesador && revisar.length) grupos.push(grupo('Cobros que no aparecen en el extracto', revisar,
-      'Ventas cobradas con este procesador que el extracto ya debería traer. Si la plata entró con otro importe, conciliala desde su línea con '
+      'Ventas cobradas con este procesador que el extracto ya debería traer (en Mercado Pago, un QR, online o crédito espera 12 días: pagado con '
+      + 'tarjeta de crédito desde la app, se libera a plazo). Si la plata entró con otro importe, conciliala desde su línea con '
       + '"Es el cobro de una venta…". Si se cobró en efectivo (mal cargado en el sistema de venta), pasa al efectivo a rendir del punto de venta; '
       + 'si no va a llegar, queda como diferencia de acreditación.', filaCobro));
     // Las que no se tienen en cuenta, al final y plegadas: se pueden volver a pendiente.
@@ -732,12 +738,36 @@ const Conc = (() => {
         ...lista.map(filaDescartada)); });
       return det;
     };
+    // Los cobros dados por perdidos, plegados: si llegan, la línea los propone sola; si no, se pueden volver a pendiente.
+    const perdidos = () => {
+      const lista = d.perdidos || [];
+      if (!lista.length) return null;
+      const fila = p => {
+        const b = el('button', { type: 'button', textContent: 'Volver a pendiente' });
+        b.onclick = async () => {
+          b.disabled = true;
+          try { await api('fin/conciliacion/cobro-resuelto/' + p.id, { method: 'DELETE', body: {} }); ctx.aviso(`La venta #${p.id_externo} volvió a pendiente de acreditar.`, 'ok'); await ctx.recargar(); }
+          catch (e) { alert(e.message); b.disabled = false; }
+        };
+        return el('div', { className: 'pend' },
+          el('div', { className: 'q' }, el('b', { textContent: `Venta #${p.id_externo} del ${fecha(p.dia)}` }),
+            el('small', { textContent: (p.resuelto_concepto || '').replace(/^.*?: /, '') })),
+          el('div', { className: 'imp' }, pesos(p.importe)), el('div', { className: 'acc' }, b));
+      };
+      const det = el('details', { className: 'card grupo-p' },
+        el('summary', {}, el('b', { textContent: 'Cobros dados por perdidos' }), el('small', { textContent: ` ${lista.length} · ${pesos(suma(lista))}` })));
+      det.addEventListener('toggle', () => { if (det.open && det.children.length === 1) det.append(
+        comoFunciona('Cobros marcados "No va a llegar": restan en Diferencias de acreditación. Si después aparece una línea del mismo importe, la conciliación lo propone. '
+          + '"Volver a pendiente" anula la pérdida y el cobro vuelve a esperar el extracto.'),
+        ...lista.map(fila)); });
+      return det;
+    };
     if (d.movimientos.length) grupos.push(grupo('En el sistema, pero no en el extracto', d.movimientos,
       'Movimientos que todavía no aparecieron en el extracto: puede que no se hayan acreditado o debitado todavía, o que el banco los haya registrado con otro importe.', filaMov));
-    const fuera = fueraDeCuenta();
+    const fuera = fueraDeCuenta(), perd = perdidos();
     return [...(grupos.length ? grupos : [el('section', { className: 'card vacio-ok' },
       el('b', { textContent: d.conciliado.lineas ? 'Nada para resolver' : 'Nada para resolver todavía' }),
-      d.conciliado.lineas ? 'Todo lo importado está conciliado.' : 'Importá el extracto de la cuenta para empezar.')]), ...(fuera ? [fuera] : [])];
+      d.conciliado.lineas ? 'Todo lo importado está conciliado.' : 'Importá el extracto de la cuenta para empezar.')]), ...(fuera ? [fuera] : []), ...(perd ? [perd] : [])];
   }
 
   // El saldo del sistema contra el del extracto, en una frase (la diferencia la explican las líneas pendientes).

@@ -613,6 +613,7 @@ function pintarLado(lado) {
 const ESTADOS_ACR = [
   ['revisar', 'Para revisar', x => `El extracto llega hasta el ${fecha(x.extracto_hasta)} y estos cobros no aparecieron: se pagaron con otro importe, en partes o por otro medio.`, ['Revisar en la conciliación', 'ingresos.html#conciliar']],
   ['falta_extracto', 'Falta el extracto', x => x.extracto_hasta ? `Pueden aparecer hasta el ${fecha(x.limite)} y el extracto llega hasta el ${fecha(x.extracto_hasta)}: falta el extracto hasta esa fecha para saber si llegaron.` : 'Todavía no se importó ningún extracto de la cuenta donde deposita.', ['Traer el extracto', 'ingresos.html#extractos']],
+  ['a_plazo', 'Puede ser con tarjeta', x => `Cobros de Mercado Pago (QR, online o crédito) que todavía no aparecen en el extracto, que llega hasta el ${fecha(x.extracto_hasta)}. Si el cliente pagó con una tarjeta de crédito cargada en la app, Mercado Pago los libera a plazo: pueden llegar hasta el ${fecha(x.limite)}. Recién ahí pasan a "Para revisar".`, null],
   ['sin_deposito', 'Sin cuenta de depósito', () => 'Falta indicar en qué cuenta deposita el procesador: sin eso no se puede conciliar.', ['Ir a Medios de pago', 'medios-pago.html']],
   ['lote', 'Esperando el banco', x => `El procesador ya lo liquidó (${rangoFechas(x.espera_desde, x.espera_hasta)}): falta que aparezca en el extracto del banco.`, null],
   ['por_venir', 'Por venir', x => `Se espera ${rangoFechas(x.espera_desde, x.espera_hasta, true)}.`, null],
