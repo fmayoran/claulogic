@@ -954,8 +954,8 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   por perdidos cobros que llegaron después: la conciliación propone un **cobro dado por perdido** ("No va a llegar") cuando entra una
   línea del mismo importe y día de venta (sugerencia `perdido`, `PERDIDO_SQL`); confirmar anula la pérdida y lo acredita en una
   transacción (`/fin/conciliacion/acreditar` con `perdido`). Los perdidos se listan plegados en Conciliación con "Volver a pendiente"
-  (`deshacerResuelto`). El 18/11 se corrigieron así 3 de SORELLE ($330.600, firmados por `sistema`); quedaron sugeridos otros 3 de
-  $85.000 del 31/10 que llegaron como Point el 10/11.
+  (`deshacerResuelto`). El 18/11 se corrigieron así 6 de SORELLE ($585.600, firmados por `sistema`), del 30 y 31/10, liberados
+  el 09 y 10/11.
   **Cobros por importe y fecha** (pedido de Fer, 13/11/2026: con Pago24 caído, en CORTAFUEGO se cobró por transferencia a BRUBANK lo que
   en Fudo quedó como Pago24, y algunas llegaron al banco días después). Sugerencia `otro_por_fecha` en la cuenta donde deposita: un ingreso
   sin identificar con un cobro pendiente del mismo importe exacto, de la venta hasta 7 días antes (el más cercano; cada cobro una vez), de
