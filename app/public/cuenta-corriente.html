@@ -15,7 +15,8 @@
     <h1>Cuenta corriente de proveedores</h1>
     <p class="sub">Lo que se les debe, derivado de los comprobantes registrados. Ningún saldo se escribe a mano: cada peso tiene su comprobante.
       La deuda es de cada sociedad (la que recibió el comprobante): con todo el grupo, cada proveedor muestra cuánto le debe cada una.</p>
-    <div class="barra-cc"><select id="soc" aria-label="Sociedad"></select></div>
+    <div class="barra-cc"><select id="soc" aria-label="Sociedad"></select>
+      <label class="check"><input type="checkbox" id="conCero"> Mostrar también los de saldo cero</label></div>
     <div class="tarjetas">
       <div class="tarjeta"><div class="v" id="tTotal">–</div><div class="t" id="tTotalT">deuda total con proveedores</div></div>
       <div class="tarjeta" id="tVenc"><div class="v">–</div><div class="t">vencido</div></div>
@@ -47,6 +48,8 @@ const signoCero = v => !v || /^0+(\.0+)?$/.test(v.replace('-', ''));
 // La sociedad elegida (vacía = todo el grupo); se recuerda.
 let soc = (() => { try { return localStorage.getItem('cc-sociedad') || ''; } catch { return ''; } })();
 const qSoc = () => soc ? 'sociedad=' + soc : '';
+try { $('#conCero').checked = localStorage.getItem('cc-ceros') === '1'; } catch {}
+$('#conCero').onchange = () => { try { localStorage.setItem('cc-ceros', $('#conCero').checked ? '1' : ''); } catch {} lista(); };
 $('#soc').onchange = () => { soc = $('#soc').value; try { localStorage.setItem('cc-sociedad', soc); } catch {} ruta(); };
 function tagDias(d) {
   if (d === null || d === undefined) return '';
@@ -67,7 +70,11 @@ async function lista() {
   const venc = sumar('vencido'), v7 = sumar('vence_7');
   $('#tVenc .v').textContent = fmt(venc); $('#tVenc').classList.toggle('mal', venc > 0n);
   $('#t7 .v').textContent = fmt(v7); $('#t7').classList.toggle('aviso', v7 > 0n);
-  filas($('#t'), proveedores, p => {
+  // Por defecto, sólo los que tienen saldo (pedido de Fer, 18/11/2026); los de saldo cero, con el tilde.
+  const conCero = $('#conCero').checked, ceros = proveedores.filter(p => signoCero(p.saldo)).length;
+  const lista = conCero ? proveedores : proveedores.filter(p => !signoCero(p.saldo));
+  $('#conCero').parentElement.lastChild.textContent = ` Mostrar también los de saldo cero${ceros ? ' (' + ceros + ')' : ''}`;
+  filas($('#t'), lista, p => {
     // Con todo el grupo y deuda en más de una sociedad, debajo del nombre cuánto le debe cada una.
     const socs = !soc && p.sociedades.length > 1 ? el('div', { className: 'socs', textContent: p.sociedades.map(x => `${x.sociedad} ${pesos(x.saldo)}`).join(' · ') }) : '';
     const tr = el('tr', { className: 'clic' }, el('td', {}, p.nombre, socs), td(pesos(p.saldo), 'num' + (p.saldo.startsWith('-') ? ' saldo-neg' : '')),
@@ -75,7 +82,7 @@ async function lista() {
       td(fecha(p.proximo_vencimiento)));
     tr.onclick = () => { location.hash = p.id; };
     return tr;
-  }, 'Todavía no hay comprobantes registrados.', 5);
+  }, proveedores.length ? 'Ningún proveedor tiene saldo.' : 'Todavía no hay comprobantes registrados.', 5);
 }
 
 async function detalle(id) {
