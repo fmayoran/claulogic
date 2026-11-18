@@ -956,7 +956,9 @@ async function importarExtracto(b) {
       'INSERT INTO fin.extracto (cuenta_id, archivo, saldo_inicial, saldo_final, desde, hasta) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [cuenta, texto(b.archivo), saldoInicial && saldoInicial.saldo, saldoFinal, desde, hasta]);
     // Una cuenta que recién empieza (sin movimientos) toma como apertura el saldo inicial del extracto, el día
-    // anterior: así su saldo puede coincidir con el del extracto desde el primer día (decisión de Fer).
+    // anterior al período del extracto: así su saldo puede coincidir con el del extracto desde el primer día (decisión de Fer).
+    // Antes del período, no de la primera línea (18/11/2026: el de Brubank de octubre empezaba el 01/10 por el nombre del
+    // archivo y su primera línea era del 02/10; la apertura quedó el 01/10 y aparecía como "en el sistema, pero no en el extracto").
     let apertura = null;
     if (saldoInicial && !/^-?0+(\.0+)?$/.test(saldoInicial.saldo)) {
       // Lo anulado no cuenta: una cuenta a la que se le deshizo todo (03/11/2026, Pago24) vuelve a empezar.
@@ -967,7 +969,7 @@ async function importarExtracto(b) {
         const neg = saldoInicial.saldo.startsWith('-');
         await c.query(
           `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1::date - 1, $2, $3, $4, $5, 'Saldo de apertura según extracto')`,
-          [saldoInicial.fecha, cuenta, neg ? 'egreso' : 'ingreso', neg ? 0 : saldoInicial.saldo, neg ? saldoInicial.saldo.slice(1) : 0]);
+          [desde || saldoInicial.fecha, cuenta, neg ? 'egreso' : 'ingreso', neg ? 0 : saldoInicial.saldo, neg ? saldoInicial.saldo.slice(1) : 0]);
         apertura = saldoInicial.saldo;
       }
     }
@@ -1037,6 +1039,7 @@ r.get('/fin/conciliacion', h(async (req, res) => {
                  WHERE m.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id)
                    AND m.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)
                    AND m.fecha >= COALESCE((SELECT MIN(desde) FROM fin.extracto e WHERE e.cuenta_id = m.cuenta_id), '-infinity'::date)
+                   AND m.concepto IS DISTINCT FROM 'Saldo de apertura según extracto'
                  ORDER BY m.fecha, m.id`, [cuenta]),
     pool.query(`SELECT id, numero, fecha_pago, (-importe)::text AS importe, proveedor_id FROM fin.cheque
                  WHERE cuenta_id = $1::uuid AND tipo = 'propio' AND estado = 'emitido'`, [cuenta]),
