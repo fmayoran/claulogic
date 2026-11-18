@@ -748,7 +748,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   septiembre, se liquida con los débitos del día: si esa venta está importada, forma su propio lote y el depósito se
   confirma solo contra la suma); un cobro con el medio "FudoPagos" a secas **no trae neto** (Fudo no lo informa):
   la sugerencia "lote + cobro" arma su lote con el neto que explica el depósito; y si no hay explicación, "lote con
-  diferencia" se confirma con motivo (queda como ingreso o egreso de la cuenta). Para eso una línea del extracto se
+  diferencia" se confirma con motivo (queda como ingreso o egreso de la cuenta). Las sugerencias de lote toman también **todos los lotes de un mismo día
+  juntos** (dos sincronizaciones pueden armar dos lotes de la misma fecha) y un cobro con neto informado que Fudo **liquidó antes de la
+  fecha informada**, si su neto explica exacto la diferencia (18/11/2026: un crédito del 07/11 informado para el 25/11 llegó el 17/11). Para eso una línea del extracto se
   concilia con **varios movimientos** (`fin.conciliacion` con clave (línea, movimiento); la suma se controla al
   final de la transacción, `fin.conciliacion_suma`). Deshacer anula lo que creó la confirmación (la acreditación y el
   costo de cada lote, que vuelve a esperado; la diferencia; o el lote armado con su cobro, que vuelve a pendiente). "SIRCREB" (retención de
