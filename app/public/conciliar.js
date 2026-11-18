@@ -417,7 +417,9 @@ const Conc = (() => {
       };
       const motivoDe = (txt, fn) => { const m = el('input', { placeholder: txt, 'aria-label': txt }); ok.onclick = () => m.value.trim() ? fn(m.value.trim()) : (m.focus(), ctx.aviso('Indicá el motivo de la diferencia.', 'mal')); return m; };
       if (x.tipo === 'lote_cobro' || x.tipo === 'lote_diferencia') {
-        const lote = x.lotes[0], deLote = `Lote de ${p.procesador || 'el procesador'} del ${fecha(lote.fecha)}: ${lote.pagos} cobro(s), neto ${pesos(lote.neto)}`;
+        const lote = x.lotes[0], nl = x.lotes.length;
+        const deLote = nl === 1 ? `Lote de ${p.procesador || 'el procesador'} del ${fecha(lote.fecha)}: ${lote.pagos} cobro(s), neto ${pesos(lote.neto)}`
+          : `${nl} lotes de ${p.procesador || 'el procesador'} del ${fecha(lote.fecha)}: ${x.lotes.reduce((t, y) => t + Number(y.pagos), 0)} cobro(s), neto ${pesos(deCentavos(x.lotes.reduce((t, y) => t + centavos(y.neto), 0n)))}`;
         const confirmarLote = async body => {
           ok.disabled = true;
           try { await api('fin/conciliacion/lote', { method: 'POST', body: { linea_id: l.id, lote_ids: x.lotes.map(y => y.id), ...body } }); ctx.aviso('Depósito confirmado.', 'ok'); await ctx.recargar(); }
@@ -426,13 +428,16 @@ const Conc = (() => {
         if (x.tipo === 'lote_cobro') {
           const pct = num((100 - Number(x.neto_pago) / Number(p.importe) * 100).toFixed(2));
           ok.onclick = () => confirmarLote({ ticket_pago_id: p.id });
+          if (x.adelantado) return pareo([`Depósito: ${lineaTxt(l)}`],
+            [deLote, `más ${ventaTxt(p)}, ${pesos(p.importe)} con ${medioTxt(p, p.medio)}: el procesador lo había informado para el ${fecha(p.liquida_el)}, neto ${pesos(p.neto)}`],
+            [`Se confirma el depósito: ${nl === 1 ? 'el lote' : 'los lotes'} más ese cobro, que se liquidó antes de lo informado (costo ${pct}%).`], ok);
           return pareo([`Depósito: ${lineaTxt(l)}`], [deLote, `más ${ventaTxt(p)}, ${pesos(p.importe)} con ${medioTxt(p, p.medio)}: el procesador no informó su neto`],
-            [`Se confirma el depósito: lote más ese cobro, neto ${pesos(x.neto_pago)} (costo ${pct}%).`], ok);
+            [`Se confirma el depósito: ${nl === 1 ? 'lote' : 'los lotes'} más ese cobro, neto ${pesos(x.neto_pago)} (costo ${pct}%).`], ok);
         }
         const mas = !x.diferencia.startsWith('-');
         const m = motivoDe('Motivo de la diferencia', v => confirmarLote({ motivo: v }));
         return pareo([`Depósito: ${lineaTxt(l)}`], [deLote],
-          [`Se confirma el lote. El depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'}: queda como ${mas ? 'ingreso' : 'egreso'} de la cuenta con el motivo (por ejemplo, ventas que no se importaron).`], m, ok);
+          [`Se confirma${nl === 1 ? ' el lote' : 'n los lotes'}. El depósito tiene ${pesos(x.diferencia.replace('-', ''))} ${mas ? 'más' : 'menos'}: queda como ${mas ? 'ingreso' : 'egreso'} de la cuenta con el motivo (por ejemplo, ventas que no se importaron).`], m, ok);
       }
       const sistema = [ventaTxt(p), `${pesos(p.importe)} · ${medioTxt(p)}`];
       if (x.tipo === 'otro_procesador') {

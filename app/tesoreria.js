@@ -1678,24 +1678,40 @@ async function sugerenciasProcesador(cuenta) {
     // Cada depósito con cada lote de su ventana: lo que explica un cobro sin neto, o una diferencia razonable (hasta el
     // 15% del lote o $5.000). Después, cada lote y cada cobro se proponen una sola vez, primero los pares que mejor
     // se explican (un cobro antes que una diferencia; la diferencia más chica).
+    // Un cobro con neto informado que Fudo liquidó antes de la fecha que había informado (18/11/2026: un crédito del 07/11
+    // informado para el 25/11 llegó el 17/11 con el lote del día): se propone si su neto explica exacto la diferencia.
+    const { rows: adelantados } = await pool.query(
+      `SELECT p.id, p.importe::text, p.neto::text, to_char(p.liquida_el, 'YYYY-MM-DD') AS liquida_el, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo,
+              m.nombre AS medio, mp.tipo_operacion
+         FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.medio m ON m.id = p.medio_id
+         JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+        WHERE mp.procesador_id = $1 AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
+          AND p.lote_id IS NULL AND p.neto IS NOT NULL AND p.liquida_el IS NOT NULL ORDER BY t.dia`, [pr.id]);
+    // Los lotes de un mismo día se proponen también juntos (18/11/2026: dos sincronizaciones armaron dos lotes del 16/11 y el
+    // banco los depositó en una sola transferencia, con un cobro sin neto encima).
+    const porDia = new Map();
+    for (const x of lotesAb) porDia.set(x.fecha, [...(porDia.get(x.fecha) || []), x]);
+    const conjuntos = [...lotesAb.map(x => [x]), ...[...porDia.values()].filter(xs => xs.length > 1)];
     const cand = [];
     for (const l of lineas) {
       const dias = x => (Date.parse(l.fecha) - Date.parse(x.fecha)) / 864e5, L = centavos(l.importe);
-      for (const lote of lotesAb.filter(x => dias(x) >= -1 && dias(x) <= 5)) {
-        const N = centavos(lote.neto), D = L - N, absD = D < 0n ? -D : D;
+      for (const ls of conjuntos.filter(xs => dias(xs[0]) >= -1 && dias(xs[0]) <= 5)) {
+        const N = ls.reduce((t, x) => t + centavos(x.neto), 0n), D = L - N, absD = D < 0n ? -D : D, d = Math.abs(dias(ls[0]));
         if (D === 0n) continue;
         const cobros = D > 0n ? sinNeto.filter(p => (Date.parse(l.fecha) - Date.parse(p.dia)) / 864e5 >= 0 && centavos(p.importe) >= D && D * 100n >= centavos(p.importe) * 85n) : [];
-        for (const p of cobros) cand.push({ orden: 0, peso: Number(centavos(p.importe) - D), dias: Math.abs(dias(lote)), l, lote, p, D });
-        if (absD * 100n <= N * 15n || absD <= 500000n) cand.push({ orden: 1, peso: Number(absD), dias: Math.abs(dias(lote)), l, lote, D });
+        for (const p of cobros) cand.push({ orden: 0, peso: Number(centavos(p.importe) - D), dias: d, l, ls, p, D });
+        for (const p of adelantados.filter(p => centavos(p.neto) === D && p.liquida_el > l.fecha && p.dia <= l.fecha))
+          cand.push({ orden: 0, peso: -1, dias: d, l, ls, p, D, adelantado: true });
+        if (absD * 100n <= N * 15n || absD <= 500000n) cand.push({ orden: 1, peso: Number(absD), dias: d, l, ls, D });
       }
     }
     cand.sort((a, b) => a.orden - b.orden || a.peso - b.peso || a.dias - b.dias);
     const usL = new Set(), usLote = new Set(), usP = new Set();
     for (const x of cand) {
-      if (usL.has(x.l.id) || usLote.has(x.lote.id) || (x.p && usP.has(x.p.id))) continue;
-      usL.add(x.l.id); usLote.add(x.lote.id); if (x.p) usP.add(x.p.id);
-      sug.push(x.p ? { tipo: 'lote_cobro', lineas: [x.l.id], lotes: [x.lote], pago: x.p, neto_pago: deCentavos(x.D) }
-                   : { tipo: 'lote_diferencia', lineas: [x.l.id], lotes: [x.lote], diferencia: deCentavos(x.D) });
+      if (usL.has(x.l.id) || x.ls.some(y => usLote.has(y.id)) || (x.p && usP.has(x.p.id))) continue;
+      usL.add(x.l.id); x.ls.forEach(y => usLote.add(y.id)); if (x.p) usP.add(x.p.id);
+      sug.push(x.p ? { tipo: 'lote_cobro', lineas: [x.l.id], lotes: x.ls, pago: x.p, neto_pago: deCentavos(x.D), ...(x.adelantado ? { adelantado: true } : {}) }
+                   : { tipo: 'lote_diferencia', lineas: [x.l.id], lotes: x.ls, diferencia: deCentavos(x.D) });
     }
   }
   // Un cobro que se dio por perdido ("No va a llegar") y llegó después (pedido de Fer, 18/11/2026: en MERCADO PAGO SORELLE, QR
