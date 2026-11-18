@@ -48,6 +48,14 @@
     <li data-paso="pago"><span>Pago</span></li>
   </ol>
 
+  <!-- Pedidos en curso: desde la lista de compras o "Llegó mercadería" se retoma uno ya cargado (pedido de Fer, 18/11/2026: entraba
+       por "Llegó mercadería" y el pedido aparecía vacío, porque arrancaba una compra nueva). -->
+  <section id="enCurso" hidden style="margin:0 0 18px">
+    <h2 id="enCursoTit" style="margin:0 0 4px"></h2>
+    <p class="ayuda" id="enCursoAyuda" style="margin:0"></p>
+    <div id="enCursoLista" class="tarjetas-lista"></div>
+  </section>
+
   <!-- 1. Necesidad: la lista de compras del centro -->
   <section class="paso" id="pNecesidad" hidden>
     <p class="ayuda">¿Qué hace falta comprar? Sumá productos y cantidades. La lista es una sola para el centro: lo que cargues queda
@@ -240,6 +248,27 @@ async function opcionesEn(sel, p, valor) {
     ...unidadesCompatibles(unidades, p.unidad_base).map(u => ['u:' + u.codigo, u.codigo])], valor || (def ? 'p:' + def.id : 'u:' + (p.costo_unidad || p.unidad_base)));
 }
 const enDe = v => { const [k, x] = (v || '').split(':'); return { presentacion_id: k === 'p' ? x : null, unidad: k === 'u' ? x : null }; };
+
+// ── Pedidos en curso ──
+// En la lista de compras: todas las compras abiertas, cada una con el paso que le falta. En "Llegó mercadería": las que esperan la
+// mercadería, para recibir la que llegó; lo de abajo queda para lo que llega sin pedido.
+async function verEnCurso() {
+  const { pendientes } = await api('abastecimiento/pendientes');
+  const llegada = contexto === 'nueva';
+  const xs = pendientes.filter(x => x.compra_id && (!llegada || x.paso === 'recepcion'));
+  $('#enCurso').hidden = !xs.length;
+  if (!xs.length) return;
+  $('#enCursoTit').textContent = llegada ? '¿Llegó alguno de estos pedidos?' : 'Pedidos en curso';
+  $('#enCursoAyuda').textContent = llegada ? 'Tocá el que llegó para recibirlo. Si es mercadería sin pedido, cargala abajo.'
+    : 'Ya generados: tocá uno para seguir donde quedó.';
+  const ETAPA = { pedido: 'aviso', recepcion: 'info', comprobante: 'aviso', pago: 'mal' };
+  $('#enCursoLista').replaceChildren(...xs.map(x => el('a', { className: 'tarj', href: `#${x.compra_id}/${x.paso}`, style: 'text-decoration:none;color:inherit' },
+    el('div', { className: 'cab' }, el('strong', { textContent: x.proveedor }),
+      el('span', { className: 'tag ' + (ETAPA[x.paso] || ''), textContent: x.etapa })),
+    el('span', { className: 'mut', textContent: [fecha(x.fecha), plural(x.renglones, 'producto'), x.importe ? pesos(x.importe) : null,
+      x.vencimiento ? 'vence ' + fecha(x.vencimiento) : null].filter(Boolean).join(' · ') }),
+    el('span', { style: 'color:var(--acento);font-size:.92rem', textContent: llegada || x.paso === 'recepcion' ? 'Recibir →' : 'Seguir →' }))));
+}
 
 // ── Navegación entre pasos ──
 function mostrarPaso(p) {
@@ -710,8 +739,8 @@ addEventListener('hashchange', () => location.reload());
     if (yo.puede.finanzas) [{ cuentas }, { sociedades }] = await Promise.all([api('fin/cuentas'), api('sociedades')]);
     llenarDatalist(); opciones(fn.en, [], null, '—');
     const [a, b] = location.hash.slice(1).split('/');
-    if (!a || a === 'lista' || (a === 'nuevo' && b === 'pedido')) { contexto = 'lista'; return b === 'proveedor' ? verProveedores() : verNecesidad(); }
-    if (a === 'nuevo') { contexto = 'nueva'; encabezado(); return verPedido(); }
+    if (!a || a === 'lista' || (a === 'nuevo' && b === 'pedido')) { contexto = 'lista'; verEnCurso().catch(() => {}); return b === 'proveedor' ? verProveedores() : verNecesidad(); }
+    if (a === 'nuevo') { contexto = 'nueva'; encabezado(); verEnCurso().catch(() => {}); return verPedido(); }
     contexto = 'compra'; await cargarCompra(a);
     ir(PASOS.includes(b) && !['necesidad', 'proveedor'].includes(b) ? b : pasoQueFalta());
   } catch (e) { msg(e.message, 'mal', '#msgN'); $('#pNecesidad').hidden = false; }

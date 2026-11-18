@@ -420,6 +420,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   `compra_item_id`). El pedido se corrige hasta recibir (`PUT /abastecimiento/:id`): si ya hay borrador de
   comprobante, se rehace con los productos nuevos y su misma cabecera. Dos entradas: "Llegó mercadería" y
   "Hacer un pedido".
+- **Pedidos en curso en el asistente** (18/11/2026: Fer entró por "Llegó mercadería" y el pedido aparecía vacío, porque arranca una compra
+  nueva): en la lista de compras se ven las compras abiertas con el paso que les falta, y en "Llegó mercadería", arriba, "¿Llegó alguno de
+  estos pedidos?" con las que esperan mercadería (`verEnCurso`, desde `/abastecimiento/pendientes`); lo de abajo queda para lo que llega sin pedido.
 - **Bandeja** dentro del Panel, común por ahora (decisión de Fer; después, por rol): **se deduce** del
   estado (`GET /abastecimiento/pendientes`), como el stock: pedido sin terminar, esperando mercadería, falta
   el comprobante, comprobante sin registrar, por pagar (primero lo vencido), más las facturas por pagar
