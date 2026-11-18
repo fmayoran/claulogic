@@ -1214,8 +1214,9 @@ un cambio, y lo vuelve a apagar cuando el guardado sale bien. Un cambio que no p
 IBM Plex Sans servida desde el paquete npm (`/vendor/plex`), nunca de Google Fonts. Campos a 16 px en
 el celular: con menos, el iPhone hace zoom al tocarlos.
 
-Falta: recepción en varias entregas de una misma compra (hoy lo que falta pasa a la lista de compras), anular una compra recibida o una
-producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
+Falta: recepción en varias entregas de una misma compra (hoy lo que falta pasa a la lista de compras), anular una compra recibida desde
+la pantalla (la base ya lo admite si cada entrada de stock tiene su anulación y no hay factura registrada; migración 20261157, que anuló las
+compras de prueba de octubre) o una producción entera, mínimos por sede, lectura de sensores de temperatura, importación de ARCA,
 extractos en Excel, cheques de terceros rechazados, y costeo histórico de los no perecederos (hoy van a costo vigente).
 
 ## Sobre Fer
