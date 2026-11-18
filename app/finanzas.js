@@ -345,6 +345,64 @@ r.get('/fin/cuenta-corriente', h(async (req, res) => {
 
 // Resumen por proveedor para la grilla de Proveedores (pedido de Fer, 15/11/2026): saldo, último comprobante, lo comprado en los
 // últimos 30 días y cuántos comprobantes tiene. Lo comprado: facturas y notas de débito menos notas de crédito, registradas.
+// ── Cuentas por pagar ────────────────────────────────────────────────────────────────────────
+// Todo lo que el grupo debe o va a deber a sus proveedores, en un lugar (pedido de Fer, 18/11/2026): facturas pendientes (con lo
+// vencido y lo que vence), notas de crédito sin usar, cheques propios sin debitar, mercadería pedida que no llegó y mercadería
+// recibida sin factura. Nada se guarda: sale de fin.comprobante_pendiente, fin.credito_pendiente, fin.cheque y logic.compra.
+// `?sociedad=` filtra lo financiero; las compras son del centro (no tienen sociedad) y van siempre.
+r.get('/fin/cuentas-por-pagar', h(async (req, res) => {
+  const soc = texto(req.query.sociedad);
+  const [fac, cred, cheq, pedidas, sinFactura] = await Promise.all([
+    pool.query(
+      `SELECT cp.comprobante_id AS id, cp.proveedor_id, pv.nombre AS proveedor, cp.tipo, cp.letra, cp.punto_venta, cp.numero,
+              to_char(cp.fecha, 'YYYY-MM-DD') AS fecha, to_char(cp.vencimiento, 'YYYY-MM-DD') AS vencimiento,
+              (current_date - cp.vencimiento) AS dias, c.total::text AS total, cp.pendiente::text AS pendiente,
+              cp.sociedad_id, so.nombre AS sociedad,
+              (SELECT x.compra_id FROM fin.comprobante_compra x WHERE x.comprobante_id = cp.comprobante_id LIMIT 1) AS compra_id
+         FROM fin.comprobante_pendiente cp
+         JOIN fin.comprobante c ON c.id = cp.comprobante_id
+         JOIN logic.proveedor pv ON pv.id = cp.proveedor_id
+         LEFT JOIN org.sociedad so ON so.id = cp.sociedad_id
+        WHERE cp.pendiente >= 1 AND ($1::uuid IS NULL OR cp.sociedad_id = $1::uuid)
+        ORDER BY cp.vencimiento NULLS LAST, cp.fecha`, [soc]),
+    pool.query(
+      `SELECT cr.comprobante_id AS id, cr.proveedor_id, pv.nombre AS proveedor, cr.letra, cr.punto_venta, cr.numero,
+              to_char(cr.fecha, 'YYYY-MM-DD') AS fecha, cr.disponible::text AS disponible, so.nombre AS sociedad
+         FROM fin.credito_pendiente cr JOIN logic.proveedor pv ON pv.id = cr.proveedor_id LEFT JOIN org.sociedad so ON so.id = cr.sociedad_id
+        WHERE cr.disponible >= 1 AND ($1::uuid IS NULL OR cr.sociedad_id = $1::uuid) ORDER BY cr.fecha`, [soc]),
+    pool.query(
+      `SELECT ch.id, ch.numero, ch.banco, ch.importe::text AS importe, to_char(ch.fecha_pago, 'YYYY-MM-DD') AS fecha_pago,
+              (current_date - ch.fecha_pago) AS dias, pv.nombre AS proveedor, cu.nombre AS cuenta
+         FROM fin.cheque ch JOIN fin.cuenta cu ON cu.id = ch.cuenta_id LEFT JOIN logic.proveedor pv ON pv.id = ch.proveedor_id
+        WHERE ch.tipo = 'propio' AND ch.estado = 'emitido' AND ($1::uuid IS NULL OR cu.sociedad_id = $1::uuid OR cu.sociedad_id IS NULL)
+        ORDER BY ch.fecha_pago`, [soc]),
+    pool.query(
+      `SELECT co.id, co.estado, to_char(co.fecha, 'YYYY-MM-DD') AS fecha, (current_date - co.fecha) AS dias, pv.nombre AS proveedor,
+              count(ci.id)::int AS renglones, SUM(ci.precio_total)::text AS importe, bool_or(ci.precio_total IS NULL) AS sin_precio,
+              string_agg(p.nombre, ', ' ORDER BY p.nombre) AS productos
+         FROM logic.compra co JOIN logic.proveedor pv ON pv.id = co.proveedor_id
+         LEFT JOIN logic.compra_item ci ON ci.compra_id = co.id LEFT JOIN logic.producto p ON p.id = ci.producto_id
+        WHERE co.estado IN ('borrador', 'pedida')
+        GROUP BY co.id, pv.nombre ORDER BY co.fecha`),
+    pool.query(
+      `SELECT co.id, to_char(co.fecha, 'YYYY-MM-DD') AS fecha, to_char(co.recibida_en, 'YYYY-MM-DD') AS recibida,
+              (current_date - co.recibida_en::date) AS dias, pv.nombre AS proveedor,
+              count(ci.id)::int AS renglones, SUM(ci.precio_total)::text AS importe,
+              (SELECT c.id FROM fin.comprobante_compra x JOIN fin.comprobante c ON c.id = x.comprobante_id
+                WHERE x.compra_id = co.id AND c.estado = 'borrador' LIMIT 1) AS borrador_id
+         FROM logic.compra co JOIN logic.proveedor pv ON pv.id = co.proveedor_id LEFT JOIN logic.compra_item ci ON ci.compra_id = co.id
+        WHERE co.estado = 'recibida'
+          AND NOT EXISTS (SELECT 1 FROM fin.comprobante_compra x JOIN fin.comprobante c ON c.id = x.comprobante_id
+                           WHERE x.compra_id = co.id AND c.estado = 'registrado')
+        GROUP BY co.id, pv.nombre ORDER BY co.recibida_en`),
+  ]);
+  const corto = { factura: 'FC', nota_debito: 'ND', nota_credito: 'NC' };
+  const facturas = fac.rows.map(f => ({ ...f, nro: `${corto[f.tipo] || 'FC'} ${f.letra} ${String(f.punto_venta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` }));
+  const creditos = cred.rows.map(f => ({ ...f, nro: `NC ${f.letra} ${String(f.punto_venta).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` }));
+  res.json({ ok: true, hoy: new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }),
+    facturas, creditos, cheques: cheq.rows, por_recibir: pedidas.rows, sin_factura: sinFactura.rows });
+}));
+
 r.get('/fin/proveedores/resumen', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pv.id, COALESCE((SELECT SUM(saldo) FROM fin.saldo_proveedor_sociedad x WHERE x.proveedor_id = pv.id), 0)::text AS saldo,

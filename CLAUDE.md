@@ -287,6 +287,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   letras, números, punto o guion). Se cargan en Proveedores ("Para transferir"); en su panel y en el **pago rápido** (al elegir un banco)
   se muestran con "Copiar" (`datosTransferencia` en `comun.js`, `dl.datos-tr`). El CBU cargado entra en `fin.proveedor_cbu` y **manda**
   sobre el deducido de los pagos, así la grilla de egresos reconoce al proveedor desde la primera transferencia.
+- **Cuentas por pagar** (pedido de Fer, 18/11/2026; `cuentas-pagar.html`, primera de Compras, sólo finanzas; `GET /fin/cuentas-por-pagar?sociedad=`):
+  cifras (a pagar, vencido, vence en 7 días, mercadería por recibir, recibido sin factura), **antigüedad** por tramos de vencimiento (tocar
+  uno filtra), **facturas por pagar** por factura (con "Pagar", el pago rápido) o por proveedor (orden de pago, cuenta corriente),
+  **mercadería por recibir** (compras pedidas o en borrador, "Recibir"/"Seguir" en el asistente), **recibido sin factura** (compras
+  recibidas sin comprobante registrado, "Cargar factura"), notas de crédito a favor y cheques propios por debitar. No guarda nada. Las
+  compras son del centro y no se filtran por sociedad.
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.

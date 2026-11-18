@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cuentas por pagar · ClauLogic</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<style>
+  /* Cuentas por pagar (pedido de Fer, 18/11/2026): lo que se debe y lo que se va a deber a los proveedores, en un lugar, con su acción. */
+  .cab-p{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 16px;}
+  .cab-p h1{margin:0 auto 0 0;}
+  .cab-p select{width:auto;min-width:200px;}
+  .cxp-g{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px;align-items:start;margin:0 0 16px;}
+  @media (max-width:900px){ .cxp-g{grid-template-columns:minmax(0,1fr);} }
+  .card h2{margin:0 0 4px;font-size:1.05rem;} .card .cap{margin:0 0 12px;}
+  .sec-cab{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin:0 0 10px;}
+  .sec-cab h2{margin:0;}
+  td.acc{white-space:nowrap;text-align:right;}
+  td.prov b{display:block;font-weight:600;} td.prov small{display:block;color:var(--mut);font-size:.84rem;margin-top:2px;}
+  .card + .card{margin-top:16px;}
+  .filtro-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="cab-p">
+    <h1>Cuentas por pagar</h1>
+    <select id="soc" aria-label="Sociedad"></select>
+    <a href="comprobantes.html">Cargar factura</a>
+  </div>
+  <p class="sub">Lo que se debe a los proveedores y lo que se va a deber: facturas pendientes por vencimiento, mercadería pedida que
+    no llegó, mercadería recibida sin factura, notas de crédito a favor y cheques sin debitar. Cada cosa con su acción.</p>
+  <p class="msg" id="msg"></p>
+  <div class="franja" id="cifras"></div>
+
+  <div class="cxp-g">
+    <div class="card">
+      <h2>Antigüedad</h2>
+      <p class="cap">Lo pendiente de las facturas según su vencimiento. Tocá un tramo para ver esas facturas.</p>
+      <div id="gTramos"></div>
+    </div>
+    <div class="card">
+      <div class="sec-cab">
+        <h2 id="tFact">Facturas por pagar</h2>
+        <div class="segm" id="vista" role="group" aria-label="Agrupar">
+          <button type="button" data-v="factura" class="act">Por factura</button>
+          <button type="button" data-v="proveedor">Por proveedor</button>
+        </div>
+      </div>
+      <div class="filtro-act" id="filtroAct" hidden></div>
+      <div class="tabla-wrap"><table class="datos movil"><thead id="cabF"></thead><tbody id="listaF"><tr><td class="vacio">Consultando…</td></tr></tbody></table></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Mercadería por recibir</h2>
+    <p class="cap">Pedidos hechos que todavía no llegaron. El importe es el estimado del pedido, sin IVA.</p>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Proveedor</th><th>Pedido</th><th>Productos</th><th class="num">Estimado</th><th></th></tr></thead>
+      <tbody id="listaR"></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Recibido sin factura</h2>
+    <p class="cap">Mercadería que ya entró y todavía no tiene su factura registrada: es deuda que falta documentar.</p>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Proveedor</th><th>Recibida</th><th class="num">Importe</th><th></th></tr></thead>
+      <tbody id="listaS"></tbody></table></div>
+  </div>
+
+  <div class="card" id="cCred" hidden>
+    <h2>Notas de crédito a favor</h2>
+    <p class="cap">Se usan en la próxima orden de pago al proveedor.</p>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Proveedor</th><th>Comprobante</th><th class="num">Disponible</th></tr></thead>
+      <tbody id="listaC"></tbody></table></div>
+  </div>
+
+  <div class="card" id="cCheq" hidden>
+    <h2>Cheques propios por debitar</h2>
+    <p class="cap">Ya entregados: salen del banco en su fecha de pago.</p>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Proveedor</th><th>Cheque</th><th>Fecha de pago</th><th class="num">Importe</th></tr></thead>
+      <tbody id="listaQ"></tbody></table></div>
+  </div>
+</main>
+
+<script src="comun.js"></script>
+<script src="graficos.js"></script>
+<script>
+let d = null, tramo = null, vista = 'factura', sociedades = [];
+const SUMA = xs => xs.reduce((t, x) => t + centavos(x || '0'), 0n);
+const plural = (n, s, p = s + 's') => `${n} ${n === 1 ? s : p}`;
+// Tramos por días desde el vencimiento (positivo = vencido).
+const TRAMOS = [
+  ['v30', 'Vencido hace más de 30 días', f => f.dias > 30],
+  ['v1', 'Vencido hace 1 a 30 días', f => f.dias >= 1 && f.dias <= 30],
+  ['p7', 'Vence en los próximos 7 días', f => f.dias <= 0 && f.dias >= -7],
+  ['p30', 'Vence en 8 a 30 días', f => f.dias < -7 && f.dias >= -30],
+  ['mas', 'Vence en más de 30 días', f => f.dias < -30 || f.dias == null],
+];
+const tramoDe = f => (TRAMOS.find(t => t[2](f)) || TRAMOS[4])[0];
+function venceTxt(f) {
+  if (f.dias == null) return el('span', { textContent: '—' });
+  if (f.dias > 0) return el('span', {}, fecha(f.vencimiento), ' ', el('span', { className: 'tag mal', textContent: `vencida hace ${plural(f.dias, 'día')}` }));
+  if (f.dias === 0) return el('span', {}, fecha(f.vencimiento), ' ', el('span', { className: 'tag aviso', textContent: 'vence hoy' }));
+  return el('span', {}, fecha(f.vencimiento), f.dias >= -7 ? el('span', { className: 'tag aviso', style: 'margin-left:6px', textContent: `en ${plural(-f.dias, 'día')}` }) : '');
+}
+
+async function cargar() {
+  const s = $('#soc').value;
+  d = await api('fin/cuentas-por-pagar' + (s ? '?sociedad=' + s : ''));
+  pintar();
+}
+function k(et, va, pie, clase = '') {
+  return el('div', { className: 'k' }, el('span', { className: 'et', textContent: et }), el('span', { className: 'va', textContent: va }),
+    el('span', { className: 'pie' + (clase ? ' ' + clase : ''), textContent: pie }));
+}
+function pintar() {
+  const F = d.facturas, venc = F.filter(f => f.dias > 0), prox = F.filter(f => f.dias <= 0 && f.dias >= -7);
+  const conPrecio = d.por_recibir.filter(c => c.importe);
+  $('#cifras').replaceChildren(
+    k('A pagar', pesos(deCentavos(SUMA(F.map(f => f.pendiente)))), F.length ? plural(F.length, 'factura') + ' pendiente' + (F.length === 1 ? '' : 's') : 'nada pendiente'),
+    k('Vencido', pesos(deCentavos(SUMA(venc.map(f => f.pendiente)))), venc.length ? plural(venc.length, 'factura') : 'al día', venc.length ? 'mal' : 'ok'),
+    k('Vence en 7 días', pesos(deCentavos(SUMA(prox.map(f => f.pendiente)))), prox.length ? plural(prox.length, 'factura') : 'nada esta semana'),
+    k('Por recibir', pesos(deCentavos(SUMA(conPrecio.map(c => c.importe)))), d.por_recibir.length ? plural(d.por_recibir.length, 'pedido') + ' sin llegar' : 'nada pedido',
+      d.por_recibir.some(c => c.dias > 7) ? 'aviso' : ''),
+    k('Recibido sin factura', pesos(deCentavos(SUMA(d.sin_factura.map(c => c.importe)))), d.sin_factura.length ? plural(d.sin_factura.length, 'compra') : 'todo facturado',
+      d.sin_factura.length ? 'aviso' : 'ok'));
+
+  // Antigüedad
+  const items = TRAMOS.map(([clave, etiqueta]) => {
+    const xs = F.filter(f => tramoDe(f) === clave);
+    return { clave, etiqueta, valor: Number(deCentavos(SUMA(xs.map(f => f.pendiente)))), n: xs.length };
+  });
+  Graf.ranking($('#gTramos'), { items, elegido: tramo, nota: it => it.n ? plural(it.n, 'factura') : '',
+    alElegir: c => { tramo = tramo === c ? null : c; pintar(); } });
+
+  pintarFacturas();
+
+  // Mercadería por recibir
+  filas($('#listaR'), d.por_recibir, c => el('tr', {},
+    el('td', { className: 'prov' }, el('b', { textContent: c.proveedor }), c.estado === 'borrador' ? el('small', { textContent: 'pedido sin terminar' }) : ''),
+    el('td', {}, fecha(c.fecha), c.dias > 7 ? el('span', { className: 'tag aviso', style: 'margin-left:6px', textContent: `hace ${plural(c.dias, 'día')}` }) : ''),
+    td(c.productos || '—', 'wrap'),
+    td(c.importe ? pesos(c.importe) + (c.sin_precio ? ' + sin precio' : '') : 'sin precio', 'num'),
+    el('td', { className: 'acc' }, el('button', { type: 'button', className: 'chico', textContent: c.estado === 'borrador' ? 'Seguir' : 'Recibir',
+      onclick: () => { location.href = `abastecimiento.html#${c.id}/${c.estado === 'borrador' ? 'pedido' : 'recepcion'}`; } }))), 'No hay mercadería pedida sin llegar.', 5);
+
+  // Recibido sin factura
+  filas($('#listaS'), d.sin_factura, c => el('tr', {},
+    el('td', { className: 'prov' }, el('b', { textContent: c.proveedor }), c.borrador_id ? el('small', { textContent: 'la factura está cargada sin registrar' }) : ''),
+    el('td', {}, fecha(c.recibida), c.dias > 7 ? el('span', { className: 'tag aviso', style: 'margin-left:6px', textContent: `hace ${plural(c.dias, 'día')}` }) : ''),
+    td(c.importe ? pesos(c.importe) : '—', 'num'),
+    el('td', { className: 'acc' }, el('button', { type: 'button', className: 'chico', textContent: c.borrador_id ? 'Registrar factura' : 'Cargar factura', onclick: () => { location.href = `abastecimiento.html#${c.id}/comprobante`; } }))),
+    'Toda la mercadería recibida tiene su factura.', 4);
+
+  $('#cCred').hidden = !d.creditos.length;
+  filas($('#listaC'), d.creditos, c => el('tr', {}, td(c.proveedor), el('td', {}, el('a', { href: 'comprobantes.html#' + c.id, textContent: c.nro }), ' · ', fecha(c.fecha)),
+    td(pesos(c.disponible), 'num')), '', 3);
+  $('#cCheq').hidden = !d.cheques.length;
+  filas($('#listaQ'), d.cheques, c => el('tr', {}, td(c.proveedor || '—'), td(`${c.banco} Nº ${c.numero} · ${c.cuenta}`, 'wrap'),
+    el('td', {}, fecha(c.fecha_pago), c.dias > 0 ? el('span', { className: 'tag aviso', style: 'margin-left:6px', textContent: 'ya debería haberse debitado' }) : ''),
+    td(pesos(c.importe), 'num')), '', 4);
+  etiquetarTodas();
+}
+function pintarFacturas() {
+  const F = d.facturas.filter(f => !tramo || tramoDe(f) === tramo), todas = !$('#soc').value;
+  const t = TRAMOS.find(x => x[0] === tramo);
+  $('#filtroAct').hidden = !t;
+  $('#filtroAct').replaceChildren(...(t ? [el('span', { className: 'chip' }, t[1], el('button', { type: 'button', className: 'icono', 'aria-label': 'Quitar el filtro', textContent: '✕',
+    onclick: () => { tramo = null; pintar(); } }))] : []));
+  if (vista === 'proveedor') {
+    const g = new Map();
+    for (const f of F) {
+      const x = g.get(f.proveedor_id) || { proveedor: f.proveedor, proveedor_id: f.proveedor_id, n: 0, pendiente: 0n, vencido: 0n, prox: null };
+      x.n++; x.pendiente += centavos(f.pendiente); if (f.dias > 0) x.vencido += centavos(f.pendiente);
+      if (f.vencimiento && (!x.prox || f.vencimiento < x.prox)) x.prox = f.vencimiento;
+      g.set(f.proveedor_id, x);
+    }
+    const xs = [...g.values()].sort((a, b) => (b.vencido > a.vencido ? 1 : b.vencido < a.vencido ? -1 : 0) || (b.pendiente > a.pendiente ? 1 : -1));
+    $('#cabF').replaceChildren(el('tr', {}, ...['Proveedor', 'Facturas', 'Primer vencimiento', 'Vencido', 'Pendiente', ''].map((h, i) => el('th', { className: i === 3 || i === 4 ? 'num' : '', textContent: h }))));
+    filas($('#listaF'), xs, x => el('tr', {}, el('td', { className: 'prov' }, el('b', { textContent: x.proveedor })), td(String(x.n)), td(x.prox ? fecha(x.prox) : '—'),
+      td(x.vencido ? pesos(deCentavos(x.vencido)) : '—', 'num'), td(pesos(deCentavos(x.pendiente)), 'num'),
+      el('td', { className: 'acc' }, el('button', { type: 'button', className: 'chico', textContent: 'Orden de pago', onclick: () => { location.href = `ordenes-pago.html?proveedor=${x.proveedor_id}`; } }),
+        ' ', el('a', { href: 'cuenta-corriente.html#' + x.proveedor_id, textContent: 'Cuenta corriente' }))),
+      'No hay facturas pendientes.', 6);
+  } else {
+    $('#cabF').replaceChildren(el('tr', {}, ...['Proveedor', 'Comprobante', 'Vence', 'Pendiente', ''].map((h, i) => el('th', { className: i === 3 ? 'num' : '', textContent: h }))));
+    filas($('#listaF'), F, f => el('tr', {},
+      el('td', { className: 'prov' }, el('b', { textContent: f.proveedor }), todas && f.sociedad ? el('small', { textContent: f.sociedad }) : ''),
+      el('td', {}, el('a', { href: 'comprobantes.html#' + f.id, textContent: f.nro }), el('small', { style: 'display:block;color:var(--mut)', textContent: `${fecha(f.fecha)} · total ${pesos(f.total)}` })),
+      el('td', {}, venceTxt(f)),
+      td(pesos(f.pendiente), 'num'),
+      el('td', { className: 'acc' }, el('button', { type: 'button', className: 'chico', textContent: 'Pagar',
+        onclick: () => pagoRapido({ proveedor_id: f.proveedor_id, comprobante_id: f.id, pendiente: f.pendiente, nro: f.nro,
+          alPagar: () => { msg('Pago registrado.', 'ok'); cargar(); } }) }))),
+      tramo ? 'No hay facturas en ese tramo.' : 'No hay facturas pendientes de pago.', 5);
+  }
+  $('#tFact').textContent = `Facturas por pagar${F.length ? ' (' + F.length + ')' : ''}`;
+}
+function etiquetarTodas() { $$('table.movil').forEach(t => etiquetarTabla(t)); }
+
+$$('#vista button').forEach(b => b.onclick = () => {
+  vista = b.dataset.v; $$('#vista button').forEach(x => x.classList.toggle('act', x === b));
+  pintarFacturas(); etiquetarTodas();
+  try { localStorage.setItem('cxp-vista', vista); } catch {}
+});
+$('#soc').onchange = () => { try { localStorage.setItem('cxp-soc', $('#soc').value); } catch {} cargar().catch(e => msg(e.message, 'mal')); };
+
+(async () => {
+  try {
+    await cargarSesion();
+    ({ sociedades } = await api('sociedades'));
+    opciones($('#soc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
+    try {
+      const s = localStorage.getItem('cxp-soc'); if (s && sociedades.some(x => x.id === s)) $('#soc').value = s;
+      const v = localStorage.getItem('cxp-vista'); if (v) { vista = v; $$('#vista button').forEach(x => x.classList.toggle('act', x.dataset.v === v)); }
+    } catch {}
+    await cargar();
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

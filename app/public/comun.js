@@ -168,7 +168,7 @@ const FIJOS = [
                 ['operaciones-tesoreria.html', 'Operaciones de tesorería']]],
 ];
 const GRUPOS = [
-  ['Compras', [['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
+  ['Compras', [['cuentas-pagar.html', 'Cuentas por pagar'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
   ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
   ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
   ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
@@ -180,7 +180,7 @@ const GRUPOS = [
 ];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
-const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
+const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'cuentas-pagar.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'organizacion.html': 'admin', 'unidades-productivas.html': 'gestionar',
   'comprobantes.html': 'finanzas', 'pagos-sin-factura.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'operaciones-tesoreria.html': 'finanzas', 'cuentas.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
