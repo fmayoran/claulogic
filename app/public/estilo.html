@@ -157,7 +157,9 @@
     <h2>Lista con búsqueda</h2>
     <p class="regla"><code>comboBuscable(select)</code> en <code>comun.js</code>: para listas largas (rubros, proveedores). Se escribe una parte
       del nombre y filtra por lo que contiene, en cualquier lugar, sin acentos ni mayúsculas. El <code>select</code> sigue siendo el dato;
-      las opciones especiales ("+ Agregar … nuevo…") quedan siempre al final. Las opciones van ordenadas.</p>
+      las opciones especiales ("+ Agregar … nuevo…") quedan siempre al final. Las opciones van ordenadas. <b>Es automático</b>: todo
+      <code>select</code> con 8 opciones o más, o con "+ Agregar … nuevo…", lo toma solo (también los que se arman después); los cortos
+      quedan nativos. Para forzar el nativo, <code>data-nativo</code>.</p>
     <div class="card" style="max-width:340px"><select id="cbDemo" aria-label="Rubro"><option value="">Rubro…</option>
       <option>Alquiler</option><option>Cargas sociales (F.931)</option><option>Mercadería · Carnes</option><option>Mercadería · Lácteos, quesos y huevos</option>
       <option>Publicidad y marketing</option><option>Sueldos</option></select></div>

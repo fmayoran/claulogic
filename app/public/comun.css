@@ -412,7 +412,12 @@ li.abierta > .et-cab .et-flecha{transform:rotate(-135deg);margin-bottom:-2px;}
 
 /* Lista de valores con búsqueda (comboBuscable en comun.js): filtra por lo que contiene, en cualquier lugar. */
 .cb{position:relative;display:block;min-width:0;}
-.cb .cb-texto{width:100%;}
+.cb .cb-texto{width:100%;padding-right:28px;}
+.cb[hidden]{display:none;}
+select.cb-sel{display:none !important;}
+/* La flecha de lista, como la del select nativo. */
+.cb::after{content:"";position:absolute;right:11px;top:50%;width:6px;height:6px;margin-top:-5px;pointer-events:none;
+  border-right:1.5px solid var(--mut);border-bottom:1.5px solid var(--mut);transform:rotate(45deg);}
 .cb-lista{position:fixed;z-index:60;margin:0;padding:4px 0;list-style:none;overflow-y:auto;background:var(--panel);
   border:1px solid var(--borde);border-radius:var(--r-ctl);box-shadow:0 8px 24px rgba(0,0,0,.28);}
 .cb-lista li{padding:7px 12px;cursor:pointer;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}

@@ -1144,7 +1144,7 @@ la guía y a `comun.css`, no a la pantalla.
   su acción), registro (cifras, filtros por estado, lista y ficha) y configuración.
 - **Componentes de proceso** (`comun.css`): `.proc` + `.vias` + `.est` (línea con estaciones, para Inicio), `ol.pasos`
   (pasos de un asistente en flecha, con su cifra; lo usan Ingresos y Abastecimiento), `.dias-fila` + `.dia` (estado de cada día de cada local), `.franja` + `.k` (cifras).
-- **Lista con búsqueda** (`comboBuscable(select)`): para listas largas; el select queda oculto y sigue siendo el dato (`value` y "change"), las opciones especiales ("+ Agregar…") siempre al final.
+- **Lista con búsqueda** (`comboBuscable(select)`): el select queda oculto y sigue siendo el dato (`value` y "change"), las opciones especiales ("+ Agregar…") siempre al final. **Automática en toda la app** (pedido de Fer, 18/11/2026: "para todas las LOV"): `autoCombos` en `comun.js` la pone en todo select con 8 opciones o más o con "+ Agregar … nuevo…", también los que se crean o se llenan después; los cortos quedan nativos y `data-nativo` la evita. Asignar `value`/`selectedIndex` por código, el reset del formulario, `hidden` o `display:none` del select y `focus()` se reflejan en la caja; el ancho en línea del select pasa a la caja.
 - **Gráficos**: dona (`Graf.dona`) para cómo se reparte un total, hasta cinco partes y el resto en "Otros"; barras y líneas para
   comparar muchas cosas o ver una evolución.
 - **Ver una pantalla sin la base**: `python3 -I scripts/ver_pantallas.py app/public app/node_modules <carpeta de salida>

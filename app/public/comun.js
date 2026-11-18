@@ -771,21 +771,34 @@ function anteriorPeriodo(desde, hasta) {
 // filtra por lo que contiene, en cualquier lugar, sin acentos ni mayúsculas (pedido de Fer, 15/11/2026). El select queda oculto
 // adentro y sigue siendo el dato: la pantalla lee `select.value` y escucha su "change" como siempre. Las opciones especiales
 // (valor que empieza con "__": "Nuevo: …", "+ Agregar … nuevo…") se muestran siempre. Devuelve el contenedor para ponerlo en la
-// pantalla; si la pantalla cambia el valor por código, `select._sync()` actualiza el texto.
+// pantalla. Si la pantalla cambia el valor por código (`select.value = …`, `selectedIndex`, reset del formulario), el texto se
+// actualiza solo; si oculta el select (hidden o display:none), se oculta la caja.
+// Todas las listas de valores largas lo toman solas (pedido de Fer, 18/11/2026: "esto tendría que funcionar así para todas las LOV"):
+// ver `autoCombos` abajo.
+const _descValor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+const _descIndice = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
 function comboBuscable(select) {
   if (select._caja) return select._caja;
   const sinAc = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const vacio = () => [...select.options].find(o => o.value === '');
   const inp = el('input', { type: 'text', autocomplete: 'off', spellcheck: false, className: 'cb-texto' });
   inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false'); inp.setAttribute('aria-autocomplete', 'list');
-  if (select.getAttribute('aria-label') || select.ariaLabel) inp.setAttribute('aria-label', select.getAttribute('aria-label') || select.ariaLabel);
+  // El nombre del campo: el aria-label del select o el texto de su etiqueta (sin las opciones).
+  const lbl = select.labels && select.labels[0];
+  const nombreCampo = select.getAttribute('aria-label') || (lbl ? [...lbl.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').replace(/\s+/g, ' ').replace(/\*/g, '').trim() : '');
+  if (nombreCampo) inp.setAttribute('aria-label', nombreCampo);
   const lista = el('ul', { className: 'cb-lista', role: 'listbox', hidden: true });
   // Si el select ya está en la pantalla, el contenedor toma su lugar.
   const lugar = select.parentNode ? document.createComment('cb') : null;
   if (lugar) select.replaceWith(lugar);
   const caja = el('span', { className: 'cb' }, select, inp, lista);
+  // El ancho que la pantalla le dio al select pasa a la caja.
+  for (const k of ['width', 'minWidth', 'maxWidth', 'flex']) if (select.style[k]) { caja.style[k] = select.style[k]; select.style[k] = ''; }
   if (lugar) lugar.replaceWith(caja);
-  select.hidden = true; select.tabIndex = -1;
+  // Visible o no según lo que la pantalla haga con el select (el select en sí queda siempre oculto, por clase).
+  const visible = () => { caja.hidden = select.hidden || select.style.display === 'none'; };
+  visible();
+  select.classList.add('cb-sel'); select.tabIndex = -1;
   let items = [], act = -1, escrito = '';
   const sync = () => {
     const o = select.selectedOptions[0];
@@ -827,7 +840,11 @@ function comboBuscable(select) {
     // Lo que se escribió queda para el alta ("+ Agregar … nuevo…" abre con ese nombre).
     select.dataset.buscado = escrito.trim();
     cerrar();
-    if (v !== select.value) { select.value = v; select.dispatchEvent(new Event('change', { bubbles: true })); }
+    if (v !== select.value) {
+      select.value = v;
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     sync();
   };
   inp.addEventListener('focus', () => { escrito = ''; inp.select(); abrir(''); });
@@ -853,11 +870,39 @@ function comboBuscable(select) {
   addEventListener('scroll', e => { if (!lista.hidden && !lista.contains(e.target)) ubicar(); }, true);
   addEventListener('resize', () => { if (!lista.hidden) ubicar(); });
   select.addEventListener('change', sync);
-  new MutationObserver(sync).observe(select, { attributes: true, attributeFilter: ['disabled'], childList: true });
+  new MutationObserver(() => { visible(); sync(); }).observe(select, { attributes: true, attributeFilter: ['disabled', 'hidden', 'style'], childList: true, subtree: true });
+  Object.defineProperty(select, 'value', { configurable: true, get() { return _descValor.get.call(this); }, set(v) { _descValor.set.call(this, v); sync(); } });
+  Object.defineProperty(select, 'selectedIndex', { configurable: true, get() { return _descIndice.get.call(this); }, set(v) { _descIndice.set.call(this, v); sync(); } });
+  if (select.form) select.form.addEventListener('reset', () => setTimeout(sync));
+  select.focus = () => inp.focus();
   select._sync = sync; select._caja = caja;
   sync();
   return caja;
 }
+
+// Toda lista de valores con muchas opciones (8 o más) o con "+ Agregar … nuevo…" pasa a ser una lista con búsqueda, también las
+// que se arman o se llenan después. Las cortas (sí/no, letra, condición de IVA) quedan nativas: en el celular se eligen más rápido.
+// Una pantalla que necesite el select nativo le pone data-nativo.
+const COMBO_DESDE = 8;
+function autoCombo(s) {
+  if (s._caja || s.multiple || s.size > 1 || s.dataset.nativo !== undefined || !s.isConnected) return;
+  const ops = [...s.options];
+  if (ops.some(o => o.value === '__alta') || ops.filter(o => o.value && !o.value.startsWith('__')).length >= COMBO_DESDE) comboBuscable(s);
+}
+(function autoCombos() {
+  document.querySelectorAll('select').forEach(autoCombo);
+  new MutationObserver(ms => {
+    for (const m of ms) {
+      if (m.target.tagName === 'SELECT') autoCombo(m.target);
+      else if (m.target.parentElement && m.target.parentElement.tagName === 'SELECT') autoCombo(m.target.parentElement);
+      for (const n of m.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.tagName === 'SELECT') autoCombo(n);
+        else if (n.firstElementChild && n.tagName !== 'LI' && n.tagName !== 'OPTION') n.querySelectorAll('select').forEach(autoCombo);
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
 
 // ── "Agregar nuevo…" al final de una lista de valores ───────────────────────────────────────
 // Si el dato que falta no está en la lista (un proveedor, una categoría), la última opción lo da de
