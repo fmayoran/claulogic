@@ -1651,11 +1651,13 @@ async function sugerenciasProcesador(cuenta) {
   const dias = (l, p) => (Date.parse(diaVentaDe(l)) - Date.parse(p.dia)) / 864e5,
     enVentana = (l, p) => dias(l, p) >= 0 && dias(l, p) <= (conDia(l) ? 1 : 4);
   const abs = v => v < 0n ? -v : v, sug = [];
-  // Un procesador que liquida por lotes no se parea cobro por cobro: sus sugerencias son las de lote (más abajo).
+  // Un procesador que liquida por lotes no se parea cobro por cobro: sus sugerencias son las de lote (más abajo). Sólo cuentan
+  // los cobros procesados (18/11/2026: ventas históricas de septiembre con fecha de liquidación de Fudo apagaban las sugerencias
+  // de Pago24).
   const { rows: [{ por_lotes: porLotes }] } = await pool.query(
     `SELECT EXISTS (SELECT 1 FROM fin.lote WHERE procesador_id = $1) OR EXISTS (
               SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
-               WHERE mp.procesador_id = $1 AND p.liquida_el IS NOT NULL) AS por_lotes`, [pr.id]);
+               WHERE mp.procesador_id = $1 AND p.liquida_el IS NOT NULL AND p.cobro_id IS NOT NULL) AS por_lotes`, [pr.id]);
   if (porLotes) pagos.length = 0;
   for (const p of pagos) {
     const P = centavos(p.importe), ls = lineas.filter(l => enVentana(l, p) && centavos(l.importe) < P);
