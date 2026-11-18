@@ -907,6 +907,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   dos nombres de cada columna y el separador decimal se deduce de los importes. Tiendas de SORELLE: Wera Sushi 528403 y Lo De Titi
   Bodegón 547527 (SORELLE BODEGON Y SUSHI), Di Ciucio Pasticceria E Caffe 542301 (SORELLE CAFETERIA). Los reembolsos por reclamo
   ("Operational charges", hasta el pedido entero) entran en "Otros cargos".
+- **PedidosYa con un clic desde el portal** (pedido de Fer, 18/11/2026). Relevado con Claude in Chrome: el portal usa un GraphQL
+  (`vm-supergraph.us.prd.portal.restaurant/graphql`; `ListOrders`, `OrdersCount`, `DownloadReport` con `DownloadOrdersExportReq`: tiendas,
+  `timeFrom`/`timeTo` en UTC con el día de Buenos Aires de 03:00 a 02:59:59.999 del siguiente, `format: CSV`, `locale`, `withBillingFields`;
+  devuelve una `downloadURL` de `vos-streaming-proxy`), con Bearer = cookie `accessToken` (JWT de 4 h; `platforms` del token = las tiendas).
+  **Desde el servidor no se puede**: PerimeterX protege también la API y responde 403 con captcha aun con un token válido (probado una vez;
+  no se disfraza el cliente). Por eso un **marcador** ("Mandar a ClauLogic", en "Cómo bajarlo" del bloque PedidosYa del paso 1 de Ingresos;
+  `marcadorPeya` en `ingresos.html`): en el portal abre `ingresos.html#peya`, recibe el rango (`rangoPeya`: el primer día que falta importar
+  de la sociedad de esas tiendas, hasta 62 días atrás, hasta ayer), pide `DownloadReport` de todas las tiendas de la sesión, baja el CSV y lo
+  pasa con `postMessage` (cada lado controla el origen del otro); Ingresos lo carga en el bloque de su sociedad y lo importa con la sesión de
+  ClauLogic, como el archivo elegido a mano (si hay tiendas sin local, las pide). Sin rutas ni tokens nuevos.
 - **Cancelaciones de PedidosYa** (pedido de Fer, 13/11/2026; migración 20261146). Un cancelado que el local no confirmó ("Unreachable")
   viene sin "Order received at": toma la fecha de la cancelación. PedidosYa le cobra al local un cargo ("Operational charges") más IVA
   por esos pedidos, o lo compensa si canceló el cliente con el pedido hecho. Va como un **pago en $0 del ticket anulado** con medio

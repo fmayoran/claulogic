@@ -17,6 +17,8 @@
   .bloque-cab h2{margin:0;font-size:1.12rem;} .bloque-cab .sinc{color:var(--mut);font-size:.86rem;flex-basis:100%;}
   .bloque-cab .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .imp-peya{margin:4px 0 6px;}
+  .marcador-peya{display:inline-block;margin-top:4px;padding:4px 12px;border:1px solid var(--acento);border-radius:var(--r-ctl);
+    color:var(--acento);font-weight:600;text-decoration:none;cursor:grab;}
   .linea-arch{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0;}
   .linea-arch .oculto-arch{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
   .linea-arch .elegir-arch{cursor:pointer;padding:6px 12px;border:1.5px solid var(--borde);border-radius:10px;font-size:.88rem;font-weight:600;background:var(--panel);}
@@ -528,7 +530,8 @@ function importadorPeya(grupo, clave) {
   const tiendas = el('div', { className: 'tiendas-peya', hidden: true }), resumen = el('div');
   let datos = null, pend = [];
   const listo = () => { btn.disabled = !datos || !datos.pedidos.length || pend.some(t => !datos.tiendas[t.id]); };
-  const btn = boton('Importar', async () => {
+  const btn = boton('Importar', () => importar(), true);
+  async function importar() {
     // El aviso fijo dura también lo que tarda repintar el paso (la importación cobra los días listos y puede tardar).
     const fin = trabajando(`Importando ${datos.pedidos.length} pedido(s)…`);
     try {
@@ -539,11 +542,13 @@ function importadorPeya(grupo, clave) {
       avisoFlotante(`PedidosYa: ${d.nuevos} pedido(s) nuevo(s)` + (d.repetidos ? `, ${d.repetidos} ya estaban` : '') + (d.completados ? `, a ${d.completados} cancelado(s) se les sumó el cargo` : '') + '.', 'ok');
       document.getElementById('res-peya-' + clave)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (e) { fin(); msg(e.message, 'mal'); }
-  }, true);
+  }
   btn.disabled = true;
-  archivo.onchange = async () => {
+  archivo.onchange = () => cargar(archivo.files[0]);
+  // Carga el archivo elegido o el que manda el marcador desde el portal (`auto`: si no hay tiendas para elegir, importa solo).
+  async function cargar(a, auto = false) {
     datos = null; pend = []; tiendas.hidden = true; tiendas.replaceChildren(); delete resPeya[clave]; resumen.replaceChildren();
-    const a = archivo.files[0]; nombreArch.textContent = a ? a.name : 'Ningún archivo elegido'; if (!a) return listo();
+    nombreArch.textContent = a ? a.name : 'Ningún archivo elegido'; if (!a) return listo();
     const filas = parsearCSV(await leerTexto(a)), enc = filas[0] || [];
     datos = { nombre: a.name, pedidos: filas.slice(1).filter(f => f.some(x => String(x).trim())).map(f => Object.fromEntries(enc.map((c, i) => [c, f[i] ?? '']))), tiendas: {} };
     // Una cuenta del portal con varias tiendas las exporta juntas: cada pedido va al local de su "ID de tienda". Las que todavía no
@@ -564,7 +569,13 @@ function importadorPeya(grupo, clave) {
       tiendas.append(el('div', { className: 'renglon' }, el('b', { textContent: t.nombre }), el('span', { className: 'mut', textContent: `ID ${t.id || 'sin ID'} · ${t.pedidos} pedido(s)` }), sel));
     }
     tiendas.hidden = false; listo();
-  };
+    if (auto) {
+      tiendas.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!btn.disabled) await importar();
+      else if (datos.pedidos.length) msg('Elegí el local de cada tienda nueva y tocá Importar.', 'aviso');
+    }
+  }
+  cargadoresPeya.set(clave, { grupo, cargar });
   const d = resPeya[clave];
   if (d) {
     const c = d.cobros, cifra = (t, v, n) => el('div', {}, el('span', { textContent: t }), el('strong', { textContent: v }), n ? el('small', { textContent: n }) : '');
@@ -584,8 +595,105 @@ function importadorPeya(grupo, clave) {
     tiendas, resumen,
     el('details', { className: 'como' }, el('summary', { textContent: 'Cómo bajarlo' }), el('ol', {},
       el('li', { textContent: 'En el portal de PedidosYa, Pedidos.' }), el('li', { textContent: 'Elegí el rango, hasta ayer.' }),
-      el('li', { textContent: 'Exportá el detalle ("orderDetails.csv") y elegilo acá. Reimportar no duplica; los pedidos de hoy se dejan afuera.' }))));
+      el('li', { textContent: 'Exportá el detalle ("orderDetails.csv") y elegilo acá. Reimportar no duplica; los pedidos de hoy se dejan afuera.' })),
+      el('p', { className: 'ayuda' }, 'O con un clic: arrastrá este botón a la barra de marcadores de Chrome y tocalo con el portal de PedidosYa abierto. ',
+        'Abre esta pantalla, baja los pedidos desde el primer día que falta hasta ayer, de todas las tiendas de la cuenta, y los importa. ',
+        el('a', { className: 'btn marcador-peya', href: hrefMarcadorPeya(), textContent: 'Mandar a ClauLogic', title: 'Arrastralo a la barra de marcadores',
+          onclick: e => { e.preventDefault(); msg('Arrastralo a la barra de marcadores y tocalo desde el portal de PedidosYa.', 'aviso'); } }))));
 }
+
+// ── PedidosYa desde el portal, con un marcador (pedido de Fer, 18/11/2026) ──
+// El portal tiene PerimeterX también en su API: desde el servidor responde 403 aun con un token válido, así que el pedido sale
+// del navegador, con la sesión del portal. El marcador corre en portal-app.pedidosya.com: abre esta pantalla (#peya), le pide el
+// rango (desde el primer día que falta importar de la sociedad de esas tiendas, hasta ayer), pide la exportación al GraphQL del
+// portal (DownloadReport, el mismo orderDetails.csv), la baja y la pasa con postMessage. Acá se importa con la sesión de
+// ClauLogic, como el archivo elegido a mano. Cada lado controla el origen del otro.
+const PORTAL_PEYA = 'https://portal-app.pedidosya.com';
+const cargadoresPeya = new Map();   // clave del bloque → { grupo, cargar }
+function hrefMarcadorPeya() {
+  return 'javascript:' + encodeURIComponent('(' + marcadorPeya.toString().replace('__ORIGEN__', location.origin) + ')()');
+}
+/* Corre en el portal, no acá: sin comentarios de línea adentro (el marcador va en una sola URL). */
+function marcadorPeya() {
+  const DESTINO = '__ORIGEN__', GQL = 'https://vm-supergraph.us.prd.portal.restaurant/graphql';
+  if (location.hostname !== 'portal-app.pedidosya.com') return alert('Tocalo con el portal de PedidosYa abierto (portal-app.pedidosya.com).');
+  const tk = (document.cookie.match(/(?:^|;\s*)accessToken=([^;]+)/) || [])[1];
+  if (!tk) return alert('No encontré la sesión del portal: entrá con tu usuario y volvé a tocarlo.');
+  let p;
+  try { p = JSON.parse(decodeURIComponent(escape(atob(tk.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))))); } catch (e) { return alert('No pude leer la sesión del portal.'); }
+  if (p.exp * 1000 < Date.now() + 60000) return alert('La sesión del portal venció: recargá la página y volvé a tocarlo.');
+  const codigos = ((p.metadata || {}).platforms || []).map(x => String(x).split(';')).filter(x => x[0] && x[1]).map(x => ({ globalEntityId: x[1], vendorId: x[0] }));
+  if (!codigos.length) return alert('La sesión del portal no tiene tiendas.');
+  const w = window.open(DESTINO + '/ingresos.html#peya', 'claulogic_peya');
+  if (!w) return alert('Chrome bloqueó la ventana: permití las ventanas emergentes de este sitio y volvé a tocarlo.');
+  const esperar = (tipo, seg) => new Promise((ok, mal) => {
+    const f = e => { if (e.origin === DESTINO && e.source === w && e.data && e.data.tipo === tipo) { clearTimeout(t); removeEventListener('message', f); ok(e.data); } };
+    const t = setTimeout(() => { removeEventListener('message', f); mal(new Error('ClauLogic no respondió. Si pidió entrar, entrá y volvé a tocar el marcador.')); }, seg * 1000);
+    addEventListener('message', f);
+  });
+  const siguiente = d => new Date(Date.parse(d + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10);
+  (async () => {
+    try {
+      await esperar('peya-listo', 180);
+      w.postMessage({ tipo: 'peya-pedir', tiendas: codigos.map(c => c.vendorId) }, DESTINO);
+      const r = await esperar('peya-rango', 30);
+      const q = 'query DownloadReport($params: DownloadOrdersExportReq!) { orders { ordersExport { downloadOrdersExport(input: $params) { downloadURL __typename } __typename } __typename } }';
+      const res = await fetch(GQL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*', Authorization: 'Bearer ' + tk,
+        'X-Global-Entity-ID': codigos[0].globalEntityId, 'apollographql-client-name': 'vp-orders', 'X-App-Name': 'oneweb', 'X-RPS-Client-App-Name': 'OneWeb', 'X-User-Id': p.sub },
+        body: JSON.stringify({ operationName: 'DownloadReport', query: q, variables: { params: { globalVendorCodes: codigos,
+          timeFrom: r.desde + 'T03:00:00.000Z', timeTo: siguiente(r.hasta) + 'T02:59:59.999Z', format: 'CSV', locale: 'en', withBillingFields: true } } }) });
+      const j = await res.json().catch(() => ({}));
+      const url = j.data && j.data.orders && j.data.orders.ordersExport && j.data.orders.ordersExport.downloadOrdersExport && j.data.orders.ordersExport.downloadOrdersExport.downloadURL;
+      if (!url) throw new Error('El portal no dio el reporte (' + res.status + (j.errors ? ': ' + j.errors.map(x => x.message).join('; ') : '') + ').');
+      let arch = null, err = '';
+      for (const h of [{ Authorization: 'Bearer ' + tk }, {}]) {
+        try { const a = await fetch(url, { headers: h }); if (a.ok) { arch = await a.arrayBuffer(); break; } err = 'HTTP ' + a.status; } catch (e) { err = e.message; }
+      }
+      if (!arch) throw new Error('No pude bajar el reporte del portal (' + err + ').');
+      w.postMessage({ tipo: 'peya-csv', nombre: 'orderDetails_' + r.desde + '_' + r.hasta + '.csv', archivo: arch }, DESTINO, [arch]);
+      w.focus();
+    } catch (e) {
+      try { w.postMessage({ tipo: 'peya-error', mensaje: e.message }, DESTINO); } catch (e2) { }
+      alert('PedidosYa a ClauLogic: ' + e.message);
+    }
+  })();
+}
+// El rango que se pide: desde el primer día que falta importar en los locales de la sociedad de esas tiendas (si no se reconoce
+// ninguna, de todos los locales de PedidosYa), hasta 62 días atrás como mucho; sin nada pendiente, ayer.
+function rangoPeya(ts) {
+  const peyas = puntos.filter(x => x.sistema === 'pedidosya');
+  const conocidas = peyas.filter(x => (x.tiendas || []).some(t => ts.includes(t)));
+  const socs = new Set(conocidas.map(x => x.sociedad_id || x.id));
+  const grupo = conocidas.length ? peyas.filter(x => socs.has(x.sociedad_id || x.id)) : peyas;
+  const dias = grupo.flatMap(p => tareasVentas(p).filter(t => t.tipo === 'importar').flatMap(t => t.dias || [])).sort();
+  const tope = new Date(Date.parse(ayer + 'T12:00:00Z') - 62 * 864e5).toISOString().slice(0, 10);
+  let desde = dias[0] || ayer;
+  if (desde < tope) desde = tope;
+  if (desde > ayer) desde = ayer;
+  return { desde, hasta: ayer };
+}
+window.addEventListener('message', async e => {
+  if (e.origin !== PORTAL_PEYA || !window.opener || e.source !== window.opener || !e.data) return;
+  const m = e.data;
+  if (m.tipo === 'peya-pedir') {
+    const ts = Array.isArray(m.tiendas) ? m.tiendas.map(String) : [];
+    const r = rangoPeya(ts);
+    e.source.postMessage({ tipo: 'peya-rango', ...r }, PORTAL_PEYA);
+    msg(`Bajando del portal de PedidosYa los pedidos ${r.desde === r.hasta ? 'del ' + fecha(r.desde) : `del ${fecha(r.desde)} al ${fecha(r.hasta)}`}…`);
+  } else if (m.tipo === 'peya-error') {
+    msg('PedidosYa: ' + String(m.mensaje || 'no se pudo bajar el reporte.'), 'mal');
+  } else if (m.tipo === 'peya-csv' && m.archivo instanceof ArrayBuffer) {
+    if (paso !== 'ventas') await irPaso('ventas');
+    const a = new File([m.archivo], String(m.nombre || 'orderDetails.csv'));
+    // El bloque de la sociedad de esas tiendas; si no se reconoce ninguna, el único que haya (o el primero, que pide elegir los locales).
+    const filas = parsearCSV(await leerTexto(a)), enc = (filas[0] || []).map(normCol), iT = enc.findIndex(c => ['id de tienda', 'store id'].includes(c));
+    const ts = iT < 0 ? [] : [...new Set(filas.slice(1).map(f => String(f[iT] || '').trim()))];
+    const bloques = [...cargadoresPeya.values()];
+    const b = bloques.find(x => x.grupo.some(p => (p.tiendas || []).some(t => ts.includes(t)))) || bloques[0];
+    if (!b) return msg('No hay locales que vendan por PedidosYa.', 'mal');
+    try { await b.cargar(a, true); } catch (err) { msg(err.message, 'mal'); }
+  }
+});
 // Cuáles ventas seguían abiertas ese día, a pedido (un botón que despliega): número, tipo, estado, hora, cliente o mesa,
 // mozo y total, para encontrarla en el sistema de venta y cerrarla. Un delivery enviado no está entre las mesas.
 const ESTADO_VENTA = { 'IN-COURSE': 'en curso', 'DELIVERY-SENT': 'enviado', PENDING: 'pendiente', 'READY-TO-DELIVER': 'listo para entregar' };
@@ -954,8 +1062,10 @@ const PINTAR = { ventas: pintarVentas, efectivo: pintarEfectivo, extractos: pint
 (async () => {
   try {
     await cargarDatos();
-    const e = estadoPasos(), pedido = location.hash.slice(1);
-    await irPaso(PASOS.includes(pedido) ? pedido : PASOS.find(k => e[k][0] === false) || 'resultado');
+    const e = estadoPasos(), pedido = location.hash.slice(1), desdePortal = pedido === 'peya';
+    await irPaso(desdePortal ? 'ventas' : PASOS.includes(pedido) ? pedido : PASOS.find(k => e[k][0] === false) || 'resultado');
+    // Abierta por el marcador de PedidosYa: le avisa al portal que ya puede pedir el rango.
+    if (desdePortal && window.opener) window.opener.postMessage({ tipo: 'peya-listo' }, PORTAL_PEYA);
   } catch (err) { msg(err.message, 'mal'); }
 })();
 </script>
