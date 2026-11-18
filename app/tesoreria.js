@@ -1753,14 +1753,6 @@ async function sugerenciasProcesador(cuenta) {
       if (p) { usadosF.add(p.id); sug.push({ tipo: 'otro_por_fecha', pago: p, lineas: [l.id] }); }
     }
   }
-  const enDivision = new Set(sug.flatMap(x => x.lineas));
-  for (const l of lineas) {
-    if (enDivision.has(l.id)) continue;
-    const L = centavos(l.importe);
-    const p = pagos.filter(p => enVentana(l, p) && L !== centavos(p.importe) && abs(L - centavos(p.importe)) <= TOLERANCIA(centavos(p.importe)))
-      .sort((a, b) => Number(abs(L - centavos(a.importe)) - abs(L - centavos(b.importe))) || dias(l, a) - dias(l, b))[0];
-    if (p) sug.push({ tipo: 'diferencia', pago: p, lineas: [l.id], diferencia: deCentavos(L - centavos(p.importe)) });
-  }
   // Lo que sigue sin sugerencia: un cobro de la venta cargado con otro procesador, por el mismo importe.
   const conSug = new Set(sug.flatMap(x => x.lineas));
   const { rows: otros } = await pool.query(OTRO_PROCESADOR_SQL, [pr.id]);
@@ -1783,6 +1775,16 @@ async function sugerenciasProcesador(cuenta) {
     const p = efectivo.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && enRango(l, p))
       .sort((a, b) => orden(l, a) - orden(l, b))[0];
     if (p) { usados.add(p.id); sug.push({ tipo: 'en_efectivo', pago: p, lineas: [l.id] }); }
+  }
+  // Al final, un cobro de su procesador con otro importe (hasta el 10% o $5.000): después de lo que coincide exacto (18/11/2026: una
+  // liquidación de tarjeta de $40.000 se proponía como un cobro por transferencia de $43.000 y no como la venta de $40.000 en efectivo).
+  const enDivision = new Set(sug.flatMap(x => x.lineas));
+  for (const l of lineas) {
+    if (enDivision.has(l.id)) continue;
+    const L = centavos(l.importe);
+    const p = pagos.filter(p => enVentana(l, p) && L !== centavos(p.importe) && abs(L - centavos(p.importe)) <= TOLERANCIA(centavos(p.importe)))
+      .sort((a, b) => Number(abs(L - centavos(a.importe)) - abs(L - centavos(b.importe))) || dias(l, a) - dias(l, b))[0];
+    if (p) sug.push({ tipo: 'diferencia', pago: p, lineas: [l.id], diferencia: deCentavos(L - centavos(p.importe)) });
   }
   return sug;
 }
