@@ -1579,6 +1579,15 @@ const EN_EFECTIVO_SQL = `
    WHERE mp.tipo_operacion = 'efectivo' AND NOT p.anulado AND t.estado = 'cerrado' AND p.cobro_id IS NOT NULL AND p.acreditado_linea_id IS NULL AND p.resuelto_movimiento_id IS NULL
      AND i.id IN (SELECT pm.integracion_id FROM pos.medio pm JOIN fin.medio_pago pmp ON pmp.id = pm.medio_pago_id JOIN fin.procesador pr ON pr.id = pmp.procesador_id
                    WHERE pr.cuenta_acredita_id = $1::uuid)`;
+// Días hábiles (lunes a viernes, sin feriados) desde `desde` (excluido) hasta `hasta` (incluido), en fechas AAAA-MM-DD.
+const diasHabiles = (desde, hasta) => {
+  let n = 0;
+  for (let d = new Date(desde + 'T00:00:00Z'); d.toISOString().slice(0, 10) < hasta;) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (d.getUTCDay() % 6) n++;
+  }
+  return n;
+};
 // El día de la venta de una línea: el que dice el concepto ("venta del AAAA-MM-DD", Mercado Pago) o el de la línea.
 const diaVentaDe = l => (String(l.concepto).match(/venta del (\d{4}-\d{2}-\d{2})/) || [])[1] || l.fecha;
 
@@ -1762,9 +1771,15 @@ async function sugerenciasProcesador(cuenta) {
   const conSug2 = new Set(sug.flatMap(x => x.lineas));
   const { rows: efectivo } = await pool.query(EN_EFECTIVO_SQL, [cuenta]);
   const diasV = (l, p) => (Date.parse(diaVentaDe(l)) - Date.parse(p.dia)) / 864e5;
+  // Una liquidación de tarjeta de Pago24 ("Liquidacion Pago Cliente") llega en el día (débito) o dos días hábiles después de la
+  // venta (crédito) (18/11/2026: dos créditos del sábado 15/11 llegaron el martes 17/11 y se proponían ventas del 17/11): hasta
+  // tres días hábiles antes, primero la de dos días hábiles. Lo demás, del día de la venta o el anterior.
+  const tarjetaP24 = l => /^Liquidacion Pago Cliente/i.test(String(l.concepto));
+  const orden = (l, p) => tarjetaP24(l) ? [0, 1, 2, 3].indexOf(Math.abs(diasHabiles(p.dia, l.fecha) - 2)) * 10 + diasV(l, p) : diasV(l, p);
+  const enRango = (l, p) => diasV(l, p) >= 0 && (tarjetaP24(l) ? diasHabiles(p.dia, l.fecha) <= 3 : diasV(l, p) <= 1);
   for (const l of lineas.filter(l => !conSug2.has(l.id))) {
-    const p = efectivo.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && diasV(l, p) >= 0 && diasV(l, p) <= 1)
-      .sort((a, b) => diasV(l, a) - diasV(l, b))[0];
+    const p = efectivo.filter(p => !usados.has(p.id) && centavos(p.importe) === centavos(l.importe) && enRango(l, p))
+      .sort((a, b) => orden(l, a) - orden(l, b))[0];
     if (p) { usados.add(p.id); sug.push({ tipo: 'en_efectivo', pago: p, lineas: [l.id] }); }
   }
   return sug;
