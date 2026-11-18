@@ -26,6 +26,18 @@
   .eg.grp{background:var(--sel);font-weight:600;padding-top:8px;padding-bottom:8px;} .eg.grp span{grid-column:1 / -1;}
   .eg.grp small{color:var(--mut);font-weight:400;margin-left:8px;}
   .eg .tr{grid-column:span 3;color:var(--info);font-size:.9rem;}
+  /* Una línea que junta varios gastos se registra en partes (pedido de Fer, 18/11/2026). */
+  .eg .acc{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+  .eg.dividida > .cb,.eg.dividida > select{visibility:hidden;}
+  .partes{grid-column:1 / -1;display:grid;gap:6px;margin:4px 0 2px;padding:10px;border:1px dashed var(--line);border-radius:var(--r-ctl);}
+  .parte{display:grid;grid-template-columns:120px minmax(150px,1fr) minmax(170px,1.1fr) minmax(150px,.9fr) auto;gap:8px;align-items:center;}
+  .parte input.imp{text-align:right;font-variant-numeric:tabular-nums;}
+  .partes .pie{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin-top:4px;}
+  .partes .falta{font-size:.9rem;color:var(--mut);} .partes .falta.mal{color:var(--mal);} .partes .falta.ok{color:var(--ok);}
+  @media (max-width:1100px){
+    .parte{grid-template-columns:minmax(0,1fr) auto;} .parte > .cb,.parte > select{grid-column:1 / -1;} .parte > button{grid-column:2;grid-row:1;}
+    .eg.dividida > .cb,.eg.dividida > select{display:none;}
+  }
   .grilla-eg{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
   .pie-eg{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0 0;}
   @media (max-width:1100px){
@@ -198,6 +210,9 @@ async function pintarGrilla() {
       f.transf = true;
       return f;
     }
+    const div = el('button', { type: 'button', className: 'chico', textContent: 'Dividir', title: 'La línea junta varios gastos: registrarla en partes' });
+    div.onclick = () => dividir(f);
+    acc.append(div);
     f.fila = el('div', { className: 'eg' }, ...celdas, comboBuscable(prov), comboBuscable(rub), sede, acc);
     rub.onchange = () => {
       const r = rubros.find(x => x.id === rub.value);
@@ -269,8 +284,86 @@ async function registrarTransferencia(f) {
     quitar(f, 'Transferencia registrada');
   } finally { f.ok.disabled = false; contar(); }
 }
+// En partes (pedido de Fer, 18/11/2026: una "Recaudacion" de Pago24 de $4.816.700 pagó varios gastos): cada parte con su importe,
+// proveedor, rubro y local; se registra cuando las partes suman la línea (en pesos enteros: los centavos van a la última).
+function dividir(f) {
+  if (f.partes) return;
+  const total = -centavos(f.l.importe), pz = [];
+  const lista = el('div', {}), falta = el('span', { className: 'falta' });
+  const reg = el('button', { type: 'button', className: 'prim chico', textContent: 'Registrar las partes', disabled: true });
+  const cancelar = el('button', { type: 'button', className: 'chico', textContent: 'No dividir' });
+  const mas = el('button', { type: 'button', className: 'chico', textContent: '+ Agregar otra parte' });
+  const leer = v => { const t = String(v || '').trim().replace(/\./g, ''); return /^\d+$/.test(t) ? BigInt(t) * 100n : null; };
+  const revisar = () => {
+    const suma = pz.reduce((t, x) => t + (leer(x.imp.value) || 0n), 0n), resto = total - suma;
+    const ok = pz.length >= 2 && pz.every(x => leer(x.imp.value) && x.rub.value) && resto > -100n && resto < 100n;
+    falta.className = 'falta' + (ok ? ' ok' : resto < 0n ? ' mal' : '');
+    falta.textContent = resto >= 100n ? `Falta asignar ${pesos(deCentavos(resto))}` : resto <= -100n ? `Las partes pasan la línea por ${pesos(deCentavos(-resto))}`
+      : pz.every(x => x.rub.value) ? 'Las partes suman la línea' : 'Falta elegir el rubro de alguna parte';
+    reg.disabled = !ok;
+  };
+  const agregar = importe => {
+    const imp = el('input', { className: 'imp', inputMode: 'numeric', placeholder: 'Importe', ariaLabel: 'Importe de la parte', value: importe ? miles(deCentavos(importe)) : '' });
+    const rub = el('select', { ariaLabel: 'Rubro' });
+    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
+    const sede = el('select', { ariaLabel: 'Local' }); opciones(sede, sedes.map(x => [x.id, x.nombre]), null, 'Según la cuenta');
+    const prov = comboProveedor({});
+    const x = { imp, rub, sede, prov };
+    const quitarP = el('button', { type: 'button', className: 'chico', textContent: '×', title: 'Quitar esta parte', ariaLabel: 'Quitar esta parte' });
+    quitarP.onclick = () => { if (pz.length <= 2) return; pz.splice(pz.indexOf(x), 1); x.fila.remove(); revisar(); };
+    const central = sedes.find(y => y.es_central);
+    rub.onchange = () => { const r = rubros.find(y => y.id === rub.value); if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false; revisar(); };
+    imp.oninput = revisar;
+    imp.onblur = () => { const v = leer(imp.value); if (v) imp.value = miles(deCentavos(v)); };
+    x.fila = el('div', { className: 'parte' }, imp, comboBuscable(prov), comboBuscable(rub), sede, quitarP);
+    pz.push(x); lista.append(x.fila); revisar();
+    return x;
+  };
+  // La primera parte arranca con lo elegido en la fila; la segunda, con el resto vacío para completar.
+  const p1 = agregar(null);
+  if (f.rub.value) { p1.rub.value = f.rub.value; p1.rub.dispatchEvent(new Event('change')); }
+  if (f.sede.value && !f.sede.disabled) p1.sede.value = f.sede.value;
+  if (f.prov.value && f.prov.value !== NUEVO) { p1.prov.value = f.prov.value; p1.prov._sync && p1.prov._sync(); }
+  agregar(null);
+  mas.onclick = () => agregar(null);
+  cancelar.onclick = () => { f.partes.remove(); f.partes = null; f.fila.classList.remove('dividida'); f.ok.hidden = false; contar(); };
+  reg.onclick = () => registrarPartes(f, pz).catch(e => msg(e.message, 'mal', '#msgG'));
+  f.partes = el('div', { className: 'partes' }, lista, el('div', { className: 'pie' }, el('span', {}, mas), falta, el('span', { className: 'acc' }, cancelar, reg)));
+  f.reg = reg;
+  f.fila.classList.add('dividida'); f.ok.hidden = true;
+  f.fila.append(f.partes);
+  contar();
+}
+async function registrarPartes(f, pz) {
+  if (f.hecha) return;
+  const nombreDe = x => { const v = x.prov.value; return v === NUEVO ? x.prov.dataset.sugerido : v ? (provs.find(p => p.id === v) || {}).nombre || '' : ''; };
+  const linea = [f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ') || 'Egreso';
+  const partes = pz.map(x => ({ importe: String(x.imp.value).replace(/\./g, ''), rubro_id: x.rub.value, sede_id: x.sede.disabled ? null : x.sede.value || null,
+    concepto: nombreDe(x) || `${(rubros.find(r => r.id === x.rub.value) || {}).nombre || 'Gasto'} · ${linea}` }));
+  f.reg.disabled = true;
+  try {
+    const r = await api('fin/conciliacion/partes', { method: 'POST', body: { linea_id: f.l.id, partes } });
+    // Con proveedor, su comprobante X ya pagado con esa parte (las partes del mismo proveedor, juntas).
+    const grupos = new Map();
+    pz.forEach((x, i) => {
+      const v = x.prov.value; if (!v) return;
+      const existente = v !== NUEVO ? provs.find(p => p.id === v) : null, nombre = nombreDe(x), k = existente ? existente.id : 'n:' + sinAc(nombre);
+      if (!grupos.has(k)) grupos.set(k, { nombre: existente ? null : nombre, proveedor_id: existente ? existente.id : null, sociedad_id: null, pagos: [] });
+      grupos.get(k).pagos.push(r.movimiento_ids[i]);
+    });
+    let nota = `Registrada en ${pz.length} partes`;
+    if (grupos.size) {
+      const a = await api('fin/pagos-sin-factura/armar', { method: 'POST', body: { grupos: [...grupos.values()] } });
+      nota += a.errores.length ? `, sin comprobante: ${a.errores[0].error}` : ' con comprobante';
+      // Los proveedores nuevos pasan a los combos de las otras filas.
+      for (const h of a.hechos || []) if (h.proveedor_id && !provs.some(p => p.id === h.proveedor_id)) sumarProveedor({ id: h.proveedor_id, nombre: h.nombre, activo: true });
+    }
+    pz.forEach(x => [x.imp, x.rub, x.sede, x.prov].forEach(y => { y.disabled = true; }));
+    quitar(f, nota);
+  } finally { if (!f.hecha) f.reg.disabled = false; contar(); }
+}
 function contar() {
-  const n = visibles().filter(f => !f.hecha && !f.transf && f.rub.value).length;
+  const n = visibles().filter(f => !f.hecha && !f.transf && !f.partes && f.rub.value).length;
   $('#todas').disabled = !n; $('#todas').textContent = n ? `Registrar las ${n} completas` : 'Registrar las completas';
 }
 // Registrar una línea: el egreso con su rubro y local, conciliado con la línea; con proveedor, además el proveedor (si es nuevo) y su
@@ -300,7 +393,7 @@ async function registrar(f) {
   } finally { f.ok.disabled = false; contar(); }
 }
 $('#todas').onclick = async () => {
-  const fs = visibles().filter(f => !f.hecha && !f.transf && f.rub.value);
+  const fs = visibles().filter(f => !f.hecha && !f.transf && !f.partes && f.rub.value);
   let ok = 0; const errs = [];
   for (const f of fs) { try { await registrar(f); ok++; } catch (e) { errs.push(`${fecha(f.l.fecha)} ${pesos(String(f.l.importe).slice(1))}: ${e.message}`); } }
   // Los proveedores nuevos ya están cargados: la próxima vez se reconocen.

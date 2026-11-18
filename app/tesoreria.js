@@ -1255,6 +1255,44 @@ r.post('/fin/conciliacion', h(async (req, res) => {
   res.status(201).json({ ok: true, regla: out.regla || null, movimiento_id: out.mov });
 }));
 
+// Una línea que junta varios gastos (pedido de Fer, 18/11/2026: una "Recaudacion" de Pago24 de $4.816.700 pagó varias cosas): se
+// registra en partes, cada una su egreso con su rubro y local, todas conciliadas con la línea (la suma la controla la base al final,
+// `fin.conciliacion_suma`). Los importes van en pesos enteros; si la línea tiene centavos, la última parte se los lleva.
+r.post('/fin/conciliacion/partes', h(async (req, res) => {
+  const b = req.body, linea = numero(b.linea_id, { campo: 'la línea', requerido: true });
+  const partes = Array.isArray(b.partes) ? b.partes : [];
+  if (partes.length < 2 || partes.length > 30) throw new ErrorUsuario('Dividí la línea en entre 2 y 30 partes.');
+  const movs = await enTransaccion(async c => {
+    const { rows: [l] } = await c.query(
+      `SELECT l.*, EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada FROM fin.extracto_linea l WHERE l.id = $1 FOR UPDATE`, [linea]);
+    if (!l) throw new ErrorUsuario('No existe esa línea del extracto.');
+    if (l.descartada) throw new ErrorUsuario('La línea está descartada: volvela a pendiente primero.');
+    if (l.conciliada || l.compensa_a) throw new ErrorUsuario('La línea ya está conciliada.');
+    const sale = String(l.importe).startsWith('-'), total = centavos(sale ? String(l.importe).slice(1) : String(l.importe));
+    const ps = [];
+    for (const [i, x] of partes.entries()) {
+      const n = `la parte ${i + 1}`;
+      ps.push({ imp: centavos(monto(x.importe, { campo: `el importe de ${n}`, requerido: true, positivo: true })), concepto: texto(x.concepto, { campo: `el concepto de ${n}`, requerido: true }),
+        rubro: await rubroValido(c, x.rubro_id), sede: texto(x.sede_id) });
+    }
+    const resto = total - ps.reduce((t, x) => t + x.imp, 0n);
+    if (resto <= -100n || resto >= 100n) throw new ErrorUsuario(`Las partes suman ${deCentavos(total - resto)} y la línea es de ${deCentavos(total)}.`);
+    ps[ps.length - 1].imp += resto;
+    if (ps.at(-1).imp <= 0n) throw new ErrorUsuario('La última parte quedó en cero.');
+    const ids = [];
+    for (const x of ps) {
+      const { rows: [{ id }] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [l.fecha, l.cuenta_id, sale ? 'egreso' : 'ingreso', sale ? 0 : deCentavos(x.imp), sale ? deCentavos(x.imp) : 0, x.concepto]);
+      await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1,$2,$3)', [id, x.rubro, x.sede]);
+      await c.query('INSERT INTO fin.conciliacion (linea_id, movimiento_id) VALUES ($1,$2)', [linea, id]);
+      ids.push(id);
+    }
+    return ids;
+  });
+  res.status(201).json({ ok: true, movimiento_ids: movs });
+}));
+
 // Deshacer un pareo. Si el movimiento lo creó la conciliación de un procesador (una acreditación o un cargo), no
 // alcanza con separarlo de la línea: se anula (las dos patas de la acreditación, con su misma fecha) y el pago de la
 // venta vuelve a quedar sin acreditar, para que la línea se pueda volver a conciliar.
