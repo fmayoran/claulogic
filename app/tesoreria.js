@@ -505,6 +505,27 @@ r.get('/fin/cuentas/:id/movimientos', h(async (req, res) => {
   res.json({ ok: true, movimientos: rows });
 }));
 
+// Lo que falta conciliar de una cuenta (pedido de Fer, 19/11/2026: desde "N sin conciliar" del tablero): las líneas del
+// extracto sin movimiento (las que cuenta lineas_sin_conciliar) y los movimientos que deberían estar en el extracto y no están
+// (mismo criterio que /fin/conciliacion). Sin sugerencias: para resolver, Conciliación.
+r.get('/fin/cuentas/:id/sin-conciliar', h(async (req, res) => {
+  const [lineas, movs] = await Promise.all([
+    pool.query(`SELECT l.id, l.fecha, CASE WHEN l.destinatario IS NOT NULL THEN l.concepto || ' · ' || l.destinatario ELSE l.concepto END AS concepto,
+                       l.referencia, l.importe::text
+                  FROM fin.extracto_linea l
+                 WHERE l.cuenta_id = $1::uuid AND l.compensa_a IS NULL AND l.descartada IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id)
+                 ORDER BY l.fecha, l.id`, [req.params.id]),
+    pool.query(`SELECT m.id, m.fecha, m.tipo, m.concepto, (m.entrada - m.salida)::text AS importe FROM fin.movimiento_tes m
+                 WHERE m.cuenta_id = $1::uuid AND NOT EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id)
+                   AND m.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)
+                   AND m.fecha >= (SELECT MIN(desde) FROM fin.extracto e WHERE e.cuenta_id = m.cuenta_id)
+                   AND m.concepto IS DISTINCT FROM 'Saldo de apertura según extracto'
+                 ORDER BY m.fecha, m.id`, [req.params.id]),
+  ]);
+  res.json({ ok: true, lineas: lineas.rows, movimientos: movs.rows });
+}));
+
 // ── Movimientos manuales, transferencias y arqueos ───────────────────────────────────────────
 r.post('/fin/transferencias', h(async (req, res) => {
   const b = req.body;

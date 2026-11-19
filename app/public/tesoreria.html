@@ -244,6 +244,7 @@
       hasta que se endosan a un proveedor o se depositan. Hay una sola y no se edita: su saldo es la suma de los cheques
       en cartera. Se mueve desde <a href="cheques.html">Cheques</a>.</p>
     <div class="barra">
+      <div class="segm" id="cVer" role="group" aria-label="Qué movimientos"><button type="button" data-v="todos" class="act">Todos</button><button type="button" data-v="sin">Sin conciliar</button></div>
       <label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
       <a id="editarCuenta" href="#">Editar cuenta</a>
       <a id="irConciliar" href="#" hidden>Conciliar con el extracto</a>
@@ -251,6 +252,7 @@
     <div class="tabla-wrap"><table class="datos">
       <thead><tr><th>Fecha</th><th>Movimiento</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Saldo</th><th>Por</th><th></th></tr></thead>
       <tbody id="cMovs"></tbody></table></div>
+    <div id="cPend" hidden></div>
   </section>
 </main>
 
@@ -293,7 +295,8 @@ function filaCuenta(c, detalle = [], extra = null) {
   f.onclick = () => { location.hash = c.id; };
   return f;
 }
-const tagSinConc = c => c.lineas_sin_conciliar ? el('span', { className: 'tag aviso', textContent: `${c.lineas_sin_conciliar} sin conciliar` }) : null;
+const tagSinConc = c => c.lineas_sin_conciliar ? el('span', { className: 'tag aviso', style: 'cursor:pointer', textContent: `${c.lineas_sin_conciliar} sin conciliar`,
+  title: 'Ver lo que falta conciliar', onclick: e => { e.stopPropagation(); location.hash = c.id + '/sin'; } }) : null;
 const grupo = (titulo, total, cap, ...cosas) => el('section', { className: 'card grupo-t' },
   el('div', { className: 'cab-t' }, el('h2', { textContent: titulo }), total != null ? el('span', { className: 'tot', textContent: total }) : ''),
   cap ? el('p', { className: 'cap', textContent: cap }) : '', ...cosas);
@@ -1028,14 +1031,20 @@ function cuandoEntra(pc) {
     est.length ? el('details', { className: 'inact' }, el('summary', { textContent: 'Cómo se estima' }), ...est.map(t => el('p', { className: 'cap', textContent: t }))) : '');
 }
 
-async function verCuenta(id) {
+async function verCuenta(id, ver) {
   const c = cuentas.find(x => x.id === id); if (!c) return ruta('');
+  if (ver) verMovs = ver;
+  $$('#cVer button').forEach(b => b.classList.toggle('act', b.dataset.v === verMovs));
+  const sin = verMovs === 'sin';
+  $('#desde').closest('label').hidden = $('#hasta').closest('label').hidden = sin;
+  $('#cMovs').closest('.tabla-wrap').hidden = sin; $('#cPend').hidden = !sin;
   actual = c;
   $('#cTitulo').textContent = c.nombre;
   $('#cSub').textContent = [TIPO[c.tipo], c.sociedad || 'Grupo', c.tipo === 'caja' ? c.sede : null, c.banco, c.cbu ? 'CBU ' + c.cbu : null, c.alias ? 'alias ' + c.alias : null,
     'saldo ' + pesos(c.saldo)].filter(Boolean).join(' · ');
   $('#irConciliar').hidden = c.tipo !== 'banco'; $('#irConciliar').href = 'conciliacion.html#' + c.id;
   $('#editarCuenta').hidden = c.tipo === 'cartera'; $('#editarCuenta').href = 'cuentas.html#editar=' + c.id; $('#notaCartera').hidden = c.tipo !== 'cartera';
+  if (sin) return verSinConciliar(c);
   const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
   const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
   filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },
@@ -1047,6 +1056,28 @@ async function verCuenta(id) {
     el('td', {}, ['ingreso', 'egreso', 'transferencia'].includes(m.tipo) && !m.anulado ?
       el('button', { className: 'chico', textContent: 'Anular', onclick: () => anular(m) }) : '')), 'Sin movimientos en el período.', 7);
 }
+// Lo que falta conciliar (pedido de Fer, 19/11/2026): en el extracto y no en el sistema, y al revés. Sin fechas: todo lo pendiente.
+let verMovs = 'todos';
+const etiquetada = t => { etiquetarTabla(t); return t; };
+async function verSinConciliar(c) {
+  const { lineas, movimientos } = await api(`fin/cuentas/${c.id}/sin-conciliar`);
+  const imp = v => v.startsWith('-') ? '−' + pesos(v.slice(1)) : '+' + pesos(v);
+  const tabla = (titulo, cap, xs, texto) => el('section', {},
+    el('h3', { textContent: `${titulo} (${xs.length})` }), el('p', { className: 'cap', textContent: cap }),
+    xs.length ? el('div', { className: 'tabla-wrap' }, etiquetada(el('table', { className: 'datos movil' },
+      el('thead', {}, el('tr', {}, el('th', { textContent: 'Fecha' }), el('th', { textContent: 'Concepto' }), el('th', { className: 'num', textContent: 'Importe' }))),
+      el('tbody', {}, ...xs.map(x => el('tr', {}, td(fecha(x.fecha)), el('td', { className: 'wrap', textContent: texto(x) }), td(imp(x.importe), 'num')))))))
+      : el('p', { className: 'g-vacio', textContent: 'Nada pendiente.' }));
+  const hay = lineas.length || movimientos.length;
+  $('#cPend').replaceChildren(
+    lineas.some(l => l.importe.startsWith('-')) ? el('p', { className: 'cap' }, 'Los egresos del extracto se clasifican en ', el('a', { href: 'egresos.html', textContent: 'Proceso de egresos' }),
+      '; lo demás, con "Conciliar con el extracto".') : '',
+    tabla('En el extracto, no en el sistema', 'Líneas del extracto importado que todavía no tienen su movimiento.', lineas,
+      l => [l.concepto, l.referencia].filter(Boolean).join(' · ')),
+    tabla('En el sistema, no en el extracto', 'Movimientos registrados desde que empiezan los extractos de esta cuenta que el extracto no trae (o todavía no llegó).',
+      movimientos, m => (MOV[m.tipo] || m.tipo) + (m.concepto ? ': ' + m.concepto : '')));
+}
+$$('#cVer button').forEach(b => b.onclick = () => { if (actual) location.hash = actual.id + (b.dataset.v === 'sin' ? '/sin' : ''); });
 async function anular(m) {
   const motivo = prompt(`Motivo de la anulación de "${m.concepto || MOV[m.tipo]}"` + (m.tipo === 'transferencia' ? ' (se anulan las dos patas)' : '') + ':');
   if (!motivo) return;
@@ -1056,11 +1087,11 @@ async function anular(m) {
 $('#desde').onchange = $('#hasta').onchange = () => verCuenta(actual.id);
 
 function ruta() {
-  const id = location.hash.slice(1);
+  const [id, ver] = location.hash.slice(1).split('/');
   $('#vLista').hidden = !!id; $('#vCuenta').hidden = !id;
   // Los gráficos se dibujan al ancho de su caja: al volver a la lista se redibujan.
   if (!id) { actual = null; if (modo === 'hoy') { if (plan) pintarHoy(); } else if (flujo) pintarTablero(); return; }
-  verCuenta(id).catch(e => alert(e.message));
+  verCuenta(id, ver === 'sin' ? 'sin' : 'todos').catch(e => alert(e.message));
 }
 $('#aCerrar').onclick = () => $('#dlgAcr').close();
 $('#dlgAcr').addEventListener('click', e => { if (e.target === $('#dlgAcr')) $('#dlgAcr').close(); });
