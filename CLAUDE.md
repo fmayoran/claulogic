@@ -1137,7 +1137,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (con un costo de mercadería del 100% de lo vendido: para el food cost o el prime cost, mirar desde el 01/10). Se corrige asentando otro ajuste, sin pantalla por ahora. **Deuda con los socios al 01/10** (Fer, 19/11/2026; migración 20261160, por única vez): la pérdida de CORTAFUEGO dejó de ser un ajuste
   sin plata y es un egreso de PRÉSTAMOS DE SOCIOS del 30/09 (rubro `previo_sistema`, CORTAFUEGO PARRILLA), y los saldos de apertura de
   BRUBANK, MERCADO PAGO CF y PAGO 24 son transferencias desde PRÉSTAMOS DE SOCIOS (mismo concepto de apertura, fuera del flujo y de lo
-  pendiente de conciliar). PRÉSTAMOS DE SOCIOS arranca el 01/10 en −$19.706.719,08. MERCADO PAGO SORELLE arranca en cero: su apertura de $2.396.438,25 se anuló al 30/09 sin contrapartida (migración 20261161, Fer).
+  pendiente de conciliar). PRÉSTAMOS DE SOCIOS arranca el 01/10 en −$19.706.719,08. MERCADO PAGO SORELLE, igual (migraciones 20261161 a 20261163): su apertura
+  ($2.396.438,25) es una transferencia desde PRÉSTAMOS DE SOCIOS, y también los 54 ingresos que estaban "no se tienen en cuenta" (cobros de
+  ventas de septiembre, ingresos anteriores al 04/10: $4.570.000), la reserva al apartado del 13/10 y lo que volvió del apartado (el
+  apartado quedó en cero) y los 11 egresos de octubre que no se identificaron. Con eso la cuenta cierra al centavo con Mercado Pago al
+  18/11, salvo las líneas de noviembre sin registrar.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)
