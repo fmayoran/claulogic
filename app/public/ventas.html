@@ -44,7 +44,7 @@
   .peya-canc{margin-top:18px;border-top:1px solid var(--line);padding-top:14px;}
   .peya-canc summary{cursor:pointer;color:var(--mut);} .peya-canc summary .peya-h{display:inline;margin-right:8px;}
   .peya-canc summary::marker{color:var(--mut);} .peya-canc[open] summary{margin-bottom:12px;}
-  .top-mas{margin:12px 0 0;} .top-mas:has(button[hidden]){display:none;}
+  .top-mas{margin:12px 0 0;} .top-mas:not(:has(button:not([hidden]))){display:none;}
   @media (max-width:600px){ .venta{grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;} .venta .dato:first-child{grid-column:1 / -1;flex-direction:row;gap:8px;align-items:baseline;} }
 </style>
 </head>
