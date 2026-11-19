@@ -998,7 +998,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   global, no una por socio. No se edita ni se crea desde Cuentas. Su saldo se ve en el Tablero de tesorería, vista Disponible, en
   "Todo el grupo" y en "Grupo" (grupo "Préstamos de socios", lo que se les debe); tocarla abre los movimientos. Arrancó con los saldos "a pagar" de los gastos de Fudo de CORTAFUEGO
   desde el 01/10 (13 gastos, $27.581.231, concepto `Fudo gasto #N`): en Fudo quedaron como deuda para acordarse, pero los pagaron los
-  socios. Quedaron afuera los honorarios de Adrián Sandoval ($4.500.000, se deben de verdad: se cargan cuando se paguen) y $1.287.797 de
+  socios. Quedaron afuera los honorarios de Adrián Sandoval (Fer, 19/11/2026: eran $5.000.000 de octubre y estaban pagados, con PAGO 24 el 13/10 y el efectivo de CAJA MAYOR del 05/10; van en el rubro "Sueldos · Honorarios socios", línea Personal) y $1.287.797 de
   Pilotti que pagó BRUBANK el 04/11. Los préstamos depositados en BRUBANK siguen como ingreso en "Aportes, retiros y préstamos" hasta
   analizarlos.
 - **Liquidación semanal de PedidosYa** (decisión de Fer, 09/11/2026, opción 2; migración 20261138, `app/liquidaciones.js`). PedidosYa
