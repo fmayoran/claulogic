@@ -1109,6 +1109,16 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`PUT /sedes/:id/comercios/asignacion`, en una transacción). Comercios, artículos y medios de cobro van en bloques plegables con su
   estado en el título (los medios se abren solos si falta asignar alguno).
   Pendiente (Fer, más adelante): que en Maxirest los rubros compartidos se separen por comercio, para no prorratear.
+- **Del resultado a la caja** (pedido de Fer, 19/11/2026; `GET /fin/resultados/puente?desde=&hasta=`, sección al pie del estado de resultados,
+  se pide con "Ver"): parte del resultado del período y llega a la variación de **todas** las cuentas (bancos, cajas, efectivo de los locales,
+  por acreditar, préstamos de socios, cartera), del grupo consolidado (por sociedad aparecerían las transferencias entre sociedades). Cada
+  movimiento del período cae en un solo renglón: cobro de ventas (contra lo vendido), atado a hechos de `fin.resultado` (por la fecha del
+  movimiento: resultado, "no es resultado" o sin clasificar), transferencia (lo que no cierra en el período, descontadas las diferencias de
+  acreditación), saldo de apertura u otro tipo; del lado del resultado, lo que no mueve plata (consumo, ajustes) y lo devengado en otra fecha
+  (costos de cobro el día de la venta). "Sin explicar" = movimientos cuyo importe no coincide con lo que llevan al resultado (tiene que dar
+  cero) y `cuadra` controla que resultado + renglones = variación. La deuda con proveedores y el stock no entran (el costo se toma al pagar;
+  la deuda se informa aparte). Octubre: resultado −$3.098.582, aportes $856.295, costos de cobro de octubre acreditados en noviembre
+  $360.255, una venta del 30/10 cobrada en dos partes (la segunda el 01/11) −$34.500 → variación −$1.916.531.
 - **Detalle de un rubro** (pedido de Fer, 15/11/2026): primero lo simple, fecha, proveedor (el de la factura que pagó el movimiento o el de su orden de pago; si no hay, el concepto) e importe. Tocar un renglón abre su detalle y la reclasificación; "Ver el detalle completo y reclasificar" los muestra todos así (se recuerda, `localStorage['resultados-detalle']`). "Sin clasificar" abre siempre el completo. El rubro, al reclasificar, es una lista con búsqueda (también al registrar una línea en Conciliación y en las reglas).
 - **Ajustes de resultado sin plata** (pedido de Fer, 18/11/2026; migración 20261158): `fin.ajuste_resultado` (local, día, rubro, importe con
   signo, concepto; inmutable) entra en `fin.resultado` con origen `ajuste` y no mueve ninguna cuenta. Lo usa **septiembre**: las ventas de

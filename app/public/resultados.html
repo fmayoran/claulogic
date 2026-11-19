@@ -26,6 +26,18 @@
   .er .total.final .c, .er .total.final .i{font-size:1.08rem;}
   .neg{color:var(--mal);}
   @media (max-width:600px){ .er{grid-template-columns:minmax(0,1fr) auto auto;} .er .a{display:none;} }
+  /* Del resultado a la caja (19/11/2026): concepto con su explicación e importe; lo que tiene detalle se abre. */
+  .pu{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 18px;margin-top:6px;}
+  .pu > div{display:contents;}
+  .pu .c, .pu .i{padding:9px 4px;border-top:1px solid var(--g-grilla);} .pu .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .pu .c small{display:block;color:var(--mut);font-size:.82rem;margin-top:2px;}
+  .pu .ab .c{cursor:pointer;} .pu .ab .c b::before{content:'+';display:inline-block;width:1.1em;color:var(--mut);font-weight:400;}
+  .pu .ab.abierta .c b::before{content:'−';}
+  .pu .sub .c, .pu .sub .i{padding:5px 4px 5px 26px;font-size:.88rem;border-top:0;color:var(--mut);} .pu .sub .i{padding-left:4px;}
+  .pu .tot .c, .pu .tot .i{font-weight:700;border-top:2px solid var(--fg);}
+  .pu .ojo .c b{color:var(--aviso);} .pu .tot .c small{font-weight:400;}
+  .pu-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .pu-cab h2{margin:0;}
   .avisos-r{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
   .avisos-r .av{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:10px;background:var(--sel);font-size:.9rem;}
   /* Panel del detalle de un rubro: cada hecho, y los movimientos se pueden reclasificar. */
@@ -67,6 +79,13 @@
   <section class="card">
     <div class="er" id="er"></div>
     <div class="avisos-r" id="avisos"></div>
+  </section>
+  <section class="card">
+    <div class="pu-cab"><h2>Del resultado a la caja</h2><button type="button" id="verPuente">Ver</button></div>
+    <p class="cap">Parte del resultado del período y llega a cuánto cambió la plata en todas las cuentas (bancos, cajas, efectivo de los
+      locales, por acreditar, préstamos de socios), renglón por renglón. Sirve para ver qué movió la plata sin ser resultado y qué falta
+      registrar o clasificar. Es del grupo consolidado.</p>
+    <div id="puente"></div>
   </section>
 </main>
 
@@ -305,7 +324,65 @@ function pintarComercios() {
 async function cargar() {
   const [a, b] = await Promise.all([api('fin/resultados?' + params()), api('fin/resultados?' + params(anterior()))]);
   act = a; ant = b; pintar();
+  if (puenteVisible) cargarPuente();
 }
+
+// ── Del resultado a la caja (pedido de Fer, 19/11/2026) ──
+// Se pide al tocar "Ver" y se actualiza con el período. Cada renglón con su explicación; los que tienen detalle se abren.
+let puenteVisible = false, puAbiertos = new Set();
+const PUENTE = {
+  ventas: ['Ventas que no entraron como cobro en el período', 'Lo vendido contra los cobros procesados. Distinto de cero: días con los cobros sin procesar, o ventas anteriores al inicio de los cobros (01/10).'],
+  sin_plata: ['Resultado que no mueve plata', 'Costo de la mercadería del consumo y ajustes de resultado (como el de septiembre): restan en el resultado sin que salga plata.'],
+  fechas: ['Devengado en un período, movido en otro', 'Costos de cobro y diferencias de una venta: van al resultado el día de la venta y a la cuenta cuando se acreditan.'],
+  fuera: ['No es resultado', 'Aportes, retiros, préstamos y otros movimientos que mueven la plata sin ser ganancia ni pérdida.'],
+  sin_clasificar: ['Sin clasificar', 'Movimientos sin rubro: mueven la plata pero no están en el resultado.'],
+  apertura: ['Saldos de apertura', 'Lo que había en cada cuenta cuando empezó su extracto.'],
+  transferencias: ['Transferencias que no cierran en el período', 'Una transferencia con sus partes en períodos distintos (una venta cobrada en partes a fin de mes) o con importes distintos sin venta atada.'],
+  otros: ['Otros movimientos sin resultado', 'Movimientos de tipos que no van al resultado.'],
+  anulaciones: ['Anulaciones de otro período', 'Un movimiento y su anulación con fechas en períodos distintos.'],
+  sin_explicar: ['Sin explicar', 'Movimientos cuyo importe no coincide con lo que llevan al resultado. Tendría que ser cero.'],
+};
+const GRUPO_CTA = { bancos: 'Bancos', cajas: 'Cajas', efectivo: 'Efectivo de los locales', por_acreditar: 'Por acreditar', socios: 'Préstamos de socios', cartera: 'Cheques en cartera' };
+const TIPO_MOV = { pago: 'Pagos', debito_cheque: 'Débitos de cheques', ingreso: 'Ingresos', egreso: 'Egresos', arqueo: 'Arqueos', cheque: 'Cheques' };
+async function cargarPuente() {
+  puenteVisible = true; $('#verPuente').hidden = true;
+  $('#puente').replaceChildren(el('p', { className: 'cap', textContent: 'Cargando…' }));
+  try { pintarPuente(await api(`fin/resultados/puente?desde=${$('#desde').value}&hasta=${$('#hasta').value}`)); }
+  catch (e) { $('#puente').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
+}
+function pintarPuente(d) {
+  const fila = (cls, titulo, nota, imp, onclick) => {
+    const f = el('div', { className: cls }, el('span', { className: 'c' }, el('b', { textContent: titulo }), nota ? el('small', { textContent: nota }) : ''),
+      el('span', { className: 'i' + (centavos(imp) < 0n ? ' neg' : ''), textContent: pC(centavos(imp)) }));
+    if (onclick) f.querySelector('.c').onclick = onclick;
+    return f;
+  };
+  const sub = (t, imp) => el('div', { className: 'sub' }, el('span', { className: 'c', textContent: t }), el('span', { className: 'i', textContent: imp }));
+  const alternar = k => { puAbiertos.has(k) ? puAbiertos.delete(k) : puAbiertos.add(k); pintarPuente(d); };
+  const filas = [fila('tot', 'Resultado del período', '', d.resultado)];
+  for (const r of d.renglones) {
+    if (centavos(r.importe) === 0n) continue;
+    const [t, nota] = PUENTE[r.k];
+    const det = r.k === 'ventas' ? [sub('Vendido', pC(-centavos(r.ventas))), sub('Cobrado', pC(centavos(r.cobros)))]
+      : r.k === 'fuera' ? r.rubros.filter(x => centavos(x.importe) !== 0n).map(x => sub(x.rubro, pC(centavos(x.importe))))
+      : r.k === 'otros' ? r.tipos.map(x => sub(`${TIPO_MOV[x.tipo] || x.tipo} (${x.n})`, pC(centavos(x.importe)))) : [];
+    const abierta = puAbiertos.has(r.k);
+    filas.push(fila((det.length ? 'ab' : '') + (abierta ? ' abierta' : '') + (['sin_clasificar', 'sin_explicar'].includes(r.k) ? ' ojo' : ''), t, nota, r.importe,
+      det.length ? () => alternar(r.k) : r.k === 'sin_clasificar' ? () => detalle('sin', 'Sin clasificar') : null));
+    if (abierta) filas.push(...det);
+  }
+  const ctas = Object.keys(GRUPO_CTA).map(k => d.cuentas.find(c => c.grupo === k)).filter(c => c && (centavos(c.inicial) !== 0n || centavos(c.final) !== 0n));
+  const abierta = puAbiertos.has('cuentas');
+  filas.push(fila('tot ab' + (abierta ? ' abierta' : ''), 'Variación de las cuentas', 'Saldo al cierre menos saldo al empezar el período, de todas las cuentas.', d.variacion, () => alternar('cuentas')));
+  if (abierta) for (const c of ctas) filas.push(sub(`${GRUPO_CTA[c.grupo]}: de ${pC(centavos(c.inicial))} a ${pC(centavos(c.final))}`, pC(centavos(c.final) - centavos(c.inicial))));
+  const deuda = centavos(d.deuda.inicial) !== 0n || centavos(d.deuda.final) !== 0n
+    ? `La deuda con proveedores pasó de ${pC(centavos(d.deuda.inicial))} a ${pC(centavos(d.deuda.final))}; no está en el puente porque el costo de una factura entra al resultado cuando se paga. `
+    : 'No hay deuda con proveedores registrada: el costo de una factura entra al resultado cuando se paga. ';
+  $('#puente').replaceChildren(el('div', { className: 'pu' }, ...filas),
+    el('p', { className: 'cap', textContent: deuda + 'El stock tampoco entra: la mercadería se toma como costo al pagarla.' + ($('#soc').value ? ' Con una sociedad o store elegidos, el puente sigue siendo del grupo consolidado.' : '') }),
+    d.cuadra ? '' : el('p', { className: 'msg mal', textContent: 'El puente no cierra con la variación de las cuentas: es un error de cálculo, avisame.' }));
+}
+$('#verPuente').onclick = cargarPuente;
 async function todo() {
   if (!$('#desde').value || !$('#hasta').value) return;
   const [a0, a1] = anterior();

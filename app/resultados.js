@@ -266,5 +266,85 @@ r.get('/fin/resultados/detalle', h(async (req, res) => {
   res.json({ ok: true, filas: rows.slice(0, 1000), hay_mas: rows.length > 1000 });
 }));
 
+// ── Del resultado a la caja (pedido de Fer, 19/11/2026) ──
+// El resultado del período contra la variación de todas las cuentas (bancos, cajas, efectivo de los locales, por acreditar,
+// préstamos de socios, cartera), renglón por renglón. Consolidado del grupo: por sociedad aparecerían las transferencias entre
+// sociedades. Cada movimiento del período cae en un solo renglón: cobro de ventas, atado a hechos del resultado (por su rubro:
+// resultado, no es resultado o sin clasificar), transferencia, u otro sin resultado. Del lado del resultado, lo devengado en el
+// período (ventas por el día de la venta, costos de cobro por el día de la venta). Lo que no cierra queda en "sin explicar".
+// La deuda con proveedores y el stock no entran: el costo se toma al pagar (se informa la deuda aparte).
+r.get('/fin/resultados/puente', h(async (req, res) => {
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  if (desde > hasta) throw new ErrorUsuario('El período está al revés.');
+  const VIVOS = `SELECT m.* FROM fin.movimiento_tes m
+                  WHERE m.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)`;
+  const [res1, res2, movs, cuentas, deuda] = await Promise.all([
+    // Lado del resultado, por el día devengado.
+    pool.query(`SELECT x.origen, ru.linea, SUM(x.importe)::text AS importe
+                  FROM fin.resultado x LEFT JOIN fin.rubro ru ON ru.id = x.rubro_id
+                 WHERE x.dia BETWEEN $1 AND $2 GROUP BY 1, 2`, [desde, hasta]),
+    // Los hechos atados a un movimiento, por la fecha del movimiento (lo que movió la plata en el período).
+    pool.query(`SELECT x.origen, ru.linea, ru.nombre AS rubro, SUM(x.importe)::text AS importe
+                  FROM fin.resultado x JOIN fin.movimiento_tes m ON m.id = x.movimiento_id LEFT JOIN fin.rubro ru ON ru.id = x.rubro_id
+                 WHERE x.origen IN ('movimiento', 'lote', 'acreditacion') AND m.fecha BETWEEN $1 AND $2 GROUP BY 1, 2, 3`, [desde, hasta]),
+    // Los movimientos del período, cada uno en su grupo.
+    pool.query(`WITH v AS (${VIVOS} AND m.fecha BETWEEN $1 AND $2),
+                     atado AS (SELECT DISTINCT movimiento_id FROM fin.resultado WHERE origen IN ('movimiento', 'lote'))
+                SELECT CASE WHEN v.tipo = 'cobro' THEN 'cobro' WHEN v.tipo = 'transferencia' THEN 'transferencia'
+                            WHEN EXISTS (SELECT 1 FROM atado a WHERE a.movimiento_id = v.id) THEN 'atado'
+                            WHEN v.gasto IS NULL AND v.concepto = 'Saldo de apertura según extracto' THEN 'apertura'
+                            ELSE 'otro:' || v.tipo END AS grupo, COUNT(*)::int AS n, SUM(v.entrada - v.salida)::text AS importe
+                  FROM v GROUP BY 1
+                UNION ALL
+                SELECT 'todos', COUNT(*)::int, COALESCE(SUM(entrada - salida), 0)::text FROM fin.movimiento_tes WHERE fecha BETWEEN $1 AND $2`, [desde, hasta]),
+    // Saldo de cada grupo de cuentas al empezar y al terminar el período.
+    pool.query(`SELECT CASE c.tipo WHEN 'banco' THEN 'bancos' WHEN 'cobranza' THEN 'por_acreditar' WHEN 'socios' THEN 'socios' WHEN 'cartera' THEN 'cartera'
+                         ELSE CASE WHEN EXISTS (SELECT 1 FROM pos.integracion i WHERE i.cuenta_efectivo_id = c.id) THEN 'efectivo' ELSE 'cajas' END END AS grupo,
+                       COALESCE(SUM(m.entrada - m.salida) FILTER (WHERE m.fecha < $1), 0)::text AS inicial,
+                       COALESCE(SUM(m.entrada - m.salida) FILTER (WHERE m.fecha <= $2), 0)::text AS final
+                  FROM fin.cuenta c LEFT JOIN fin.movimiento_tes m ON m.cuenta_id = c.id GROUP BY 1`, [desde, hasta]),
+    pool.query(`SELECT COALESCE(SUM(haber - debe) FILTER (WHERE fecha < $1), 0)::text AS inicial,
+                       COALESCE(SUM(haber - debe) FILTER (WHERE fecha <= $2), 0)::text AS final FROM fin.movimiento_cc`, [desde, hasta]),
+  ]);
+  // En centavos (BigInt): ni un centavo de float.
+  const c = v => { if (v == null) return 0n; const [e, d = ''] = String(v).split('.'); const neg = e.startsWith('-');
+    const x = BigInt(e.replace('-', '') || '0') * 100n + BigInt((d + '00').slice(0, 2)); return neg ? -x : x; };
+  const t = c2 => { const neg = c2 < 0n, a = neg ? -c2 : c2; return (neg ? '-' : '') + (a / 100n) + '.' + String(a % 100n).padStart(2, '0'); };
+  const suma = (rows, f) => rows.filter(f).reduce((s, x) => s + c(x.importe), 0n);
+  const esRes = l => l != null && l !== 'fuera';
+  const R = suma(res1.rows, x => esRes(x.linea));
+  const ventas = suma(res1.rows, x => ['ventas', 'cobro'].includes(x.origen) && esRes(x.linea));
+  const sinPlata = suma(res1.rows, x => ['cmv', 'ajuste'].includes(x.origen) && esRes(x.linea));
+  const atadoDia = suma(res1.rows, x => ['movimiento', 'lote'].includes(x.origen) && esRes(x.linea));
+  const acredDia = suma(res1.rows, x => x.origen === 'acreditacion' && esRes(x.linea));
+  const atadoFecha = suma(res2.rows, x => x.origen !== 'acreditacion' && esRes(x.linea));
+  const acredFecha = suma(res2.rows, x => x.origen === 'acreditacion');
+  const fueraRows = res2.rows.filter(x => x.origen !== 'acreditacion' && x.linea === 'fuera');
+  const fuera = suma(fueraRows, () => true), sinClas = suma(res2.rows, x => x.origen !== 'acreditacion' && x.linea == null);
+  const g = k => movs.rows.filter(x => x.grupo === k);
+  const cobros = suma(g('cobro'), () => true), transf = suma(g('transferencia'), () => true), apertura = suma(g('apertura'), () => true);
+  const atadoMov = suma(g('atado'), () => true), todos = suma(g('todos'), () => true);
+  const vivos = suma(movs.rows.filter(x => x.grupo !== 'todos'), () => true);
+  const otros = movs.rows.filter(x => x.grupo.startsWith('otro:')).map(x => ({ tipo: x.grupo.slice(5), n: x.n, importe: x.importe }));
+  const otrosT = otros.reduce((s, x) => s + c(x.importe), 0n);
+  const sinExplicar = atadoMov - (atadoFecha + fuera + sinClas);
+  const renglones = [
+    { k: 'ventas', importe: cobros - ventas, ventas: t(ventas), cobros: t(cobros) },
+    { k: 'sin_plata', importe: -sinPlata },
+    { k: 'fechas', importe: (atadoFecha - atadoDia) + (acredFecha - acredDia) },
+    { k: 'fuera', importe: fuera, rubros: fueraRows.map(x => ({ rubro: x.rubro, importe: x.importe })) },
+    { k: 'sin_clasificar', importe: sinClas },
+    { k: 'apertura', importe: apertura },
+    { k: 'transferencias', importe: transf - acredFecha },
+    { k: 'otros', importe: otrosT, tipos: otros },
+    { k: 'anulaciones', importe: todos - vivos },
+    { k: 'sin_explicar', importe: sinExplicar },
+  ].map(x => ({ ...x, importe: t(x.importe) }));
+  // Control: resultado + renglones = variación de las cuentas (por construcción; si no, hay un error de cálculo, no de datos).
+  const controlCuadra = R + renglones.reduce((s, x) => s + c(x.importe), 0n) === todos;
+  res.json({ ok: true, desde, hasta, resultado: t(R), renglones, variacion: t(todos), cuadra: controlCuadra,
+    cuentas: cuentas.rows, deuda: deuda.rows[0] });
+}));
+
 Object.assign(r, { aplicarReglas, crearRegla, rubroValido });
 module.exports = r;
