@@ -450,7 +450,11 @@ function abrirDiaPlan(dia) {
 async function cargarFlujo() {
   if (!$('#tDesde').value || !$('#tHasta').value) return;
   msg('Cargando…', '', '#msgT0');
-  try { flujo = await api('fin/tesoreria/tablero?' + baseFlujo()); msg('', '', '#msgT0'); pintarTablero(); if (!$('#detalle').hidden) cargarMovs(); }
+  try {
+    // Con un período que termina antes de hoy, las cuentas de abajo van con su saldo al "hasta" (Fer, 19/11/2026).
+    const h = $('#tHasta').value;
+    [flujo, cuentasAl] = await Promise.all([api('fin/tesoreria/tablero?' + baseFlujo()), h < hoy() ? api('fin/cuentas?al=' + h).then(r => r.cuentas) : null]);
+    msg('', '', '#msgT0'); pintarTablero(); if (!$('#detalle').hidden) cargarMovs(); }
   catch (e) { msg(e.message, 'mal', '#msgT0'); }
 }
 $('#filial').onchange = () => elegirFilial($('#filial').value);
@@ -473,9 +477,10 @@ function abrirVista(v) {
 const kpiB = (card, v) => { card.classList.add('kpi-b'); if (v === vista) card.classList.add('act'); card.tabIndex = 0; card.setAttribute('role', 'button');
   card.dataset.v = v; card.onclick = () => abrirVista(v); card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirVista(v); } }; return card; };
 
+let cuentasAl = null;
 function pintarTablero() {
   const f = flujo, a = f.anterior;
-  const todas = cuentas.filter(c => c.activa);
+  const todas = (cuentasAl || cuentas).filter(c => c.activa), hoyTodas = cuentas.filter(c => c.activa);
   // Las sociedades que tienen alguna cuenta, con su nombre; las del grupo (sin sociedad) al final.
   const antes = filial, fs = opcionesFilial();
   if (antes !== filial) return cargarFlujo();
@@ -484,8 +489,9 @@ function pintarTablero() {
 
   // Lo de hoy, de la filial (o de todas): disponible por tipo, por acreditar (repartido por punto de venta) y efectivo a rendir.
   const activas = filial ? todas.filter(c => filialDe(c) === filial) : todas;
-  const aAcreditar = filial ? acreditarDe(todas, filial) : todas.filter(c => c.tipo === 'cobranza');
-  const efectivoPV = activas.filter(c => c.punto_venta);
+  // Por acreditar y efectivo a rendir son de hoy (sus vistas explican lo de hoy); el disponible y las cuentas, al "hasta".
+  const aAcreditar = filial ? acreditarDe(hoyTodas, filial) : hoyTodas.filter(c => c.tipo === 'cobranza');
+  const efectivoPV = (filial ? hoyTodas.filter(c => filialDe(c) === filial) : hoyTodas).filter(c => c.punto_venta);
   const disponibles = disponiblesDe(activas);
   const cheques = suma(activas, 'cheques_pendientes');
   // Series por día del período (y del anterior, para comparar): saldo al cierre, entradas y salidas.
@@ -500,8 +506,8 @@ function pintarTablero() {
     kpiB(kpiVar(hastaHoy ? 'Disponible hoy' : `Disponible al ${fecha(hasta)}`, pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
     kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'entradas'),
     kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'salidas'),
-    kpiB(kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
-    kpiB(kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
+    kpiB(kpiSimple(hastaHoy ? 'Por acreditar' : 'Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
+    kpiB(kpiSimple(hastaHoy ? 'Efectivo a rendir' : 'Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
     cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
   mostrarVista(); pintarChips();
 }
@@ -908,8 +914,8 @@ function pintarEfectivo() {
 
 // "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.
 // Préstamos de socios (11/11/2026): no es disponible; su saldo negativo es lo que se les debe a los socios.
-// Las cuentas de abajo van con su saldo de hoy: con un período que termina antes, se avisa.
-const deHoy = () => ctx && !ctx.hastaHoy ? `Saldos de hoy, no al ${fecha(ctx.hasta)}. ` : '';
+// Las cuentas de abajo van con su saldo al "hasta": con un período que termina antes de hoy, se dice a qué fecha.
+const deHoy = () => ctx && !ctx.hastaHoy ? `Saldos al ${fecha(ctx.hasta)}. ` : '';
 function grupoSocios(todas) {
   const cs = todas.filter(c => c.tipo === 'socios');
   if (!cs.length) return null;

@@ -18,10 +18,14 @@ const nroComp = c => `${{ factura: 'FC', nota_debito: 'ND', nota_credito: 'NC' }
 const importe = (v, campo) => monto(v, { campo, requerido: true, positivo: true });
 
 // ── Cuentas ──────────────────────────────────────────────────────────────────────────────────
+// ?al=AAAA-MM-DD: el saldo de cada cuenta a esa fecha (el tablero por período, Fer 19/11/2026); lo demás, de hoy.
 r.get('/fin/cuentas', h(async (req, res) => {
+  const al = fecha(req.query.al, { campo: 'La fecha' });
   const { rows } = await pool.query(
     `SELECT c.id, c.nombre, c.tipo, c.sede_id, s.nombre AS sede, c.sociedad_id, so.nombre AS sociedad, c.banco, c.numero, c.cbu, c.alias, c.activa,
-            sc.saldo::text, sc.ultimo_movimiento,
+            CASE WHEN $1::date IS NULL THEN sc.saldo
+                 ELSE (SELECT COALESCE(SUM(m.entrada - m.salida), 0) FROM fin.movimiento_tes m WHERE m.cuenta_id = c.id AND m.fecha <= $1::date) END::text AS saldo,
+            sc.ultimo_movimiento,
             COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0)::text AS cheques_pendientes,
             (sc.saldo - COALESCE((SELECT SUM(importe) FROM fin.cheque ch WHERE ch.cuenta_id = c.id AND ch.tipo = 'propio' AND ch.estado = 'emitido'), 0))::text AS proyectado,
             (SELECT COUNT(*)::int FROM fin.extracto_linea l WHERE l.cuenta_id = c.id AND l.compensa_a IS NULL AND l.descartada IS NULL
@@ -33,7 +37,7 @@ r.get('/fin/cuentas', h(async (req, res) => {
        FROM fin.cuenta c
        JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id
        LEFT JOIN org.sede s ON s.id = c.sede_id LEFT JOIN org.sociedad so ON so.id = c.sociedad_id
-      ORDER BY c.activa DESC, CASE c.tipo WHEN 'banco' THEN 1 WHEN 'caja' THEN 2 ELSE 3 END, s.nombre NULLS FIRST, c.nombre`);
+      ORDER BY c.activa DESC, CASE c.tipo WHEN 'banco' THEN 1 WHEN 'caja' THEN 2 ELSE 3 END, s.nombre NULLS FIRST, c.nombre`, [al]);
   res.json({ ok: true, cuentas: rows });
 }));
 
