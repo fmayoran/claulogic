@@ -497,7 +497,7 @@ function pintarTablero() {
   const sa = serieDe(f), sp = serieDe(a), hastaHoy = hasta >= hoy();
   ctx = { todas, fs, activas, aAcreditar, efectivoPV, disponibles, sa, sp, hasta, hastaHoy };
   $('#kpis').replaceChildren(
-    kpiB(kpiVar(hastaHoy ? 'Disponible' : 'Disponible al cierre', pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
+    kpiB(kpiVar(hastaHoy ? 'Disponible hoy' : `Disponible al ${fecha(hasta)}`, pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
     kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'entradas'),
     kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'salidas'),
     kpiB(kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
@@ -530,7 +530,8 @@ function pintarDisponible() {
   const desc = f.donde.filter(c => n(c.saldo) < 0);
   $('#descubierto').hidden = !desc.length;
   $('#descubierto').textContent = desc.length ? 'En descubierto (no entra en el gráfico): ' + desc.map(c => `${c.nombre} ${pesos(c.saldo)}`).join(', ') + '.' : '';
-  $('#capSaldo').textContent = 'Saldo de bancos y cajas al cierre de cada día. Tocá un día para ver sus movimientos.'
+  // Los saldos son una foto al "hasta"; el período sólo cambia lo que va por día (Fer, 19/11/2026).
+  $('#capSaldo').textContent = `Saldo de bancos y cajas al cierre de cada día del período elegido. El disponible y dónde está van ${hastaHoy ? 'a hoy' : 'al ' + fecha(hasta)}: el "desde" sólo cambia este gráfico y las entradas y salidas. Tocá un día para ver sus movimientos.`
     + (n(f.apertura) ? ` Incluye ${pesos(f.apertura)} de saldos de apertura de extractos, que no son entradas.` : '');
   Graf.area($('#gSaldo'), {
     etiquetas: sa.dias, ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
@@ -540,7 +541,7 @@ function pintarDisponible() {
   });
   if (!filial) return resumenFiliales(todas, fs);
   const bancos = disponibles.filter(c => c.tipo === 'banco'), cajas = disponibles.filter(c => c.tipo === 'caja');
-  const g = [grupo('Cuentas', pesosC(suma(disponibles)), `Bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}. También las cuentas donde depositan los procesadores. Tocá una para ver sus movimientos.`,
+  const g = [grupo('Cuentas', pesosC(suma(disponibles)), deHoy() + `Bancos ${pesosC(suma(bancos))} · cajas ${pesosC(suma(cajas))}. También las cuentas donde depositan los procesadores. Tocá una para ver sus movimientos.`,
     ...disponibles.map(c => filaCuenta(c, [c.tipo === 'banco' ? 'Banco' : 'Caja', c.procesador_deposita && `deposita ${c.procesador_deposita}`, tagSinConc(c),
       !cero(c.cheques_pendientes) && el('span', { className: 'tag', textContent: `cheques a debitar ${pesos(c.cheques_pendientes)}` })],
       !cero(c.cheques_pendientes) ? `proyectado ${pesos(c.proyectado)}` : null)))];
@@ -907,16 +908,18 @@ function pintarEfectivo() {
 
 // "Todas": una fila por filial con lo disponible, lo por acreditar y el efectivo a rendir hoy; tocarla la abre.
 // Préstamos de socios (11/11/2026): no es disponible; su saldo negativo es lo que se les debe a los socios.
+// Las cuentas de abajo van con su saldo de hoy: con un período que termina antes, se avisa.
+const deHoy = () => ctx && !ctx.hastaHoy ? `Saldos de hoy, no al ${fecha(ctx.hasta)}. ` : '';
 function grupoSocios(todas) {
   const cs = todas.filter(c => c.tipo === 'socios');
   if (!cs.length) return null;
   const debe = -suma(cs);
-  return grupo('Préstamos de socios', pesosC(debe > 0n ? debe : 0n), 'Lo que los socios pusieron de su bolsillo y se les debe. No suma al disponible. Tocala para ver los movimientos.',
+  return grupo('Préstamos de socios', pesosC(debe > 0n ? debe : 0n), deHoy() + 'Lo que los socios pusieron de su bolsillo y se les debe. No suma al disponible. Tocala para ver los movimientos.',
     ...cs.map(c => filaCuenta(c, ['Gastos que pagaron los socios; devolverles es una transferencia a esta cuenta'])));
 }
 function resumenFiliales(todas, fs) {
   const de = id => todas.filter(c => filialDe(c) === id), ef = cs => cs.filter(c => c.punto_venta);
-  $('#grupos').replaceChildren(grupo('Por sociedad', null, 'Hoy. Tocá una para ver sus cuentas.',
+  $('#grupos').replaceChildren(grupo('Por sociedad', null, (deHoy() || 'Hoy. ') + 'Tocá una para ver sus cuentas.',
     el('div', { className: 'tabla-wrap' }, el('table', { className: 'datos movil' },
       el('thead', {}, el('tr', {}, el('th', { textContent: 'Sociedad' }), el('th', { className: 'num', textContent: 'Disponible' }),
         el('th', { className: 'num', textContent: 'Por acreditar' }), el('th', { className: 'num', textContent: 'Efectivo a rendir' }), el('th', { textContent: 'Sin conciliar' }))),
