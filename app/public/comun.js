@@ -921,7 +921,9 @@ function opcionesConAlta(select, items, valor, vacio, { texto, alta }) {
     select.value = select.dataset.previo || '';
     const nuevo = await select._alta();
     if (!nuevo) return;
-    select.insertBefore(el('option', { value: nuevo[0], textContent: nuevo[1] }), select.querySelector(`option[value="${ALTA}"]`));
+    // Si ya estaba (el alta encontró uno existente), no se repite.
+    if (![...select.options].some(o => o.value === String(nuevo[0])))
+      select.insertBefore(el('option', { value: nuevo[0], textContent: nuevo[1] }), select.querySelector(`option[value="${ALTA}"]`));
     select.value = select.dataset.previo = nuevo[0];
     select.dispatchEvent(new Event('change', { bubbles: true }));
   }, true);

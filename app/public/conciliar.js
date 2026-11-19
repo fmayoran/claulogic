@@ -223,7 +223,15 @@ const Conc = (() => {
         try {
           const r = await api('fin/rubros', { method: 'POST', body: { nombre: nombre.value, linea: linea.value, del_centro: centro.checked } });
           await rubros(true); listo([r.id, r.nombre, r.del_centro]); dlg.remove();
-        } catch (err) { msg(err.message, 'mal', msgR); }
+        } catch (err) {
+          // Si ya existe (19/11/2026: "Fiambres y Embutidos" estaba como "Mercadería · Fiambres y embutidos" y el diálogo no decía nada),
+          // se elige el que hay.
+          const sinAc = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          const ya = /^Ya existe el rubro "(.+)"\.$/.exec(err.message);
+          const r = ya && (await rubros(true)).find(x => sinAc(x.nombre) === sinAc(ya[1]));
+          if (r) { avisoFlotante(`Ya existía "${r.nombre}": quedó elegido.`, 'aviso'); listo([r.id, r.nombre, r.del_centro]); dlg.remove(); return; }
+          msgR.textContent = err.message; msgR.className = 'msg mal';
+        }
       };
       dlg.addEventListener('close', () => { listo(null); dlg.remove(); });
       document.body.append(dlg); dlg.showModal(); nombre.focus();
