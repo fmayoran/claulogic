@@ -1141,7 +1141,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   ($2.396.438,25) es una transferencia desde PRÉSTAMOS DE SOCIOS, y también los 54 ingresos que estaban "no se tienen en cuenta" (cobros de
   ventas de septiembre, ingresos anteriores al 04/10: $4.570.000), la reserva al apartado del 13/10 y lo que volvió del apartado (el
   apartado quedó en cero) y los 11 egresos de octubre que no se identificaron. Con eso la cuenta cierra al centavo con Mercado Pago al
-  18/11, salvo las líneas de noviembre sin registrar.
+  18/11, salvo las líneas de noviembre sin registrar. PedidosYa SORELLE en SANTANDER (migración 20261164): la semana del 28/09
+  ya no es "fuera de la gestión" (también se depositó) y los pagos del 16/10, 23/10 y 30/10 están confirmados; SANTANDER al 31/10 da
+  $7.972.853,47 (sin extracto: no tiene salidas registradas). Noviembre, sin confirmar.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)
