@@ -1143,7 +1143,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   apartado quedó en cero) y los 11 egresos de octubre que no se identificaron. Con eso la cuenta cierra al centavo con Mercado Pago al
   18/11, salvo las líneas de noviembre sin registrar. PedidosYa SORELLE en SANTANDER (migración 20261164): la semana del 28/09
   ya no es "fuera de la gestión" (también se depositó) y los pagos del 16/10, 23/10 y 30/10 están confirmados; SANTANDER al 31/10 da
-  $7.972.853,47 (sin extracto: no tiene salidas registradas). Noviembre, sin confirmar.
+  $7.972.853,47 (sin extracto: no tiene salidas registradas). Noviembre, sin confirmar. Cierre de octubre (migraciones 20261165 a 20261168, Fer 19/11/2026): SANTANDER al 31/10, las cajas
+  en negativo, los préstamos depositados en BRUBANK en octubre (antes "Aportes") y la parte de la recaudación de Pago24 del 05/10 que no
+  llegó a BRUBANK, todo contra PRÉSTAMOS DE SOCIOS. Al 31/10 las cuentas (deuda con socios −$41.215.516 incluida) = resultado acumulado
+  (−$20.055.184) + $325.755 de diferencias de fecha (costos de cobro de octubre descontados en noviembre). Noviembre, sin tocar.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
 ### Tablero (fase 5, 21/10/2026)
