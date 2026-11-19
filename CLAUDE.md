@@ -856,7 +856,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cada una con importe, proveedor, rubro y local (`POST /fin/conciliacion/partes`: un egreso clasificado por parte, todos conciliados con
   la línea; en pesos enteros, los centavos de la línea van a la última). Con proveedor, cada parte lleva su comprobante X pagado. Una parte
   puede ser una **transferencia a otra cuenta propia** (banco, caja o préstamos de socios: "Transferencia a …" al principio de la lista del
-  rubro; `cuenta_id` en la parte): se asientan las dos patas con la fecha de la línea y la de la otra cuenta espera su extracto.
+  rubro; `cuenta_id` en la parte): se asientan las dos patas con la fecha de la línea y la de la otra cuenta espera su extracto. **La línea entera** también puede ser una transferencia
+  (Fer, 19/11/2026: lo que no se identifica va contra PRÉSTAMOS DE SOCIOS): las mismas opciones "Transferencia a …" encabezan el rubro de
+  cada fila, que deshabilita proveedor y local, y se registra por `/fin/conciliacion/partes` con una sola parte.
   **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
   un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
   encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.

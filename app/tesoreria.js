@@ -1286,7 +1286,7 @@ r.post('/fin/conciliacion', h(async (req, res) => {
 r.post('/fin/conciliacion/partes', h(async (req, res) => {
   const b = req.body, linea = numero(b.linea_id, { campo: 'la línea', requerido: true });
   const partes = Array.isArray(b.partes) ? b.partes : [];
-  if (partes.length < 2 || partes.length > 30) throw new ErrorUsuario('Dividí la línea en entre 2 y 30 partes.');
+  if (partes.length < 1 || partes.length > 30) throw new ErrorUsuario('Dividí la línea en hasta 30 partes.');
   const movs = await enTransaccion(async c => {
     const { rows: [l] } = await c.query(
       `SELECT l.*, EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.linea_id = l.id) AS conciliada FROM fin.extracto_linea l WHERE l.id = $1 FOR UPDATE`, [linea]);

@@ -187,7 +187,11 @@ async function pintarGrilla() {
   const central = sedes.find(x => x.es_central);
   filasG = lineas.map(l => {
     const rub = el('select', { ariaLabel: 'Rubro' });
-    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
+    opcionesConAlta(rub, rubros.map(r => [r.id, r.nombre]), null, 'Rubro o transferencia…', { texto: '+ Agregar rubro nuevo…', alta: () => altaRubro(rub) });
+    // La línea entera puede ser una transferencia a otra cuenta propia (Fer, 19/11/2026: lo que no se identifica va contra
+    // PRÉSTAMOS DE SOCIOS): primero en la lista del rubro, como en las partes.
+    for (const c of cuentasPropias.filter(c => c.id !== l.cuenta_id).reverse())
+      rub.insertBefore(el('option', { value: 'tr:' + c.id, textContent: `Transferencia a ${c.nombre}` }), rub.options[1] || null);
     const sede = el('select', { ariaLabel: 'Local' }); opciones(sede, sedes.map(x => [x.id, x.nombre]), null, 'Según la cuenta');
     const prov = comboProveedor(l);
     const ok = el('button', { type: 'button', className: 'chico', textContent: 'Registrar' });
@@ -217,8 +221,10 @@ async function pintarGrilla() {
     acc.append(div);
     f.fila = el('div', { className: 'eg' }, ...celdas, comboBuscable(prov), comboBuscable(rub), sede, acc);
     rub.onchange = () => {
-      const r = rubros.find(x => x.id === rub.value);
-      if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false;
+      const tr = rub.value.startsWith('tr:'), r = rubros.find(x => x.id === rub.value);
+      // Una transferencia no lleva proveedor ni local.
+      if (tr) { prov.value = ''; sede.value = ''; } prov.disabled = tr; if (prov._sync) prov._sync();
+      if (tr) sede.disabled = true; else if (r && r.del_centro && central) { sede.value = central.id; sede.disabled = true; } else sede.disabled = false;
       contar();
     };
     ok.onclick = () => registrar(f).catch(e => msg(e.message, 'mal', '#msgG'));
@@ -393,6 +399,16 @@ async function registrar(f) {
   const nombre = v === NUEVO ? f.prov.dataset.sugerido : existente ? existente.nombre : '';
   const concepto = nombre || [f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ') || 'Egreso';
   f.ok.disabled = true;
+  if (f.rub.value.startsWith('tr:')) {
+    // Transferencia a otra cuenta propia: las dos patas con la fecha de la línea, conciliada la de esta cuenta.
+    const c = cuentasPropias.find(x => 'tr:' + x.id === f.rub.value);
+    try {
+      await api('fin/conciliacion/partes', { method: 'POST', body: { linea_id: f.l.id,
+        partes: [{ importe: String(f.l.importe).slice(1).split('.')[0], cuenta_id: c.id, concepto: `Transferencia a ${c.nombre} · ${[f.l.concepto, f.l.destinatario].filter(Boolean).join(' · ')}` }] } });
+      quitar(f, `Transferido a ${c.nombre}`);
+    } finally { f.ok.disabled = false; contar(); }
+    return;
+  }
   try {
     const r = await api('fin/conciliacion', { method: 'POST',
       body: { linea_id: f.l.id, crear: { concepto, rubro_id: f.rub.value, sede_id: f.sede.disabled ? null : f.sede.value || null } } });
