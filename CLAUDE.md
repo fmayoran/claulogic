@@ -1146,8 +1146,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   $7.972.853,47 (sin extracto: no tiene salidas registradas). Noviembre, sin confirmar. Cierre de octubre (migraciones 20261165 a 20261168, Fer 19/11/2026): SANTANDER al 31/10, las cajas
   en negativo, los préstamos depositados en BRUBANK en octubre (antes "Aportes") y la parte de la recaudación de Pago24 del 05/10 que no
   llegó a BRUBANK, todo contra PRÉSTAMOS DE SOCIOS. Saldo real con los socios al 31/10: $27.013.155 (Fer); la diferencia salió del gasto sin detalle de
-  septiembre, que bajó a $2.664.241,28 (migración 20261170): septiembre de CORTAFUEGO da −$2.664.241,28 y la deuda inicial con los
-  socios $5.504.358,36. Al 31/10 las cuentas = resultado acumulado + $325.755 de diferencias de fecha (costos de cobro de octubre
+  septiembre, que bajó a $2.664.241,28 (migración 20261170): septiembre de CORTAFUEGO da −$2.664.241,28 y la deuda con los socios al
+  30/09 $7.900.796,61 (ese gasto más los saldos de apertura de los bancos de CORTAFUEGO y de MERCADO PAGO SORELLE; el comentario de la
+  migración dice $5.504.358,36 porque no cuenta los saldos de apertura). Al 31/10 las cuentas = resultado acumulado + $325.755 de diferencias de fecha (costos de cobro de octubre
   descontados en noviembre). Noviembre, sin tocar.
 - Siguen: el costo de mercadería cuando estén los platos; consolidado y gastos de la central.
 
