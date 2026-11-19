@@ -636,14 +636,26 @@ const rangoFechas = (d, h, futuro) => d === h ? `${futuro ? 'el ' : ''}${fecha(d
 const pagosDe = xs => xs.reduce((s, x) => s + x.pagos, 0);
 let detAcr = [];
 async function pintarAcreditar() {
+  // Con un período que termina antes de hoy (Fer, 19/11/2026: al 30/09 mostraba lo de PedidosYa de hoy): sólo lo que había en cada
+  // cuenta "a acreditar" a esa fecha. Por qué no llegó y cuándo entra se calculan para hoy, con el período en curso.
+  if (!ctx.hastaHoy) {
+    const xs = ctx.aAcreditar.filter(c => !cero(c.saldo));
+    $('#tAcr').textContent = `Por acreditar al ${fecha(ctx.hasta)}: ${pesosC(suma(ctx.aAcreditar))}`;
+    $('#capAcr').textContent = 'Lo cobrado que a esa fecha todavía no había llegado a la cuenta donde deposita cada procesador. '
+      + 'Por qué no llegó y cuándo entra se ven con un período que llegue a hoy (por ejemplo, "Este mes").';
+    $('#acrEstados').replaceChildren();
+    $('#acr').replaceChildren(...(xs.length ? xs.map(c => filaCuenta(c, [c.procesador_pendiente ? `de ${c.procesador_pendiente}` : 'Cobranza']))
+      : [el('p', { className: 'g-vacio', textContent: `No había nada por acreditar al ${fecha(ctx.hasta)}.` })]));
+    $('#cCuando').hidden = true;
+    return;
+  }
   if (!datos.pc) { msg('Cargando lo por acreditar…', '', '#msgT0'); datos.pc = await api('fin/tesoreria/por-cobrar?por_sede=1&detalle=1'); msg('', '', '#msgT0'); }
   if (vista !== 'acreditar') return;
-  const pc = datos.pc, { aAcreditarHoy, aAcreditar, hastaHoy, hasta } = ctx;
+  const pc = datos.pc, { aAcreditarHoy } = ctx;
   const det = detAcr = pc.detalle.filter(d => !filial || (d.sociedad_id || SIN) === filial);
   const total = suma(aAcreditarHoy);
-  $('#tAcr').textContent = hastaHoy ? `Por acreditar: ${pesosC(total)}` : `Por acreditar hoy: ${pesosC(total)}`;
-  $('#capAcr').textContent = (hastaHoy ? '' : `El detalle es de hoy, no del período elegido (al ${fecha(hasta)} había ${pesosC(suma(aAcreditar))} por acreditar). `)
-    + 'Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.';
+  $('#tAcr').textContent = `Por acreditar: ${pesosC(total)}`;
+  $('#capAcr').textContent = 'Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.';
   const estados = ESTADOS_ACR.filter(([k]) => det.some(d => d.estado === k));
   // Arriba, cuánto hay en cada estado; tocar uno abre su detalle.
   $('#acrEstados').replaceChildren(...estados.map(([k, t]) => {
