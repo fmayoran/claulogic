@@ -388,8 +388,9 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   flujo; se retoma cuando lo operativo esté aceitado.
 - **Saldos a una fecha en "Lo que pasó"** (Fer, 19/11/2026): el disponible y dónde está son una foto al "hasta" (la cifra dice "Disponible hoy"
   o "Disponible al dd/mm/aaaa"); el "desde" sólo cambia lo que va por día (disponible por día, entradas y salidas). Las listas de cuentas
-  de abajo (por sociedad, cuentas, préstamos de socios) van con el saldo al "hasta" (`GET /fin/cuentas?al=`); por acreditar y efectivo a
-  rendir siguen siendo de hoy ("Por acreditar hoy"), porque sus vistas explican lo pendiente de hoy.
+  de abajo (por sociedad, cuentas, préstamos de socios) van con el saldo al "hasta" (`GET /fin/cuentas?al=`), y también las cifras de
+  por acreditar y efectivo a rendir ("Por acreditar al 30/09/2026": al 30/09 mostraba lo de PedidosYa de hoy, que no existía). El
+  detalle de Por acreditar (por qué no llegó, cuándo entra) es de hoy y lo dice, con el total de hoy.
 - **Sin conciliar de una cuenta** (pedido de Fer, 19/11/2026): la vista de una cuenta del tablero de tesorería tiene "Todos · Sin conciliar"
   (`#<cuenta>/sin`; tocar la etiqueta "N sin conciliar" abre directo ahí). Sin fechas, todo lo pendiente: las líneas del extracto sin
   movimiento (las que cuenta la etiqueta) y los movimientos del sistema desde el primer extracto que el extracto no trae, con el mismo

@@ -210,7 +210,7 @@
     <div class="vista" id="vAcreditar" hidden>
       <section class="card">
         <div class="card-cab"><h2 id="tAcr">Por acreditar</h2></div>
-        <p class="cap">Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.</p>
+        <p class="cap" id="capAcr">Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.</p>
         <div class="reparto" id="acrEstados"></div>
         <div id="acr"></div>
       </section>
@@ -489,9 +489,11 @@ function pintarTablero() {
 
   // Lo de hoy, de la filial (o de todas): disponible por tipo, por acreditar (repartido por punto de venta) y efectivo a rendir.
   const activas = filial ? todas.filter(c => filialDe(c) === filial) : todas;
-  // Por acreditar y efectivo a rendir son de hoy (sus vistas explican lo de hoy); el disponible y las cuentas, al "hasta".
-  const aAcreditar = filial ? acreditarDe(hoyTodas, filial) : hoyTodas.filter(c => c.tipo === 'cobranza');
-  const efectivoPV = (filial ? hoyTodas.filter(c => filialDe(c) === filial) : hoyTodas).filter(c => c.punto_venta);
+  // Todo al "hasta" (19/11/2026: al 30/09 mostraba lo por acreditar de hoy de PedidosYa, que todavía no existía). El detalle de
+  // por acreditar (por qué no llegó) es de hoy: su vista lo dice y muestra también el total de hoy.
+  const aAcreditar = filial ? acreditarDe(todas, filial) : todas.filter(c => c.tipo === 'cobranza');
+  const aAcreditarHoy = filial ? acreditarDe(hoyTodas, filial) : hoyTodas.filter(c => c.tipo === 'cobranza');
+  const efectivoPV = activas.filter(c => c.punto_venta);
   const disponibles = disponiblesDe(activas);
   const cheques = suma(activas, 'cheques_pendientes');
   // Series por día del período (y del anterior, para comparar): saldo al cierre, entradas y salidas.
@@ -501,13 +503,13 @@ function pintarTablero() {
     return { dias: ds, saldo: ds.map(d => (s += n((por.get(d) || {}).neto))), ent: ds.map(d => n((por.get(d) || {}).entradas)), sal: ds.map(d => n((por.get(d) || {}).salidas)) };
   };
   const sa = serieDe(f), sp = serieDe(a), hastaHoy = hasta >= hoy();
-  ctx = { todas, fs, activas, aAcreditar, efectivoPV, disponibles, sa, sp, hasta, hastaHoy };
+  ctx = { todas, fs, activas, aAcreditar, aAcreditarHoy, efectivoPV, disponibles, sa, sp, hasta, hastaHoy };
   $('#kpis').replaceChildren(
     kpiB(kpiVar(hastaHoy ? 'Disponible hoy' : `Disponible al ${fecha(hasta)}`, pesos(f.saldo_final), f.saldo_final, a.saldo_final, sa.saldo), 'disponible'),
     kpiB(kpiVar('Entradas', pesos(f.entradas), f.entradas, a.entradas, sa.ent), 'entradas'),
     kpiB(kpiVar('Salidas', pesos(f.salidas), f.salidas, a.salidas, sa.sal, true), 'salidas'),
-    kpiB(kpiSimple(hastaHoy ? 'Por acreditar' : 'Por acreditar hoy', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
-    kpiB(kpiSimple(hastaHoy ? 'Efectivo a rendir' : 'Efectivo a rendir hoy', pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
+    kpiB(kpiSimple(hastaHoy ? 'Por acreditar' : `Por acreditar al ${fecha(hasta)}`, pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'), 'acreditar'),
+    kpiB(kpiSimple(hastaHoy ? 'Efectivo a rendir' : `Efectivo a rendir al ${fecha(hasta)}`, pesosC(suma(efectivoPV)), efectivoPV.length === 1 ? 'en 1 punto de venta' : `en ${efectivoPV.length} puntos de venta`), 'efectivo'),
     cheques ? kpiB(kpiSimple('Cheques propios a debitar', pesosC(cheques), `disponible proyectado ${pesosC(suma(disponibles) - cheques)}`), 'disponible') : '');
   mostrarVista(); pintarChips();
 }
@@ -636,10 +638,12 @@ let detAcr = [];
 async function pintarAcreditar() {
   if (!datos.pc) { msg('Cargando lo por acreditar…', '', '#msgT0'); datos.pc = await api('fin/tesoreria/por-cobrar?por_sede=1&detalle=1'); msg('', '', '#msgT0'); }
   if (vista !== 'acreditar') return;
-  const pc = datos.pc, { aAcreditar } = ctx;
+  const pc = datos.pc, { aAcreditarHoy, aAcreditar, hastaHoy, hasta } = ctx;
   const det = detAcr = pc.detalle.filter(d => !filial || (d.sociedad_id || SIN) === filial);
-  const total = suma(aAcreditar);
-  $('#tAcr').textContent = `Por acreditar: ${pesosC(total)}`;
+  const total = suma(aAcreditarHoy);
+  $('#tAcr').textContent = hastaHoy ? `Por acreditar: ${pesosC(total)}` : `Por acreditar hoy: ${pesosC(total)}`;
+  $('#capAcr').textContent = (hastaHoy ? '' : `El detalle es de hoy, no del período elegido (al ${fecha(hasta)} había ${pesosC(suma(aAcreditar))} por acreditar). `)
+    + 'Lo cobrado que todavía no llegó a la cuenta donde deposita cada procesador, según por qué. Tocá un importe para ver el detalle.';
   const estados = ESTADOS_ACR.filter(([k]) => det.some(d => d.estado === k));
   // Arriba, cuánto hay en cada estado; tocar uno abre su detalle.
   $('#acrEstados').replaceChildren(...estados.map(([k, t]) => {
