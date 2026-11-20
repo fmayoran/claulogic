@@ -233,7 +233,7 @@ function listaDias(ds) {
 }
 
 // ── Estado de cada paso: se deduce de lo que hay, como la bandeja de abastecimiento ──
-const tareasVentas = p => p.tareas.filter(t => ['corrida', 'importar', 'dia'].includes(t.tipo));
+const tareasVentas = p => p.tareas.filter(t => ['corrida', 'importar', 'dia', 'peya'].includes(t.tipo));
 function estadoPasos() {
   const nVentas = puntos.reduce((s, p) => s + tareasVentas(p).length, 0);
   const efectivo = puntos.reduce((s, p) => s + (centavos(p.efectivo_a_rendir) > 0n ? centavos(p.efectivo_a_rendir) : 0n), 0n);
@@ -281,7 +281,11 @@ async function irPaso(k, { recargar = false } = {}) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 // Después de una acción: se recargan los datos y se repinta el mismo paso (y los estados de la barra).
-async function refrescar() { await cargarDatos(); pintarPasos(); await PINTAR[paso](); }
+async function refrescar() { peyaPend = null; await cargarDatos(); pintarPasos(); await PINTAR[paso](); }
+// PedidosYa integrado al sistema de venta (CORTAFUEGO desde el 17/11/2026): los pedidos que no encontraron su venta y las ventas
+// cobradas con PedidosYa sin su pedido. Se pide una vez por pintada.
+let peyaPend = null;
+const pendientesPeya = () => peyaPend ||= api('pos/peya/pendientes').then(d => d.locales).catch(() => []);
 
 // ── 1. Ventas ──
 function textoSincronizacion(p) {
@@ -584,6 +588,8 @@ function importadorPeya(grupo, clave) {
       el('p', { className: 'ok-peya', textContent: `Importado ${d.desde === d.hasta ? 'el ' + fecha(d.desde) : `del ${fecha(d.desde)} al ${fecha(d.hasta)}`}.` }),
       el('div', { className: 'cifras-b' },
         cifra('Pedidos nuevos', String(d.nuevos || 0), d.repetidos ? `${d.repetidos} ya estaban` : null),
+        d.principal ? cifra('Con su venta en el sistema', String(d.principal.emparejados), (d.principal.ya ? `${d.principal.ya} ya estaban emparejados` : '')
+          + (d.principal.pendientes ? `${d.principal.ya ? ' · ' : ''}${d.principal.pendientes} sin su venta, abajo` : '') || 'emparejados con las ventas') : '',
         ...(varios && d.locales ? d.locales.map(x => cifra(grupo.find(p => p.id === x.id)?.sede || x.nombre, String(x.nuevos), x.repetidos ? `${x.repetidos} ya estaban` : 'nuevos')) : []),
         c ? cifra('Días cobrados solos', String(c.procesados.length), c.revisar.length ? `${c.revisar.length} para revisar, abajo` : 'ninguno para revisar') : cifra('Cobros', 'sin procesar', 'los procesa finanzas'),
         afuera ? cifra('Quedaron afuera', afuera, 'el día en curso y lo no entregado no se importa') : ''),
@@ -741,6 +747,40 @@ async function tareaVenta(p, t, { agrupado = false } = {}) {
         try { await api(`pos/jornadas/${p.id}/${dia}/cobros`, { method: 'POST', body: { motivo: motivo.value.trim() } }); msg(`${fecha(dia)} cobrado con la diferencia.`, 'ok'); await refrescar(); }
         catch (e) { msg(e.message, 'mal'); }
       }, true), ir('procesar-ventas.html#' + p.id, 'Ver el día')));
+  } else if (t.clase === 'peya_pendientes') {
+    // Cada pedido con las ventas del sistema que pueden ser (sin pedido, del mismo día o el de al lado, las más cercanas en hora primero).
+    const loc = (await pendientesPeya()).find(x => x.id === p.id);
+    for (const pp of loc ? loc.pedidos : []) {
+      const s = el('select', { 'aria-label': 'Venta del sistema' }, el('option', { value: '', textContent: pp.candidatas.length ? 'Elegí la venta…' : 'No hay ventas sin pedido cerca' }),
+        ...pp.candidatas.map(v => el('option', { value: v.id, textContent: `#${v.nro} · ${fecha(v.abierto_en.slice(0, 10))} ${hora(v.abierto_en)} · ${pesos(v.total)}`
+          + (v.pagos_peya ? '' : ' · sin pago de PedidosYa') })));
+      caja.append(el('div', { className: 'renglon' }, el('b', { textContent: `Pedido ${pp.nro}` }),
+        el('span', { className: 'mut', textContent: `${fecha(pp.dia)} ${hora(pp.abierto_en)} · ${pesos(pp.total)}` }), s,
+        boton('Emparejar', async () => {
+          if (!s.value) { s.focus(); return msg('Elegí la venta del sistema de venta.', 'mal'); }
+          try { await api(`pos/peya/pendientes/${pp.id}/emparejar`, { method: 'POST', body: { ticket_id: s.value } }); msg(`Pedido ${pp.nro} emparejado.`, 'ok'); await refrescar(); }
+          catch (e) { msg(e.message, 'mal'); }
+        }, true),
+        boton('Es una venta sólo de PedidosYa', async () => {
+          if (!confirm(`¿El pedido ${pp.nro} no está en el sistema de venta? Se crea como venta de PedidosYa.`)) return;
+          try { await api(`pos/peya/pendientes/${pp.id}/venta-propia`, { method: 'POST', body: {} }); msg(`Pedido ${pp.nro}: venta de PedidosYa.`, 'ok'); await refrescar(); }
+          catch (e) { msg(e.message, 'mal'); }
+        })));
+    }
+  } else if (t.clase === 'peya') {
+    // Ventas cobradas con PedidosYa sin su pedido: se completan al importar el archivo; si el pedido no está en el archivo, se cobra
+    // por lo que dice el sistema.
+    acc.append(boton('Importar el archivo de PedidosYa', () => document.querySelector('.imp-peya')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), true));
+    const loc = (await pendientesPeya()).find(x => x.principal_id === p.id);
+    const vs = loc ? loc.ventas.filter(v => (t.dias || []).includes(v.dia)) : [];
+    if (vs.length) caja.append(el('details', { className: 'abiertas' }, el('summary', { textContent: vs.length === 1 ? 'Ver la venta' : `Ver las ventas (${vs.length})` }),
+      ...vs.map(v => el('div', { className: 'renglon' }, el('b', { textContent: `#${v.nro}` }),
+        el('span', { className: 'mut', textContent: `${fecha(v.dia)} ${hora(v.abierto_en)} · ${pesos(v.total)}` }),
+        boton('No está en el archivo: cobrar así', async () => {
+          if (!confirm(`¿El pedido de la venta #${v.nro} no está en el archivo de PedidosYa? Se cobra por lo que dice el sistema, sin los costos del pedido.`)) return;
+          try { await api(`pos/peya/ventas/${v.id}/sin-pedido`, { method: 'POST', body: {} }); msg(`Venta #${v.nro}: se cobra sin el pedido.`, 'ok'); await refrescar(); }
+          catch (e) { msg(e.message, 'mal'); }
+        })))));
   } else if (t.clase === 'medios') {
     // Los medios del sistema que no tienen su medio de pago: se asignan acá y los días se cobran solos al terminar.
     // Sólo los medios de la sociedad del local (y el efectivo).

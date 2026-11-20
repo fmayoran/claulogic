@@ -90,6 +90,11 @@
         <p class="ayuda" id="ayudaPeya">Los pedidos de PedidosYa se importan con el archivo que exporta su portal (Procesar ventas) y suman a las ventas
           de este local. Lo cobrado en línea va a la cuenta de cobro de PedidosYa del local (Medios de pago); un pedido en efectivo, a su
           efectivo a rendir.</p>
+        <label id="peyaDesdeWrap">Los pedidos entran por el sistema de venta desde
+          <input type="date" name="en_principal_desde"></label>
+        <p class="ayuda" id="ayudaPeyaDesde">Si PedidosYa está integrado con el sistema de venta (los pedidos aparecen ahí como delivery), el día en que
+          empezó. Desde ese día el archivo de PedidosYa no crea ventas: cada pedido se empareja con su venta del sistema y le pone el número de
+          pedido, el total parcial (el descuento del local es un costo) y el neto y los costos de PedidosYa. Vacío: el archivo crea las ventas.</p>
       </fieldset>
       <div class="acciones">
         <button type="submit" class="prim" id="guardar">Guardar</button>
@@ -190,7 +195,9 @@ function aplicarTipo() {
   $('#probar').hidden = !pv || !api;
   // PedidosYa se suma a un sistema principal ya guardado.
   $('#peyaWrap').hidden = $('#ayudaPeya').hidden = !pv || !(actual && integDe(actual));
+  $('#peyaDesdeWrap').hidden = $('#ayudaPeyaDesde').hidden = $('#peyaWrap').hidden || !f.pedidosya.checked;
 }
+f.pedidosya.addEventListener('change', aplicarTipo);
 // Probar la conexión con lo que está en la ficha (lo no tipeado sale de lo guardado), sin guardar.
 $('#probar').onclick = async () => {
   const i = actual && integDe(actual), b = $('#probar');
@@ -219,7 +226,7 @@ async function abrir(id) {
   const i = integDe(id);
   f.sistema.value = i ? i.sistema : 'maxirest'; f.modo.value = i ? i.modo : 'archivo'; f.codigo.value = i ? i.codigo || '' : '';
   f.sincroniza_auto.checked = !!(i && i.sincroniza_auto);
-  const py = peyaDe(id); f.pedidosya.checked = !!(py && py.activa);
+  const py = peyaDe(id); f.pedidosya.checked = !!(py && py.activa); f.en_principal_desde.value = (py && py.en_principal_desde) || '';
   f.apiKey.value = f.apiSecret.value = f.mail.value = f.password.value = f.cliente.value = '';
   f.apiKey.placeholder = f.apiSecret.placeholder = f.mail.placeholder = f.password.placeholder = i && i.tiene_credenciales ? 'cargadas (no se muestran)' : '';
   f.cliente.placeholder = i && i.tiene_credenciales ? 'cargado (no se muestra)' : '49502';
@@ -246,9 +253,9 @@ f.onsubmit = async e => {
       await api(ant ? 'pos/integraciones/' + ant.id : 'pos/integraciones', { method: ant ? 'PUT' : 'POST', body: venta });
       // PedidosYa: se da de alta la primera vez que se tilda; destildarlo lo desactiva (sus ventas quedan).
       const py = peyaDe(d.id);
-      if (ant && (py ? py.activa !== f.pedidosya.checked : f.pedidosya.checked))
+      if (ant && (py ? py.activa !== f.pedidosya.checked || (py.en_principal_desde || '') !== f.en_principal_desde.value : f.pedidosya.checked))
         await api(py ? 'pos/integraciones/' + py.id : 'pos/integraciones', { method: py ? 'PUT' : 'POST',
-          body: { sede_id: d.id, sistema: 'pedidosya', modo: 'archivo', activa: f.pedidosya.checked } });
+          body: { sede_id: d.id, sistema: 'pedidosya', modo: 'archivo', activa: f.pedidosya.checked, en_principal_desde: f.en_principal_desde.value || null } });
     }
     actual = d.id; await cargar(); await abrir(d.id); msg('Guardado.', 'ok');
   } catch (e) { msg(e.message, 'mal'); }

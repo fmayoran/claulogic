@@ -101,7 +101,8 @@ r.get('/pos/integraciones', h(async (req, res) => {
             i.credenciales IS NOT NULL AS tiene_credenciales,
             (SELECT COUNT(*)::int FROM pos.articulo_pendiente p WHERE p.integracion_id = i.id) AS articulos_sin_receta,
             (SELECT COUNT(*)::int FROM pos.medio m WHERE m.integracion_id = i.id AND m.cuenta_id IS NULL) AS medios_sin_cuenta,
-            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir, i.sincroniza_auto, i.tiendas
+            i.codigo, i.cuenta_efectivo_id, ce.nombre AS cuenta_efectivo, sce.saldo::text AS efectivo_a_rendir, i.sincroniza_auto, i.tiendas,
+            to_char(i.en_principal_desde, 'YYYY-MM-DD') AS en_principal_desde
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
        JOIN logic.almacen a ON a.id = i.almacen_id JOIN logic.ubicacion u ON u.id = i.ubicacion_id
@@ -125,6 +126,8 @@ function leerIntegracion(b) {
     mail: texto(b.mail), password: texto(b.password), cliente: texto(b.cliente),
     // Por API se traen solas todos los días a las 5:00 (se puede pausar); por archivo, siempre a mano.
     sincroniza_auto: !!b.sincroniza_auto,
+    // PedidosYa integrado al sistema de venta: desde ese día sus pedidos completan las ventas del sistema principal.
+    en_principal_desde: fecha(b.en_principal_desde, { campo: 'Desde cuándo PedidosYa entra por el sistema de venta' }),
   };
   if (!['fudo', 'maxirest', 'otro', 'pedidosya'].includes(i.sistema)) throw new ErrorUsuario('Sistema inválido.');
   if (!['api', 'archivo'].includes(i.modo)) throw new ErrorUsuario('El modo es api o archivo.');
@@ -214,7 +217,8 @@ r.put('/pos/integraciones/:id', h(async (req, res) => {
     const cred = i.modo !== 'api' ? null : nuevas || (ant.sistema === i.sistema ? ant.credenciales : null);
     if (i.modo === 'api' && !cred) throw new ErrorUsuario(faltanCredenciales(i));
     await c.query(`UPDATE pos.integracion SET nombre=$1, sistema=$2, modo=$3, almacen_id=$4, ubicacion_id=$5, activa=$6, credenciales=$7, codigo=$9,
-                          sincroniza_auto=$10 WHERE id=$8`, [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo, i.sincroniza_auto]);
+                          sincroniza_auto=$10, en_principal_desde=$11 WHERE id=$8`,
+      [i.nombre, i.sistema, i.modo, i.almacen_id, i.ubicacion_id, i.activa, cred, ant.id, i.codigo, i.sincroniza_auto, i.sistema === 'pedidosya' ? i.en_principal_desde : null]);
     // La cuenta de efectivo acompaña el nombre del punto de venta.
     if (ant.cuenta_efectivo_id && ant.nombre !== i.nombre && i.sistema !== 'pedidosya')
       await c.query('UPDATE fin.cuenta SET nombre = $1 WHERE id = $2', ['Efectivo · ' + i.nombre, ant.cuenta_efectivo_id]);
@@ -428,9 +432,12 @@ async function sincronizarRango(req, integ, desde, hasta) {
          FROM generate_series($2::date, $3::date, interval '1 day') d
        ON CONFLICT (integracion_id, dia) DO UPDATE SET abiertas = EXCLUDED.abiertas, abiertas_detalle = EXCLUDED.abiertas_detalle, sincronizado_en = now()`,
       [integ.id, desde, hasta, JSON.stringify(datos.abiertas || {}), JSON.stringify(datos.abiertasDetalle || {})]);
-    return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0) };
+    // Los pedidos de PedidosYa que esperaban su venta (PedidosYa integrado al sistema de venta).
+    const peya = await reintentarPendientes(c, req, integ);
+    return { ...o, abiertas: Object.values(datos.abiertas || {}).reduce((a, n) => a + n, 0), peya };
   });
   const cobros = await procesarListos(req, integ, desde, hasta);
+  if (out.peya) { await cobrarDiasPeya(req, out.peya.peya, integ, out.peya); out.peya = { emparejados: out.peya.emparejados, pendientes: out.peya.pendientes }; }
   // Los lotes cuya fecha de liquidación ya llegó se liquidan solos (Fudo Pagos).
   return { ...out, cobros, lotes: await acreditarLotes(req), aviso_liquidacion: avisoLiquidacion };
 }
@@ -748,7 +755,14 @@ async function importarPedidosYa(req, res) {
     const out = [];
     for (const x of destinos) {
       const ts = grupos.get(x.id), fechas = ts.map(t => t.abierto_en.slice(0, 10)).sort();
-      const o = await recibir(c, x, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets: ts });
+      // Con PedidosYa integrado al sistema de venta, los entregados desde esa fecha completan las ventas del sistema en lugar de
+      // crear las suyas; los cancelados y lo anterior entran como siempre.
+      const porPrincipal = x.en_principal_desde ? ts.filter(t => t.estado === 'cerrado' && t.abierto_en.slice(0, 10) >= x.en_principal_desde) : [];
+      const o = await recibir(c, x, 'archivo', { archivo: texto(b.archivo), desde: fechas[0], hasta: fechas.at(-1), tickets: ts.filter(t => !porPrincipal.includes(t)) });
+      if (porPrincipal.length) {
+        const v = await vincularPedidos(c, req, x, porPrincipal, texto(b.archivo));
+        o.principal = { emparejados: v.emparejados, ya: v.ya, pendientes: v.pendientes, dias: v.dias, dias_peya: v.dias_peya };
+      }
       const p = propios(x), medio = p.length === 1 ? p[0] : p.length === 0 && delArchivo.length === 1 ? delArchivo[0] : null;
       await c.query(
         `WITH ef AS (SELECT id FROM fin.medio_pago WHERE tipo_operacion = 'efectivo' AND procesador_id IS NULL AND activo LIMIT 1)
@@ -763,12 +777,276 @@ async function importarPedidosYa(req, res) {
   for (const hch of hechos) {
     const r = await procesarListos(req, hch.integ, hch.desde, hch.hasta);
     if (r) for (const k of ['procesados', 'revisar']) cobros[k].push(...r[k].map(d => ({ ...d, punto_venta: hch.integ.nombre })));
+    // Los días del sistema principal que se completaron con los pedidos.
+    if (hch.principal && hch.principal.dias.size) {
+      const pr = await principalDe(pool, hch.integ), ds = [...hch.principal.dias].sort();
+      const r2 = await procesarListos(req, pr, ds[0], ds.at(-1));
+      if (r2) for (const k of ['procesados', 'revisar']) cobros[k].push(...r2[k].map(d => ({ ...d, punto_venta: pr.nombre })));
+    }
   }
   const fechas = hechos.flatMap(x => [x.desde, x.hasta]).sort();
+  const suma = k => hechos.reduce((t, x) => t + (x.principal ? x.principal[k] : 0), 0);
   res.status(201).json({ ok: true, nuevos: hechos.reduce((t, x) => t + x.nuevos, 0), repetidos: hechos.reduce((t, x) => t + x.repetidos, 0), completados: hechos.reduce((t, x) => t + (x.completados || 0), 0),
     desde: fechas[0], hasta: fechas.at(-1), omitidos, cobros,
-    locales: hechos.map(x => ({ id: x.integ.id, nombre: x.integ.nombre, nuevos: x.nuevos, repetidos: x.repetidos })) });
+    principal: hechos.some(x => x.principal) ? { emparejados: suma('emparejados'), ya: suma('ya'), pendientes: suma('pendientes') } : null,
+    locales: hechos.map(x => ({ id: x.integ.id, nombre: x.integ.nombre, nuevos: x.nuevos, repetidos: x.repetidos, principal: x.principal
+      ? { emparejados: x.principal.emparejados, ya: x.principal.ya, pendientes: x.principal.pendientes } : null })) });
 }
+
+// ── PedidosYa por el sistema principal (CORTAFUEGO desde el 17/11/2026) ─────────────────────
+// Con PedidosYa integrado al sistema de venta, cada pedido entra ahí como delivery cobrado con un medio de PedidosYa ("Online
+// Pedidos Ya"). Desde `en_principal_desde` el archivo de PedidosYa ya no crea ventas: cada pedido entregado se empareja con su venta
+// del sistema principal y la completa (decisión de Fer, 20/11/2026: opción B y emparejamiento automático):
+//   · la venta pasa al canal PedidosYa, con el número de pedido, la tienda y la aceptación;
+//   · el total es el total parcial de PedidosYa (opción B: el descuento que financia el local es un costo; el sistema lo trae ya
+//     restado), y lo que trajo el sistema queda en total_pos;
+//   · el pago de PedidosYa toma el importe, el neto y los costos del pedido (lo que trajo queda en importe_pos); en un pedido en
+//     efectivo, el sistema tiene el efectivo y se suma el renglón de la liquidación (comisión y descuento), como en el archivo.
+// Pareja automática: venta cerrada del mismo local, delivery, abierta a menos de 20 minutos del pedido y con el total del sistema
+// igual al total parcial menos lo que financia el local (o igual al total parcial); con un solo pago de PedidosYa (ninguno si el
+// pedido es en efectivo). Se asigna del par más cercano en hora al más lejano. Lo que no encuentra pareja queda en
+// pos.peya_pendiente: se vuelve a buscar al traer las ventas y se resuelve a mano en el paso 1 de Ingresos.
+// Si el día ya estaba cobrado, lo que cambia (la diferencia de importe y los costos) se asienta en el mismo cobro, así anularlo
+// revierte todo junto. Un pedido que ya estaba importado como venta de PedidosYa (antes de configurar la fecha) se saca, con su cobro.
+const VENTANA_PEYA_SEG = 20 * 60;
+const VENTAS_PEYA_SQL = `
+  SELECT t.id, t.abierto_en, COALESCE(t.total_pos, t.total) AS total, to_char(t.dia, 'YYYY-MM-DD') AS dia,
+         (SELECT COUNT(*)::int FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+            JOIN fin.procesador pr ON pr.id = mp.procesador_id WHERE p.ticket_id = t.id AND NOT p.anulado AND pr.marca = 'pedidosya') AS pagos_peya
+    FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+   WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND t.pedido_peya IS NULL AND NOT t.peya_omitido AND t.tipo IN ('delivery', 'pedidosya')`;
+async function principalDe(c, peya) {
+  const { rows: [p] } = await c.query(
+    `SELECT i.*, s.nombre AS sede FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+      WHERE i.sede_id = $1 AND i.sistema <> 'pedidosya' AND i.activa`, [peya.sede_id]);
+  if (!p) throw new ErrorUsuario(`${peya.nombre}: el local no tiene su sistema de venta principal.`);
+  return p;
+}
+const descuentoPeya = p => (p.pagos.find(x => x.costos) || { costos: [] }).costos.filter(k => k.gasto === 'descuento')
+  .reduce((s, k) => s + centavos(k.importe), 0n);
+const pagoLiquidacion = p => p.pagos.find(x => x.costos || x.neto != null);
+const enEfectivoPeya = p => p.pagos.some(x => x.codigo === MEDIO_COMISION_EFECTIVO);
+
+// Lo que cambió en un pago ya cobrado se asienta en su cobro: la diferencia de importe y los costos (con signo = -1, al revés: sacar
+// un pago de un cobro).
+async function asentarEnCobro(c, { cobroId, cuentaId, dia, nombre, nro, delta, costos, signo = 1 }) {
+  const mov = (tipo, imp, concepto, gasto) => {
+    const sale = imp < 0n, abs = deCentavos(sale ? -imp : imp);
+    return c.query(`INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, gasto, pos_cobro_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [dia, cuentaId, tipo, sale ? 0 : abs, sale ? abs : 0, concepto, gasto, cobroId]);
+  };
+  const quien = signo < 0 ? `sale del cobro el pedido ${nro}` : `pedido ${nro} completado con PedidosYa`;
+  const d = BigInt(signo) * delta;
+  if (d !== 0n) await mov('cobro', d, `Cobros ${nombre} ${dia} · ${quien}`, null);
+  for (const k of costos || []) {
+    const v = BigInt(signo) * centavos(k.importe);   // un costo positivo sale de la cuenta
+    if (v !== 0n) await mov(v > 0n ? 'egreso' : 'ingreso', -v, `${k.concepto} · ${nombre} ${dia} (${quien})`, k.gasto);
+  }
+}
+function exigirPagoLibre(p, que) {
+  if (p.acreditado_linea_id || p.lote_id || p.resuelto_movimiento_id || p.medio_cambio_mov_id)
+    throw new ErrorUsuario(`${que}: su cobro ya está acreditado, en una liquidación o corregido a mano; deshacelo antes.`);
+}
+
+// Completa la venta `ticketId` del sistema principal con el pedido `p` (formato de la importación de PedidosYa).
+async function aplicarPedido(c, req, peya, pr, p, ticketId) {
+  const { rows: [t] } = await c.query(
+    `SELECT t.id, t.pedido_peya, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.id_externo, t.estado FROM pos.ticket t
+      WHERE t.id = $1::uuid AND t.integracion_id = $2 FOR UPDATE`, [ticketId, pr.id]);
+  if (!t) throw new ErrorUsuario('Esa venta no es del sistema de venta de este local.');
+  if (t.estado !== 'cerrado') throw new ErrorUsuario('Esa venta está anulada.');
+  if (t.pedido_peya) throw new ErrorUsuario(`La venta ${t.id_externo} ya es el pedido ${t.pedido_peya} de PedidosYa.`);
+  const finanzas = puede(req.usuario, 'finanzas');
+  // El pedido importado antes como venta de PedidosYa: se saca (con su cobro, si lo tenía) para no contarlo dos veces.
+  const { rows: [previo] } = await c.query(
+    `SELECT t.id, to_char(t.dia, 'YYYY-MM-DD') AS dia FROM pos.ticket t WHERE t.integracion_id = $1 AND t.id_externo = $2 FOR UPDATE`, [peya.id, p.id]);
+  if (previo) {
+    const { rows: pagos } = await c.query(
+      `SELECT p.*, m.cuenta_id FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id WHERE p.ticket_id = $1 FOR UPDATE OF p`, [previo.id]);
+    for (const x of pagos.filter(x => x.cobro_id && !x.anulado)) {
+      exigirPagoLibre(x, `El pedido ${p.id}, ya importado como venta de PedidosYa`);
+      if (!finanzas) throw new ErrorUsuario(`El pedido ${p.id} ya estaba importado y cobrado: lo empareja alguien de finanzas.`, 403);
+      await asentarEnCobro(c, { cobroId: x.cobro_id, cuentaId: x.cuenta_id, dia: previo.dia, nombre: peya.nombre, nro: p.id,
+                                delta: centavos(x.importe), costos: x.costos, signo: -1 });
+    }
+    await c.query('DELETE FROM pos.ticket WHERE id = $1', [previo.id]);
+  }
+  const { rows: pagos } = await c.query(
+    `SELECT p.*, m.cuenta_id, pr.marca FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id
+       LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+      WHERE p.ticket_id = $1 AND NOT p.anulado FOR UPDATE OF p`, [t.id]);
+  const dePeya = pagos.filter(x => x.marca === 'pedidosya'), liq = pagoLiquidacion(p);
+  if (dePeya.length > 1) throw new ErrorUsuario(`La venta ${t.id_externo} tiene ${dePeya.length} pagos de PedidosYa: dejá uno solo en el sistema de venta.`);
+  if (liq && dePeya.length === 1) {
+    const x = dePeya[0];
+    if (x.cobro_id) {
+      exigirPagoLibre(x, `La venta ${t.id_externo}`);
+      if (!finanzas) throw new ErrorUsuario(`La venta ${t.id_externo} ya está cobrada: la empareja alguien de finanzas.`, 403);
+      await asentarEnCobro(c, { cobroId: x.cobro_id, cuentaId: x.cuenta_id, dia: t.dia, nombre: pr.nombre, nro: p.id,
+                                delta: centavos(liq.importe) - centavos(x.importe), costos: liq.costos });
+    }
+    await c.query(`UPDATE pos.ticket_pago SET importe_pos = COALESCE(importe_pos, importe), importe = $2, neto = $3, costos = $4 WHERE id = $1`,
+      [x.id, liq.importe, liq.neto ?? null, liq.costos ? JSON.stringify(liq.costos) : null]);
+  } else if (liq) {
+    // Sin pago de PedidosYa en el sistema: un pedido en efectivo (el sistema tiene el efectivo). Se suma el renglón de la
+    // liquidación, con el medio de PedidosYa del local; queda pendiente de cobrar con el día.
+    if (!enEfectivoPeya(p)) throw new ErrorUsuario(`La venta ${t.id_externo} no está cobrada con PedidosYa en el sistema de venta y el pedido ${p.id} no es en efectivo.`);
+    const { rows: [mp] } = await c.query(
+      `SELECT mp.id FROM fin.medio_pago mp JOIN fin.procesador x ON x.id = mp.procesador_id JOIN fin.cuenta cu ON cu.id = x.cuenta_id
+        WHERE x.marca = 'pedidosya' AND x.activo AND mp.activo AND mp.tipo_operacion = 'online' AND cu.sede_id = $1 LIMIT 1`, [pr.sede_id]);
+    const { rows: [m] } = await c.query(
+      `INSERT INTO pos.medio (integracion_id, codigo_externo, nombre, medio_pago_id) VALUES ($1, $2, $2, $3)
+       ON CONFLICT (integracion_id, codigo_externo) DO UPDATE SET medio_pago_id = COALESCE(pos.medio.medio_pago_id, EXCLUDED.medio_pago_id) RETURNING id`,
+      [pr.id, MEDIO_COMISION_EFECTIVO, mp ? mp.id : null]);
+    await c.query('INSERT INTO pos.ticket_pago (ticket_id, medio_id, importe, anulado, neto, costos) VALUES ($1,$2,$3,false,$4,$5)',
+      [t.id, m.id, liq.importe, liq.neto ?? null, liq.costos ? JSON.stringify(liq.costos) : null]);
+  }
+  await c.query(
+    `UPDATE pos.ticket SET pedido_peya = $2, total_pos = COALESCE(total_pos, total), total = $3, tipo = 'pedidosya', tienda = $4, aceptado_en = $5::timestamptz
+      WHERE id = $1`, [t.id, p.id, p.total, p.tienda || null, p.aceptado_en || null]);
+  await c.query('DELETE FROM pos.peya_pendiente WHERE integracion_id = $1 AND nro = $2', [peya.id, p.id]);
+  return { dia: t.dia, dia_previo: previo ? previo.dia : null };
+}
+
+// Empareja los pedidos entregados de un PedidosYa con las ventas de su sistema principal. Los que no encuentran pareja quedan
+// pendientes. Devuelve lo hecho y los días tocados (para cobrarlos).
+async function vincularPedidos(c, req, peya, pedidos, archivo = null) {
+  const out = { emparejados: 0, ya: 0, pendientes: 0, dias: new Set(), dias_peya: new Set() };
+  if (!pedidos.length) return out;
+  const pr = await principalDe(c, peya);
+  const { rows: ya } = await c.query(`SELECT pedido_peya FROM pos.ticket WHERE integracion_id = $1 AND pedido_peya = ANY($2::text[])`,
+    [pr.id, pedidos.map(p => p.id)]);
+  const yaSet = new Set(ya.map(x => x.pedido_peya));
+  await c.query('DELETE FROM pos.peya_pendiente WHERE integracion_id = $1 AND nro = ANY($2::text[])', [peya.id, [...yaSet]]);
+  const libres = pedidos.filter(p => !yaSet.has(p.id));
+  out.ya = pedidos.length - libres.length;
+  if (libres.length) {
+    const dias = libres.map(p => p.abierto_en.slice(0, 10)).sort();
+    const { rows: pares } = await c.query(
+      `WITH v AS (${VENTAS_PEYA_SQL} AND t.abierto_en IS NOT NULL AND t.dia BETWEEN $2::date - 1 AND $3::date + 1),
+            p AS (SELECT * FROM jsonb_to_recordset($4::jsonb) AS x(nro text, abierto timestamp, total numeric, sin_desc numeric, efectivo boolean))
+       SELECT p.nro, v.id AS ticket_id, abs(extract(epoch FROM v.abierto_en - (p.abierto AT TIME ZONE 'America/Argentina/Buenos_Aires')))::int AS seg
+         FROM p JOIN v ON abs(extract(epoch FROM v.abierto_en - (p.abierto AT TIME ZONE 'America/Argentina/Buenos_Aires'))) <= $5
+                      AND v.total IN (p.total, p.sin_desc) AND v.pagos_peya = CASE WHEN p.efectivo THEN 0 ELSE 1 END
+        ORDER BY seg, p.nro`,
+      [pr.id, dias[0], dias.at(-1), JSON.stringify(libres.map(p => ({ nro: p.id, abierto: p.abierto_en, total: p.total,
+        sin_desc: deCentavos(centavos(p.total) - descuentoPeya(p)), efectivo: enEfectivoPeya(p) }))), VENTANA_PEYA_SEG]);
+    const usadoP = new Set(), usadoT = new Set(), dePedido = new Map(libres.map(p => [p.id, p]));
+    for (const x of pares) {
+      if (usadoP.has(x.nro) || usadoT.has(x.ticket_id)) continue;
+      usadoP.add(x.nro); usadoT.add(x.ticket_id);
+      const r = await aplicarPedido(c, req, peya, pr, dePedido.get(x.nro), x.ticket_id);
+      out.emparejados++; out.dias.add(r.dia); if (r.dia_previo) out.dias_peya.add(r.dia_previo);
+    }
+    // Sin pareja: si ya estaba importado como venta de PedidosYa (antes de la integración, o cargado sólo en PedidosYa), queda así.
+    const sinPareja = libres.filter(p => !usadoP.has(p.id));
+    const { rows: propias } = await c.query('SELECT id_externo FROM pos.ticket WHERE integracion_id = $1 AND id_externo = ANY($2::text[])',
+      [peya.id, sinPareja.map(p => p.id)]);
+    const yaPropia = new Set(propias.map(x => x.id_externo));
+    out.propias = yaPropia.size;
+    for (const p of sinPareja.filter(p => !yaPropia.has(p.id))) {
+      await c.query(
+        `INSERT INTO pos.peya_pendiente (integracion_id, nro, dia, abierto_en, total, datos, archivo)
+         VALUES ($1, $2, $3::date, $4::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires', $5, $6, $7)
+         ON CONFLICT (integracion_id, nro) DO UPDATE SET datos = EXCLUDED.datos, total = EXCLUDED.total, abierto_en = EXCLUDED.abierto_en, dia = EXCLUDED.dia`,
+        [peya.id, p.id, p.abierto_en.slice(0, 10), p.abierto_en, p.total, JSON.stringify(p), archivo]);
+      out.pendientes++;
+    }
+  }
+  return out;
+}
+// Al traer las ventas del sistema principal se vuelven a buscar los pedidos pendientes de su local.
+async function reintentarPendientes(c, req, principal) {
+  const { rows: [peya] } = await c.query(
+    `SELECT i.*, s.nombre AS sede FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id
+      WHERE i.sede_id = $1 AND i.sistema = 'pedidosya' AND i.activa AND i.en_principal_desde IS NOT NULL`, [principal.sede_id]);
+  if (!peya) return null;
+  const { rows } = await c.query('SELECT datos FROM pos.peya_pendiente WHERE integracion_id = $1', [peya.id]);
+  return rows.length ? { ...await vincularPedidos(c, req, peya, rows.map(x => x.datos)), peya } : null;
+}
+// Cobra los días que tocó un emparejamiento (los de las dos puntas) que hayan quedado listos.
+async function cobrarDiasPeya(req, peya, pr, r) {
+  if (!r) return;
+  const rango = s => { const d = [...s].sort(); return d.length ? [d[0], d.at(-1)] : null; };
+  const a = rango(r.dias), b = rango(r.dias_peya);
+  if (a) await procesarListos(req, pr, a[0], a[1]);
+  if (b) await procesarListos(req, peya, b[0], b[1]);
+}
+
+// Lo que falta resolver de un local: pedidos sin su venta y ventas cobradas con PedidosYa sin su pedido, con las ventas que pueden
+// ser de cada pedido (mismo día o el de al lado, sin pedido), las más cercanas en hora primero.
+r.get('/pos/peya/pendientes', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const { rows: peyas } = await pool.query(
+    `SELECT i.id, i.nombre, i.sede_id, to_char(i.en_principal_desde, 'YYYY-MM-DD') AS desde,
+            (SELECT p.id FROM pos.integracion p WHERE p.sede_id = i.sede_id AND p.sistema <> 'pedidosya' AND p.activa) AS principal_id
+       FROM pos.integracion i WHERE i.sistema = 'pedidosya' AND i.activa AND i.en_principal_desde IS NOT NULL
+        AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))`, [sedesPos(req)]);
+  const out = [];
+  for (const x of peyas) {
+    if (!x.principal_id) continue;
+    const [{ rows: pedidos }, { rows: ventas }] = await Promise.all([
+      pool.query(
+        `SELECT pp.id, pp.nro, to_char(pp.dia, 'YYYY-MM-DD') AS dia, pp.abierto_en, pp.total::text, pp.datos->>'tienda' AS tienda,
+                (SELECT COALESCE(json_agg(json_build_object('id', v.id, 'nro', v.id_externo, 'abierto_en', v.abierto_en, 'total', v.total::text,
+                                                            'pagos_peya', v.pagos_peya) ORDER BY abs(extract(epoch FROM v.abierto_en - pp.abierto_en))), '[]')
+                   FROM (SELECT v.*, t.id_externo FROM (${VENTAS_PEYA_SQL.replace('$1', '$2')}) v JOIN pos.ticket t ON t.id = v.id) v
+                  WHERE v.dia::date BETWEEN pp.dia - 1 AND pp.dia + 1) AS candidatas
+           FROM pos.peya_pendiente pp WHERE pp.integracion_id = $1 ORDER BY pp.abierto_en`, [x.id, x.principal_id]),
+      pool.query(
+        `SELECT t.id, t.id_externo AS nro, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.abierto_en, t.total::text
+           FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+          WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND t.pedido_peya IS NULL AND NOT t.peya_omitido AND t.dia >= $2::date
+            AND EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                          JOIN fin.procesador pr ON pr.id = mp.procesador_id WHERE p.ticket_id = t.id AND NOT p.anulado AND pr.marca = 'pedidosya')
+          ORDER BY t.abierto_en`, [x.principal_id, x.desde]),
+    ]);
+    out.push({ ...x, pedidos, ventas });
+  }
+  res.json({ ok: true, locales: out });
+}));
+async function pendientePeya(c, req, id) {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const { rows: [pp] } = await c.query('SELECT * FROM pos.peya_pendiente WHERE id = $1::uuid FOR UPDATE', [id]);
+  if (!pp) throw new ErrorUsuario('Ese pedido ya no está pendiente.', 404);
+  return { pp, peya: await integracion(c, req, pp.integracion_id) };
+}
+// Emparejar a mano: con cualquier venta del local sin pedido (si los importes no coinciden, el día lo muestra como diferencia).
+r.post('/pos/peya/pendientes/:id/emparejar', h(async (req, res) => {
+  let ctx;
+  const r1 = await enTransaccion(async c => {
+    const { pp, peya } = await pendientePeya(c, req, req.params.id);
+    const pr = await principalDe(c, peya);
+    const x = await aplicarPedido(c, req, peya, pr, pp.datos, texto(req.body.ticket_id, { campo: 'la venta', requerido: true }));
+    ctx = { peya, pr };
+    return { dias: new Set([x.dia]), dias_peya: new Set(x.dia_previo ? [x.dia_previo] : []) };
+  });
+  await cobrarDiasPeya(req, ctx.peya, ctx.pr, r1);
+  res.status(201).json({ ok: true });
+}));
+// Un pedido que no está en el sistema de venta (se cargó sólo en PedidosYa): se crea su venta de PedidosYa, como antes de la integración.
+r.post('/pos/peya/pendientes/:id/venta-propia', h(async (req, res) => {
+  let ctx;
+  await enTransaccion(async c => {
+    const { pp, peya } = await pendientePeya(c, req, req.params.id);
+    const o = await recibir(c, peya, 'archivo', { archivo: pp.archivo, tickets: [pp.datos] });
+    if (!o.nuevos) throw new ErrorUsuario(`El pedido ${pp.nro} ya está importado como venta de PedidosYa.`);
+    await c.query('DELETE FROM pos.peya_pendiente WHERE id = $1', [pp.id]);
+    ctx = { peya, dia: pp.datos.abierto_en.slice(0, 10) };
+  });
+  await procesarListos(req, ctx.peya, ctx.dia, ctx.dia);
+  res.status(201).json({ ok: true });
+}));
+// Una venta cobrada con PedidosYa en el sistema cuyo pedido no está en el archivo: se cobra igual, por lo que dice el sistema.
+r.post('/pos/peya/ventas/:id/sin-pedido', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const { rows: [t] } = await pool.query(
+    `UPDATE pos.ticket SET peya_omitido = true WHERE id = $1::uuid AND pedido_peya IS NULL RETURNING integracion_id, to_char(dia, 'YYYY-MM-DD') AS dia`, [req.params.id]);
+  if (!t) throw new ErrorUsuario('Esa venta ya tiene su pedido.', 404);
+  const integ = await integracion(pool, req, t.integracion_id);
+  await procesarListos(req, integ, t.dia, t.dia);
+  res.status(201).json({ ok: true });
+}));
 
 // ── Importaciones ────────────────────────────────────────────────────────────────────────────
 const RESUMEN = `
@@ -1158,10 +1436,19 @@ r.post('/pos/importaciones/:id/consumo', h(async (req, res) => {
 // ── El día del punto de venta (unidad financiera) ───────────────────────────────────────────
 // Estado deducido (pos.jornada): con pendientes (un medio sin su medio de pago) → diferencia (lo cobrado no
 // coincide con lo vendido) → listo para cobrar → cobrado. Los cobros se procesan por día y todo o nada.
+// Cobros de PedidosYa del sistema principal sin su pedido del archivo (PedidosYa integrado al sistema de venta): el día no se cobra
+// hasta importar el archivo que lo cubre, así el cobro lleva el neto y los costos de cada pedido. `ji` es la integración del día.
+const PEYA_SIN_PEDIDO_SQL = `(SELECT COUNT(*)::int FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
+    JOIN pos.ticket_pago p ON p.ticket_id = t.id JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+    JOIN fin.procesador pr ON pr.id = mp.procesador_id
+   WHERE t.integracion_id = ji.id AND t.dia = j.dia AND t.estado = 'cerrado' AND t.pedido_peya IS NULL AND NOT t.peya_omitido
+     AND NOT p.anulado AND p.cobro_id IS NULL AND pr.marca = 'pedidosya' AND ji.sistema <> 'pedidosya'
+     AND EXISTS (SELECT 1 FROM pos.integracion py WHERE py.sede_id = ji.sede_id AND py.sistema = 'pedidosya' AND py.activa AND py.en_principal_desde <= j.dia))`;
 function estadoJornada(j) {
   const dif = Number(j.cobrado) - Number(j.vendido);
   const alertas = [];
   if (j.pagos_sin_asignar) alertas.push({ tipo: 'bloquea', texto: `${j.pagos_sin_asignar} pago(s) con un medio del sistema sin su medio de pago asignado.` });
+  if (j.peya_sin_pedido) alertas.push({ tipo: 'bloquea', texto: `${j.peya_sin_pedido} venta(s) cobradas con PedidosYa sin su pedido: importá el archivo de PedidosYa del día (paso 1 de Ingresos).` });
   if (Math.abs(dif) >= 0.01) alertas.push({ tipo: 'diferencia', texto: `Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(dif)}.` });
   if (j.abiertas) alertas.push({ tipo: 'aviso', texto: `Al sincronizar había ${j.abiertas} venta(s) abierta(s): volvé a traer el día cuando cierren.` });
   if (j.anuladas) alertas.push({ tipo: 'info', texto: `${j.anuladas} venta(s) anulada(s) en el día (no suman).` });
@@ -1169,12 +1456,12 @@ function estadoJornada(j) {
   if (j.historico) return { ...j, diferencia: dif.toFixed(2), estado: 'historico',
     alertas: [{ tipo: 'info', texto: 'Venta histórica: es anterior al inicio de los cobros de este punto de venta, cuenta sólo como venta.' }] };
   const estado = !j.pagos_pendientes && j.pagos_procesados ? 'cobrado'
-    : j.pagos_sin_asignar ? 'pendientes' : Math.abs(dif) >= 0.01 ? 'diferencia' : j.pagos_pendientes ? 'listo' : 'sin cobros';
+    : j.pagos_sin_asignar || j.peya_sin_pedido ? 'pendientes' : Math.abs(dif) >= 0.01 ? 'diferencia' : j.pagos_pendientes ? 'listo' : 'sin cobros';
   return { ...j, diferencia: dif.toFixed(2), estado, alertas };
 }
 const JORNADA_SQL = `SELECT j.integracion_id, to_char(j.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text,
                             j.por_cobrar::text, j.pagos_pendientes, j.pagos_sin_asignar, j.pagos_procesados, COALESCE(j.abiertas, 0) AS abiertas,
-                            j.sincronizado_en, COALESCE(j.dia < ji.cobros_desde, false) AS historico
+                            j.sincronizado_en, COALESCE(j.dia < ji.cobros_desde, false) AS historico, ${PEYA_SIN_PEDIDO_SQL} AS peya_sin_pedido
                        FROM pos.jornada j JOIN pos.integracion ji ON ji.id = j.integracion_id`;
 
 r.get('/pos/jornadas', h(async (req, res) => {
@@ -1197,7 +1484,7 @@ r.get('/pos/jornadas/:integracion/:dia', h(async (req, res) => {
          LEFT JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
          LEFT JOIN fin.cuenta cu ON cu.id = m.cuenta_id
         WHERE t.integracion_id = $1 AND t.dia = $2 AND (t.estado = 'cerrado' OR p.costos IS NOT NULL) AND NOT p.anulado
-        GROUP BY m.id, mp.tipo_operacion, pr.nombre, cu.nombre ORDER BY SUM(p.importe) DESC`, [integ.id, dia]),
+        GROUP BY m.id, mp.tipo_operacion, pr.nombre, pr.marca, cu.nombre ORDER BY SUM(p.importe) DESC`, [integ.id, dia]),
     pool.query(`SELECT id, pagos, estado, diferencia::text, motivo_diferencia, creado_por, creado_en FROM pos.cobro
                  WHERE integracion_id = $1 AND dia = $2 ORDER BY creado_en`, [integ.id, dia]),
     pool.query(`SELECT t.id_externo, t.total::text FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
@@ -1223,6 +1510,8 @@ async function procesarJornada(c, integ, dia, motivo) {
         WHERE t.integracion_id = $1 AND t.dia = $2 AND NOT p.anulado AND p.cobro_id IS NULL AND m.cuenta_id IS NULL`, [integ.id, dia]);
     throw new ErrorUsuario(`No se procesan los cobros del ${dia} hasta asignar el medio de pago de: ${rows.map(x => x.nombre).join(', ')} (en la ficha de la sede).`);
   }
+  if (j.peya_sin_pedido)
+    throw new ErrorUsuario(`No se procesan los cobros del ${dia}: ${j.peya_sin_pedido} venta(s) cobradas con PedidosYa no tienen su pedido. Importá el archivo de PedidosYa de ese día.`);
   if (!j.pagos_pendientes) throw new ErrorUsuario(`Los cobros del ${dia} ya están procesados.`);
   if (j.estado === 'diferencia' && !motivo)
     throw new ErrorUsuario(`Lo cobrado (${$p(j.cobrado)}) no coincide con lo vendido (${$p(j.vendido)}): diferencia ${$p(j.diferencia)}. Para procesar igual, indicá el motivo.`, 409);
@@ -1551,7 +1840,8 @@ r.get('/pos/cierre', h(async (req, res) => {
             extract(hour FROM now())::int >= 5 AS paso_la_hora,
             EXISTS (SELECT 1 FROM pos.corrida c WHERE c.integracion_id = i.id AND c.automatica AND c.fecha = current_date) AS corrio_hoy,
             to_char(${DESDE_CORRIDA.replaceAll('$1', 'i.id')}, 'YYYY-MM-DD') AS traer_desde,
-            s.sociedad_id, so.nombre AS sociedad, i.tiendas
+            s.sociedad_id, so.nombre AS sociedad, i.tiendas, to_char(i.en_principal_desde, 'YYYY-MM-DD') AS en_principal_desde,
+            (SELECT COUNT(*)::int FROM pos.peya_pendiente pp WHERE pp.integracion_id = i.id) AS peya_pendientes
        FROM pos.integracion i JOIN org.sede s ON s.id = i.sede_id LEFT JOIN org.sociedad so ON so.id = s.sociedad_id
        LEFT JOIN fin.cuenta ce ON ce.id = i.cuenta_efectivo_id LEFT JOIN fin.saldo_cuenta sce ON sce.cuenta_id = ce.id
       WHERE i.activa AND s.activa AND ($1::uuid[] IS NULL OR i.sede_id = ANY($1))
@@ -1578,8 +1868,9 @@ r.get('/pos/cierre', h(async (req, res) => {
          SELECT to_char(d.dia, 'YYYY-MM-DD') AS dia, j.ventas, j.anuladas, j.vendido::text, j.cobrado::text, j.por_cobrar::text, j.pagos_pendientes,
                 j.pagos_sin_asignar, j.pagos_procesados, COALESCE(sd.abiertas, j.abiertas, 0) AS abiertas, sd.abiertas_detalle, sd.dia IS NOT NULL AS sincronizado,
                 COALESCE(pg.efectivo, 0)::text AS efectivo, COALESCE(pg.electronico, 0)::text AS electronico,
-                COALESCE(pg.acreditado, 0)::text AS acreditado, COALESCE(pg.liquidado, 0)::text AS liquidado
+                COALESCE(pg.acreditado, 0)::text AS acreditado, COALESCE(pg.liquidado, 0)::text AS liquidado, ${PEYA_SIN_PEDIDO_SQL} AS peya_sin_pedido
            FROM d LEFT JOIN pos.jornada j ON j.integracion_id = $1 AND j.dia = d.dia
+           JOIN pos.integracion ji ON ji.id = $1
            LEFT JOIN pos.sincronizacion_dia sd ON sd.integracion_id = $1 AND sd.dia = d.dia
            LEFT JOIN pg ON pg.dia = d.dia
           ORDER BY d.dia DESC`, [i.id, n, i.cuenta_efectivo_id]),
@@ -1650,9 +1941,12 @@ r.get('/pos/cierre', h(async (req, res) => {
     const cuadra = d => Math.abs(Number(d.cobrado) - Number(d.vendido)) < 0.01;
     const enDias = ds => ds.length === 1 ? '' : ` en ${ds.length} días`;
     porDia('mal', 'medios', d => d.ventas && d.pagos_sin_asignar, ds => `Hay cobros con un medio sin asignar${enDias(ds)}.`);
-    porDia('mal', 'diferencia', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && !cuadra(d), ds => `Lo cobrado no coincide con lo vendido${enDias(ds)}.`);
+    porDia('mal', 'peya', d => d.ventas && d.peya_sin_pedido, ds => `${ds.reduce((a, d) => a + d.peya_sin_pedido, 0)} venta(s) cobradas con PedidosYa esperan su pedido: falta importar el archivo de PedidosYa${enDias(ds)}.`);
+    porDia('mal', 'diferencia', d => d.ventas && !d.pagos_sin_asignar && !d.peya_sin_pedido && d.pagos_pendientes && !cuadra(d), ds => `Lo cobrado no coincide con lo vendido${enDias(ds)}.`);
     porDia('aviso', 'abiertas', d => d.abiertas, ds => `${ds.reduce((a, d) => a + d.abiertas, 0)} venta(s) seguían abiertas: falta volver a traer ${ds.length === 1 ? 'el día' : 'esos días'}.`);
-    porDia('aviso', 'listos', d => d.ventas && !d.pagos_sin_asignar && d.pagos_pendientes && cuadra(d) && !d.abiertas, ds => `Cobros listos para procesar${enDias(ds)}.`);
+    porDia('aviso', 'listos', d => d.ventas && !d.pagos_sin_asignar && !d.peya_sin_pedido && d.pagos_pendientes && cuadra(d) && !d.abiertas, ds => `Cobros listos para procesar${enDias(ds)}.`);
+    if (i.peya_pendientes) tareas.push({ tipo: 'peya', clase: 'peya_pendientes', nivel: 'mal',
+      texto: `${i.peya_pendientes} pedido(s) de PedidosYa no encontraron su venta en el sistema de venta del local.` });
     if (centavos(i.efectivo_a_rendir) > 0n) tareas.push({ tipo: 'efectivo', nivel: pendEf.length > 2 ? 'mal' : 'aviso', importe: i.efectivo_a_rendir,
       desde: pendEf.length ? pendEf.at(-1).dia : null,
       texto: pendEf.length ? `Efectivo a rendir de ${pendEf.length} día(s).` : 'Efectivo a rendir de antes del período.' });
@@ -1715,5 +2009,5 @@ r.post('/pos/efectivo/:integracion/diferencia', h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
-Object.assign(r, { correrAutomaticas, correr });
+Object.assign(r, { correrAutomaticas, correr, vincularPedidos });
 module.exports = r;

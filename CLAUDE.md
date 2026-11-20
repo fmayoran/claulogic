@@ -954,6 +954,23 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   50. Sin dona por store (Fer: distorsionaba la pantalla y el store ya se filtra arriba, para todo el tablero). Las cancelaciones quedan plegadas debajo, con su resumen en
   el título. El archivo trae los artículos de cada pedido ("Artículos del pedido") pero sin precio; desde el 16/11/2026 no se cortan
   dentro de los corchetes (antes quedaban renglones como "Pure]", que lo más pedido descarta).
+- **PedidosYa integrado con Fudo** (CORTAFUEGO desde el 17/11/2026 a la noche; decisión de Fer, 20/11/2026: opción B y emparejamiento
+  automático; migración 20261171). Los pedidos entran a Fudo como delivery con el medio "Online Pedidos Ya" (Fudo no guarda el número
+  de pedido y trae el total con el descuento del local ya restado). **La venta la da Fudo** (artículos con precio); desde
+  `pos.integracion.en_principal_desde` del PedidosYa del local (en la ficha de la sede, "Los pedidos entran por el sistema de venta
+  desde") el archivo de PedidosYa **no crea ventas**: cada pedido entregado se empareja con su venta (`vincularPedidos` en `pos.js`:
+  delivery cerrado del mismo local, a menos de 20 min, total de Fudo = total parcial menos descuento y vale del local, o = total
+  parcial; un solo pago de PedidosYa, o ninguno si el pedido es en efectivo; del par más cercano al más lejano) y la completa: número
+  (`pos.ticket.pedido_peya`), tienda, aceptación, canal PedidosYa, **total = total parcial** (opción B, el descuento es costo; lo de
+  Fudo queda en `total_pos`) y el pago de PedidosYa con importe, neto y costos del pedido (lo de Fudo en `importe_pos`); en efectivo
+  se suma el renglón "Pedidos en efectivo · liquidación PedidosYa". Si el día ya estaba cobrado, la diferencia y los costos se asientan
+  **en el mismo cobro** (anularlo revierte todo). Un pedido ya importado como venta de PedidosYa se saca (con lo que movió su cobro) al
+  emparejarse; sin pareja, queda como estaba (los de la tarde del 17/11). Los cancelados entran como siempre. Lo que no encuentra venta
+  queda en `pos.peya_pendiente`, se vuelve a buscar al traer las ventas del sistema y se resuelve en el paso 1 de Ingresos (emparejar con
+  una venta, o "Es una venta sólo de PedidosYa"). **Un día del sistema con cobros de PedidosYa sin su pedido no se cobra**
+  (`PEYA_SIN_PEDIDO_SQL`: estado pendientes, tarea `peya` del cierre) hasta importar el archivo; si el pedido no está, "No está en el
+  archivo: cobrar así" (`pos.ticket.peya_omitido`). Liquidación semanal, por acreditar y tablero siguen andando: van por procesador y
+  por `tipo = 'pedidosya'`. Al 20/11 el 18 y el 19 estaban cobrados por el total de Fudo: se corrigen al importar su archivo.
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
   (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
   cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por
@@ -1040,7 +1057,7 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   cobra y devuelve; cifrado y nunca de vuelta al navegador): `POST|GET|PUT /v1/account/release_report/config` (columnas, una vez),
   `POST /v1/account/release_report` {begin_date, end_date} (202, asíncrono), `GET /v1/account/release_report/list`,
   `GET /v1/account/release_report/{file_name}`; también `POST|DELETE …/schedule` para que lo genere solo.
-- Pendiente: modificadores de Fudo (subitems), propinas. **Importe por artículo de PedidosYa**: el `orderDetails.csv` trae los artículos de cada pedido con cantidad pero sin precio, así que PedidosYa entra en "lo más pedido" de su sección por unidades, no en "lo más vendido" por importe ni en el reparto por artículos; falta ver de dónde sacar el precio (otro reporte del portal o algún acceso por API).
+- Pendiente: modificadores de Fudo (subitems), propinas. **Importe por artículo de PedidosYa** (en CORTAFUEGO, desde el 17/11/2026, lo da Fudo): el `orderDetails.csv` trae los artículos de cada pedido con cantidad pero sin precio, así que PedidosYa entra en "lo más pedido" de su sección por unidades, no en "lo más vendido" por importe ni en el reparto por artículos; falta ver de dónde sacar el precio (otro reporte del portal o algún acceso por API).
 
 ### Estado de resultados por filial (pedido de Fer, 28/10/2026; migración 20261113)
 - `resultados.html` (Inicio, sólo finanzas) y `app/resultados.js`. **No se guarda: se deriva** de la vista `fin.resultado` (una
