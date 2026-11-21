@@ -971,6 +971,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (`PEYA_SIN_PEDIDO_SQL`: estado pendientes, tarea `peya` del cierre) hasta importar el archivo; si el pedido no está, "No está en el
   archivo: cobrar así" (`pos.ticket.peya_omitido`). Liquidación semanal, por acreditar y tablero siguen andando: van por procesador y
   por `tipo = 'pedidosya'`. Al 20/11 el 18 y el 19 estaban cobrados por el total de Fudo: se corrigen al importar su archivo.
+  **Pedido cancelado en PedidosYa y cobrado en el sistema** (pedido de Fer, 21/11/2026: "no podemos depender del punto de venta";
+  migración 20261172): la venta #2408 de CORTAFUEGO del 20/11 quedó cerrada con "Online Pedidos Ya" en Fudo y el pedido se canceló
+  (por el cliente). Volver a traer el día no lo arregla aunque se anule en Fudo: **una venta ya importada no se actualiza**
+  (`ON CONFLICT DO NOTHING`). En la tarea `peya` del paso 1 de Ingresos, cada venta muestra el pedido cancelado que puede ser (misma
+  hora con 20 min de margen y mismo total) y **"Se canceló: anular la venta"** (o "Anular la venta…" sin pedido a la vista):
+  `POST /pos/ventas/:id/anular` (finanzas, motivo obligatorio) la pasa a `anulado` con `anulada_por`, `anulada_en` y
+  `anulada_motivo`, sólo si ni su cobro ni su consumo están procesados, y cobra el día. Se deshace con `DELETE` (todavía sin botón).
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
   (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
   cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por

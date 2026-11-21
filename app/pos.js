@@ -994,12 +994,18 @@ r.get('/pos/peya/pendientes', h(async (req, res) => {
                   WHERE v.dia::date BETWEEN pp.dia - 1 AND pp.dia + 1) AS candidatas
            FROM pos.peya_pendiente pp WHERE pp.integracion_id = $1 ORDER BY pp.abierto_en`, [x.id, x.principal_id]),
       pool.query(
-        `SELECT t.id, t.id_externo AS nro, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.abierto_en, t.total::text
+        `SELECT t.id, t.id_externo AS nro, to_char(t.dia, 'YYYY-MM-DD') AS dia, t.abierto_en, t.total::text,
+                -- El pedido de PedidosYa cancelado que puede ser esta venta (misma hora con 20 min de margen, mismo total): la prueba
+                -- de que la venta no va a cobrarse.
+                (SELECT json_build_object('nro', c.id_externo, 'abierto_en', c.abierto_en, 'total', c.total::text, 'por', c.cancelado_por, 'motivo', c.cancelado_motivo)
+                   FROM pos.ticket c WHERE c.integracion_id = $3 AND c.estado = 'anulado' AND c.total = COALESCE(t.total_pos, t.total)
+                    AND abs(extract(epoch FROM c.abierto_en - t.abierto_en)) <= ${VENTANA_PEYA_SEG}
+                  ORDER BY abs(extract(epoch FROM c.abierto_en - t.abierto_en)) LIMIT 1) AS cancelado
            FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
           WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND t.pedido_peya IS NULL AND NOT t.peya_omitido AND t.dia >= $2::date
             AND EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
                           JOIN fin.procesador pr ON pr.id = mp.procesador_id WHERE p.ticket_id = t.id AND NOT p.anulado AND pr.marca = 'pedidosya')
-          ORDER BY t.abierto_en`, [x.principal_id, x.desde]),
+          ORDER BY t.abierto_en`, [x.principal_id, x.desde, x.id]),
     ]);
     out.push({ ...x, pedidos, ventas });
   }
@@ -1046,6 +1052,41 @@ r.post('/pos/peya/ventas/:id/sin-pedido', h(async (req, res) => {
   const integ = await integracion(pool, req, t.integracion_id);
   await procesarListos(req, integ, t.dia, t.dia);
   res.status(201).json({ ok: true });
+}));
+// Anular desde ClauLogic una venta que el sistema de venta tiene cerrada (pedido de Fer, 21/11/2026: no depender del punto de venta).
+// El caso: cobrada con PedidosYa en el sistema y el pedido cancelado en PedidosYa. Volver a traer las ventas no la toca. Sólo si
+// ni su cobro ni su consumo están procesados: la venta deja de sumar y el día se cobra sin ella.
+r.post('/pos/ventas/:id/anular', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const motivo = texto(req.body.motivo, { campo: 'el motivo', requerido: true });
+  const t = await enTransaccion(async c => {
+    const { rows: [t] } = await c.query(
+      `SELECT t.id, t.integracion_id, t.id_externo, t.estado, to_char(t.dia, 'YYYY-MM-DD') AS dia FROM pos.ticket t
+         JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida' WHERE t.id = $1::uuid FOR UPDATE OF t`, [req.params.id]);
+    if (!t) throw new ErrorUsuario('No se encontró esa venta.', 404);
+    await integracion(c, req, t.integracion_id);
+    if (t.estado !== 'cerrado') throw new ErrorUsuario(`La venta #${t.id_externo} ya está anulada.`);
+    const { rows: [u] } = await c.query(
+      `SELECT bool_or(p.cobro_id IS NOT NULL) AS cobrada, (SELECT bool_or(i.consumo_id IS NOT NULL) FROM pos.ticket_item i WHERE i.ticket_id = $1) AS consumida
+         FROM pos.ticket_pago p WHERE p.ticket_id = $1`, [t.id]);
+    if (u.cobrada) throw new ErrorUsuario(`La venta #${t.id_externo} ya está cobrada: anulá primero el cobro del día.`);
+    if (u.consumida) throw new ErrorUsuario(`El consumo de la venta #${t.id_externo} ya está procesado: no se puede anular desde acá.`);
+    await c.query(`UPDATE pos.ticket SET estado = 'anulado', anulada_por = $2, anulada_en = now(), anulada_motivo = $3 WHERE id = $1`,
+      [t.id, req.usuario.usuario, motivo]);
+    return t;
+  });
+  const integ = await integracion(pool, req, t.integracion_id);
+  const r1 = await procesarListos(req, integ, t.dia, t.dia);
+  res.status(201).json({ ok: true, cobrados: r1 ? r1.procesados.length : 0 });
+}));
+// Deshacer: vuelve a cerrada, como la trae el sistema de venta (si su día ya está cobrado, queda con un pago pendiente de cobrar).
+r.delete('/pos/ventas/:id/anular', h(async (req, res) => {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const { rows: [t] } = await pool.query('SELECT integracion_id FROM pos.ticket WHERE id = $1::uuid AND anulada_por IS NOT NULL', [req.params.id]);
+  if (!t) throw new ErrorUsuario('Esa venta no está anulada desde ClauLogic.', 404);
+  await integracion(pool, req, t.integracion_id);
+  await pool.query(`UPDATE pos.ticket SET estado = 'cerrado', anulada_por = NULL, anulada_en = NULL, anulada_motivo = NULL WHERE id = $1::uuid`, [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ── Importaciones ────────────────────────────────────────────────────────────────────────────

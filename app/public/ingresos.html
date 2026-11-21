@@ -776,6 +776,20 @@ async function tareaVenta(p, t, { agrupado = false } = {}) {
     if (vs.length) caja.append(el('details', { className: 'abiertas' }, el('summary', { textContent: vs.length === 1 ? 'Ver la venta' : `Ver las ventas (${vs.length})` }),
       ...vs.map(v => el('div', { className: 'renglon' }, el('b', { textContent: `#${v.nro}` }),
         el('span', { className: 'mut', textContent: `${fecha(v.dia)} ${hora(v.abierto_en)} · ${pesos(v.total)}` }),
+        // El pedido se canceló en PedidosYa y el sistema de venta lo tiene cobrado: se anula acá (no depende del punto de venta).
+        v.cancelado ? el('span', { className: 'tag mal', textContent: `En PedidosYa: pedido ${v.cancelado.nro} cancelado`
+          + ({ cliente: ' por el cliente', local: ' por el local', pedidosya: ' por PedidosYa' }[v.cancelado.por] || '')
+          + ` · ${hora(v.cancelado.abierto_en)} · ${pesos(v.cancelado.total)}` }) : '',
+        boton(v.cancelado ? 'Se canceló: anular la venta' : 'Anular la venta…', async () => {
+          const sugerido = v.cancelado ? `Pedido ${v.cancelado.nro} cancelado en PedidosYa` : '';
+          const motivo = prompt(`Anular la venta #${v.nro} (${pesos(v.total)}) en ClauLogic: deja de sumar como venta y el día se cobra sin ella. `
+            + 'En el sistema de venta sigue como está. Motivo:', sugerido);
+          if (motivo === null) return;
+          if (!motivo.trim()) return msg('Indicá el motivo.', 'mal');
+          try { const d = await api(`pos/ventas/${v.id}/anular`, { method: 'POST', body: { motivo: motivo.trim() } });
+            msg(`Venta #${v.nro} anulada.` + (d.cobrados ? ' El día quedó cobrado.' : ''), 'ok'); await refrescar(); }
+          catch (e) { msg(e.message, 'mal'); }
+        }, !!v.cancelado),
         boton('No está en el archivo: cobrar así', async () => {
           if (!confirm(`¿El pedido de la venta #${v.nro} no está en el archivo de PedidosYa? Se cobra por lo que dice el sistema, sin los costos del pedido.`)) return;
           try { await api(`pos/peya/ventas/${v.id}/sin-pedido`, { method: 'POST', body: {} }); msg(`Venta #${v.nro}: se cobra sin el pedido.`, 'ok'); await refrescar(); }
