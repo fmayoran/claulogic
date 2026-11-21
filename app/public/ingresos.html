@@ -790,6 +790,24 @@ async function tareaVenta(p, t, { agrupado = false } = {}) {
             msg(`Venta #${v.nro} anulada.` + (d.cobrados ? ' El día quedó cobrado.' : ''), 'ok'); await refrescar(); }
           catch (e) { msg(e.message, 'mal'); }
         }, !!v.cancelado),
+        // El pedido salió y el cliente pagó de otra forma (efectivo, otro procesador): se cambia el medio antes de cobrar.
+        v.pago ? boton('Se pagó de otra forma…', async lugar => {
+          try {
+            const { medios } = await api(`pos/ventas/pagos/${v.pago.id}/medios`);
+            if (!medios.length) return msg('El sistema de venta no tiene otros medios con su medio de pago asignado.', 'mal');
+            const s = el('select', { 'aria-label': 'Medio con que se pagó' }, el('option', { value: '', textContent: 'Elegí cómo se pagó…' }),
+              ...medios.map(m => el('option', { value: m.id, textContent: m.nombre + (m.procesador ? ` (${m.procesador})` : '') })));
+            const motivo = el('input', { placeholder: 'Por qué', 'aria-label': 'Motivo', value: `Cargada con ${v.pago.medio}, se pagó de otra forma` });
+            const caja = el('span', { className: 'cambio-medio' }, s, motivo, boton('Cambiar el medio', async () => {
+              if (!s.value) { s.focus(); return msg('Elegí el medio con que se pagó.', 'mal'); }
+              if (!motivo.value.trim()) { motivo.focus(); return msg('Indicá el motivo.', 'mal'); }
+              try { const d = await api(`pos/ventas/pagos/${v.pago.id}/medio`, { method: 'POST', body: { medio_id: s.value, motivo: motivo.value.trim() } });
+                msg(`Venta #${v.nro}: ahora con ${d.medio}.` + (d.cobrados ? ' El día quedó cobrado.' : ''), 'ok'); await refrescar(); }
+              catch (e) { msg(e.message, 'mal'); }
+            }, true));
+            lugar.replaceWith(caja); s.focus();
+          } catch (e) { msg(e.message, 'mal'); }
+        }) : '',
         boton('No está en el archivo: cobrar así', async () => {
           if (!confirm(`¿El pedido de la venta #${v.nro} no está en el archivo de PedidosYa? Se cobra por lo que dice el sistema, sin los costos del pedido.`)) return;
           try { await api(`pos/peya/ventas/${v.id}/sin-pedido`, { method: 'POST', body: {} }); msg(`Venta #${v.nro}: se cobra sin el pedido.`, 'ok'); await refrescar(); }

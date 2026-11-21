@@ -280,7 +280,7 @@ const POLITICA = [
   [/^\/pos\/jornadas\/[^/]+\/procesar$/, 'finanzas'],
   // Resolver PedidosYa contra el sistema de venta y anular desde ClauLogic una venta que no se cobra: finanzas.
   [/^\/pos\/peya\//, 'finanzas'],
-  [/^\/pos\/ventas\/[^/]+\/anular$/, 'finanzas'],
+  [/^\/pos\/ventas\/([^/]+\/anular|pagos\/[^/]+\/medio)$/, 'finanzas'],
   [/^\/pos\/articulos\//, 'admin'],
   // Asignar el medio de pago de un medio del sistema: el administrador, o finanzas para terminar de cobrar un día.
   [/^\/pos\/medios\//, 'medios'],

@@ -978,6 +978,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   hora con 20 min de margen y mismo total) y **"Se canceló: anular la venta"** (o "Anular la venta…" sin pedido a la vista):
   `POST /pos/ventas/:id/anular` (finanzas, motivo obligatorio) la pasa a `anulado` con `anulada_por`, `anulada_en` y
   `anulada_motivo`, sólo si ni su cobro ni su consumo están procesados, y cobra el día. Se deshace con `DELETE` (todavía sin botón).
+  Si el pedido salió y el cliente pagó de otra forma, **"Se pagó de otra forma…"** cambia el medio del pago **antes de cobrar**
+  (migración 20261173; `GET /pos/ventas/pagos/:id/medios`, `POST|DELETE /pos/ventas/pagos/:id/medio`, finanzas, motivo obligatorio):
+  sin plata que mover, el original queda en `medio_original_id` con `medio_cambio_motivo`, `_por` y `_en`, y el día se cobra con el
+  nuevo. Ya cobrado, el cambio es el de Conciliación (con transferencia, `medio_cambio_mov_id`). Volver a traer las ventas no lo pisa.
 - **Transferencia directa** (pedido de Fer, 09/11/2026; migración 20261135): una transferencia del cliente a un banco de la empresa
   (en Fudo, "Transferencia Brubank") es un **procesador sin comisión**, marca `transferencia` ("Transferencia directa"), con su
   cuenta "a acreditar" y "Deposita en" el banco: lo cobrado queda pendiente hasta que el extracto del banco lo confirma, venta por

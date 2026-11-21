@@ -1000,7 +1000,12 @@ r.get('/pos/peya/pendientes', h(async (req, res) => {
                 (SELECT json_build_object('nro', c.id_externo, 'abierto_en', c.abierto_en, 'total', c.total::text, 'por', c.cancelado_por, 'motivo', c.cancelado_motivo)
                    FROM pos.ticket c WHERE c.integracion_id = $3 AND c.estado = 'anulado' AND c.total = COALESCE(t.total_pos, t.total)
                     AND abs(extract(epoch FROM c.abierto_en - t.abierto_en)) <= ${VENTANA_PEYA_SEG}
-                  ORDER BY abs(extract(epoch FROM c.abierto_en - t.abierto_en)) LIMIT 1) AS cancelado
+                  ORDER BY abs(extract(epoch FROM c.abierto_en - t.abierto_en)) LIMIT 1) AS cancelado,
+                -- El pago de PedidosYa sin cobrar, para cambiarle el medio si el cliente pagó de otra forma.
+                (SELECT json_build_object('id', p.id, 'importe', p.importe::text, 'medio', m.nombre)
+                   FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
+                   JOIN fin.procesador pr ON pr.id = mp.procesador_id
+                  WHERE p.ticket_id = t.id AND NOT p.anulado AND p.cobro_id IS NULL AND pr.marca = 'pedidosya' LIMIT 1) AS pago
            FROM pos.ticket t JOIN pos.importacion im ON im.id = t.importacion_id AND im.estado = 'recibida'
           WHERE t.integracion_id = $1 AND t.estado = 'cerrado' AND t.pedido_peya IS NULL AND NOT t.peya_omitido AND t.dia >= $2::date
             AND EXISTS (SELECT 1 FROM pos.ticket_pago p JOIN pos.medio m ON m.id = p.medio_id JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id
@@ -1086,6 +1091,60 @@ r.delete('/pos/ventas/:id/anular', h(async (req, res) => {
   if (!t) throw new ErrorUsuario('Esa venta no está anulada desde ClauLogic.', 404);
   await integracion(pool, req, t.integracion_id);
   await pool.query(`UPDATE pos.ticket SET estado = 'cerrado', anulada_por = NULL, anulada_en = NULL, anulada_motivo = NULL WHERE id = $1::uuid`, [req.params.id]);
+  res.json({ ok: true });
+}));
+// Cambiar el medio de un pago todavía sin cobrar (pedido de Fer, 21/11/2026): la venta se cargó con un medio y se cobró con otro
+// (p. ej., "Online Pedidos Ya" y el cliente pagó en efectivo). No hay plata que mover: el día se cobra con el medio nuevo. El
+// original queda en medio_original_id; volver a traer las ventas no lo pisa. Ya cobrado, el cambio es el de Conciliación.
+const MEDIOS_CAMBIO_SQL = `
+  SELECT m.id, m.nombre, mp.tipo_operacion, pr.nombre AS procesador, pr.marca
+    FROM pos.medio m JOIN fin.medio_pago mp ON mp.id = m.medio_pago_id LEFT JOIN fin.procesador pr ON pr.id = mp.procesador_id
+   WHERE m.integracion_id = $1 AND m.cuenta_id IS NOT NULL AND m.id <> $2 AND mp.activo AND m.codigo_externo <> '${MEDIO_COMISION_EFECTIVO}'`;
+async function pagoSinCobrar(c, req, id) {
+  if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Es de finanzas.', 403);
+  const { rows: [p] } = await c.query(
+    `SELECT p.id, p.medio_id, p.medio_original_id, p.medio_cambio_mov_id, p.cobro_id, p.anulado, m.nombre AS medio,
+            t.id_externo, t.estado, t.integracion_id, to_char(t.dia, 'YYYY-MM-DD') AS dia, i.sistema
+       FROM pos.ticket_pago p JOIN pos.ticket t ON t.id = p.ticket_id JOIN pos.integracion i ON i.id = t.integracion_id
+       JOIN pos.medio m ON m.id = p.medio_id WHERE p.id = $1::uuid FOR UPDATE OF p`, [id]);
+  if (!p) throw new ErrorUsuario('No se encontró ese pago.', 404);
+  const integ = await integracion(c, req, p.integracion_id);
+  if (p.anulado || p.estado !== 'cerrado') throw new ErrorUsuario(`El pago de la venta #${p.id_externo} está anulado.`);
+  if (p.cobro_id) throw new ErrorUsuario(`La venta #${p.id_externo} ya está cobrada: el medio se cambia desde Conciliación.`);
+  if (p.sistema === 'pedidosya') throw new ErrorUsuario('Los pagos de una venta de PedidosYa no cambian de medio: los liquida PedidosYa.');
+  return { p, integ };
+}
+r.get('/pos/ventas/pagos/:id/medios', h(async (req, res) => {
+  const { p } = await pagoSinCobrar(pool, req, req.params.id);
+  const { rows } = await pool.query(`${MEDIOS_CAMBIO_SQL} ORDER BY mp.tipo_operacion = 'efectivo' DESC, pr.nombre NULLS FIRST, m.nombre`,
+    [p.integracion_id, p.medio_id]);
+  res.json({ ok: true, medios: rows });
+}));
+r.post('/pos/ventas/pagos/:id/medio', h(async (req, res) => {
+  const medioId = texto(req.body.medio_id, { campo: 'el medio de pago', requerido: true });
+  const motivo = texto(req.body.motivo, { campo: 'el motivo', requerido: true });
+  const out = await enTransaccion(async c => {
+    const { p, integ } = await pagoSinCobrar(c, req, req.params.id);
+    if (p.medio_original_id) throw new ErrorUsuario(`Al pago de la venta #${p.id_externo} ya se le cambió el medio: deshacé el cambio primero.`);
+    const { rows: [n] } = await c.query(`${MEDIOS_CAMBIO_SQL} AND m.id = $3::uuid`, [p.integracion_id, p.medio_id, medioId]);
+    if (!n) throw new ErrorUsuario('Ese medio no es del sistema de venta de la venta, o no tiene su medio de pago y su cuenta.');
+    // liquida_el y neto los informa el procesador del medio anterior: con otro medio no valen.
+    await c.query(
+      `UPDATE pos.ticket_pago SET medio_original_id = medio_id, medio_id = $2, medio_cambio_motivo = $3, medio_cambio_por = $4,
+              medio_cambio_en = now(), liquida_el = NULL, neto = NULL WHERE id = $1`, [p.id, n.id, motivo, req.usuario.usuario]);
+    return { p, integ, n };
+  });
+  const r1 = await procesarListos(req, out.integ, out.p.dia, out.p.dia);
+  res.status(201).json({ ok: true, venta: out.p.id_externo, medio: out.n.nombre, cobrados: r1 ? r1.procesados.length : 0 });
+}));
+// Deshacer el cambio antes de cobrar: vuelve al medio con que vino del sistema de venta.
+r.delete('/pos/ventas/pagos/:id/medio', h(async (req, res) => {
+  await enTransaccion(async c => {
+    const { p } = await pagoSinCobrar(c, req, req.params.id);
+    if (!p.medio_original_id || p.medio_cambio_mov_id) throw new ErrorUsuario('A ese pago no se le cambió el medio antes de cobrar.');
+    await c.query(`UPDATE pos.ticket_pago SET medio_id = medio_original_id, medio_original_id = NULL, medio_cambio_motivo = NULL,
+                          medio_cambio_por = NULL, medio_cambio_en = NULL WHERE id = $1`, [p.id]);
+  });
   res.json({ ok: true });
 }));
 
