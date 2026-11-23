@@ -1133,14 +1133,16 @@ async function verCuenta(id, ver) {
   if (sin) return verSinConciliar(c);
   const p = new URLSearchParams(); if ($('#desde').value) p.set('desde', $('#desde').value); if ($('#hasta').value) p.set('hasta', $('#hasta').value);
   const { movimientos } = await api(`fin/cuentas/${id}/movimientos?` + p);
-  filas($('#cMovs'), movimientos, m => el('tr', { className: m.anulado ? 'anulado' : '' },
+  // Un movimiento anulado y su anulación suman cero: los dos van en gris, tachados y sin saldo (pedido de Fer, 23/11/2026).
+  filas($('#cMovs'), movimientos, m => { const par = m.anulado || m.anula_a; return el('tr', { className: par ? 'anulado' : '' },
     td(fecha(m.fecha)), el('td', { className: 'wrap' }, `${MOV[m.tipo]}${m.concepto ? ': ' + m.concepto : ''} `,
+      m.anulado ? el('span', { className: 'tag', textContent: 'anulado' }) : m.anula_a ? el('span', { className: 'tag', textContent: 'anulación' }) : '',
       m.conciliado ? el('span', { className: 'tag ok', textContent: 'conciliado' }) : '',
       m.orden_pago_id ? el('a', { href: 'ordenes-pago.html#' + m.orden_pago_id, textContent: ' ver orden' }) : ''),
     td(cero(m.entrada) ? '' : pesos(m.entrada), 'num'), td(cero(m.salida) ? '' : pesos(m.salida), 'num'),
-    td(pesos(m.saldo), 'num'), td(m.registrado_por),
+    td(par ? '' : pesos(m.saldo), 'num'), td(m.registrado_por),
     el('td', {}, ['ingreso', 'egreso', 'transferencia'].includes(m.tipo) && !m.anulado ?
-      el('button', { className: 'chico', textContent: 'Anular', onclick: () => anular(m) }) : '')), 'Sin movimientos en el período.', 7);
+      el('button', { className: 'chico', textContent: 'Anular', onclick: () => anular(m) }) : '')); }, 'Sin movimientos en el período.', 7);
 }
 // Lo que falta conciliar (pedido de Fer, 19/11/2026): en el extracto y no en el sistema, y al revés. Sin fechas: todo lo pendiente.
 let verMovs = 'todos';
