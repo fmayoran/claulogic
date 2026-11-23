@@ -386,7 +386,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   disponible** en dona por cuenta (lo que está en negativo se avisa aparte; tocar una parte abre la cuenta) con el efectivo a rendir de
   cada local en barras, y **por acreditar** en dona por procesador con **cuándo entra** en columnas apiladas por día y procesador (mismo
   color en los dos; `apilar` en `Graf.columnasSeries`; tocar un día lo abre en "Día por día"). El saldo proyectado y lo que entra y sale
-  van a todo el ancho; la lista de cuentas con su saldo queda plegada ("Todas las cuentas con su saldo"). Ojo: el disponible "ahora" llega hasta el
+  van a todo el ancho; la lista de cuentas con su saldo queda plegada ("Todas las cuentas con su saldo").
+  **El efectivo a rendir es por acreditar con demora cero** (decisión de Fer, 23/11/2026): en "Hoy y lo que viene" suma en la cifra
+  Por acreditar (procesadores + efectivo de los locales; no hay cifra aparte) y en su dona, y `/fin/tesoreria/plan` lo pone como entrada
+  de hoy, una por local (`efectivo: true`, total en `efectivo`); rendido, pasa al disponible. "Lo que pasó" sigue con las dos cifras separadas. Ojo: el disponible "ahora" llega hasta el
   último extracto importado, y casi no hay facturas pendientes (los gastos se registran ya pagados), así que los egresos todavía no se
   proyectan. **Pendiente para más adelante** (decisión de Fer, 17/11/2026: no hay información confiable todavía): una funcionalidad de
   **planificación financiera** donde se arme el presupuesto (compromisos fijos, estimado por rubro desde la historia) antes de llevarlo al

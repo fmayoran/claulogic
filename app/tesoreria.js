@@ -379,7 +379,7 @@ r.get('/fin/tesoreria/plan', h(async (req, res) => {
   const filial = filialTes(req.query.filial);
   const dias = Math.min(90, Math.max(7, Number(req.query.dias) || 30));
   const deSoc = sid => !filial || (filial === 'sin' ? !sid : sid === filial);
-  const [pc, { rows: [{ hoy, disponible }] }, { rows: facturas }, { rows: cheques }] = await Promise.all([
+  const [pc, { rows: [{ hoy, disponible }] }, { rows: facturas }, { rows: cheques }, { rows: efectivos }] = await Promise.all([
     porCobrar({ porSede: true }),
     pool.query(
       `SELECT to_char(current_date, 'YYYY-MM-DD') AS hoy, COALESCE(SUM(sc.saldo), 0)::numeric(16,2)::text AS disponible
@@ -399,6 +399,13 @@ r.get('/fin/tesoreria/plan', h(async (req, res) => {
          FROM fin.cheque ch JOIN fin.cuenta c ON c.id = ch.cuenta_id LEFT JOIN logic.proveedor pr ON pr.id = ch.proveedor_id
         WHERE ch.tipo = 'propio' AND ch.estado = 'emitido' AND ch.fecha_pago < current_date + $2::int
           AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1)`, [filial, dias]),
+    // El efectivo de cada local a rendir: es por acreditar con demora cero (decisión de Fer, 23/11/2026), entra hoy.
+    pool.query(
+      `SELECT DISTINCT ON (c.id) c.id AS cuenta_id, i.nombre AS punto_venta, sc.saldo::numeric(16,2)::text AS saldo
+         FROM pos.integracion i JOIN fin.cuenta c ON c.id = i.cuenta_efectivo_id JOIN fin.saldo_cuenta sc ON sc.cuenta_id = c.id
+        WHERE i.sistema <> 'pedidosya' AND c.activa AND sc.saldo > 0
+          AND ($1::text = '' OR ($1 = 'sin' AND c.sociedad_id IS NULL) OR c.sociedad_id::text = $1)
+        ORDER BY c.id, i.activa DESC`, [filial]),
   ]);
   const fin = sumarDias(hoy, dias - 1), por = new Map();
   const dia = f => { if (!por.has(f)) por.set(f, { dia: f, entradas: 0n, salidas: 0n, acreditaciones: new Map(), facturas: [], cheques: [] }); return por.get(f); };
@@ -410,6 +417,11 @@ r.get('/fin/tesoreria/plan', h(async (req, res) => {
     const d = dia(f), k = x.procesador + (atr ? '|atr' : ''), a = d.acreditaciones.get(k) || { procesador: x.procesador, atrasado: atr, neto: 0n, pagos: 0, estimado: false };
     a.neto += centavos(x.neto); a.pagos += x.pagos; a.estimado ||= x.fuente !== 'informado'; d.acreditaciones.set(k, a);
     d.entradas += centavos(x.neto);
+  }
+  for (const x of efectivos) {
+    const d = dia(hoy);
+    d.acreditaciones.set('efe|' + x.cuenta_id, { procesador: 'Efectivo a rendir', punto_venta: x.punto_venta, efectivo: true, atrasado: false, neto: centavos(x.saldo), pagos: 0, estimado: false });
+    d.entradas += centavos(x.saldo);
   }
   for (const x of facturas) { const d = dia(x.vencida ? hoy : x.vencimiento); d.facturas.push(x); d.salidas += centavos(x.importe); }
   for (const x of cheques) { const d = dia(x.fecha); d.cheques.push(x); d.salidas += centavos(x.importe); }
@@ -425,6 +437,7 @@ r.get('/fin/tesoreria/plan', h(async (req, res) => {
   const tot = k => deCentavos(serie.reduce((t, d) => t + centavos(d[k]), 0n));
   res.json({ ok: true, hoy, hasta: fin, disponible, entradas: tot('entradas'), salidas: tot('salidas'), saldo_final: serie[serie.length - 1].saldo,
     minimo: { dia: minimo.dia, saldo: deCentavos(minimo.saldo) }, dias: serie,
+    efectivo: deCentavos(efectivos.reduce((t, x) => t + centavos(x.saldo), 0n)),
     atrasado: deCentavos(pc.atrasado.filter(x => deSoc(x.sociedad_id)).reduce((t, x) => t + centavos(x.neto), 0n)),
     vencido: deCentavos(facturas.filter(x => x.vencida).reduce((t, x) => t + centavos(x.importe), 0n)) });
 }));

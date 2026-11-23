@@ -145,12 +145,13 @@
           <p class="cap">Saldo de cada banco y caja en este momento. Tocá una parte para ver sus movimientos.</p>
           <div id="gHoyDisp"></div>
           <p class="ayuda" id="hoyDescubierto"></p>
-          <div id="hoyEfectivoCaja" hidden><h3 class="h-plan">Efectivo en los locales, a rendir</h3><div id="gHoyEfectivo"></div></div>
         </section>
         <section class="card">
           <div class="card-cab"><h2>Por acreditar</h2></div>
-          <p class="cap">Lo cobrado con cada procesador que todavía no depositó, y cuándo se espera que entre (por el neto).</p>
+          <p class="cap">Lo cobrado que todavía no llegó al disponible: lo que no depositó cada procesador y el efectivo que juntaron los
+            locales (entra cuando se rinde). Abajo, cuándo se espera que entre, por el neto.</p>
           <div id="gHoyAcr"></div>
+          <div id="hoyEfectivoCaja" hidden><h3 class="h-plan">Efectivo en los locales, a rendir</h3><div id="gHoyEfectivo"></div></div>
           <h3 class="h-plan" id="tCuando">Cuándo entra</h3>
           <div id="gHoyCuando"></div>
         </section>
@@ -402,8 +403,8 @@ function pintarHoy() {
   if (neg(p.minimo.saldo)) kProy.classList.add('alarma-k');
   $('#kHoy').replaceChildren(
     kpiSimple('Disponible ahora', pesosC(suma(disponibles)), `bancos ${pesosC(suma(disponibles.filter(c => c.tipo === 'banco')))} · cajas ${pesosC(suma(disponibles.filter(c => c.tipo === 'caja')))}`),
-    kpiSimple('Por acreditar', pesosC(suma(aAcreditar)), 'cobrado, todavía no depositado'),
-    kpiSimple('Efectivo a rendir', pesosC(suma(efectivoPV)), `en ${efectivoPV.length} punto${efectivoPV.length === 1 ? '' : 's'} de venta`),
+    // El efectivo a rendir es por acreditar con demora cero (decisión de Fer, 23/11/2026): rendido, pasa al disponible.
+    kpiSimple('Por acreditar', pesosC(suma(aAcreditar) + suma(efectivoPV)), `procesadores ${pesosC(suma(aAcreditar))} · efectivo de los locales ${pesosC(suma(efectivoPV))}`),
     kProy);
 
   // Dónde está la plata: disponible (por sociedad si se mira todo el grupo), por acreditar y efectivo de los locales.
@@ -443,6 +444,8 @@ function pintarHoy() {
   // tiene el mismo color en los dos gráficos (mismo orden; desde el sexto, "Otros").
   const MAX_P = 6, porProc = new Map();
   for (const c of aAcreditar) { const k = c.procesador_pendiente || c.nombre; porProc.set(k, (porProc.get(k) || 0) + n(c.saldo)); }
+  const EFE = 'Efectivo a rendir', efeTot = efectivoPV.reduce((t, c) => t + Math.max(0, n(c.saldo)), 0);
+  if (efeTot > 0) porProc.set(EFE, efeTot);
   const enPlan = new Map();
   for (const d of p.dias) for (const a of d.acreditaciones) enPlan.set(a.procesador, (enPlan.get(a.procesador) || 0) + n(a.neto));
   const procs = [...new Set([...porProc.keys(), ...enPlan.keys()])].filter(k => (porProc.get(k) || 0) > 0 || (enPlan.get(k) || 0) > 0)
@@ -450,7 +453,7 @@ function pintarHoy() {
   const grupoDe = k => { const i = procs.indexOf(k); return procs.length > MAX_P && i >= MAX_P - 1 ? MAX_P - 1 : i; };
   const nombresG = procs.slice(0, procs.length > MAX_P ? MAX_P - 1 : MAX_P).concat(procs.length > MAX_P ? [`Otros (${procs.length - MAX_P + 1})`] : []);
   Graf.dona($('#gHoyAcr'), { items: procs.filter(k => (porProc.get(k) || 0) > 0).map(k => ({ clave: k, etiqueta: k, valor: porProc.get(k) })),
-    centro: Graf.compacto(n(deCentavos(suma(aAcreditar)))), sub: 'por acreditar', maximo: MAX_P });
+    centro: Graf.compacto(n(deCentavos(suma(aAcreditar) + suma(efectivoPV)))), sub: 'por acreditar', maximo: MAX_P });
   let ultimo = -1;
   p.dias.forEach((d, i) => { if (d.acreditaciones.length) ultimo = i; });
   const diasAcr = p.dias.slice(0, ultimo + 1);
@@ -462,6 +465,7 @@ function pintarHoy() {
   // Saldo proyectado y entradas y salidas por día.
   $('#tPlan').textContent = `Saldo proyectado a ${planDias} días`;
   $('#capPlan').textContent = `Arranca en el disponible de hoy (${pesos(p.disponible)}) y suma lo que se espera que entre y salga cada día.`
+    + (n(p.efectivo) ? ` El efectivo a rendir de los locales (${pesos(p.efectivo)}) entra hoy.` : '')
     + (neg(p.minimo.saldo) ? ` Queda en negativo el ${diaLargo(p.minimo.dia)}.` : '');
   Graf.area($('#gPlanSaldo'), { etiquetas: p.dias.map(d => d.dia), ejeX: d => fecha(d).slice(0, 5), titulo: d => diaLargo(d),
     serie: { nombre: 'Saldo', valores: p.dias.map(d => n(d.saldo)), texto: i => `${pesos(p.dias[i].saldo)} · entra ${pesos(p.dias[i].entradas)}, sale ${pesos(p.dias[i].salidas)}` },
@@ -483,7 +487,8 @@ function pintarHoy() {
         el('summary', {}, el('b', { textContent: d.dia === p.hoy ? 'Hoy' : diaCorto(d.dia) }),
           el('span', { className: 'i e', textContent: n(d.entradas) ? pesos(d.entradas) : '' }), el('span', { className: 'i s', textContent: n(d.salidas) ? '−' + pesos(d.salidas) : '' }),
           el('span', { className: 'i sal' + (neg(d.saldo) ? ' neg' : ''), textContent: pesos(d.saldo) })),
-        ...d.acreditaciones.map(a => r(`Acreditación ${a.procesador}`, a.neto, [a.atrasado ? 'atrasada' : a.estimado ? 'estimada' : 'informada', `${a.pagos} cobro${a.pagos === 1 ? '' : 's'}`].join(', '))),
+        ...d.acreditaciones.map(a => a.efectivo ? r(`Efectivo a rendir · ${a.punto_venta}`, a.neto, 'entra al rendirlo')
+          : r(`Acreditación ${a.procesador}`, a.neto, [a.atrasado ? 'atrasada' : a.estimado ? 'estimada' : 'informada', `${a.pagos} cobro${a.pagos === 1 ? '' : 's'}`].join(', '))),
         ...d.facturas.map(f => r(`Factura ${f.proveedor}`, '-' + f.importe, `${f.letra} ${String(f.punto_venta || 0).padStart(5, '0')}-${String(f.numero).padStart(8, '0')}` + (f.vencida ? `, vencida el ${fecha(f.vencimiento)}` : ''))),
         ...d.cheques.map(c => r(`Cheque ${c.banco} ${c.numero}`, '-' + c.importe, c.proveedor || '')));
     }) : [el('p', { className: 'g-vacio', textContent: 'No se espera que entre ni salga nada en estos días.' })]));
