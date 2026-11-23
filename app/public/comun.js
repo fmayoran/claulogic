@@ -221,16 +221,22 @@ function navegacion() {
   const grupos = todo => todo ? [...FIJOS, ...GRUPOS].map(fijo) : [
     ...FIJOS.map(fijo),
     ...GRUPOS.map(([g, secs]) => {
-      const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
+      // Uno abierto por vez (Fer, 23/11/2026): el de la pantalla actual, o el último que se abrió.
+      const abierto = secs.some(([href]) => href === actual) || (!GRUPOS.some(([, ss]) => ss.some(([href]) => href === actual)) && menuAbiertos().includes(g));
       const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
       const cab = el('button', { type: 'button', className: 'cab' }, el('span', { textContent: g }), icono('flecha'));
       cab.setAttribute('aria-expanded', abierto);
       cab.onclick = () => {
-        items.hidden = !items.hidden; cab.setAttribute('aria-expanded', !items.hidden);
-        const otros = menuAbiertos().filter(x => x !== g);
-        try { localStorage.setItem('menu-abiertos', JSON.stringify(items.hidden ? otros : [...otros, g])); } catch {}
+        const abrir = items.hidden;
+        if (abrir) cab.closest('nav').querySelectorAll('.grupo.plegable').forEach(o => {
+          if (o === grupo) return;
+          o.querySelector('.items').hidden = true; o.querySelector('.cab').setAttribute('aria-expanded', false);
+        });
+        items.hidden = !abrir; cab.setAttribute('aria-expanded', abrir);
+        try { localStorage.setItem('menu-abiertos', JSON.stringify(abrir ? [g] : [])); } catch {}
       };
-      return el('div', { className: 'grupo' }, cab, items);
+      const grupo = el('div', { className: 'grupo plegable' }, cab, items);
+      return grupo;
     })];
   const btnEsc = () => el('button', { type: 'button', className: 'btn-escanear', onclick: escanear,
     ariaLabel: 'Escanear un código' }, icono('escanear'), el('span', { textContent: 'Escanear' }));

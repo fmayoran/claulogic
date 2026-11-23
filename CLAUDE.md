@@ -1249,7 +1249,7 @@ la guía y a `comun.css`, no a la pantalla.
   Tesorería, Food cost y caja, Estado de resultados); después, desplegables, **Ventas** (Proceso de ingresos, Procesar ventas),
   **Abastecimiento** (Proceso de abastecimiento, Cuentas por pagar, Compras, Facturas de proveedor, Órdenes de pago, Pagos sin factura,
   Cuenta corriente, Proveedores), **Finanzas** (Proceso de egresos, Operaciones de tesorería, Conciliación, Cheques), **Producción**
-  (stock, pedidos, remitos, recetas, producción, platos, frío, trazabilidad, etiquetas) y **Configuración** (el catálogo primero). Cada
+  (stock, pedidos, remitos, recetas, producción, platos, frío, trazabilidad, etiquetas) y **Configuración** (el catálogo primero), de a uno abierto: abrir uno cierra los otros. Cada
   área arranca por su proceso. Ya no hay "Procesos" ni "Registros"; la hoja "Procesos" del celular sale de `PROCESOS`. "Buscar o ir a…" (Ctrl+K, `buscarPantalla`)
   encuentra cualquier pantalla del menú. **En el celular** (Fer no encontraba los tableros): quien tiene finanzas o gestiona una
   sede ve en la barra inferior Inicio, Tableros, Escanear, Procesos y Más (Tableros y Procesos abren una hoja con sus pantallas);
