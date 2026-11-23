@@ -20,7 +20,9 @@ const pool = new Pool({
   // vencimientos, los códigos de lote y los filtros de "vence en N días" se correrían un día.
   // logic.origen=app le dice a los triggers que el pedido viene de la app y que, por lo tanto,
   // tiene que traer usuario. Desde psql no está, y ahí no se exige.
-  options: '-c timezone=America/Argentina/Buenos_Aires -c logic.origen=app',
+  // jit=off (23/11/2026): las vistas derivadas (pos.jornada) inflan la estimación de costo y Postgres compilaba con JIT
+  // consultas que corren en 50 ms: 1,5 s de compilación por punto de venta, y el Proceso de ingresos tardaba 5 s en abrir.
+  options: '-c timezone=America/Argentina/Buenos_Aires -c logic.origen=app -c jit=off',
   max: 10,
   idleTimeoutMillis: 30000,
   // Si la base no contesta, fallar rápido y ruidoso. Sin esto el pedido queda colgado y el

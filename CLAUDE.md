@@ -1387,6 +1387,9 @@ Vive en ClaUsina porque el cron ya estaba armado ahí; es la única dependencia 
 dos y está anotada a propósito.
 
 ## Trampas conocidas
+- **JIT de Postgres apagado en la conexión de la app** (`-c jit=off` en `db.js`, 23/11/2026): las vistas derivadas (`pos.jornada`,
+  `fin.resultado`) hacen que el planificador estime costos enormes y compile con JIT consultas de 50 ms; el cierre (`/pos/cierre`)
+  tardaba 5 s, casi todo compilación. Si una consulta anda lenta, mirar primero el bloque "JIT" de `EXPLAIN ANALYZE`.
 - **Nunca responder 502 desde la app**: el proxy de EasyPanel (`bad-gateway-error-page` en
   `/etc/easypanel/traefik/config/main.yaml`) reemplaza todo 502 por su propia página HTML y el detalle se
   pierde (el navegador veía "respuesta inválida"). Para fallas de un servicio externo (Fudo, Open Food Facts)
