@@ -161,23 +161,27 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // (lo más usado, para mirar) y los procesos (los asistentes, por donde se opera). El resto son áreas, en grupos desplegables: las pantallas de detalle de cada
 // registro van juntas en "Registros", y lo que se arma una vez, en Configuración. Todo se encuentra también con "Buscar o ir
 // a…" (Ctrl+K). En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
+// Menú por área (Fer, 23/11/2026): Tableros siempre a la vista; después cada área con su proceso primero y sus registros.
 const FIJOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
                 ['resultados.html', 'Estado de resultados']]],
-  ['Procesos', [['ingresos.html', 'Ingresos'], ['abastecimiento.html', 'Abastecimiento'], ['egresos.html', 'Egresos'],
-                ['operaciones-tesoreria.html', 'Operaciones de tesorería']]],
 ];
 const GRUPOS = [
-  ['Compras', [['cuentas-pagar.html', 'Cuentas por pagar'], ['proveedores.html', 'Proveedores'], ['cuenta-corriente.html', 'Cuenta corriente'], ['cheques.html', 'Cheques']]],
-  ['Stock', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos']]],
-  ['Producción', [['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta']]],
-  ['Control', [['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
-  ['Registros', [['compras.html', 'Compras'], ['comprobantes.html', 'Facturas de proveedor'], ['pagos-sin-factura.html', 'Pagos sin factura'], ['ordenes-pago.html', 'Órdenes de pago'],
-                 ['procesar-ventas.html', 'Procesar ventas'], ['conciliacion.html', 'Conciliación']]],
-  ['Catálogo', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida']]],
-  ['Configuración', [['organizacion.html', 'Organización'], ['sedes.html', 'Locales y centro'], ['medios-pago.html', 'Medios de pago'], ['cuentas.html', 'Cuentas'], ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'],
-                     ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
+  ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Procesar ventas']]],
+  ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['cuentas-pagar.html', 'Cuentas por pagar'], ['compras.html', 'Compras'],
+                      ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'], ['pagos-sin-factura.html', 'Pagos sin factura'],
+                      ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
+  ['Finanzas', [['egresos.html', 'Proceso de egresos'], ['operaciones-tesoreria.html', 'Operaciones de tesorería'], ['conciliacion.html', 'Conciliación'],
+                ['cheques.html', 'Cheques']]],
+  ['Producción', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'],
+                  ['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta'],
+                  ['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
+  ['Configuración', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida'],
+                     ['organizacion.html', 'Organización'], ['sedes.html', 'Locales y centro'], ['medios-pago.html', 'Medios de pago'], ['cuentas.html', 'Cuentas'],
+                     ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'], ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
+// Los procesos del día, para la hoja "Procesos" de la barra del celular: están repartidos en sus áreas.
+const PROCESOS = ['ingresos.html', 'abastecimiento.html', 'egresos.html', 'operaciones-tesoreria.html'];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'cuentas-pagar.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
@@ -216,7 +220,6 @@ function navegacion() {
   };
   const grupos = todo => todo ? [...FIJOS, ...GRUPOS].map(fijo) : [
     ...FIJOS.map(fijo),
-    el('div', { className: 'rot', textContent: 'Áreas' }),
     ...GRUPOS.map(([g, secs]) => {
       const abierto = secs.some(([href]) => href === actual) || menuAbiertos().includes(g);
       const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
@@ -251,14 +254,17 @@ function navegacion() {
   const mas = el('button', { type: 'button', className: enBarra ? '' : 'act', onclick: () => hoja.showModal() }, icono('mas'), el('span', { textContent: 'Más' }));
   const inferior = el('nav', { className: 'inferior', ariaLabel: 'Secciones' }, ...abajo.map(x => x ? enlace(x) : esc), mas);
   // Un grupo del menú en su propia hoja (Tableros, Procesos): sus pantallas, las que el usuario puede abrir.
+  const hrefsDe = g => g === 'Procesos' ? PROCESOS : FIJOS.find(f => f[0] === g)[1].map(s => s[0]);
   const hojaDe = g => {
+    const hs = hrefsDe(g), as = [...hoja.querySelectorAll('a.sec')].filter(a => hs.includes(a.getAttribute('href')));
+    as.sort((a, b) => hs.indexOf(a.getAttribute('href')) - hs.indexOf(b.getAttribute('href')));
     const d = el('dialog', { className: 'hoja', ariaLabel: g }, el('h2', { textContent: g }),
-      el('div', { className: 'grupo' }, el('div', { className: 'items' }, ...[...(hoja.querySelector(`[data-grupo="${g}"]`) || hoja).querySelectorAll('a.sec')].map(a => a.cloneNode(true)))));
+      el('div', { className: 'grupo' }, el('div', { className: 'items' }, ...as.map(a => a.cloneNode(true)))));
     d.addEventListener('click', e => { if (e.target === d) d.close(); });
     d.addEventListener('close', () => d.remove());
     document.body.append(d); d.showModal();
   };
-  const deGrupo = (g, ic) => el('button', { type: 'button', className: FIJOS.find(f => f[0] === g)[1].some(s => s[0] === actual && s[0] !== 'index.html') ? 'act' : '',
+  const deGrupo = (g, ic) => el('button', { type: 'button', className: hrefsDe(g).some(h => h === actual && h !== 'index.html') ? 'act' : '',
     onclick: () => hojaDe(g) }, icono(ic), el('span', { textContent: g }));
   document.body.prepend(lateral);
   document.body.append(inferior, hoja);
@@ -276,7 +282,7 @@ function navegacion() {
     // Barra del celular según quién entra (Fer, 14/11/2026: no encontraba los tableros): quien mira tableros o lleva procesos
     // (finanzas, encargados) tiene Inicio, Tableros, Escanear, Procesos y Más; el resto, Stock y Productos como siempre.
     if (u.puede.finanzas || u.puede.gestionar) {
-      const esTablero = FIJOS[0][1].some(s => s[0] === actual), esProceso = FIJOS[1][1].some(s => s[0] === actual);
+      const esTablero = FIJOS[0][1].some(s => s[0] === actual), esProceso = PROCESOS.includes(actual);
       mas.className = esTablero || esProceso ? '' : 'act';
       inferior.replaceChildren(enlace(abajo[0]), deGrupo('Tableros', 'tableros'), esc, deGrupo('Procesos', 'procesos'), mas);
     }

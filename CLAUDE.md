@@ -1245,8 +1245,12 @@ la guía y a `comun.css`, no a la pantalla.
   de cada pantalla pone `data-tema` antes de pintar). Todo estilo nuevo tiene que verse en los dos: sólo variables.
 - **Tipografía** IBM Plex Sans variable servida desde el paquete (`/vendor/plex`): títulos y cifras angostos (`font-stretch` 78-80%,
   peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
-- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; orden de Fer, 14/11/2026): primero **Tableros** con Inicio adentro (lo más usado),
-  después **Procesos**, los dos siempre a la vista; el resto, áreas desplegables. "Buscar o ir a…" (Ctrl+K, `buscarPantalla`)
+- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; por área desde el 23/11/2026, Fer): **Tableros** siempre a la vista (Inicio, Ventas,
+  Tesorería, Food cost y caja, Estado de resultados); después, desplegables, **Ventas** (Proceso de ingresos, Procesar ventas),
+  **Abastecimiento** (Proceso de abastecimiento, Cuentas por pagar, Compras, Facturas de proveedor, Órdenes de pago, Pagos sin factura,
+  Cuenta corriente, Proveedores), **Finanzas** (Proceso de egresos, Operaciones de tesorería, Conciliación, Cheques), **Producción**
+  (stock, pedidos, remitos, recetas, producción, platos, frío, trazabilidad, etiquetas) y **Configuración** (el catálogo primero). Cada
+  área arranca por su proceso. Ya no hay "Procesos" ni "Registros"; la hoja "Procesos" del celular sale de `PROCESOS`. "Buscar o ir a…" (Ctrl+K, `buscarPantalla`)
   encuentra cualquier pantalla del menú. **En el celular** (Fer no encontraba los tableros): quien tiene finanzas o gestiona una
   sede ve en la barra inferior Inicio, Tableros, Escanear, Procesos y Más (Tableros y Procesos abren una hoja con sus pantallas);
   el resto conserva Inicio, Stock, Escanear, Productos y Más. "Más" muestra todo el menú sin nada plegado.
