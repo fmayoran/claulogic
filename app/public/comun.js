@@ -161,12 +161,12 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 // (lo más usado, para mirar) y los procesos (los asistentes, por donde se opera). El resto son áreas, en grupos desplegables: las pantallas de detalle de cada
 // registro van juntas en "Registros", y lo que se arma una vez, en Configuración. Todo se encuentra también con "Buscar o ir
 // a…" (Ctrl+K). En el celular, las de `abajo` van en la barra inferior; el resto, en "Más".
-// Menú por área (Fer, 23/11/2026): Tableros siempre a la vista; después cada área con su proceso primero y sus registros.
-const FIJOS = [
+// Menú por área (Fer, 23/11/2026): Tableros y después cada área con su proceso primero y sus registros; uno abierto por vez.
+// Tableros también se pliega, como las demás (Fer, 23/11/2026); FIJOS queda para algo que tenga que estar siempre a la vista.
+const FIJOS = [];
+const GRUPOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
                 ['resultados.html', 'Estado de resultados']]],
-];
-const GRUPOS = [
   ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Procesar ventas']]],
   ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['cuentas-pagar.html', 'Cuentas por pagar'], ['compras.html', 'Compras'],
                       ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'], ['pagos-sin-factura.html', 'Pagos sin factura'],
@@ -260,7 +260,7 @@ function navegacion() {
   const mas = el('button', { type: 'button', className: enBarra ? '' : 'act', onclick: () => hoja.showModal() }, icono('mas'), el('span', { textContent: 'Más' }));
   const inferior = el('nav', { className: 'inferior', ariaLabel: 'Secciones' }, ...abajo.map(x => x ? enlace(x) : esc), mas);
   // Un grupo del menú en su propia hoja (Tableros, Procesos): sus pantallas, las que el usuario puede abrir.
-  const hrefsDe = g => g === 'Procesos' ? PROCESOS : FIJOS.find(f => f[0] === g)[1].map(s => s[0]);
+  const hrefsDe = g => g === 'Procesos' ? PROCESOS : [...FIJOS, ...GRUPOS].find(f => f[0] === g)[1].map(s => s[0]);
   const hojaDe = g => {
     const hs = hrefsDe(g), as = [...hoja.querySelectorAll('a.sec')].filter(a => hs.includes(a.getAttribute('href')));
     as.sort((a, b) => hs.indexOf(a.getAttribute('href')) - hs.indexOf(b.getAttribute('href')));
@@ -288,7 +288,7 @@ function navegacion() {
     // Barra del celular según quién entra (Fer, 14/11/2026: no encontraba los tableros): quien mira tableros o lleva procesos
     // (finanzas, encargados) tiene Inicio, Tableros, Escanear, Procesos y Más; el resto, Stock y Productos como siempre.
     if (u.puede.finanzas || u.puede.gestionar) {
-      const esTablero = FIJOS[0][1].some(s => s[0] === actual), esProceso = PROCESOS.includes(actual);
+      const esTablero = hrefsDe('Tableros').includes(actual), esProceso = PROCESOS.includes(actual);
       mas.className = esTablero || esProceso ? '' : 'act';
       inferior.replaceChildren(enlace(abajo[0]), deGrupo('Tableros', 'tableros'), esc, deGrupo('Procesos', 'procesos'), mas);
     }
