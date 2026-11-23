@@ -149,10 +149,20 @@
         <section class="card">
           <div class="card-cab"><h2>Por acreditar</h2></div>
           <p class="cap">Lo cobrado que todavía no llegó al disponible: lo que no depositó cada procesador y el efectivo que juntaron los
-            locales (entra cuando se rinde). Abajo, cuándo se espera que entre, por el neto.</p>
+            locales (entra cuando se rinde).</p>
           <div id="gHoyAcr"></div>
-          <div id="hoyEfectivoCaja" hidden><h3 class="h-plan">Efectivo en los locales, a rendir</h3><div id="gHoyEfectivo"></div></div>
-          <h3 class="h-plan" id="tCuando">Cuándo entra</h3>
+        </section>
+      </div>
+      <!-- Segunda fila (Fer, 23/11/2026): el efectivo de cada local y cuándo entra, cada uno en su tarjeta. -->
+      <div class="t-grid t-gh">
+        <section class="card" id="hoyEfectivoCaja">
+          <div class="card-cab"><h2>Efectivo en los locales, a rendir</h2></div>
+          <p class="cap">Lo que juntó cada local en efectivo y todavía no se rindió. Tocá un local para ver su cuenta.</p>
+          <div id="gHoyEfectivo"></div>
+        </section>
+        <section class="card">
+          <div class="card-cab"><h2 id="tCuando">Cuándo entra</h2></div>
+          <p class="cap">Lo por acreditar por día y por procesador, por el neto. El efectivo a rendir va hoy. Tocá un día para ver su detalle.</p>
           <div id="gHoyCuando"></div>
         </section>
       </div>
@@ -436,9 +446,9 @@ function pintarHoy() {
   const enRojo = disponibles.filter(c => n(c.saldo) < 0);
   $('#hoyDescubierto').textContent = enRojo.length ? `En negativo, fuera de la dona: ${enRojo.map(c => `${c.nombre} ${pesos(c.saldo)}`).join(' · ')}.` : '';
   const efe = efectivoPV.filter(c => !cero(c.saldo)).sort((a, b) => n(b.saldo) - n(a.saldo));
-  $('#hoyEfectivoCaja').hidden = !efe.length;
-  if (efe.length) Graf.ranking($('#gHoyEfectivo'), { items: efe.map(c => ({ clave: c.id, etiqueta: c.punto_venta || c.nombre, valor: c.saldo })),
-    alElegir: id => { location.hash = id; } });
+  if (efe.length) Graf.dona($('#gHoyEfectivo'), { items: efe.filter(c => n(c.saldo) > 0).map(c => ({ clave: c.id, etiqueta: c.punto_venta || c.nombre, valor: c.saldo })),
+    centro: Graf.compacto(n(deCentavos(suma(efe)))), sub: 'a rendir', alElegir: id => { location.hash = id; } });
+  else $('#gHoyEfectivo').replaceChildren(el('p', { className: 'g-vacio', textContent: 'Todo el efectivo de los locales está rendido.' }));
 
   // Por acreditar: dona por procesador y, debajo, cuándo entra cada uno (columnas apiladas por día, por el neto). Un procesador
   // tiene el mismo color en los dos gráficos (mismo orden; desde el sexto, "Otros").
@@ -458,7 +468,7 @@ function pintarHoy() {
   p.dias.forEach((d, i) => { if (d.acreditaciones.length) ultimo = i; });
   const diasAcr = p.dias.slice(0, ultimo + 1);
   $('#tCuando').textContent = n(p.atrasado) ? `Cuándo entra (hoy incluye ${pesos(p.atrasado)} atrasado)` : 'Cuándo entra';
-  Graf.columnasSeries($('#gHoyCuando'), { etiquetas: diasAcr.map(d => d.dia), apilar: true, alto: 200,
+  Graf.columnasSeries($('#gHoyCuando'), { etiquetas: diasAcr.map(d => d.dia), apilar: true, alto: 240,
     ejeX: d => d === p.hoy ? 'Hoy' : fecha(d).slice(0, 5), titulo: d => d === p.hoy ? 'Hoy' : diaLargo(d), alElegir: i => abrirDiaPlan(diasAcr[i].dia),
     series: nombresG.map((nom, g) => ({ nombre: nom, valores: diasAcr.map(d => d.acreditaciones.filter(a => grupoDe(a.procesador) === g).reduce((t, a) => t + n(a.neto), 0)) })) });
 
