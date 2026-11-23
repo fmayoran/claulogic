@@ -512,12 +512,12 @@ r.get('/fin/cuentas/:id/movimientos', h(async (req, res) => {
     `SELECT * FROM (
        SELECT m.id, m.fecha, m.ocurrido_en, m.tipo, m.entrada::text, m.salida::text, m.concepto, m.orden_pago_id,
               m.cheque_id, m.transferencia_id, m.anula_a, m.registrado_por,
-              SUM(m.entrada - m.salida) OVER (ORDER BY m.fecha, m.id)::text AS saldo,
+              SUM(m.entrada - m.salida) OVER (ORDER BY m.fecha, m.ocurrido_en, m.id)::text AS saldo,
               EXISTS (SELECT 1 FROM fin.conciliacion k WHERE k.movimiento_id = m.id) AS conciliado,
               EXISTS (SELECT 1 FROM fin.movimiento_tes x WHERE x.anula_a = m.id) AS anulado
          FROM fin.movimiento_tes m WHERE m.cuenta_id = $1::uuid) t
       WHERE ($2::date IS NULL OR fecha >= $2) AND ($3::date IS NULL OR fecha <= $3)
-      ORDER BY fecha, id`,
+      ORDER BY fecha DESC, ocurrido_en DESC, id DESC`,   // del más nuevo al más viejo (pedido de Fer, 23/11/2026)
     [req.params.id, fecha(req.query.desde, { campo: 'Desde' }), fecha(req.query.hasta, { campo: 'Hasta' })]);
   res.json({ ok: true, movimientos: rows });
 }));
