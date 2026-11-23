@@ -155,13 +155,48 @@ const Graf = (() => {
   }
 
   // Columnas agrupadas de 2 o más series (orden fijo de colores), con leyenda arriba y tooltip por grupo.
-  function columnasSeries(cont, { etiquetas, series, ejeX = e => e, titulo = e => e, fmt = compacto, alto = 220 }) {
+  // `apilar`: una columna por etiqueta con las series una sobre otra (separadas por 2 px del fondo), para ver de qué se compone
+  // cada total; el tooltip suma el total.
+  function columnasSeries(cont, { etiquetas, series, ejeX = e => e, titulo = e => e, fmt = compacto, alto = 220, apilar = false, alElegir }) {
     dibujar(cont, () => {
       const color = (s, j) => s.color || `--serie-${j + 1}`;
       cont.replaceChildren(el('div', { className: 'g-leyenda-fila' }, ...series.map((s, j) => el('span', {}, el('i', { style: `--c:var(${color(s, j)})` }), s.nombre))));
       if (!etiquetas.length) return cont.append(el('p', { className: 'g-vacio', textContent: 'Sin datos en el período.' }));
       const w = ancho(cont), izq = 52, arriba = 8, abajo = 26, H = alto - arriba - abajo;
-      const [tope, div] = escala(Math.max(...series.flatMap(s => s.valores.map(n)), 0)), y = v => arriba + H - H * v / tope;
+      const sumaEn = i => series.reduce((t, s) => t + Math.max(0, n(s.valores[i])), 0);
+      const maximo = apilar ? Math.max(...etiquetas.map((_, i) => sumaEn(i)), 0) : Math.max(...series.flatMap(s => s.valores.map(n)), 0);
+      const [tope, div] = escala(maximo), y = v => arriba + H - H * v / tope;
+      if (apilar) {
+        const banda = (w - izq) / etiquetas.length, col = Math.max(4, Math.min(28, banda * .62));
+        const svg = svgEl('svg', { viewBox: `0 0 ${w} ${alto}`, role: 'img', class: 'g-svg' });
+        for (let k = 0; k <= div; k++) {
+          const v = tope * k / div;
+          svg.append(svgEl('line', { x1: izq, x2: w, y1: y(v), y2: y(v), class: k ? 'grilla' : 'base' }));
+          const t = svgEl('text', { x: izq - 8, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = fmt(v); svg.append(t);
+        }
+        const tp = tip(cont), cada = Math.ceil(etiquetas.length / Math.max(1, Math.floor((w - izq) / 48)));
+        etiquetas.forEach((e, i) => {
+          const cx = izq + banda * i + banda / 2, x0 = cx - col / 2;
+          const partes = series.map((s, j) => [j, Math.max(0, n(s.valores[i]))]).filter(([, v]) => v > 0);
+          let base = 0;
+          partes.forEach(([j, v], k) => {
+            const yb = y(base), yt = y(base + v), ultima = k === partes.length - 1;
+            const bajo = k ? yb - 1 : yb, alto_s = Math.max(0, bajo - (ultima ? yt : yt + 1));   // 2 px de fondo entre segmentos
+            const top = bajo - alto_s, r = ultima ? Math.min(4, alto_s / 2, col / 2) : 0;
+            svg.append(svgEl('path', { d: r ? `M${x0} ${bajo} V${top + r} Q${x0} ${top} ${x0 + r} ${top} H${x0 + col - r} Q${x0 + col} ${top} ${x0 + col} ${top + r} V${bajo} Z`
+              : `M${x0} ${bajo} V${top} H${x0 + col} V${bajo} Z`, style: `fill:var(${color(series[j], j)})` }));
+            base += v;
+          });
+          if (i % cada === 0) { const t = svgEl('text', { x: cx, y: alto - 6, 'text-anchor': 'middle' }); t.textContent = ejeX(e); svg.append(t); }
+          const zona = svgEl('rect', { x: cx - banda / 2, y: 0, width: banda, height: alto - abajo, class: 'g-zona barra-zona' + (alElegir ? ' clic' : '') });
+          zona.addEventListener('pointermove', ev => { const [px, py] = pos(cont, ev);
+            tp.mostrar(px, py, titulo(e, i), [...partes.map(([j, v]) => [color(series[j], j), `${series[j].nombre}: ${pesos(String(v))}`]), [null, `Total: ${pesos(String(sumaEn(i)))}`]]); });
+          zona.addEventListener('pointerleave', () => tp.ocultar());
+          if (alElegir) zona.addEventListener('click', () => alElegir(i));
+          svg.insertBefore(zona, svg.firstChild);
+        });
+        return cont.append(svg);
+      }
       const banda = (w - izq) / etiquetas.length, gap = 2, col = Math.max(3, Math.min(18, (banda * .7 - gap * (series.length - 1)) / series.length));
       const svg = svgEl('svg', { viewBox: `0 0 ${w} ${alto}`, role: 'img', class: 'g-svg' });
       for (let k = 0; k <= div; k++) {

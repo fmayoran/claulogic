@@ -111,6 +111,8 @@
   .pdia-cab span:not(:first-child){text-align:right;}
   @media (max-width:600px){ details.pdia > summary, .pdia-cab{grid-template-columns:1fr 1fr;} .pdia-cab span:nth-child(2), .pdia-cab span:nth-child(3){display:none;}
     details.pdia > summary .e, details.pdia > summary .s{display:none;} }
+  .t-gh{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} @media (max-width:899px){ .t-gh{grid-template-columns:minmax(0,1fr);} }
+  #hoyCuentasCaja > summary{cursor:pointer;}
   .kpi.alarma-k{border:1px solid var(--mal);background:var(--mal-bg);} .kpi.alarma-k .va{color:var(--mal);}
   .cerrar-x{all:unset;position:absolute;top:14px;right:16px;font-size:1.6rem;line-height:1;cursor:pointer;color:var(--mut);padding:4px 8px;border-radius:8px;}
   .cerrar-x:hover{background:var(--sel);color:var(--fg);}
@@ -136,21 +138,32 @@
       <p class="t-rango" id="hoyRango"></p>
       <span class="msg" id="msgHoy"></span>
       <div class="kpis" id="kHoy"></div>
-      <div class="t-grid t-g2">
+      <!-- Lo de hoy en gráficos (pedido de Fer, 23/11/2026: dónde está y lo por acreditar eran todo texto); las cuentas, a pedido. -->
+      <div class="t-grid t-gh">
         <section class="card">
-          <div class="card-cab"><h2>Dónde está la plata</h2><span class="cap" id="hoyHora" style="margin:0"></span></div>
-          <p class="cap">Saldo de cada cuenta en este momento. Tocá una para ver sus movimientos.</p>
-          <div id="hoyCuentas"></div>
+          <div class="card-cab"><h2>Dónde está el disponible</h2><span class="cap" id="hoyHora" style="margin:0"></span></div>
+          <p class="cap">Saldo de cada banco y caja en este momento. Tocá una parte para ver sus movimientos.</p>
+          <div id="gHoyDisp"></div>
+          <p class="ayuda" id="hoyDescubierto"></p>
+          <div id="hoyEfectivoCaja" hidden><h3 class="h-plan">Efectivo en los locales, a rendir</h3><div id="gHoyEfectivo"></div></div>
         </section>
         <section class="card">
-          <div class="card-cab"><h2 id="tPlan">Saldo proyectado</h2></div>
-          <p class="cap" id="capPlan"></p>
-          <div id="gPlanSaldo"></div>
-          <h3 class="h-plan">Entra y sale por día</h3>
-          <div id="gPlanCols"></div>
-          <p class="ayuda" id="avisoPlan"></p>
+          <div class="card-cab"><h2>Por acreditar</h2></div>
+          <p class="cap">Lo cobrado con cada procesador que todavía no depositó, y cuándo se espera que entre (por el neto).</p>
+          <div id="gHoyAcr"></div>
+          <h3 class="h-plan" id="tCuando">Cuándo entra</h3>
+          <div id="gHoyCuando"></div>
         </section>
       </div>
+      <section class="card">
+        <div class="card-cab"><h2 id="tPlan">Saldo proyectado</h2></div>
+        <p class="cap" id="capPlan"></p>
+        <div id="gPlanSaldo"></div>
+        <h3 class="h-plan">Entra y sale por día</h3>
+        <div id="gPlanCols"></div>
+        <p class="ayuda" id="avisoPlan"></p>
+      </section>
+      <details class="card" id="hoyCuentasCaja"><summary><b>Todas las cuentas con su saldo</b></summary><div id="hoyCuentas" style="margin-top:10px"></div></details>
       <section class="card">
         <div class="card-cab"><h2>Día por día</h2><div class="segm" id="planDias" role="group" aria-label="Horizonte">
           <button type="button" data-d="14">14 días</button><button type="button" data-d="30">30 días</button><button type="button" data-d="60">60 días</button></div></div>
@@ -412,6 +425,39 @@ function pintarHoy() {
     bloque('Por acreditar', aAcreditar.filter(c => !cero(c.saldo)), c => [c.procesador_pendiente ? `de ${c.procesador_pendiente}` : 'Cobranza']),
     bloque('Efectivo en los locales', efectivoPV.filter(c => !cero(c.saldo)), c => [c.punto_venta ? `a rendir de ${c.punto_venta}` : 'Efectivo']),
   ].filter(Boolean));
+
+  // Dónde está el disponible: dona por cuenta (lo que está en descubierto no entra en la dona: se avisa abajo). Con todo el grupo,
+  // la sociedad va en el nombre.
+  const nomCta = c => c.nombre + (!filial && new Set(disponibles.map(filialDe)).size > 1 ? ` · ${nombreSoc(filialDe(c))}` : '');
+  const positivas = disponibles.filter(c => n(c.saldo) > 0).sort((a, b) => n(b.saldo) - n(a.saldo));
+  Graf.dona($('#gHoyDisp'), { items: positivas.map(c => ({ clave: c.id, etiqueta: nomCta(c), valor: c.saldo })),
+    centro: Graf.compacto(n(deCentavos(suma(disponibles)))), sub: 'disponible', alElegir: id => { location.hash = id; } });
+  const enRojo = disponibles.filter(c => n(c.saldo) < 0);
+  $('#hoyDescubierto').textContent = enRojo.length ? `En negativo, fuera de la dona: ${enRojo.map(c => `${c.nombre} ${pesos(c.saldo)}`).join(' · ')}.` : '';
+  const efe = efectivoPV.filter(c => !cero(c.saldo)).sort((a, b) => n(b.saldo) - n(a.saldo));
+  $('#hoyEfectivoCaja').hidden = !efe.length;
+  if (efe.length) Graf.ranking($('#gHoyEfectivo'), { items: efe.map(c => ({ clave: c.id, etiqueta: c.punto_venta || c.nombre, valor: c.saldo })),
+    alElegir: id => { location.hash = id; } });
+
+  // Por acreditar: dona por procesador y, debajo, cuándo entra cada uno (columnas apiladas por día, por el neto). Un procesador
+  // tiene el mismo color en los dos gráficos (mismo orden; desde el sexto, "Otros").
+  const MAX_P = 6, porProc = new Map();
+  for (const c of aAcreditar) { const k = c.procesador_pendiente || c.nombre; porProc.set(k, (porProc.get(k) || 0) + n(c.saldo)); }
+  const enPlan = new Map();
+  for (const d of p.dias) for (const a of d.acreditaciones) enPlan.set(a.procesador, (enPlan.get(a.procesador) || 0) + n(a.neto));
+  const procs = [...new Set([...porProc.keys(), ...enPlan.keys()])].filter(k => (porProc.get(k) || 0) > 0 || (enPlan.get(k) || 0) > 0)
+    .sort((a, b) => ((porProc.get(b) || 0) - (porProc.get(a) || 0)) || ((enPlan.get(b) || 0) - (enPlan.get(a) || 0)));
+  const grupoDe = k => { const i = procs.indexOf(k); return procs.length > MAX_P && i >= MAX_P - 1 ? MAX_P - 1 : i; };
+  const nombresG = procs.slice(0, procs.length > MAX_P ? MAX_P - 1 : MAX_P).concat(procs.length > MAX_P ? [`Otros (${procs.length - MAX_P + 1})`] : []);
+  Graf.dona($('#gHoyAcr'), { items: procs.filter(k => (porProc.get(k) || 0) > 0).map(k => ({ clave: k, etiqueta: k, valor: porProc.get(k) })),
+    centro: Graf.compacto(n(deCentavos(suma(aAcreditar)))), sub: 'por acreditar', maximo: MAX_P });
+  let ultimo = -1;
+  p.dias.forEach((d, i) => { if (d.acreditaciones.length) ultimo = i; });
+  const diasAcr = p.dias.slice(0, ultimo + 1);
+  $('#tCuando').textContent = n(p.atrasado) ? `Cuándo entra (hoy incluye ${pesos(p.atrasado)} atrasado)` : 'Cuándo entra';
+  Graf.columnasSeries($('#gHoyCuando'), { etiquetas: diasAcr.map(d => d.dia), apilar: true, alto: 200,
+    ejeX: d => d === p.hoy ? 'Hoy' : fecha(d).slice(0, 5), titulo: d => d === p.hoy ? 'Hoy' : diaLargo(d), alElegir: i => abrirDiaPlan(diasAcr[i].dia),
+    series: nombresG.map((nom, g) => ({ nombre: nom, valores: diasAcr.map(d => d.acreditaciones.filter(a => grupoDe(a.procesador) === g).reduce((t, a) => t + n(a.neto), 0)) })) });
 
   // Saldo proyectado y entradas y salidas por día.
   $('#tPlan').textContent = `Saldo proyectado a ${planDias} días`;

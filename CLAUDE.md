@@ -381,7 +381,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   día por día con lo que entra y sale, y **día por día** (14, 30 o 60 días; sólo los días con algo, cada uno abre de dónde sale).
   `GET /fin/tesoreria/plan?filial=&dias=`: entra lo por acreditar por el neto en su fecha (`porCobrar`, de la sociedad del punto de venta;
   lo atrasado va hoy y se avisa), sale lo comprometido (facturas pendientes por vencimiento, lo vencido hoy, y cheques propios por fecha).
-  **"Lo que pasó"** es el tablero por período de antes (vistas, cruce, movimientos), sin cambios. Ojo: el disponible "ahora" llega hasta el
+  **"Lo que pasó"** es el tablero por período de antes (vistas, cruce, movimientos), sin cambios.
+  **En gráficos** (pedido de Fer, 23/11/2026: dónde está y lo por acreditar eran todo texto): debajo de las cifras, **dónde está el
+  disponible** en dona por cuenta (lo que está en negativo se avisa aparte; tocar una parte abre la cuenta) con el efectivo a rendir de
+  cada local en barras, y **por acreditar** en dona por procesador con **cuándo entra** en columnas apiladas por día y procesador (mismo
+  color en los dos; `apilar` en `Graf.columnasSeries`; tocar un día lo abre en "Día por día"). El saldo proyectado y lo que entra y sale
+  van a todo el ancho; la lista de cuentas con su saldo queda plegada ("Todas las cuentas con su saldo"). Ojo: el disponible "ahora" llega hasta el
   último extracto importado, y casi no hay facturas pendientes (los gastos se registran ya pagados), así que los egresos todavía no se
   proyectan. **Pendiente para más adelante** (decisión de Fer, 17/11/2026: no hay información confiable todavía): una funcionalidad de
   **planificación financiera** donde se arme el presupuesto (compromisos fijos, estimado por rubro desde la historia) antes de llevarlo al
