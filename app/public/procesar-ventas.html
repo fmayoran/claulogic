@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Procesar ventas · ClauLogic</title>
+<title>Ventas importadas · ClauLogic</title>
 <script src="tema.js"></script>
 <link rel="stylesheet" href="comun.css">
 <style>
@@ -23,11 +23,12 @@
 </head>
 <body>
 <main class="ancho">
-  <h1>Procesar ventas</h1>
-  <p class="sub">El back office de las ventas: traer las ventas del POS, controlar cada día y procesar sus cobros (finanzas) y, aparte, el consumo teórico del stock del local. Para ver y analizar lo vendido, Ventas.</p>
+  <h1>Ventas importadas</h1>
+  <p class="sub">El registro de lo que se trajo de cada sistema de venta: cada día con su estado y sus cobros por medio, y cada importación con sus tickets y artículos (anular, descontar el consumo del stock). Traer, importar y resolver los días es en el Proceso de ingresos; para analizar lo vendido, el tablero de Ventas.</p>
+  <p class="aviso-ing" id="irIngresos"><a href="ingresos.html">Traer o importar ventas y resolver los días: Proceso de ingresos</a></p>
   <div class="barra"><label>Punto de venta<select id="integ"></select></label><a id="config" href="sedes.html">Configurar</a></div>
 
-  <fieldset id="fsImportar">
+  <fieldset id="fsImportar" hidden>
     <legend>Importar</legend>
     <div id="porApi" hidden>
       <div class="barra"><label>Desde<input id="desde" type="date"></label><label>Hasta<input id="hasta" type="date"></label>
@@ -64,9 +65,8 @@
   <div id="resImport" class="res-import"></div>
 
   <h2>Días</h2>
-  <p class="ayuda">Lo financiero se controla por día. Los días sin observaciones (medios asignados, lo cobrado igual a lo vendido y sin
-    ventas abiertas) se procesan solos al traer las ventas, si quien las trae es de finanzas. Abajo quedan sólo los que tienen algo para revisar:
-    se corrigen en el detalle del día y, si lo cobrado no coincide con lo vendido, se procesan con un motivo.</p>
+  <p class="ayuda">Lo financiero se controla por día. Los días sin observaciones se cobran solos al traer las ventas; los que tienen algo
+    para revisar se ven acá y se resuelven en el <a href="ingresos.html">Proceso de ingresos</a>.</p>
   <div class="cifras" id="diasCifras"></div>
   <div class="acciones" id="accListos" hidden><button type="button" class="prim" id="procListos"></button></div>
   <div id="resListos"></div>
@@ -387,7 +387,7 @@ async function cargarDias() {
   etiquetarTabla($('#tDias')); etiquetarTabla($('#tDiasOk'));
   const listos = jornadas.filter(j => j.estado === 'listo' && !j.abiertas).length;
   const u = (await cargarSesion()).usuario;
-  $('#accListos').hidden = !(listos && u && u.puede.finanzas);
+  $('#accListos').hidden = true;   // se cobra en el Proceso de ingresos (23/11/2026)
   $('#procListos').textContent = `Procesar los ${listos} día(s) sin observaciones`;
 }
 async function abrirDia(dia) {
@@ -401,10 +401,11 @@ async function abrirDia(dia) {
   $('#jCifras').replaceChildren(cifra('Ventas', String(j.ventas)), cifra('Vendido', pesos(j.vendido)), cifra('Cobrado', pesos(j.cobrado)),
     cifra('Diferencia', pesos(j.diferencia)), cifra('Por procesar', pesos(j.por_cobrar)));
   $('#jAlertas').replaceChildren(...j.alertas.map(a => el('li', { className: a.tipo }, a.texto,
-    a.tipo === 'bloquea' ? el('span', { textContent: ' Asignalo abajo, en "Cobros por medio".', style: 'margin-left:4px' }) : '')));
+    a.tipo === 'bloquea' ? el('a', { href: 'ingresos.html', textContent: ' Resolverlo en el Proceso de ingresos', style: 'margin-left:4px' }) : '')));
   // Mientras el día no esté cobrado, quien procesa (finanzas o el administrador) corrige acá el medio de pago que
   // falta asignar, sin salir del día; la última opción da de alta uno nuevo.
-  const corrige = (j.puede.cobros || (sesion && sesion.puede.admin)) && j.estado !== 'cobrado';
+  // Desde el 23/11/2026 esta pantalla es de consulta: el medio se asigna y el día se cobra en el Proceso de ingresos.
+  const corrige = false;
   const mp = corrige ? await api('pos/medios-pago?integracion=' + integ.id) : { medios: [] }, mediosPago = mp.medios;
   filas($('#jMed'), j.medios, m => {
     let celda;
@@ -421,7 +422,7 @@ async function abrirDia(dia) {
       el('td', {}, pesos(m.importe), m.pendiente && !/^0+(\.0+)?$/.test(m.pendiente) ? el('span', { className: 'tag aviso', textContent: ' sin procesar' }) : ''));
   }, 'Sin cobros.', 4);
   etiquetarTabla($('#tJMed'));
-  const puedeCobrar = j.puede.cobros && ['listo', 'diferencia'].includes(j.estado);
+  const puedeCobrar = false;
   $('#jCobrar').hidden = !puedeCobrar; $('#jForzar').hidden = !(puedeCobrar && j.estado === 'diferencia'); $('#jMotivo').value = '';
   $('#jCobrar').textContent = j.estado === 'diferencia' ? 'Procesar con la diferencia' : 'Procesar cobros del día';
   $('#jProc').replaceChildren(...(j.cobros.length ? [el('h3', { textContent: 'Procesado' }), ...j.cobros.map(c => el('p', { className: 'ayuda',
@@ -446,7 +447,9 @@ function elegir() {
   if (!integ) return;
   history.replaceState(null, '', 'procesar-ventas.html#' + integ.id);
   const esPeya = integ.sistema === 'pedidosya';
-  $('#porApi').hidden = integ.modo !== 'api'; $('#porArchivo').hidden = integ.modo !== 'archivo' || esPeya; $('#porPeya').hidden = !esPeya;
+  // Fudo, Maxirest y PedidosYa se traen en el Proceso de ingresos; acá queda sólo el archivo genérico de un sistema sin API (hoy ninguno).
+  const generico = integ.modo === 'archivo' && !esPeya;
+  $('#fsImportar').hidden = !generico; $('#porApi').hidden = true; $('#porArchivo').hidden = !generico; $('#porPeya').hidden = true;
   if (esPeya && peya) pintarTiendas();
   // El enlace no está si el usuario no puede configurar (lo quita la navegación común).
   if ($('#config')) $('#config').href = 'sedes.html#' + integ.sede_id;

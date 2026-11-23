@@ -592,6 +592,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     (`nuevoMedioPago` en `comun.js`), y termina de cobrar. Por eso `PUT /pos/medios/` es admin o finanzas.
   - **El día en curso no se importa** (decisión de Fer): ni Fudo (el rango tiene que terminar ayer) ni un
     archivo con ventas de hoy. Procesar ventas propone ayer por defecto.
+- **Ventas importadas** (`procesar-ventas.html`, ex "Procesar ventas"; Fer, 23/11/2026): pasó a ser **de consulta**. Traer, importar
+  (Fudo, Maxirest, PedidosYa), asignar medios y cobrar los días se hace sólo en el Proceso de ingresos; acá quedan los días con su
+  estado y sus cobros por medio (sin asignar ni cobrar), las importaciones con tickets y artículos, **anular una importación** y
+  **descontar el consumo del stock**. El importador genérico por archivo (mapeo de columnas) sigue acá para un sistema sin API (hoy
+  ninguno). Lo que sigue describe cómo era antes; las rutas no cambiaron.
 - **Ventas = tablero; Procesar ventas = back office** (decisión de Fer, 25/10/2026). `ventas.html` es para ver y
   analizar, con estilo de tablero (pedido de Fer: moderno, minimalista, gráficos de resumen y el detalle a medida
   que se navega): período en botones (ayer, 7 días, este mes, mes anterior, fechas) y local; **cifras** (vendido,
@@ -1246,7 +1251,7 @@ la guía y a `comun.css`, no a la pantalla.
 - **Tipografía** IBM Plex Sans variable servida desde el paquete (`/vendor/plex`): títulos y cifras angostos (`font-stretch` 78-80%,
   peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
 - **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; por área desde el 23/11/2026, Fer): todas las áreas desplegables, de a una abierta: **Tableros** (Inicio, Ventas,
-  Tesorería, Food cost y caja, Estado de resultados), **Ventas** (Proceso de ingresos, Procesar ventas),
+  Tesorería, Food cost y caja, Estado de resultados), **Ventas** (Proceso de ingresos, Ventas importadas),
   **Abastecimiento** (Proceso de abastecimiento, Cuentas por pagar, Compras, Facturas de proveedor, Órdenes de pago, Pagos sin factura,
   Cuenta corriente, Proveedores), **Finanzas** (Proceso de egresos, Operaciones de tesorería, Conciliación, Cheques), **Producción**
   (stock, pedidos, remitos, recetas, producción, platos, frío, trazabilidad, etiquetas) y **Configuración** (el catálogo primero); abrir una cierra las otras. Cada

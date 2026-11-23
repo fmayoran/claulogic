@@ -167,7 +167,7 @@ const FIJOS = [];
 const GRUPOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
                 ['resultados.html', 'Estado de resultados']]],
-  ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Procesar ventas']]],
+  ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Ventas importadas']]],
   ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['cuentas-pagar.html', 'Cuentas por pagar'], ['compras.html', 'Compras'],
                       ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'], ['pagos-sin-factura.html', 'Pagos sin factura'],
                       ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
