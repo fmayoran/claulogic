@@ -464,7 +464,7 @@ function recalcular() {
 }
 async function verPedido() {
   opcionesProveedor(f1.proveedor_id, proveedores.filter(p => p.activo || (compra && p.id === compra.proveedor_id)),
-    compra ? compra.proveedor_id : f1.proveedor_id.value || null, 'Elegir…', p => proveedores.push(p));
+    compra ? compra.proveedor_id : f1.proveedor_id.value || new URLSearchParams(location.search).get('proveedor') || null, 'Elegir…', p => proveedores.push(p));
   f1.fecha.value = compra ? compra.fecha : (f1.fecha.value || hoy());
   $('#items tbody').replaceChildren();
   // En la misma presentación o unidad en que se pidió (50 kg, no 50000 g).

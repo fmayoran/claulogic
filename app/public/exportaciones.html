@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Exportaciones · ClauLogic</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="comun.css">
+<style>
+  /* Lo que se le manda al contador, en un solo lugar (Fer, 24/11/2026: antes estaba en Facturas y en Órdenes de pago). */
+  .exp{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;margin-top:8px;}
+  .exp .tarjeta h2{margin:0 0 6px;font-size:1.1rem;}
+  .exp .tarjeta p{margin:0 0 12px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <h1>Exportaciones para el contador</h1>
+  <p class="sub">Archivos CSV del mes, uno por sociedad (cada una tiene su CUIT). Con "Todas las sociedades" se baja un archivo por cada una.</p>
+  <div class="fila" style="max-width:640px">
+    <label>Mes<input id="mes" type="month"></label>
+    <label>Sociedad<select id="soc"></select></label>
+  </div>
+  <div class="exp">
+    <div class="tarjeta">
+      <h2>Libro IVA compras</h2>
+      <p class="ayuda">Los comprobantes fiscales registrados en el mes (los X no entran), con el IVA por alícuota y las percepciones.
+        Las notas de crédito van en negativo.</p>
+      <button type="button" class="prim" id="libro">Bajar el libro IVA</button>
+    </div>
+    <div class="tarjeta">
+      <h2>Retenciones practicadas</h2>
+      <p class="ayuda">Las retenciones de las órdenes de pago registradas en el mes, con su certificado.</p>
+      <button type="button" class="prim" id="ret">Bajar las retenciones</button>
+    </div>
+  </div>
+  <p class="msg" id="msg"></p>
+</main>
+<script src="comun.js"></script>
+<script>
+let sociedades = [];
+function bajar(ruta) {
+  if (!$('#mes').value) return msg('Elegí el mes.', 'mal');
+  const socs = $('#soc').value ? [$('#soc').value] : sociedades.filter(s => s.activa).map(s => s.id);
+  socs.forEach((s, i) => setTimeout(() => {
+    const a = el('a', { href: `api/fin/${ruta}?mes=${$('#mes').value}&sociedad=${s}`, download: '' });
+    document.body.append(a); a.click(); a.remove();
+  }, i * 600));
+  msg(socs.length > 1 ? `Bajando ${socs.length} archivos, uno por sociedad.` : 'Bajando el archivo.', 'ok');
+}
+$('#libro').onclick = () => bajar('libro-iva');
+$('#ret').onclick = () => bajar('retenciones');
+(async () => {
+  try {
+    ({ sociedades } = await api('sociedades'));
+    opciones($('#soc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
+    // Por defecto, el mes anterior: es el que se cierra con el contador.
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+    $('#mes').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

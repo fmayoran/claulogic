@@ -27,7 +27,7 @@
       <select id="fsoc" aria-label="Sociedad"></select>
       <select id="fest"><option value="">Todas</option><option value="borrador">Borradores</option><option value="registrada">Registradas</option><option value="anulada">Anuladas</option></select>
       <button class="prim" id="nueva">Nueva orden de pago</button>
-      <div class="con-boton"><input id="mes" type="month"><a id="ret" class="chico" href="#">Retenciones</a></div>
+      <a class="chico" href="exportaciones.html">Retenciones: Exportaciones para el contador</a>
     </div>
     <div class="lista" id="lista"></div>
   </aside>
@@ -305,15 +305,6 @@ $('#anular').onclick = async () => {
   try { await api(`fin/ordenes-pago/${actual}/anular`, { method: 'POST', body: { motivo } }); await abrir(actual); }
   catch (e) { msg(e.message, 'mal', '#msgV'); }
 };
-// Las retenciones son de cada sociedad (agente de retención): con todas, un archivo por cada una.
-$('#ret').onclick = e => {
-  e.preventDefault(); if (!$('#mes').value) return alert('Elegí el mes.');
-  const socs = $('#fsoc').value ? [$('#fsoc').value] : sociedades.filter(s => s.activa).map(s => s.id);
-  socs.forEach((s, i) => setTimeout(() => {
-    const a = el('a', { href: `api/fin/retenciones?mes=${$('#mes').value}&sociedad=${s}`, download: '' });
-    document.body.append(a); a.click(); a.parentNode.removeChild(a);
-  }, i * 600));
-};
 $('#nueva').onclick = nueva;
 $('#fest').onchange = $('#fsoc').onchange = cargarLista;
 (async () => {
@@ -324,7 +315,6 @@ $('#fest').onchange = $('#fsoc').onchange = cargarLista;
     opciones($('#fsoc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
     cuentas = c.cuentas.filter(x => x.activa && x.tipo !== 'cartera');
     conTerceros = c.cuentas.some(x => x.tipo === 'cartera' && x.activa);
-    $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
     const id = location.hash.slice(1), q = new URLSearchParams(location.search);
     if (id) await abrir(id);

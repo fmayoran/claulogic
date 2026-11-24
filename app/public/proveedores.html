@@ -16,7 +16,17 @@
   td.prov b{display:block;font-weight:600;} td.prov .cuit{display:block;color:var(--mut);font-size:.86rem;margin-top:2px;}
   td.acc{white-space:nowrap;text-align:right;} td.acc button + button{margin-left:6px;}
   tr.inactivo td.prov b{text-decoration:line-through;color:var(--mut);}
-  .panel-lado h2{margin:0;} .panel-lado .sub{margin:4px 0 14px;}
+  /* Ficha del proveedor (pedido de Fer, 24/11/2026: todo lo del proveedor en un lugar, facturas, pagos, cuenta corriente y compras). */
+  .volver-p{display:inline-block;margin:0 0 10px;}
+  .cab-f{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 16px;margin:0 0 6px;}
+  .cab-f h1{margin:0 auto 0 0;} .cab-f .acc{display:flex;flex-wrap:wrap;gap:8px;}
+  .sub-f{color:var(--mut);margin:0 0 16px;}
+  .ficha-datos{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin:0 0 18px;}
+  @media (max-width:899px){ .ficha-datos{grid-template-columns:minmax(0,1fr);} }
+  .ficha-datos .tarjeta h3{margin:0 0 8px;}
+  .tabs-f{margin:4px 0 12px;}
+  .num-busq{margin:0 0 14px;} .num-busq h3{margin:0 0 6px;}
+  tr.ir{cursor:pointer;} tr.ir:hover td{background:var(--sel);}
   /* Movimientos agrupados por comprobante (Fer, 15/11/2026: una fila con lo facturado y lo pagado, el detalle a pedido). */
   .movs{width:100%;border-collapse:collapse;font-size:.9rem;}
   .movs th{font-size:.78rem;padding:6px 4px;} .movs td{padding:8px 4px;vertical-align:top;border-top:1px solid var(--line);}
@@ -33,13 +43,14 @@
 </head>
 <body>
 <main class="ancho">
+ <div id="vLista">
   <div class="cab-p">
     <h1>Proveedores</h1>
     <button type="button" class="prim" id="nuevo">Nuevo proveedor</button>
   </div>
   <div class="franja" id="cifras" hidden></div>
   <div class="barra-p">
-    <input type="search" id="q" placeholder="Buscar por nombre, CUIT o contacto" aria-label="Buscar proveedor">
+    <input type="search" id="q" placeholder="Buscar por nombre, CUIT, contacto o número de factura" aria-label="Buscar proveedor">
     <div class="segm" id="filtro" role="group" aria-label="Filtro">
       <button type="button" data-f="" class="act">Todos</button>
       <button type="button" data-f="saldo">Con saldo</button>
@@ -48,10 +59,29 @@
     </div>
   </div>
   <p class="msg" id="msg"></p>
+  <div class="num-busq" id="numBusq" hidden></div>
   <div class="tabla-wrap"><table class="datos movil">
     <thead id="cab"></thead>
     <tbody id="lista"><tr><td class="vacio">Consultando…</td></tr></tbody>
   </table></div>
+ </div>
+
+ <div id="vFicha" hidden>
+  <a href="#" class="volver-p" id="fVolver">‹ Proveedores</a>
+  <div class="cab-f">
+    <h1 id="fNombre"></h1>
+    <div class="acc" id="fAcc"></div>
+  </div>
+  <p class="sub-f" id="fSub"></p>
+  <div class="franja" id="fCifras" hidden></div>
+  <div class="ficha-datos">
+    <div class="tarjeta"><h3>Datos</h3><dl class="datos-p" id="fDatos"></dl></div>
+    <div class="tarjeta"><h3>Para transferir</h3><div id="fTransf"></div></div>
+  </div>
+  <div class="segm tabs-f" id="fTabs" role="tablist" aria-label="Qué ver"></div>
+  <p class="msg" id="msgF2"></p>
+  <div id="fCont"><p class="vacio">Consultando…</p></div>
+ </div>
 </main>
 
 <dialog id="dlgEditar" style="width:min(720px,calc(100vw - 32px))">
@@ -92,21 +122,6 @@
   </form>
 </dialog>
 
-<dialog class="panel-lado" id="panel" aria-labelledby="pTitulo">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-    <h2 id="pTitulo"></h2>
-    <button type="button" class="icono" id="pCerrar" aria-label="Cerrar">✕</button>
-  </div>
-  <p class="sub" id="pSub"></p>
-  <dl class="datos-p" id="pDatos"></dl>
-  <div id="pTransf"></div>
-  <div class="acciones fijo" style="margin:0 0 6px">
-    <button type="button" id="pEditar">Editar</button>
-    <a id="pCC" href="cuenta-corriente.html">Cuenta corriente completa</a>
-  </div>
-  <h3>Últimos comprobantes</h3>
-  <div id="pMovs"><p class="vacio">Consultando…</p></div>
-</dialog>
 
 <script src="comun.js"></script>
 <script src="graficos.js"></script>
@@ -149,15 +164,17 @@ function pintar() {
   $('#cab').replaceChildren(el('tr', {}, ...cols.map((t, i) => el('th', { className: i >= 3 && i <= 5 && fin() && i > 3 ? 'num' : '', textContent: t }))));
   filas($('#lista'), xs, p => {
     const r = rs(p.id), venc = centavos(r.vencido || '0') > 0n;
-    return el('tr', { className: p.activo ? '' : 'inactivo' },
+    const tr = el('tr', { className: 'ir' + (p.activo ? '' : ' inactivo') },
       el('td', { className: 'prov' }, el('b', { textContent: p.nombre }), el('span', { className: 'cuit' }, p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : el('span', { className: 'tag aviso', textContent: 'Sin CUIT' }))),
       td(IVA[p.condicion_iva] || '—'),
       td([p.contacto, p.telefono].filter(Boolean).join(' · ') || '—', 'wrap'),
       ...(fin() ? [td(r.ultimo ? fecha(r.ultimo) : '—'), td(centavos(r.comprado_30 || '0') ? pesos(r.comprado_30) : '—', 'num'),
         el('td', { className: 'num' }, centavos(r.saldo || '0') ? pesos(r.saldo) : '—', venc ? el('span', { className: 'tag mal', style: 'margin-left:6px', textContent: 'vencido' }) : '')] : []),
       el('td', { className: 'acc' },
-        el('button', { type: 'button', className: 'chico', textContent: 'Editar', onclick: () => editar(p) }),
-        fin() ? el('button', { type: 'button', className: 'chico', textContent: 'Movimientos', onclick: () => movimientos(p) }) : ''));
+        el('button', { type: 'button', className: 'chico', textContent: 'Editar', onclick: e => { e.stopPropagation(); editar(p); } }),
+        el('button', { type: 'button', className: 'chico', textContent: 'Ver', onclick: e => { e.stopPropagation(); location.hash = 'p/' + p.id; } })));
+    tr.onclick = () => { location.hash = 'p/' + p.id; };
+    return tr;
   }, filtro === 'sincuit' ? 'Todos los proveedores activos tienen CUIT.' : 'No hay proveedores con esos filtros.', cols.length);
   etiquetarTabla($('#lista').closest('table'));
 }
@@ -178,71 +195,161 @@ f.onsubmit = async e => {
   $('#guardar').disabled = true;
   try {
     await api(editando ? 'proveedores/' + editando : 'proveedores', { method: editando ? 'PUT' : 'POST', body });
-    $('#dlgEditar').close(); await cargar(); msg(editando ? 'Proveedor guardado.' : 'Proveedor creado.', 'ok');
+    $('#dlgEditar').close(); await cargar(); if (fichaId) await verFicha(fichaId); msg(editando ? 'Proveedor guardado.' : 'Proveedor creado.', 'ok', fichaId ? '#msgF2' : '#msg');
   } catch (e) { msg(e.message, 'mal', '#msgF'); }
   finally { $('#guardar').disabled = false; }
 };
 $('#cancelar').onclick = () => $('#dlgEditar').close();
 $('#nuevo').onclick = () => editar(null);
 
-// ── Movimientos: panel lateral con los datos y los últimos movimientos de la cuenta corriente ──
-async function movimientos(p) {
-  const r = resumen.get(p.id) || {};
-  $('#pTitulo').textContent = p.nombre;
-  $('#pSub').textContent = [centavos(r.saldo || '0') ? 'Saldo ' + pesos(r.saldo) : 'Sin saldo', centavos(r.vencido || '0') > 0n ? 'vencido ' + pesos(r.vencido) : null,
-    r.comprobantes ? `${r.comprobantes} comprobante(s)` : null].filter(Boolean).join(' · ');
-  $('#pDatos').replaceChildren(...[['CUIT', p.cuit ? cuitFmt(p.cuit) : 'sin cargar'], ['IVA', IVA[p.condicion_iva] || 'sin indicar'], ['Contacto', [p.contacto, p.telefono, p.email].filter(Boolean).join(' · ') || '—'],
-    ['Plazo', p.plazo_pago_dias ? p.plazo_pago_dias + ' días' : '—'], ...(p.notas ? [['Notas', p.notas]] : [])].flatMap(([t, v]) => [el('dt', { textContent: t }), el('dd', { textContent: v })]));
-  $('#pTransf').replaceChildren(...(datosTransferencia(p) ? [el('h3', { textContent: 'Para transferir', style: 'margin:0 0 6px' }), datosTransferencia(p)] : []));
-  $('#pEditar').onclick = () => { $('#panel').close(); editar(p); };
-  $('#pCC').href = 'cuenta-corriente.html#' + p.id;
-  $('#pMovs').replaceChildren(el('p', { className: 'vacio', textContent: 'Consultando…' }));
-  $('#panel').showModal();
+// ── Ficha del proveedor (#p/<id>; pedido de Fer, 24/11/2026): datos, cifras y, en pestañas, facturas, pagos, cuenta corriente y
+// compras; desde acá se carga la factura, se paga y se pide. Reemplaza el panel lateral de "Movimientos".
+let fichaId = null, fTab = (() => { try { return localStorage.getItem('prov-tab') || 'facturas'; } catch { return 'facturas'; } })(), fd = null;
+const ESTADO_C = { borrador: ['borrador', 'aviso'], registrado: ['registrado', 'ok'], anulado: ['anulado', ''] };
+const ESTADO_COMPRA = { borrador: 'borrador', pedida: 'pedida', recibida: 'recibida', anulada: 'anulada' };
+async function verFicha(id) {
+  const p = proveedores.find(x => x.id === id);
+  if (!p) { msg('No existe ese proveedor.', 'mal'); return ruta(''); }
+  fichaId = id; $('#vLista').hidden = true; $('#vFicha').hidden = false; window.scrollTo(0, 0);
+  const r = resumen.get(id) || {};
+  $('#fNombre').replaceChildren(p.nombre, p.activo ? '' : el('span', { className: 'tag', style: 'margin-left:8px;font-size:.8rem', textContent: 'inactivo' }));
+  $('#fSub').textContent = [p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : 'Sin CUIT', IVA[p.condicion_iva] || null, p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ');
+  $('#fDatos').replaceChildren(...[['Contacto', p.contacto], ['Teléfono', p.telefono], ['Email', p.email], ['Notas', p.notas]].filter(([, v]) => v)
+    .flatMap(([t, v]) => [el('dt', { textContent: t }), el('dd', { textContent: v })]));
+  if (!$('#fDatos').children.length) $('#fDatos').replaceChildren(el('dd', { className: 'ayuda', textContent: 'Sin contacto cargado.' }));
+  $('#fTransf').replaceChildren(datosTransferencia(p) || el('p', { className: 'ayuda', style: 'margin:0', textContent: 'Sin CBU ni alias cargados: se cargan con Editar.' }));
+  // Acciones: la principal es pagar si hay algo pendiente; si no, cargar la factura.
+  const acc = [];
+  const ir = h => () => { location.href = h; };
+  const pagar = el('button', { type: 'button', textContent: 'Pagar' }), cargarF = el('button', { type: 'button', textContent: 'Cargar factura', onclick: ir('comprobantes.html?proveedor=' + id) });
+  if (fin()) acc.push(cargarF, pagar);
+  if (yo.puede.catalogo) acc.push(el('button', { type: 'button', textContent: 'Hacer un pedido', onclick: ir(`abastecimiento.html?proveedor=${id}#nuevo`) }));
+  acc.push(el('button', { type: 'button', textContent: 'Editar', onclick: () => editar(p) }));
+  $('#fAcc').replaceChildren(...acc);
+  if (fin()) {
+    const k = (t, v, pie, cl) => el('div', { className: 'k' }, el('span', { className: 'et', textContent: t }), el('span', { className: 'va', textContent: v }),
+      pie ? el('span', { className: 'pie' + (cl ? ' ' + cl : ''), textContent: pie }) : '');
+    const venc = centavos(r.vencido || '0');
+    $('#fCifras').replaceChildren(k('Saldo a pagar', pesos(r.saldo || '0')), k('Vencido', pesos(r.vencido || '0'), venc > 0n ? 'pagar cuanto antes' : 'nada vencido', venc > 0n ? 'mal' : ''),
+      k('Comprado en 30 días', pesos(r.comprado_30 || '0')), k('Último comprobante', r.ultimo ? fecha(r.ultimo) : '—', r.comprobantes ? `${r.comprobantes} registrado(s)` : ''));
+    $('#fCifras').hidden = false;
+  } else $('#fCifras').hidden = true;
+  const tabs = [...(fin() ? [['facturas', 'Facturas'], ['pagos', 'Pagos'], ['cc', 'Cuenta corriente']] : []), ['compras', 'Compras']];
+  if (!tabs.some(t => t[0] === fTab)) fTab = tabs[0][0];
+  $('#fTabs').replaceChildren(...tabs.map(([k, t]) => el('button', { type: 'button', className: k === fTab ? 'act' : '', textContent: t, onclick: () => {
+    fTab = k; try { localStorage.setItem('prov-tab', k); } catch {}
+    $$('#fTabs button').forEach(b => b.classList.toggle('act', b.textContent === t)); pintarTab();
+  } })));
+  $('#fCont').replaceChildren(el('p', { className: 'vacio', textContent: 'Consultando…' }));
   try {
-    const d = await api('fin/cuenta-corriente/' + p.id);
-    // Una fila por comprobante: lo facturado (facturas y notas, netas de anulaciones) y lo pagado (pagos, netos de los que se
-    // desvincularon o anularon); las líneas, a pedido. Lo que no es de un comprobante (pagos a cuenta) va en su propia fila.
-    const porId = new Map(d.movimientos.map(m => [m.id, m]));
-    const clase = m => { const t = m.tipo === 'anulacion' && m.anula_a ? (porId.get(m.anula_a) || {}).tipo : m.tipo; return t === 'pago' ? 'pago' : 'cargo'; };
-    const grupos = new Map();
-    for (const m of d.movimientos) {
-      const k = m.comprobante_id || 'm' + m.id;
-      const g = grupos.get(k) || { k, comprobante_id: m.comprobante_id, lineas: [], cargo: 0n, pago: 0n, fecha: m.fecha, ult: m.fecha, titulo: null, anulado: false };
-      const v = centavos(m.haber || '0') - centavos(m.debe || '0');
-      if (clase(m) === 'pago') g.pago -= v; else g.cargo += v;
-      if (!g.titulo && m.tipo !== 'pago' && m.tipo !== 'anulacion') { g.titulo = m.detalle || m.tipo; g.fecha = m.fecha; }
-      if (m.tipo === 'anulacion' && clase(m) === 'cargo') g.anulado = true;
-      if (m.fecha > g.ult) g.ult = m.fecha;
-      g.lineas.push(m); grupos.set(k, g);
-    }
-    const lista = [...grupos.values()].sort((a, b) => (b.ult + b.k).localeCompare(a.ult + a.k)).slice(0, 20);
-    const fmt = c => c ? pesos(deCentavos(c)) : '—';
-    const filasM = lista.flatMap(g => {
-      const pend = g.cargo - g.pago;
-      const titulo = g.comprobante_id ? el('a', { href: 'comprobantes.html#' + g.comprobante_id, textContent: g.titulo || 'Comprobante' }) : (g.titulo || g.lineas[0].detalle || 'Pago a cuenta');
-      const det = el('tr', { className: 'detalle', hidden: true }, el('td', { colSpan: 4 }, ...g.lineas.map(m => el('div', { className: 'lin' },
-        el('span', { textContent: fecha(m.fecha) }), el('span', { textContent: `${m.detalle || m.tipo}${m.registrado_por ? ' · ' + m.registrado_por : ''}` }),
-        el('span', { textContent: !cero(m.haber) ? pesos(m.haber) : '−' + pesos(m.debe) })))));
-      const btn = el('button', { type: 'button', className: 'det', textContent: 'Ver detalle' });
-      btn.onclick = () => { det.hidden = !det.hidden; btn.textContent = det.hidden ? 'Ver detalle' : 'Ocultar detalle'; };
-      const nota = [g.lineas[0].sociedad, g.anulado ? 'anulado' : pend > 0n ? 'pendiente ' + pesos(deCentavos(pend)) : pend < 0n ? 'a favor ' + pesos(deCentavos(-pend)) : null].filter(Boolean).join(' · ');
-      return [el('tr', { className: g.anulado ? 'anul' : '' },
-        el('td', { className: 'f', textContent: fecha(g.fecha) }),
-        el('td', { className: 'd' }, titulo, el('small', { textContent: nota }), btn),
-        el('td', { className: 'num', textContent: fmt(g.cargo) }), el('td', { className: 'num', textContent: fmt(g.pago) })), det];
-    });
-    $('#pMovs').replaceChildren(lista.length ? el('table', { className: 'movs' },
-      el('thead', {}, el('tr', {}, el('th', { textContent: 'Fecha' }), el('th', { textContent: 'Comprobante' }), el('th', { className: 'num', textContent: 'Facturado' }), el('th', { className: 'num', textContent: 'Pagado' }))),
-      el('tbody', {}, ...filasM)) : el('p', { className: 'vacio', textContent: 'Sin movimientos en la cuenta corriente.' }));
-  } catch (e) { $('#pMovs').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
+    const [cc, cs, ops, cps] = await Promise.all([
+      fin() ? api('fin/cuenta-corriente/' + id) : null, fin() ? api('fin/comprobantes?proveedor=' + id) : null,
+      fin() ? api('fin/ordenes-pago?proveedor=' + id) : null, api('compras?proveedor=' + id).catch(() => ({ compras: [] }))]);
+    if (fichaId !== id) return;
+    fd = { p, cc, comprobantes: cs ? cs.comprobantes : [], ordenes: ops ? ops.ordenes : [], compras: cps.compras };
+    const pend = cc ? cc.pendientes.filter(x => x.tipo !== 'nota_credito') : [];
+    pagar.hidden = !pend.length;
+    pagar.className = pend.length ? 'prim' : ''; cargarF.className = pend.length ? '' : 'prim';
+    pagar.onclick = () => pend.length === 1
+      ? pagoRapido({ proveedor_id: id, comprobante_id: pend[0].comprobante_id, pendiente: pend[0].pendiente, nro: pend[0].nro, alPagar: alPagar })
+      : (location.href = 'ordenes-pago.html?proveedor=' + id);
+    pagar.textContent = pend.length > 1 ? `Pagar (${pend.length} pendientes)` : 'Pagar';
+    pintarTab();
+  } catch (e) { $('#fCont').replaceChildren(el('p', { className: 'msg mal', textContent: e.message })); }
 }
-$('#pCerrar').onclick = () => $('#panel').close();
-$('#panel').addEventListener('click', e => { if (e.target === $('#panel')) $('#panel').close(); });
+async function alPagar() { msg('Pago registrado.', 'ok', '#msgF2'); await cargar(); if (fichaId) await verFicha(fichaId); }
+function tabla(cols, filasT, vacio) {
+  if (!filasT.length) return el('p', { className: 'vacio', textContent: vacio });
+  const t = el('table', { className: 'datos movil' }, el('thead', {}, el('tr', {}, ...cols.map(([x, c]) => el('th', { className: c || '', textContent: x })))), el('tbody', {}, ...filasT));
+  etiquetarTabla(t);
+  return el('div', { className: 'tabla-wrap' }, t);
+}
+function pintarTab() {
+  if (!fd) return;
+  const c = $('#fCont'), id = fichaId;
+  if (fTab === 'facturas') {
+    const pend = new Map(fd.cc.pendientes.map(x => [x.comprobante_id, x]));
+    c.replaceChildren(tabla([['Fecha'], ['Comprobante'], ['Sociedad'], ['Estado'], ['Total', 'num'], ['Pendiente', 'num'], ['']],
+      fd.comprobantes.map(x => {
+        const pe = pend.get(x.id), [et, cl] = ESTADO_C[x.estado] || [x.estado, ''];
+        const vencida = pe && pe.dias < 0;
+        const tr = el('tr', { className: 'ir' }, td(fecha(x.fecha)), td(x.nro), td(x.sociedad), el('td', {}, el('span', { className: 'tag ' + cl, textContent: et })),
+          td(pesos(x.total), 'num'),
+          el('td', { className: 'num' }, pe ? pesos(pe.pendiente) : '—', vencida ? el('span', { className: 'tag mal', style: 'margin-left:6px', textContent: 'vencida' }) : ''),
+          el('td', { className: 'acc' }, pe && x.tipo !== 'nota_credito' ? el('button', { type: 'button', className: 'chico', textContent: 'Pagar', onclick: e => {
+            e.stopPropagation(); pagoRapido({ proveedor_id: id, comprobante_id: x.id, pendiente: pe.pendiente, nro: x.nro, alPagar });
+          } }) : ''));
+        tr.onclick = () => { location.href = 'comprobantes.html#' + x.id; };
+        return tr;
+      }), 'Este proveedor no tiene facturas cargadas.'),
+      el('p', { className: 'ayuda' }, 'Tocá una factura para verla. ', el('a', { href: 'comprobantes.html?proveedor=' + id, textContent: 'Cargar una factura nueva' }), '.'));
+  } else if (fTab === 'pagos') {
+    // Lo que bajó la deuda: órdenes de pago y pagos que ya estaban en tesorería (pagos sin factura), con sus anulaciones.
+    const anulados = new Set(fd.cc.movimientos.filter(m => m.tipo === 'anulacion' && m.anula_a).map(m => m.anula_a));
+    const pagos = fd.cc.movimientos.filter(m => m.tipo === 'pago').reverse();
+    const opNro = new Map(fd.ordenes.map(o => [o.id, o]));
+    c.replaceChildren(tabla([['Fecha'], ['Pago'], ['Sociedad'], ['Importe', 'num']],
+      pagos.map(m => {
+        const op = m.orden_pago_id && opNro.get(m.orden_pago_id);
+        const tr = el('tr', { className: (op ? 'ir' : '') + (anulados.has(m.id) ? ' anulado' : '') }, td(fecha(m.fecha)),
+          el('td', { className: 'wrap' }, op ? `${op.nro} · ` : '', m.detalle || 'Pago', anulados.has(m.id) ? el('span', { className: 'tag', style: 'margin-left:6px', textContent: 'anulado' }) : ''),
+          td(m.sociedad), td(pesos(m.debe), 'num'));
+        if (op) tr.onclick = () => { location.href = 'ordenes-pago.html#' + op.id; };
+        return tr;
+      }), 'Todavía no hay pagos a este proveedor.'),
+      fd.ordenes.some(o => o.estado === 'borrador') ? el('p', { className: 'ayuda' }, 'Hay órdenes de pago en borrador: ',
+        ...fd.ordenes.filter(o => o.estado === 'borrador').map((o, i) => [i ? ', ' : '', el('a', { href: 'ordenes-pago.html#' + o.id, textContent: o.nro })]).flat(), '.') : '');
+  } else if (fTab === 'cc') {
+    const movs = [...fd.cc.movimientos].reverse();
+    c.replaceChildren(tabla([['Fecha'], ['Movimiento'], ['Sociedad'], ['Debe', 'num'], ['Haber', 'num'], ['Saldo', 'num']],
+      movs.map(m => el('tr', {}, td(fecha(m.fecha)),
+        el('td', { className: 'wrap' }, m.comprobante_id ? el('a', { href: 'comprobantes.html#' + m.comprobante_id, textContent: m.detalle || m.tipo }) : (m.detalle || m.tipo),
+          m.registrado_por ? el('small', { className: 'ayuda', style: 'display:block;margin:0', textContent: m.registrado_por }) : ''),
+        td(m.sociedad), td(cero(m.debe) ? '' : pesos(m.debe), 'num'), td(cero(m.haber) ? '' : pesos(m.haber), 'num'), td(pesos(m.saldo), 'num'))),
+      'Sin movimientos en la cuenta corriente.'),
+      el('p', { className: 'ayuda' }, 'Del más nuevo al más viejo. Haber: lo que se le debe; debe: lo que lo baja. ',
+        el('a', { href: 'cuenta-corriente.html#' + id, textContent: 'Cuenta corriente con filtros y por sociedad' }), '.'));
+  } else {
+    c.replaceChildren(tabla([['Fecha'], ['Número'], ['Estado'], ['Renglones', 'num'], ['Total', 'num']],
+      fd.compras.map(x => {
+        const tr = el('tr', { className: 'ir' }, td(fecha(x.fecha)), td(x.numero || 'sin número'), td(ESTADO_COMPRA[x.estado] || x.estado),
+          td(String(x.renglones), 'num'), td(x.total ? pesos(x.total) : '—', 'num'));
+        tr.onclick = () => { location.href = x.estado === 'recibida' || x.estado === 'anulada' ? 'compras.html#' + x.id : 'abastecimiento.html#' + x.id; };
+        return tr;
+      }), 'Este proveedor no tiene compras.'),
+      yo.puede.catalogo ? el('p', { className: 'ayuda' }, el('a', { href: `abastecimiento.html?proveedor=${id}#nuevo`, textContent: 'Hacer un pedido' }), '.') : '');
+  }
+}
+function ruta(h) { if (location.hash.slice(1) !== h) location.hash = h; else rutear(); }
+function rutear() {
+  const h = location.hash.slice(1);
+  if (h.startsWith('p/')) return verFicha(h.slice(2));
+  fichaId = null; fd = null; $('#vFicha').hidden = true; $('#vLista').hidden = false;
+  if (h === 'nuevo') editar(null);
+}
+$('#fVolver').onclick = e => { e.preventDefault(); history.length > 1 && document.referrer.includes('proveedores.html') ? history.back() : ruta(''); };
+window.addEventListener('hashchange', rutear);
 
-let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(pintar, 150); };
+// Buscar una factura por número sin saber el proveedor: con 4 dígitos o más, los comprobantes que lo tienen.
+let tn;
+async function buscarNumero(q) {
+  const box = $('#numBusq');
+  if (!fin() || !/\d{4,}/.test(q)) { box.hidden = true; return; }
+  const n = q.match(/\d{4,}/)[0];
+  try {
+    const { comprobantes } = await api('fin/comprobantes?q=' + encodeURIComponent(n));
+    const xs = comprobantes.filter(x => String(x.numero).includes(n)).slice(0, 10);
+    box.hidden = !xs.length;
+    box.replaceChildren(el('h3', { textContent: 'Facturas con ese número' }), ...xs.map(x => el('p', { style: 'margin:2px 0' },
+      el('a', { href: 'comprobantes.html#' + x.id, textContent: `${x.nro} · ${x.proveedor} · ${fecha(x.fecha)} · ${pesos(x.total)}` }), ' · ',
+      el('a', { href: '#p/' + x.proveedor_id, textContent: 'ficha del proveedor' }))));
+  } catch { box.hidden = true; }
+}
+
+let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(pintar, 150); clearTimeout(tn); tn = setTimeout(() => buscarNumero($('#q').value), 300); };
 $$('#filtro button').forEach(b => b.onclick = () => { $$('#filtro button').forEach(x => x.classList.toggle('act', x === b)); filtro = b.dataset.f; pintar(); });
 (async () => {
-  try { ({ usuario: yo } = await cargarSesion()); await cargar(); if (location.hash === '#nuevo') editar(null); }
+  try { ({ usuario: yo } = await cargarSesion()); await cargar(); rutear(); }
   catch (e) { msg(e.message, 'mal'); }
 })();
 </script>

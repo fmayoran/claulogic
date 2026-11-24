@@ -19,9 +19,9 @@ r.get('/compras', h(async (req, res) => {
        FROM logic.compra c
        JOIN logic.proveedor pr ON pr.id = c.proveedor_id
        LEFT JOIN logic.compra_item ci ON ci.compra_id = c.id
-      WHERE ($1::text IS NULL OR c.estado = $1)
+      WHERE ($1::text IS NULL OR c.estado = $1) AND ($2::uuid IS NULL OR c.proveedor_id = $2)
       GROUP BY c.id, pr.nombre
-      ORDER BY c.fecha DESC, c.creado_en DESC LIMIT 300`, [texto(req.query.estado)]);
+      ORDER BY c.fecha DESC, c.creado_en DESC LIMIT 300`, [texto(req.query.estado), texto(req.query.proveedor)]);
   res.json({ ok: true, compras: rows });
 }));
 

@@ -282,6 +282,15 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   mismo diálogo; "Movimientos" abre un panel lateral con los datos y los últimos 20 comprobantes, **una fila por comprobante** con lo
   facturado y lo pagado (no una línea por la factura y otra por el pago; Fer, 15/11/2026), lo pendiente debajo y "Ver detalle" con las
   líneas de la cuenta corriente; y el enlace a la cuenta corriente completa. `proveedores.html#nuevo` abre el alta.
+- **Ficha del proveedor** (pedido de Fer, 24/11/2026: una visión centrada en el proveedor, en vez de tantas pantallas sueltas):
+  `proveedores.html#p/<id>` (tocar una fila de la grilla), con sus datos, para transferir, cifras (saldo, vencido, comprado en 30 días,
+  último comprobante) y acciones (**Cargar factura** = `comprobantes.html?proveedor=`, **Pagar** = pago rápido si hay una pendiente o la
+  orden de pago si hay varias, **Hacer un pedido** = `abastecimiento.html?proveedor=<id>#nuevo`, Editar), y pestañas Facturas (con
+  "Pagar" por factura), Pagos (líneas `pago` de la cuenta corriente, con su orden de pago), Cuenta corriente (del más nuevo al más viejo)
+  y Compras (`/compras?proveedor=`). Reemplaza el panel lateral de "Movimientos". Compras, Facturas de proveedor, Órdenes de pago y
+  Cuenta corriente salieron del menú (`OCULTAS` en `comun.js`: las encuentra "Buscar o ir a…"). El buscador de la grilla, con 4
+  dígitos o más, lista las facturas con ese número. **Exportaciones para el contador** (`exportaciones.html`, Finanzas): libro IVA
+  compras y retenciones practicadas del mes (por defecto el anterior), uno por sociedad; salieron de Facturas y Órdenes de pago.
 - **Datos para transferir** (pedido de Fer, 17/11/2026; migración 20261154): el proveedor tiene banco, titular de la cuenta, **CBU o CVU**
   (22 dígitos, sin espacios; la base controla los dos verificadores con `fin.cbu_valido`, el mismo cálculo para CVU) y **alias** (6 a 20
   letras, números, punto o guion). Se cargan en Proveedores ("Para transferir"); en su panel y en el **pago rápido** (al elegir un banco)
@@ -1252,8 +1261,8 @@ la guía y a `comun.css`, no a la pantalla.
   peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
 - **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; por área desde el 23/11/2026, Fer): todas las áreas desplegables, de a una abierta: **Tableros** (Inicio, Ventas,
   Tesorería, Food cost y caja, Estado de resultados), **Ventas** (Proceso de ingresos, Ventas importadas),
-  **Abastecimiento** (Proceso de abastecimiento, Cuentas por pagar, Compras, Facturas de proveedor, Órdenes de pago, Pagos sin factura,
-  Cuenta corriente, Proveedores), **Finanzas** (Proceso de egresos, Operaciones de tesorería, Conciliación, Cheques), **Producción**
+  **Abastecimiento** (Proceso de abastecimiento, Proveedores, Cuentas por pagar, Pagos sin factura), **Finanzas** (Proceso de
+  egresos, Operaciones de tesorería, Conciliación, Cheques, Exportaciones para el contador), **Producción**
   (stock, pedidos, remitos, recetas, producción, platos, frío, trazabilidad, etiquetas) y **Configuración** (el catálogo primero); abrir una cierra las otras. Cada
   área arranca por su proceso. Ya no hay "Procesos" ni "Registros"; la hoja "Procesos" del celular sale de `PROCESOS`. "Buscar o ir a…" (Ctrl+K, `buscarPantalla`)
   encuentra cualquier pantalla del menú. **En el celular** (Fer no encontraba los tableros): quien tiene finanzas o gestiona una

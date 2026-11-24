@@ -550,7 +550,7 @@ r.get('/fin/cuenta-corriente/:proveedor', h(async (req, res) => {
   const [movs, pend] = await Promise.all([
     pool.query(
       `SELECT m.id, m.fecha, m.ocurrido_en, m.tipo, m.comprobante_id, m.debe::text, m.haber::text, m.detalle, m.registrado_por,
-              m.anula_a, so.nombre AS sociedad, SUM(m.haber - m.debe) OVER (ORDER BY m.fecha, m.id)::text AS saldo
+              m.anula_a, m.orden_pago_id, so.nombre AS sociedad, SUM(m.haber - m.debe) OVER (ORDER BY m.fecha, m.id)::text AS saldo
          FROM fin.movimiento_cc m JOIN org.sociedad so ON so.id = m.sociedad_id
         WHERE m.proveedor_id = $1 AND ($2::uuid IS NULL OR m.sociedad_id = $2) ORDER BY m.fecha, m.id`, [pv.id, texto(req.query.sociedad)]),
     pool.query(

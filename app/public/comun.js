@@ -168,11 +168,11 @@ const GRUPOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
                 ['resultados.html', 'Estado de resultados']]],
   ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Ventas importadas']]],
-  ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['cuentas-pagar.html', 'Cuentas por pagar'], ['compras.html', 'Compras'],
-                      ['comprobantes.html', 'Facturas de proveedor'], ['ordenes-pago.html', 'Órdenes de pago'], ['pagos-sin-factura.html', 'Pagos sin factura'],
-                      ['cuenta-corriente.html', 'Cuenta corriente'], ['proveedores.html', 'Proveedores']]],
+  // Centrado en el proveedor (Fer, 24/11/2026): facturas, pagos, cuenta corriente y compras se ven y se operan desde su ficha.
+  ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuentas-pagar.html', 'Cuentas por pagar'],
+                      ['pagos-sin-factura.html', 'Pagos sin factura']]],
   ['Finanzas', [['egresos.html', 'Proceso de egresos'], ['operaciones-tesoreria.html', 'Operaciones de tesorería'], ['conciliacion.html', 'Conciliación'],
-                ['cheques.html', 'Cheques']]],
+                ['cheques.html', 'Cheques'], ['exportaciones.html', 'Exportaciones para el contador']]],
   ['Producción', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'],
                   ['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta'],
                   ['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
@@ -180,13 +180,16 @@ const GRUPOS = [
                      ['organizacion.html', 'Organización'], ['sedes.html', 'Locales y centro'], ['medios-pago.html', 'Medios de pago'], ['cuentas.html', 'Cuentas'],
                      ['rubros.html', 'Rubros y reglas'], ['almacenes.html', 'Almacenes'], ['unidades-productivas.html', 'Unidades productivas'], ['usuarios.html', 'Usuarios']]],
 ];
+// Fuera del menú, pero las encuentra "Buscar o ir a…" (se llega desde la ficha del proveedor y Cuentas por pagar).
+const OCULTAS = [['compras.html', 'Compras', 'Abastecimiento'], ['comprobantes.html', 'Facturas de proveedor', 'Abastecimiento'],
+                 ['ordenes-pago.html', 'Órdenes de pago', 'Abastecimiento'], ['cuenta-corriente.html', 'Cuenta corriente', 'Abastecimiento']];
 // Los procesos del día, para la hoja "Procesos" de la barra del celular: están repartidos en sus áreas.
 const PROCESOS = ['ingresos.html', 'abastecimiento.html', 'egresos.html', 'operaciones-tesoreria.html'];
 // Secciones que sólo tienen sentido con cierto permiso. El servidor lo exige igual; esto es para
 // no mostrar puertas que no abren.
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'cuentas-pagar.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'organizacion.html': 'admin', 'unidades-productivas.html': 'gestionar',
-  'comprobantes.html': 'finanzas', 'pagos-sin-factura.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
+  'comprobantes.html': 'finanzas', 'pagos-sin-factura.html': 'finanzas', 'exportaciones.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'operaciones-tesoreria.html': 'finanzas', 'cuentas.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
@@ -314,6 +317,11 @@ function buscarPantalla() {
     vistos.add(href);
     const g = a.closest('.grupo'), rot = g && (g.querySelector('.rot') || g.querySelector('.cab span'));
     pantallas.push([href, a.textContent, rot ? rot.textContent : '']);
+  }
+  for (const [href, t, g] of OCULTAS) {
+    const per = PERMISO_SECCION[href];
+    if (vistos.has(href) || !sesion || (per && !sesion.puede[per])) continue;
+    vistos.add(href); pantallas.push([href, t, g]);
   }
   const plano = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const inp = el('input', { type: 'search', placeholder: 'Buscar una pantalla…', ariaLabel: 'Buscar una pantalla' });

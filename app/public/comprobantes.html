@@ -22,7 +22,7 @@
       <select id="fsoc" aria-label="Sociedad"></select>
       <select id="fest"><option value="">Todos</option><option value="borrador">Borradores</option><option value="registrado">Registrados</option><option value="anulado">Anulados</option></select>
       <button class="prim" id="nuevo">Nuevo comprobante</button>
-      <div class="con-boton"><input id="mes" type="month"><a id="libro" class="chico" href="#">Libro IVA</a></div>
+      <a class="chico" href="exportaciones.html">Libro IVA: Exportaciones para el contador</a>
     </div>
     <div class="lista" id="lista"></div>
   </aside>
@@ -510,15 +510,6 @@ $('#anular').onclick = async () => {
   try { await api(`fin/comprobantes/${actual}/anular`, { method: 'POST', body: { motivo } }); await abrir(actual); }
   catch (e) { msg(e.message, 'mal', '#msgV'); }
 };
-$('#libro').onclick = e => {
-  e.preventDefault();
-  if (!$('#mes').value) return alert('Elegí el mes.');
-  // Cada sociedad tiene su libro (su CUIT): con todas, uno por cada una.
-  const socs = $('#fsoc').value ? [$('#fsoc').value] : sociedades.filter(s => s.activa).map(s => s.id);
-  socs.forEach((s, i) => setTimeout(() => {
-    const a = el('a', { href: `api/fin/libro-iva?mes=${$('#mes').value}&sociedad=${s}`, download: '' }); document.body.append(a); a.click(); a.remove();
-  }, i * 600));
-};
 $('#nuevo').onclick = nuevo;
 let tq; $('#q').oninput = () => { clearTimeout(tq); tq = setTimeout(cargarLista, 250); };
 $('#fest').onchange = $('#fsoc').onchange = cargarLista;
@@ -532,13 +523,16 @@ $('#fest').onchange = $('#fsoc').onchange = cargarLista;
     rubroDeCategoria = new Map(cats.categorias.filter(c => c.rubro).map(c => [c.id, c.rubro]));
     opciones($('#fsoc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
     $('#dlProductos').replaceChildren(...productos.filter(p => p.activo).map(p => el('option', { value: etiquetaProducto(p) })));
-    $('#mes').value = hoy().slice(0, 7);
     await cargarLista();
     const id = location.hash.slice(1), q = new URLSearchParams(location.search);
     if (id) await abrir(id);
     else if (q.get('compra')) await desdeCompra(q.get('compra'), q.get('proveedor'));
     else if (q.get('pago')) await desdePago(q.get('pago'));
-    else await nuevo();
+    else {
+      await nuevo();
+      // Desde la ficha del proveedor ("Cargar factura"): el proveedor ya elegido.
+      if (q.get('proveedor') && proveedores.some(p => p.id === q.get('proveedor'))) { f.proveedor_id.value = q.get('proveedor'); await alCambiarProveedor(); }
+    }
   } catch (e) { msg(e.message, 'mal'); }
 })();
 </script>
