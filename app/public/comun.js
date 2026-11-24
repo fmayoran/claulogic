@@ -167,11 +167,12 @@ const FIJOS = [];
 const GRUPOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
                 ['resultados.html', 'Estado de resultados']]],
-  ['Ventas', [['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Ventas importadas']]],
+  // Cada área arranca por su tablero, que también está en Tableros (Fer, 24/11/2026).
+  ['Ventas', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Ventas importadas']]],
   // Centrado en el proveedor (Fer, 24/11/2026): facturas, pagos, cuenta corriente y compras se ven y se operan desde su ficha.
   ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuentas-pagar.html', 'Cuentas por pagar'],
                       ['pagos-sin-factura.html', 'Pagos sin factura']]],
-  ['Finanzas', [['egresos.html', 'Proceso de egresos'], ['operaciones-tesoreria.html', 'Operaciones de tesorería'], ['conciliacion.html', 'Conciliación'],
+  ['Finanzas', [['tesoreria.html', 'Tablero de tesorería'], ['egresos.html', 'Proceso de egresos'], ['operaciones-tesoreria.html', 'Operaciones de tesorería'], ['conciliacion.html', 'Conciliación'],
                 ['cheques.html', 'Cheques'], ['exportaciones.html', 'Exportaciones para el contador']]],
   ['Producción', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'],
                   ['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta'],
@@ -225,7 +226,9 @@ function navegacion() {
     ...FIJOS.map(fijo),
     ...GRUPOS.map(([g, secs]) => {
       // Uno abierto por vez (Fer, 23/11/2026): el de la pantalla actual, o el último que se abrió.
-      const abierto = secs.some(([href]) => href === actual) || (!GRUPOS.some(([, ss]) => ss.some(([href]) => href === actual)) && menuAbiertos().includes(g));
+      // Un tablero está en Tableros y en su área: se abre el área (el primer grupo que no es Tableros), así queda uno solo abierto.
+      const dueno = (GRUPOS.find(([gg, ss]) => gg !== 'Tableros' && ss.some(([href]) => href === actual)) || GRUPOS.find(([, ss]) => ss.some(([href]) => href === actual)) || [])[0];
+      const abierto = dueno ? g === dueno : menuAbiertos().includes(g);
       const items = el('div', { className: 'items', hidden: !abierto }, ...secs.map(sec));
       const cab = el('button', { type: 'button', className: 'cab' }, el('span', { textContent: g }), icono('flecha'));
       cab.setAttribute('aria-expanded', abierto);

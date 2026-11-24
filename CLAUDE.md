@@ -1259,7 +1259,7 @@ la guía y a `comun.css`, no a la pantalla.
   de cada pantalla pone `data-tema` antes de pintar). Todo estilo nuevo tiene que verse en los dos: sólo variables.
 - **Tipografía** IBM Plex Sans variable servida desde el paquete (`/vendor/plex`): títulos y cifras angostos (`font-stretch` 78-80%,
   peso 600), texto normal, números tabulares. Radios: `--r` (8 px) en tarjetas, `--r-ctl` (6 px) en controles.
-- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; por área desde el 23/11/2026, Fer): todas las áreas desplegables, de a una abierta: **Tableros** (Inicio, Ventas,
+- **Menú** (`FIJOS` y `GRUPOS` en `comun.js`; por área desde el 23/11/2026, Fer): todas las áreas desplegables, de a una abierta; cada área arranca por su tablero, que también está en Tableros (Fer, 24/11/2026): **Tableros** (Inicio, Ventas,
   Tesorería, Food cost y caja, Estado de resultados), **Ventas** (Proceso de ingresos, Ventas importadas),
   **Abastecimiento** (Proceso de abastecimiento, Proveedores, Cuentas por pagar, Pagos sin factura), **Finanzas** (Proceso de
   egresos, Operaciones de tesorería, Conciliación, Cheques, Exportaciones para el contador), **Producción**
