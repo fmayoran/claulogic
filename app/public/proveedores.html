@@ -149,7 +149,7 @@ function pintar() {
   if (fin()) xs.sort((a, b) => Number(rs(b.id).comprado_30 || 0) - Number(rs(a.id).comprado_30 || 0) || String(rs(b.id).ultimo || '').localeCompare(String(rs(a.id).ultimo || '')) || a.nombre.localeCompare(b.nombre));
 
   const activos = proveedores.filter(p => p.activo);
-  if (fin()) {
+  if (false) {   // las cifras generales pasaron al Tablero de compras (Fer, 24/11/2026): la grilla queda para trabajar
     const saldo = activos.reduce((s, p) => s + centavos(rs(p.id).saldo || '0'), 0n), comprado = activos.reduce((s, p) => s + centavos(rs(p.id).comprado_30 || '0'), 0n);
     const sinCuit = activos.filter(p => !p.cuit).length;
     $('#cifras').replaceChildren(

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tablero de compras · ClauLogic</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="comun.css">
+<link rel="stylesheet" href="graficos.css">
+<style>
+  /* Tablero de compras (pedido de Fer, 24/11/2026): lo estadístico de compras y pagos; lo operativo queda en Cuentas por pagar y Proveedores. */
+  #fechas{display:flex;gap:8px;flex-wrap:wrap;} #fechas[hidden]{display:none;}
+  .card h2{margin:0 0 4px;font-size:1.05rem;} .card .cap{margin:0 0 12px;}
+  .t-gm{grid-template-columns:minmax(0,1fr) minmax(0,2fr);}
+  @media (max-width:899px){ .t-gm{grid-template-columns:minmax(0,1fr);} }
+  td.prov b{display:block;font-weight:600;} td.prov small{display:block;color:var(--mut);font-size:.84rem;margin-top:2px;}
+</style>
+</head>
+<body>
+<main class="ancho">
+  <div class="t-cab">
+    <h1>Tablero de compras</h1>
+    <p class="sub">Cuánto se compra y se paga, a quién, en qué y a qué precio, contra el período anterior. Lo que hay que pagar y lo que
+      falta recibir o facturar está en Cuentas por pagar; cada proveedor, en su ficha.</p>
+    <div class="t-filtros"><select id="soc" aria-label="Sociedad"></select></div>
+  </div>
+  <div class="t-cab" style="margin-top:-8px">
+    <div class="segm" id="periodo" role="group" aria-label="Período">
+      <button type="button" data-p="7">7 días</button><button type="button" data-p="mes">Este mes</button><button type="button" data-p="mesant">Mes anterior</button><button type="button" data-p="anio">Este año</button><button type="button" data-p="anioant">Año anterior</button><button type="button" data-p="otro">Fechas</button>
+    </div>
+    <div id="fechas" class="t-filtros" hidden><input id="desde" type="date" aria-label="Desde"><input id="hasta" type="date" aria-label="Hasta"></div>
+  </div>
+  <p class="t-rango" id="rango"></p>
+  <span class="msg" id="msg"></span>
+  <div class="kpis" id="kpis"></div>
+
+  <section class="card" style="margin:0 0 16px">
+    <h2>Compras y pagos por mes</h2>
+    <p class="cap">Los doce meses que terminan en el del período: lo facturado (notas de crédito restadas) y lo pagado.</p>
+    <div id="gMeses"></div>
+  </section>
+
+  <div class="t-grid t-gm">
+    <section class="card"><h2>Por rubro</h2><p class="cap">Los renglones de las facturas: el rubro de la categoría del producto o el elegido.</p><div id="gRubros"></div></section>
+    <section class="card"><h2>Por proveedor</h2><p class="cap">Lo facturado en el período contra el anterior. Tocá uno para abrir su ficha.</p><div id="gProv"></div>
+      <button type="button" class="chico" id="masProv" hidden style="margin-top:8px"></button></section>
+  </div>
+
+  <section class="card" style="margin:0 0 16px">
+    <h2>Precios</h2>
+    <p class="cap">Cada producto comprado en el período: el último costo por unidad contra la compra anterior, primero los que más cambiaron. Sale de las compras recibidas.</p>
+    <p class="cap" id="capPrec" style="font-weight:600"></p>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Producto</th><th>Último</th><th>Anterior</th><th class="num">Variación</th></tr></thead>
+      <tbody id="listaPrec"></tbody></table></div>
+    <button type="button" class="chico" id="masPrec" hidden style="margin-top:8px"></button>
+  </section>
+
+  <div class="t-grid t-gm">
+    <section class="card"><h2>Pagos por medio</h2><div id="gMedio"></div></section>
+    <section class="card"><h2>Pagado por proveedor</h2><div id="gPagProv"></div>
+      <button type="button" class="chico" id="masPagProv" hidden style="margin-top:8px"></button></section>
+  </div>
+
+  <section class="card">
+    <h2 id="tPagLista">Pagos</h2>
+    <div class="tabla-wrap"><table class="datos movil"><thead><tr><th>Fecha</th><th>Proveedor</th><th>Comprobante</th><th>Medio</th><th class="num">Importe</th></tr></thead>
+      <tbody id="listaPag"></tbody></table></div>
+    <button type="button" class="chico" id="masPag" hidden style="margin-top:8px"></button>
+  </section>
+</main>
+
+<script src="comun.js"></script>
+<script src="graficos.js"></script>
+<script>
+let per = 'mes', sociedades = [], tab = null, com = null, pag = null, verProv = 10, verPagProv = 10, verPag = 20, verPrec = 15, filtroPagProv = null;
+const MEDIO = { transferencia: 'Transferencia', efectivo: 'Efectivo', cheque_propio: 'Cheque', echeq: 'E-cheq', cheque_tercero: 'Cheque de tercero', retencion: 'Retenciones', socios: 'Pagado por socios' };
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const kpi = (et, valor, variacion, nota) => el('div', { className: 'card kpi' }, el('span', { className: 'et', textContent: et }),
+  el('span', { className: 'va', textContent: valor }), el('span', { className: 'pie' }, variacion || '', nota ? el('span', { textContent: nota }) : ''));
+const socQ = () => $('#soc').value ? '&sociedad=' + $('#soc').value : '';
+const rango = () => per === 'otro' ? [$('#desde').value, $('#hasta').value] : rangoPeriodo(per);
+
+async function cargar() {
+  const [desde, hasta] = rango(); if (!desde || !hasta) return;
+  const [ad, ah] = anteriorPeriodo(desde, hasta);
+  $('#rango').textContent = `Del ${fecha(desde)} al ${fecha(hasta)} · anterior: del ${fecha(ad)} al ${fecha(ah)}`;
+  msg('Cargando…');
+  try {
+    const q = `desde=${desde}&hasta=${hasta}&ant_desde=${ad}&ant_hasta=${ah}${socQ()}`;
+    [tab, com, pag] = await Promise.all([api('fin/compras/tablero?' + q), api('fin/cuentas-por-pagar/compras?' + q),
+      api(`fin/cuentas-por-pagar/pagos?desde=${desde}&hasta=${hasta}${socQ()}`)]);
+    msg(''); verProv = 10; verPagProv = 10; verPag = 20; verPrec = 15; filtroPagProv = null;
+    pintar();
+  } catch (e) { msg(e.message, 'mal'); }
+}
+function pintar() {
+  const t = tab, vari = (a, b, malo) => Graf.variacion(a, b, { malo });
+  const sube = com.precios.filter(x => x.variacion != null && Number(x.variacion) > 0).length;
+  $('#kpis').replaceChildren(
+    kpi('Comprado', pesos(t.comprado), vari(t.comprado, t.comprado_ant, true), `${t.proveedores} proveedor${t.proveedores === 1 ? '' : 'es'}`),
+    kpi('Pagado', pesos(t.pagado), vari(t.pagado, t.pagado_ant), 'sin PedidosYa: se compensa'),
+    kpi('Deuda al cierre', pesos(t.deuda), vari(t.deuda, t.deuda_ant, true), `al ${fecha(rango()[1])}`),
+    kpi('Vencido hoy', pesos(t.vencido), null, centavos(t.vencido) > 0n ? 'en Cuentas por pagar' : 'nada vencido'),
+    kpi('Plazo de pago', t.plazo == null ? '—' : `${t.plazo} día${t.plazo === 1 ? '' : 's'}`, null,
+      t.plazo == null ? 'sin facturas pagadas a plazo en el período' : 'promedio entre la factura y el pago'));
+  $('#capPrec').textContent = com.precios.length ? `${sube} de ${com.precios.length} producto${com.precios.length === 1 ? '' : 's'} comprados en el período subieron de precio contra la compra anterior.` : '';
+  const nombreMes = m => MESES[Number(m.slice(5, 7)) - 1] + ' ' + m.slice(2, 4);
+  // Desde el primer mes con algo (antes del sistema no hay datos).
+  const i0 = t.meses.findIndex(m => Number(m.comprado) || Number(m.pagado)), M = i0 < 0 ? t.meses.slice(-1) : t.meses.slice(i0);
+  Graf.columnasSeries($('#gMeses'), { etiquetas: M.map(m => m.mes), ejeX: nombreMes, titulo: nombreMes,
+    series: [{ nombre: 'Comprado', valores: M.map(m => Number(m.comprado)) }, { nombre: 'Pagado', valores: M.map(m => Number(m.pagado)) }] });
+  const totC = com.rubros.reduce((s, r) => s + Number(r.total), 0);
+  Graf.dona($('#gRubros'), { items: com.rubros.map(r => ({ clave: r.rubro_id, etiqueta: r.rubro, valor: Number(r.total) })),
+    centro: Graf.compacto(totC), sub: 'neto de IVA' });
+  pintarProv(); pintarPrecios(); pintarPagos();
+}
+function pintarProv() {
+  Graf.ranking($('#gProv'), { items: com.proveedores.slice(0, verProv).map(x => ({ clave: x.proveedor_id, etiqueta: x.proveedor, valor: Number(x.total),
+    ant: Number(x.anterior), n: x.comprobantes })),
+    nota: it => [`${it.n} comprobante${it.n === 1 ? '' : 's'}`, it.ant ? `anterior ${pesos(String(it.ant))}` : 'no compró en el anterior'].join(' · '),
+    alElegir: c => { location.href = 'proveedores.html#p/' + c; } });
+  const resto = com.proveedores.length - verProv;
+  $('#masProv').hidden = com.proveedores.length <= 10;
+  $('#masProv').textContent = resto > 0 ? `Ver los ${Math.min(resto, 10)} siguientes` : 'Ver menos';
+}
+$('#masProv').onclick = () => { verProv = com.proveedores.length > verProv ? verProv + 10 : 10; pintarProv(); };
+function pintarPrecios() {
+  const P = com.precios;
+  filas($('#listaPrec'), P.slice(0, verPrec), x => {
+    const v = x.variacion == null ? null : Number(x.variacion);
+    return el('tr', {},
+      el('td', { className: 'prov' }, el('b', { textContent: x.nombre }), el('small', { textContent: `${x.codigo} · ${x.categoria || ''}` })),
+      el('td', {}, `${pesos(x.costo)} / ${x.unidad}`, el('small', { style: 'display:block;color:var(--mut)', textContent: `${fecha(x.fecha)} · ${x.proveedor}` })),
+      el('td', {}, x.costo_ant ? `${pesos(x.costo_ant)} / ${x.unidad}` : '—', x.costo_ant ? el('small', { style: 'display:block;color:var(--mut)', textContent: `${fecha(x.fecha_ant)} · ${x.proveedor_ant}` }) : ''),
+      el('td', { className: 'num' }, v == null ? 'primera compra' : el('span', { className: 'tag ' + (v > 0 ? 'mal' : v < 0 ? 'ok' : ''), textContent: `${v > 0 ? '+' : ''}${coma(String(v))}%` })));
+  }, 'No hubo compras recibidas en el período.', 4);
+  $('#masPrec').hidden = P.length <= 15;
+  $('#masPrec').textContent = P.length > verPrec ? `Ver ${Math.min(P.length - verPrec, 15)} más (son ${P.length})` : 'Ver menos';
+  etiquetarTabla($('#listaPrec').closest('table'));
+}
+$('#masPrec').onclick = () => { verPrec = com.precios.length > verPrec ? verPrec + 15 : 15; pintarPrecios(); };
+function pintarPagos() {
+  const P = pag.pagos, tot = P.reduce((t, x) => t + centavos(x.importe), 0n);
+  const porMedio = new Map(); for (const x of P) porMedio.set(x.medio, (porMedio.get(x.medio) || 0n) + centavos(x.importe));
+  const provs = new Map(); for (const x of P) { const g = provs.get(x.proveedor_id) || { clave: x.proveedor_id, etiqueta: x.proveedor, valor: 0n, n: 0 }; g.valor += centavos(x.importe); g.n++; provs.set(x.proveedor_id, g); }
+  const ranking = [...provs.values()].sort((a, b) => (b.valor > a.valor ? 1 : -1));
+  Graf.dona($('#gMedio'), { items: [...porMedio].map(([m, v]) => ({ clave: m, etiqueta: MEDIO[m] || m, valor: Number(deCentavos(v)) })),
+    centro: Graf.compacto(Number(deCentavos(tot))), sub: 'pagado' });
+  Graf.ranking($('#gPagProv'), { items: ranking.slice(0, verPagProv).map(x => ({ ...x, valor: Number(deCentavos(x.valor)) })), elegido: filtroPagProv,
+    nota: it => `${it.n} pago${it.n === 1 ? '' : 's'}`, alElegir: c => { filtroPagProv = filtroPagProv === c ? null : c; verPag = 20; pintarPagos(); } });
+  const resto = ranking.length - verPagProv;
+  $('#masPagProv').hidden = ranking.length <= 10;
+  $('#masPagProv').textContent = resto > 0 ? `Ver los ${Math.min(resto, 10)} siguientes` : 'Ver menos';
+  $('#masPagProv').onclick = () => { verPagProv = ranking.length > verPagProv ? verPagProv + 10 : 10; pintarPagos(); };
+  const T = filtroPagProv ? P.filter(x => x.proveedor_id === filtroPagProv) : P, L = T.slice(0, verPag);
+  $('#masPag').hidden = T.length <= 20;
+  $('#masPag').textContent = T.length > verPag ? `Ver ${Math.min(T.length - verPag, 20)} más (son ${T.length})` : 'Ver menos';
+  $('#masPag').onclick = () => { verPag = T.length > verPag ? verPag + 20 : 20; pintarPagos(); };
+  $('#tPagLista').textContent = filtroPagProv ? `Pagos a ${(provs.get(filtroPagProv) || {}).etiqueta} (tocá de nuevo el proveedor para ver todos)` : 'Pagos del período';
+  filas($('#listaPag'), L, x => el('tr', {}, td(fecha(x.fecha)),
+    el('td', { className: 'prov' }, el('a', { href: 'proveedores.html#p/' + x.proveedor_id, textContent: x.proveedor }), !$('#soc').value && x.sociedad ? el('small', { textContent: x.sociedad }) : ''),
+    el('td', {}, x.origen === 'op' ? el('a', { href: 'ordenes-pago.html#' + x.ref_id, textContent: x.ref }) : el('a', { href: 'comprobantes.html#' + x.ref_id, textContent: x.ref })),
+    td([MEDIO[x.medio] || x.medio, x.cuenta].filter(Boolean).join(' · '), 'wrap'),
+    td(pesos(x.importe), 'num')), 'No hubo pagos en el período.', 5);
+  etiquetarTabla($('#listaPag').closest('table'));
+}
+
+function elegirPer(p) {
+  per = p; $$('#periodo button').forEach(b => b.classList.toggle('act', b.dataset.p === p));
+  $('#fechas').hidden = p !== 'otro';
+  if (p === 'otro' && !$('#desde').value) { const [a, b] = rangoPeriodo('mes'); $('#desde').value = a; $('#hasta').value = b; }
+  try { localStorage.setItem('tcompras-per', p); } catch {}
+  cargar();
+}
+$$('#periodo button').forEach(b => b.onclick = () => elegirPer(b.dataset.p));
+$('#desde').onchange = $('#hasta').onchange = () => cargar();
+$('#soc').onchange = () => { try { localStorage.setItem('tcompras-soc', $('#soc').value); } catch {} cargar(); };
+(async () => {
+  try {
+    await cargarSesion();
+    ({ sociedades } = await api('sociedades'));
+    opciones($('#soc'), sociedades.filter(s => s.activa).map(s => [s.id, s.nombre]), null, 'Todas las sociedades');
+    try {
+      const s = localStorage.getItem('tcompras-soc'); if (s && sociedades.some(x => x.id === s)) $('#soc').value = s;
+      const p = localStorage.getItem('tcompras-per'); if (p && p !== 'otro') per = p;
+    } catch {}
+    elegirPer(per);
+  } catch (e) { msg(e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

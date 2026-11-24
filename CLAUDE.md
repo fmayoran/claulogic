@@ -282,6 +282,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   mismo diálogo; "Movimientos" abre un panel lateral con los datos y los últimos 20 comprobantes, **una fila por comprobante** con lo
   facturado y lo pagado (no una línea por la factura y otra por el pago; Fer, 15/11/2026), lo pendiente debajo y "Ver detalle" con las
   líneas de la cuenta corriente; y el enlace a la cuenta corriente completa. `proveedores.html#nuevo` abre el alta.
+- **Tablero de compras** (`tablero-compras.html`, pedido de Fer, 24/11/2026; primero en Abastecimiento y en Tableros): lo estadístico de
+  compras y pagos, con los períodos de los otros tableros y por sociedad. Cifras con variación (comprado, pagado, deuda al cierre,
+  vencido hoy, plazo de pago ponderado sin los X armados desde un pago ni los compensados en una liquidación), compras y pagos por mes
+  (`GET /fin/compras/tablero`), por rubro y por proveedor (a su ficha), precios contra la compra anterior, pagos por medio y por
+  proveedor. Lo pagado no incluye las facturas de PedidosYa (se compensan en la liquidación). Sus pestañas "Compras del período" y
+  "Pagos realizados" salieron de Cuentas por pagar, que queda operativa (pendiente y calendario), y las cifras generales de la grilla
+  de Proveedores también. **Producción** arranca con el tablero de food cost (`tablero.html`).
 - **Ficha del proveedor** (pedido de Fer, 24/11/2026: una visión centrada en el proveedor, en vez de tantas pantallas sueltas):
   `proveedores.html#p/<id>` (tocar una fila de la grilla), con sus datos, para transferir, cifras (saldo, vencido, comprado en 30 días,
   último comprobante) y acciones (**Cargar factura** = `comprobantes.html?proveedor=`, **Pagar** = pago rápido si hay una pendiente o la

@@ -531,6 +531,53 @@ r.get('/fin/cuentas-por-pagar/pagos', h(async (req, res) => {
   res.json({ ok: true, desde, hasta, pagos: rows });
 }));
 
+// Tablero de compras (pedido de Fer, 24/11/2026): cifras del período contra el anterior y la evolución mes por mes. Lo pagado se
+// cuenta como en /fin/cuentas-por-pagar/pagos (valores y retenciones de las órdenes de pago registradas, y egresos vinculados a una
+// factura). La deuda es el saldo de la cuenta corriente al cierre. El plazo de pago, ponderado por importe, deja afuera los
+// comprobantes armados desde un pago ya hecho y los compensados en una liquidación (no hubo plazo).
+const PAGOS_TABLERO = `
+  SELECT op.fecha, v.importe, op.sociedad_id FROM fin.orden_pago op JOIN fin.orden_pago_valor v ON v.orden_pago_id = op.id WHERE op.estado = 'registrada'
+  UNION ALL SELECT op.fecha, op.total_retenciones, op.sociedad_id FROM fin.orden_pago op WHERE op.estado = 'registrada' AND op.total_retenciones > 0
+  UNION ALL SELECT m.fecha, pp.importe, c.sociedad_id FROM fin.pago_previo pp JOIN fin.movimiento_tes m ON m.id = pp.movimiento_id
+    JOIN fin.comprobante c ON c.id = pp.comprobante_id
+   WHERE c.estado <> 'anulado' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes z WHERE z.anula_a = m.id)`;
+r.get('/fin/compras/tablero', h(async (req, res) => {
+  const desde = fecha(req.query.desde, { campo: 'Desde', requerido: true }), hasta = fecha(req.query.hasta, { campo: 'Hasta', requerido: true });
+  const aDesde = fecha(req.query.ant_desde, { campo: 'Desde anterior', requerido: true }), aHasta = fecha(req.query.ant_hasta, { campo: 'Hasta anterior', requerido: true });
+  const soc = texto(req.query.sociedad);
+  const comprado = `SUM(CASE WHEN c.tipo = 'nota_credito' THEN -c.total ELSE c.total END)`;
+  const [{ rows: [x] }, { rows: meses }] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE((SELECT ${comprado} FROM fin.comprobante c WHERE c.estado = 'registrado' AND c.fecha BETWEEN $1 AND $2 AND ($5::uuid IS NULL OR c.sociedad_id = $5)), 0)::text AS comprado,
+              COALESCE((SELECT ${comprado} FROM fin.comprobante c WHERE c.estado = 'registrado' AND c.fecha BETWEEN $3 AND $4 AND ($5::uuid IS NULL OR c.sociedad_id = $5)), 0)::text AS comprado_ant,
+              COALESCE((SELECT SUM(importe) FROM (${PAGOS_TABLERO}) p WHERE p.fecha BETWEEN $1 AND $2 AND ($5::uuid IS NULL OR p.sociedad_id = $5)), 0)::text AS pagado,
+              COALESCE((SELECT SUM(importe) FROM (${PAGOS_TABLERO}) p WHERE p.fecha BETWEEN $3 AND $4 AND ($5::uuid IS NULL OR p.sociedad_id = $5)), 0)::text AS pagado_ant,
+              COALESCE((SELECT SUM(haber - debe) FROM fin.movimiento_cc WHERE fecha <= $2 AND ($5::uuid IS NULL OR sociedad_id = $5)), 0)::text AS deuda,
+              COALESCE((SELECT SUM(haber - debe) FROM fin.movimiento_cc WHERE fecha <= $4 AND ($5::uuid IS NULL OR sociedad_id = $5)), 0)::text AS deuda_ant,
+              COALESCE((SELECT SUM(pendiente) FROM fin.comprobante_pendiente WHERE pendiente > 0 AND vencimiento < current_date AND ($5::uuid IS NULL OR sociedad_id = $5)), 0)::text AS vencido,
+              (SELECT COUNT(DISTINCT c.proveedor_id)::int FROM fin.comprobante c WHERE c.estado = 'registrado' AND c.fecha BETWEEN $1 AND $2 AND ($5::uuid IS NULL OR c.sociedad_id = $5)) AS proveedores,
+              (SELECT round(SUM(dias * importe) / NULLIF(SUM(importe), 0))::int FROM (
+                 SELECT (op.fecha - c.fecha) AS dias, a.importe FROM fin.orden_pago_aplicacion a JOIN fin.orden_pago op ON op.id = a.orden_pago_id
+                   JOIN fin.comprobante c ON c.id = a.comprobante_id
+                  WHERE op.estado = 'registrada' AND op.fecha BETWEEN $1 AND $2 AND ($5::uuid IS NULL OR op.sociedad_id = $5)
+                 UNION ALL
+                 SELECT (m.fecha - c.fecha), pp.importe FROM fin.pago_previo pp JOIN fin.movimiento_tes m ON m.id = pp.movimiento_id
+                   JOIN fin.comprobante c ON c.id = pp.comprobante_id
+                  WHERE c.estado <> 'anulado' AND m.fecha BETWEEN $1 AND $2 AND ($5::uuid IS NULL OR c.sociedad_id = $5)
+                    AND COALESCE(c.notas, '') NOT LIKE 'Armado desde el pago%'
+                    AND NOT EXISTS (SELECT 1 FROM fin.liquidacion_comprobante l WHERE l.comprobante_id = c.id)) z) AS plazo`,
+      [desde, hasta, aDesde, aHasta, soc]),
+    // Los 12 meses que terminan en el del "hasta".
+    pool.query(
+      `WITH m AS (SELECT generate_series(date_trunc('month', $1::date) - interval '11 months', date_trunc('month', $1::date), '1 month')::date AS mes)
+       SELECT to_char(m.mes, 'YYYY-MM') AS mes,
+              COALESCE((SELECT ${comprado} FROM fin.comprobante c WHERE c.estado = 'registrado' AND date_trunc('month', c.fecha) = m.mes AND ($2::uuid IS NULL OR c.sociedad_id = $2)), 0)::text AS comprado,
+              COALESCE((SELECT SUM(importe) FROM (${PAGOS_TABLERO}) p WHERE date_trunc('month', p.fecha) = m.mes AND ($2::uuid IS NULL OR p.sociedad_id = $2)), 0)::text AS pagado
+         FROM m ORDER BY m.mes`, [hasta, soc]),
+  ]);
+  res.json({ ok: true, desde, hasta, ...x, meses });
+}));
+
 r.get('/fin/proveedores/resumen', h(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT pv.id, COALESCE((SELECT SUM(saldo) FROM fin.saldo_proveedor_sociedad x WHERE x.proveedor_id = pv.id), 0)::text AS saldo,

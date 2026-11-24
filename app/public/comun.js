@@ -166,15 +166,15 @@ const td = (t, cls = '') => el('td', { className: cls }, t ?? '');
 const FIJOS = [];
 const GRUPOS = [
   ['Tableros', [['index.html', 'Inicio'], ['ventas.html', 'Ventas'], ['tesoreria.html', 'Tesorería'], ['tablero.html', 'Food cost y caja'],
-                ['resultados.html', 'Estado de resultados']]],
+                ['tablero-compras.html', 'Compras'], ['resultados.html', 'Estado de resultados']]],
   // Cada área arranca por su tablero, que también está en Tableros (Fer, 24/11/2026).
   ['Ventas', [['ventas.html', 'Tablero de ventas'], ['ingresos.html', 'Proceso de ingresos'], ['procesar-ventas.html', 'Ventas importadas']]],
   // Centrado en el proveedor (Fer, 24/11/2026): facturas, pagos, cuenta corriente y compras se ven y se operan desde su ficha.
-  ['Abastecimiento', [['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuentas-pagar.html', 'Cuentas por pagar'],
+  ['Abastecimiento', [['tablero-compras.html', 'Tablero de compras'], ['abastecimiento.html', 'Proceso de abastecimiento'], ['proveedores.html', 'Proveedores'], ['cuentas-pagar.html', 'Cuentas por pagar'],
                       ['pagos-sin-factura.html', 'Pagos sin factura']]],
   ['Finanzas', [['tesoreria.html', 'Tablero de tesorería'], ['egresos.html', 'Proceso de egresos'], ['operaciones-tesoreria.html', 'Operaciones de tesorería'], ['conciliacion.html', 'Conciliación'],
                 ['cheques.html', 'Cheques'], ['exportaciones.html', 'Exportaciones para el contador']]],
-  ['Producción', [['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'],
+  ['Producción', [['tablero.html', 'Tablero de food cost'], ['stock.html', 'Stock'], ['movimientos.html', 'Movimientos'], ['pedidos.html', 'Pedidos'], ['remitos.html', 'Remitos'],
                   ['recetas.html', 'Recetas'], ['produccion.html', 'Producción'], ['platos.html', 'Platos de carta'],
                   ['frio.html', 'Frío'], ['trazabilidad.html', 'Trazabilidad'], ['etiquetas.html', 'Etiquetas']]],
   ['Configuración', [['productos.html', 'Productos'], ['categorias.html', 'Categorías'], ['unidades.html', 'Unidades de medida'],
@@ -190,7 +190,7 @@ const PROCESOS = ['ingresos.html', 'abastecimiento.html', 'egresos.html', 'opera
 // no mostrar puertas que no abren.
 const PERMISO_SECCION = { 'ingresos.html': 'finanzas', 'cuentas-pagar.html': 'finanzas', 'abastecimiento.html': 'catalogo', 'medios-pago.html': 'finanzas', 'almacenes.html': 'gestionar', 'unidades.html': 'catalogo', 'categorias.html': 'catalogo', 'usuarios.html': 'admin',
   'sedes.html': 'admin', 'organizacion.html': 'admin', 'unidades-productivas.html': 'gestionar',
-  'comprobantes.html': 'finanzas', 'pagos-sin-factura.html': 'finanzas', 'exportaciones.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
+  'comprobantes.html': 'finanzas', 'pagos-sin-factura.html': 'finanzas', 'exportaciones.html': 'finanzas', 'tablero-compras.html': 'finanzas', 'cuenta-corriente.html': 'finanzas', 'ordenes-pago.html': 'finanzas',
   'tesoreria.html': 'finanzas', 'operaciones-tesoreria.html': 'finanzas', 'cuentas.html': 'finanzas', 'egresos.html': 'finanzas', 'cheques.html': 'finanzas', 'conciliacion.html': 'finanzas', 'resultados.html': 'finanzas', 'rubros.html': 'finanzas' };
 const ICONOS = {
   panel: '<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',

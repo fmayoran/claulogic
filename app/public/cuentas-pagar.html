@@ -41,9 +41,8 @@
   <div class="segm tabs-cxp" id="tabs" role="tablist" aria-label="Consulta">
     <button type="button" data-t="pend" class="act">Pendiente</button>
     <button type="button" data-t="cal">Calendario de pagos</button>
-    <button type="button" data-t="compras">Compras del período</button>
-    <button type="button" data-t="pagos">Pagos realizados</button>
   </div>
+  <p class="ayuda" style="margin:-8px 0 14px">Compras del período, precios y pagos realizados: en el <a href="tablero-compras.html">Tablero de compras</a>.</p>
   <p class="msg" id="msg"></p>
   <div class="per-cxp" id="perWrap" hidden>
     <div class="segm" id="periodo" role="group" aria-label="Período">
@@ -280,7 +279,7 @@ function refrescar() {
   return f().catch(e => msg(e.message, 'mal'));
 }
 function elegirTab(t) {
-  tab = SECC[t] ? t : 'pend';
+  tab = ['pend', 'cal'].includes(t) ? t : 'pend';   // compras y pagos del período: Tablero de compras (24/11/2026)
   $$('#tabs button').forEach(b => b.classList.toggle('act', b.dataset.t === tab));
   for (const [k, sel] of Object.entries(SECC)) $(sel).hidden = k !== tab;
   $('#perWrap').hidden = !['compras', 'pagos'].includes(tab);
