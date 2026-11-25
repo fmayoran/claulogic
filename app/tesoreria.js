@@ -1383,6 +1383,107 @@ r.delete('/fin/conciliacion/:linea', h(async (req, res) => {
   await deshacerConciliacion(numero(req.params.linea, { campo: 'la línea', requerido: true }));
   res.json({ ok: true });
 }));
+
+// ── Deshacer lo registrado en el proceso de egresos (pedido de Fer, 25/11/2026) ──────────────────────────────────────────────
+// "Registrar" en la grilla crea el egreso (o la transferencia), lo concilia con la línea y, con proveedor, arma su comprobante X
+// pagado con ese egreso. Desvincular el pago y anular la factura a mano dejaba el egreso vigente y conciliado: la línea no volvía
+// a la grilla. Deshacer hace todo en una transacción: desvincula los pagos, anula los comprobantes X que quedan sin pagos (uno
+// fiscal sólo se desvincula), anula el egreso (o las dos patas de la transferencia) y la línea vuelve a estar pendiente.
+// Sólo lo que se registra desde una línea: egresos e ingresos manuales y transferencias, sin cobros de ventas ni órdenes de pago.
+const REGISTRADO_SQL = `
+  SELECT k.linea_id, m.*,
+         EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id) AS anulado
+    FROM fin.conciliacion k JOIN fin.movimiento_tes m ON m.id = k.movimiento_id`;
+const deshacible = m => !m.anulado && !m.ticket_pago_id && !m.gasto && !m.orden_pago_id && !m.cheque_id && !m.pos_cobro_id
+  && ['egreso', 'ingreso', 'transferencia'].includes(m.tipo);
+
+r.get('/fin/egresos/registrados', h(async (req, res) => {
+  const dias = Math.min(90, Math.max(1, Number(req.query.dias) || 30));
+  const { rows } = await pool.query(
+    `WITH ls AS (
+       SELECT l.id, l.fecha, l.importe::text, l.concepto, l.destinatario, l.operacion, l.cuenta_id, cu.nombre AS cuenta,
+              max(k.conciliado_en) AS conciliado_en, max(k.conciliado_por) AS conciliado_por
+         FROM fin.conciliacion k JOIN fin.extracto_linea l ON l.id = k.linea_id JOIN fin.cuenta cu ON cu.id = l.cuenta_id
+        WHERE l.importe < 0 AND k.conciliado_en >= now() - make_interval(days => $1)
+        GROUP BY l.id, cu.nombre)
+     SELECT ls.*, json_agg(json_build_object(
+              'id', m.id, 'tipo', m.tipo, 'concepto', m.concepto, 'importe', (m.salida - m.entrada)::text,
+              'rubro', r.nombre, 'local', s.nombre, 'regla', cl.regla_id IS NOT NULL,
+              'otra_cuenta', (SELECT o.nombre FROM fin.movimiento_tes x JOIN fin.cuenta o ON o.id = x.cuenta_id
+                               WHERE m.transferencia_id IS NOT NULL AND x.transferencia_id = m.transferencia_id AND x.id <> m.id
+                                 AND x.tipo <> 'anulacion' LIMIT 1),
+              'comprobantes', (SELECT json_agg(json_build_object('proveedor', pv.nombre, 'letra', co.letra,
+                                 'numero', lpad(co.punto_venta::text, 5, '0') || '-' || lpad(co.numero::text, 8, '0')))
+                                 FROM fin.pago_previo pp JOIN fin.comprobante co ON co.id = pp.comprobante_id
+                                 JOIN logic.proveedor pv ON pv.id = co.proveedor_id WHERE pp.movimiento_id = m.id),
+              'deshacible', NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = m.id)
+                AND m.ticket_pago_id IS NULL AND m.gasto IS NULL AND m.orden_pago_id IS NULL AND m.cheque_id IS NULL AND m.pos_cobro_id IS NULL
+                AND m.tipo IN ('egreso', 'ingreso', 'transferencia')) ORDER BY m.id) AS movimientos
+       FROM ls JOIN fin.conciliacion k ON k.linea_id = ls.id JOIN fin.movimiento_tes m ON m.id = k.movimiento_id
+       LEFT JOIN fin.clasificacion cl ON cl.movimiento_id = m.id LEFT JOIN fin.rubro r ON r.id = cl.rubro_id
+       LEFT JOIN org.sede s ON s.id = cl.sede_id
+      GROUP BY ls.id, ls.fecha, ls.importe, ls.concepto, ls.destinatario, ls.operacion, ls.cuenta_id, ls.cuenta, ls.conciliado_en, ls.conciliado_por
+      ORDER BY ls.conciliado_en DESC, ls.id DESC LIMIT 300`, [dias]);
+  // Sólo las que se pueden deshacer enteras desde acá (las de una orden de pago o un cheque se deshacen en Conciliación).
+  res.json({ ok: true, lineas: rows.filter(l => l.movimientos.every(m => m.deshacible)) });
+}));
+
+r.post('/fin/egresos/deshacer', h(async (req, res) => {
+  const linea = numero(req.body.linea_id, { campo: 'la línea', requerido: true });
+  const out = await enTransaccion(async c => {
+    await c.query('SELECT org.exigir_finanzas()');
+    const { rows: [l] } = await c.query('SELECT * FROM fin.extracto_linea WHERE id = $1 FOR UPDATE', [linea]);
+    if (!l) throw new ErrorUsuario('No existe esa línea del extracto.', 404);
+    const { rows: movs } = await c.query(REGISTRADO_SQL + ' WHERE k.linea_id = $1 FOR UPDATE OF k', [linea]);
+    if (!movs.length) throw new ErrorUsuario('La línea ya no está conciliada.');
+    const otro = movs.find(m => !deshacible(m));
+    if (otro) throw new ErrorUsuario('La línea está conciliada con un movimiento que no se registró desde acá (cobro, cargo de una venta, orden de pago o cheque): deshacela en Conciliación.');
+    // La otra pata de una transferencia, si ya está conciliada con el extracto de su cuenta, se deshace allá primero.
+    for (const m of movs.filter(x => x.transferencia_id)) {
+      const { rows: [o] } = await c.query(
+        `SELECT cu.nombre FROM fin.movimiento_tes x JOIN fin.conciliacion k ON k.movimiento_id = x.id JOIN fin.cuenta cu ON cu.id = x.cuenta_id
+          WHERE x.transferencia_id = $1 AND x.id <> $2 LIMIT 1`, [m.transferencia_id, m.id]);
+      if (o) throw new ErrorUsuario(`La otra pata de la transferencia está conciliada con el extracto de ${o.nombre}: deshacela ahí primero.`);
+    }
+    const ids = movs.map(m => m.id);
+    // Los pagos vinculados a comprobantes: se desvinculan con su anulación en la cuenta corriente.
+    const { rows: pps } = await c.query(
+      `SELECT pp.*, m.proveedor_id, m.detalle, m.debe FROM fin.pago_previo pp JOIN fin.movimiento_cc m ON m.id = pp.cc_movimiento_id
+        WHERE pp.movimiento_id = ANY($1::bigint[]) FOR UPDATE OF pp`, [ids]);
+    for (const pp of pps) {
+      await c.query(`INSERT INTO fin.movimiento_cc (fecha, proveedor_id, tipo, comprobante_id, debe, haber, detalle, anula_a)
+                     VALUES (current_date, $1, 'anulacion', $2, 0, $3, $4, $5)`,
+        [pp.proveedor_id, pp.comprobante_id, pp.debe, 'Desvincula: ' + pp.detalle, pp.cc_movimiento_id]);
+      await c.query('DELETE FROM fin.pago_previo WHERE comprobante_id = $1 AND movimiento_id = $2', [pp.comprobante_id, pp.movimiento_id]);
+    }
+    // Un comprobante X que quedó sin pagos se anula (lo armó el registro); uno fiscal queda, sólo desvinculado.
+    const anulados = [], desvinculados = [];
+    for (const cid of [...new Set(pps.map(p => p.comprobante_id))]) {
+      const { rows: [co] } = await c.query(
+        `SELECT co.*, pv.nombre AS proveedor, EXISTS (SELECT 1 FROM fin.pago_previo x WHERE x.comprobante_id = co.id) AS con_pagos
+           FROM fin.comprobante co JOIN logic.proveedor pv ON pv.id = co.proveedor_id WHERE co.id = $1`, [cid]);
+      if (co.letra === 'X' && co.estado === 'registrado' && !co.con_pagos) {
+        await c.query('SELECT fin.anular_comprobante($1::uuid, $2)', [cid, 'Se deshizo el registro del egreso en el proceso de egresos']);
+        anulados.push(co.proveedor);
+      } else desvinculados.push(co.proveedor);
+    }
+    await c.query('DELETE FROM fin.conciliacion WHERE linea_id = $1', [linea]);
+    // El egreso se anula; una transferencia, con sus dos patas.
+    for (const m of movs) {
+      const { rows: patas } = await c.query(
+        `SELECT * FROM fin.movimiento_tes x WHERE ${m.transferencia_id ? 'x.transferencia_id = $1' : 'x.id = $1'}
+            AND x.tipo <> 'anulacion' AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes a WHERE a.anula_a = x.id)`,
+        [m.transferencia_id || m.id]);
+      for (const p of patas)
+        await c.query(
+          `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto, transferencia_id, anula_a)
+           VALUES ($1, $2, 'anulacion', $3, $4, $5, $6, $7)`,
+          [p.fecha, p.cuenta_id, p.salida, p.entrada, 'Anula (se deshizo el registro): ' + (p.concepto || p.tipo), p.transferencia_id, p.id]);
+    }
+    return { anulados, desvinculados, movimientos: movs.length };
+  });
+  res.json({ ok: true, ...out });
+}));
 // Líneas que no se tienen en cuenta (decisión de Fer, 09/11/2026): cobros de ventas anteriores al inicio de los cobros, lo
 // anterior al inicio del control de la cuenta (se resuelve con el saldo inicial). No mueve plata: es una marca con motivo
 // sobre la línea, que deja de estar pendiente, y se deshace.

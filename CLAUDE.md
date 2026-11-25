@@ -903,6 +903,12 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   rubro; `cuenta_id` en la parte): se asientan las dos patas con la fecha de la línea y la de la otra cuenta espera su extracto. **La línea entera** también puede ser una transferencia
   (Fer, 19/11/2026: lo que no se identifica va contra PRÉSTAMOS DE SOCIOS): las mismas opciones "Transferencia a …" encabezan el rubro de
   cada fila, que deshabilita proveedor y local, y se registra por `/fin/conciliacion/partes` con una sola parte.
+  **Deshacer lo registrado** (pedido de Fer, 25/11/2026: asignó un pago al proveedor equivocado, desvinculó y anuló la factura, y la línea
+  no volvía porque el egreso seguía conciliado): debajo de la grilla, plegado, "Registrado en los últimos 30 días" (`GET /fin/egresos/registrados`,
+  sólo líneas de egreso cuyos movimientos son egresos, ingresos o transferencias manuales: sin cobros, cargos de venta, órdenes de pago ni
+  cheques) con "Deshacer" (`POST /fin/egresos/deshacer`, una transacción): desvincula los pagos (anulación en la cuenta corriente), anula el
+  comprobante X que queda sin pagos (uno fiscal sólo queda desvinculado y pendiente), saca la conciliación y anula el egreso o las dos patas
+  de la transferencia (si la otra pata ya está conciliada con su extracto, pide deshacerla allá primero). La línea vuelve a la grilla.
   **Por cuenta** (pedido de Fer, 15/11/2026): un selector con cada cuenta (se recuerda, `localStorage['egresos-cuenta']`) y, con "Todas",
   un encabezado por cuenta con cantidad y total. Cada línea muestra el destinatario, la **hora** y el **número de operación** (con eso se
   encuentra un "Pago desde Mercado Pago" en la actividad de Mercado Pago: el reporte de liberaciones no trae a quién) y el CBU de destino.

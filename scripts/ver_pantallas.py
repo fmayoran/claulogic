@@ -170,6 +170,8 @@ with sync_playwright() as p:
                     page.get_by_role('combobox', name=cb).first.click(); page.keyboard.type(txt)
                 elif t.startswith('!'):  # !Enter: una tecla; !2000: esperar esos milisegundos
                     page.wait_for_timeout(int(t[1:])) if t[1:].isdigit() else page.keyboard.press(t[1:])
+                elif t.startswith('~'):  # ~texto: clic en lo que dice ese texto (un summary, un enlace)
+                    page.get_by_text(t[1:]).first.click()
                 else:
                     page.get_by_role('button', name=t).first.click()
                 page.wait_for_timeout(300)

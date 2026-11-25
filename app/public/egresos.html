@@ -38,6 +38,13 @@
     .parte{grid-template-columns:minmax(0,1fr) auto;} .parte > .cb,.parte > select{grid-column:1 / -1;} .parte > button{grid-column:2;grid-row:1;}
     .eg.dividida > .cb,.eg.dividida > select{display:none;}
   }
+  /* Lo registrado, para deshacerlo si fue un error (pedido de Fer, 25/11/2026). */
+  .hechas-eg{margin-top:22px;} .hechas-eg > summary{cursor:pointer;font-weight:600;margin-bottom:8px;}
+  .hechas-eg .ayuda{margin:0 0 10px;max-width:760px;}
+  .rg{display:grid;grid-template-columns:86px minmax(170px,1fr) 110px minmax(200px,1.4fr) auto;gap:8px 12px;align-items:center;padding:10px 12px;border-top:1px solid var(--line);}
+  .rg:first-child{border-top:0;} .rg .f{color:var(--mut);white-space:nowrap;font-size:.9rem;} .rg .c{min-width:0;overflow-wrap:anywhere;font-size:.92rem;}
+  .rg small{display:block;color:var(--mut);font-size:.8rem;} .rg .i{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
+  @media (max-width:1100px){ .rg{grid-template-columns:minmax(0,1fr) auto;} .rg .i{grid-column:2;grid-row:1;} .rg .c,.rg > button{grid-column:1 / -1;} }
   .grilla-eg{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
   .pie-eg{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0 0;}
   @media (max-width:1100px){
@@ -68,6 +75,11 @@
       en las transferencias a banco, el CBU de destino. Lo que no se tiene en cuenta se resuelve en "Por cuenta".</p></details>
     <div class="grilla-eg" id="grilla"><p class="vacio">Consultando…</p></div>
     <div class="pie-eg"><button type="button" class="prim" id="todas" disabled>Registrar las completas</button><span class="msg" id="msgG"></span></div>
+    <details class="hechas-eg" id="hechas"><summary>Registrado en los últimos 30 días</summary>
+      <p class="ayuda">Si te equivocaste, "Deshacer" anula el egreso (o la transferencia) y el comprobante X que se armó con él, y la línea vuelve
+        a la grilla para registrarla de nuevo. Una factura fiscal vinculada sólo se desvincula y queda pendiente.</p>
+      <div class="grilla-eg" id="hechasL"><p class="vacio">Consultando…</p></div><span class="msg" id="msgH"></span>
+    </details>
   </section>
   <section id="vCuenta" hidden>
   <div class="segm" id="cuentas" role="group" aria-label="Cuenta" style="margin:0 0 14px"></div>
@@ -275,6 +287,8 @@ function totalesG() {
 }
 // Lo registrado sale de la grilla (Fer, 15/11/2026: quedaba a la vista, apagado): se ve un momento con su resultado y se va.
 function quitar(f, nota) {
+  // Si la lista de lo registrado está abierta, se actualiza.
+  if ($('#hechas').open) setTimeout(() => pintarHechas().catch(() => {}), 300);
   f.hecha = true; f.fila.classList.add('hecha'); f.acc.replaceChildren(nota);
   [f.rub, f.sede, f.prov].forEach(x => { if (x) x.disabled = true; });
   filasG = filasG.filter(x => x !== f);
@@ -434,6 +448,38 @@ $('#todas').onclick = async () => {
   provs = (await api('proveedores')).proveedores;
   msg(`${ok} registrado(s).` + (errs.length ? ' No se pudo: ' + errs.join('; ') : ''), errs.length ? 'aviso' : 'ok', '#msgG');
 };
+// ── Lo registrado (para deshacer un error) ──
+async function pintarHechas() {
+  const { lineas } = await api('fin/egresos/registrados?dias=30');
+  if (!lineas.length) return $('#hechasL').replaceChildren(el('p', { className: 'vacio', textContent: 'No hay nada registrado en los últimos 30 días.' }));
+  $('#hechasL').replaceChildren(...lineas.map(l => {
+    const que = l.movimientos.map(m => {
+      if (m.tipo === 'transferencia') return `Transferencia a ${m.otra_cuenta || 'otra cuenta'}`;
+      const comp = (m.comprobantes || []).map(c => `${c.proveedor} (${c.letra === 'X' ? 'comprobante X' : 'factura ' + c.letra})`).join(', ');
+      return [comp || m.concepto, m.rubro, m.local].filter(Boolean).join(' · ') + (l.movimientos.length > 1 ? ` · ${pesos(m.importe)}` : '');
+    });
+    const cuando = new Date(l.conciliado_en).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    const b = el('button', { type: 'button', className: 'chico', textContent: 'Deshacer' });
+    b.onclick = async () => {
+      const comps = l.movimientos.flatMap(m => m.comprobantes || []);
+      const extra = comps.some(c => c.letra === 'X') ? ', se anula el comprobante X' : comps.length ? ', la factura queda pendiente' : '';
+      if (!confirm(`Se anula lo registrado${extra} y la línea de ${pesos(String(l.importe).slice(1))} vuelve a la grilla. ¿Deshacer?`)) return;
+      b.disabled = true;
+      try {
+        const r = await api('fin/egresos/deshacer', { method: 'POST', body: { linea_id: l.id } });
+        msg('Deshecho.' + (r.anulados.length ? ` Comprobante X anulado: ${r.anulados.join(', ')}.` : '')
+          + (r.desvinculados.length ? ` Factura desvinculada, queda pendiente: ${r.desvinculados.join(', ')}.` : ''), 'ok', '#msgH');
+        await cargar(); await pintarHechas();
+      } catch (e) { b.disabled = false; msg(e.message, 'mal', '#msgH'); }
+    };
+    return el('div', { className: 'rg' }, el('span', { className: 'f', textContent: fecha(l.fecha) }),
+      el('span', { className: 'c' }, l.cuenta, el('small', { textContent: [l.concepto, l.destinatario].filter(Boolean).join(' · ') })),
+      el('span', { className: 'i', textContent: pesos(String(l.importe).slice(1)) }),
+      el('span', { className: 'c' }, que.join(' + '), el('small', { textContent: `Registrado el ${cuando}${l.conciliado_por ? ' por ' + l.conciliado_por : ''}` })),
+      b);
+  }));
+}
+$('#hechas').addEventListener('toggle', () => { if ($('#hechas').open) pintarHechas().catch(e => msg(e.message, 'mal', '#msgH')); });
 $$('#vistas button').forEach(b => b.onclick = () => {
   $$('#vistas button').forEach(x => x.classList.toggle('act', x === b));
   $('#vGrilla').hidden = b.dataset.v !== 'grilla'; $('#vCuenta').hidden = b.dataset.v !== 'cuenta';
