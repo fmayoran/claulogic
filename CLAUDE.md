@@ -1070,6 +1070,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   (migración 20261139): los ingresos de BRUBANK de Fernando Mayorano, ABUNDEMIO CASH, DESARROLLOS VILARA, VILLATECNO, SEMILLAS DEL
   CAMPO y JONATHAN LEDESMA de octubre y noviembre, como ingreso en "Aportes, retiros y préstamos" (no es resultado). La deuda con cada
   socio no se lleva todavía.
+- **Compensación con diferencia** (pedido de Fer, 25/11/2026; migración 20261175): líneas del extracto de operaciones ajenas al negocio
+  (sólo se usó la cuenta) se compensan entre sí sin movimientos; la diferencia, que sí quedó en la cuenta, es un movimiento. Las líneas del
+  grupo apuntan con `compensa_a` a una **cabecera**, que se concilia con el movimiento de la diferencia (`fin.conciliacion_suma` suma la
+  cabecera más las líneas que la compensan). Deshacer la cabecera libera el grupo y anula la diferencia. Todavía sin pantalla. Primer caso:
+  MERCADO PAGO SORELLE, 22/11, retiro del apartado de $1.620.000 contra 5 salidas por $1.606.000; $14.000 a Otros ingresos.
 - **Préstamos de socios** (decisión de Fer, 11/11/2026; migración 20261145): cuenta `PRÉSTAMOS DE SOCIOS`, de tipo nuevo `socios`, que
   no suma al disponible (los cálculos toman `tipo IN ('banco','caja')`). Un gasto que pagó un socio con plata propia sale de ahí como
   egreso con su rubro y local; el saldo negativo es lo que se les debe; devolverles es una transferencia a esta cuenta. Por ahora es

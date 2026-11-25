@@ -1522,6 +1522,11 @@ async function deshacerConciliacion(linea) {
       `SELECT DISTINCT k.linea_id FROM fin.conciliacion k JOIN fin.movimiento_tes x ON x.id = k.movimiento_id WHERE x.transferencia_id = ANY($1::uuid[])`, [trs]) : { rows: [] };
     const lineas = [...new Set([linea, ...grupo.map(g => Number(g.linea_id))])];
     await c.query('DELETE FROM fin.conciliacion WHERE linea_id = ANY($1::bigint[])', [lineas]);
+    // La cabecera de un grupo que se compensa con diferencia (migración 20261175): las líneas del grupo vuelven a pendientes y el
+    // movimiento de la diferencia se anula más abajo.
+    const { rowCount: grupoComp } = await c.query(
+      `UPDATE fin.extracto_linea o SET compensa_a = NULL
+        WHERE o.compensa_a = ANY($1::bigint[]) AND (SELECT l.compensa_a FROM fin.extracto_linea l WHERE l.id = o.compensa_a) IS NULL`, [lineas]);
     const anular = async m => {
       const { rows: patas } = await c.query(
         m.transferencia_id ? `SELECT * FROM fin.movimiento_tes x WHERE transferencia_id = $1 AND anula_a IS NULL AND tipo <> 'anulacion'
@@ -1541,7 +1546,7 @@ async function deshacerConciliacion(linea) {
     const { rows: deRegla } = await c.query('SELECT movimiento_id FROM fin.clasificacion WHERE movimiento_id = ANY($1::bigint[]) AND regla_id IS NOT NULL',
       [movs.map(m => m.id)]);
     const porRegla = new Set(deRegla.map(x => Number(x.movimiento_id)));
-    for (const m of movs) if (m.ticket_pago_id || m.gasto || porRegla.has(Number(m.id))) await anular(m);
+    for (const m of movs) if (m.ticket_pago_id || m.gasto || porRegla.has(Number(m.id)) || grupoComp) await anular(m);
     const { rows: confirmados } = await c.query('SELECT * FROM fin.lote WHERE movimiento_id = ANY($1::bigint[]) AND desde_linea_id IS NULL',
       [movs.map(m => m.id)]);
     for (const l of confirmados) {
