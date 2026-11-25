@@ -894,6 +894,37 @@ async function exigirCuentaDelFormato(cuenta, filas, formato) {
   throw new ErrorUsuario(`Es un extracto de ${fmt.nombre}: va en ${cuentas.length > 1 ? 'una de las cuentas ' + cuentas.join(' o ') : 'la cuenta ' + cuentas[0]}, no en esta.`);
 }
 
+// Con dos cuentas de Mercado Pago (CORTAFUEGO y SORELLE), la marca no alcanza para saber cuál es (25/11/2026: el de SORELLE se importó
+// en MERCADO PAGO CF y la conciliación automática asentó 230 cargos ajenos). Dos pistas, en orden:
+//   1. el número de usuario de Mercado Pago que trae el nombre del archivo ("reserve-release-1966327435-…"): si ya se importó un
+//      archivo con ese número en otra cuenta, va ahí;
+//   2. el saldo: el inicial del archivo tiene que ser el final del último extracto de la cuenta; si coincide con el de otra cuenta
+//      de Mercado Pago y no con el de ésta, va en la otra.
+async function exigirCuentaMercadoPago(cuenta, archivo, saldoInicial) {
+  const { rows: cuentas } = await pool.query(
+    `SELECT DISTINCT c.id, c.nombre FROM fin.procesador p JOIN fin.cuenta c ON c.id = p.cuenta_acredita_id WHERE p.activo AND p.marca = 'mercadopago'`);
+  if (cuentas.length < 2 || !cuentas.some(x => x.id === cuenta)) return;
+  const otra = id => (cuentas.find(x => x.id === id) || {}).nombre;
+  const nro = (String(archivo || '').match(/reserve-release-(\d+)-/) || [])[1];
+  if (nro) {
+    const { rows } = await pool.query(`SELECT DISTINCT cuenta_id FROM fin.extracto WHERE archivo LIKE $1 AND cuenta_id = ANY($2::uuid[])`,
+      [`reserve-release-${nro}-%`, cuentas.map(x => x.id)]);
+    const ids = rows.map(r => r.cuenta_id);
+    if (ids.includes(cuenta)) return;
+    if (ids.length) throw new ErrorUsuario(`Este reporte de Mercado Pago es de la cuenta ${nro}, que se importa en ${otra(ids[0])}: va ahí, no en esta.`);
+  }
+  if (!saldoInicial) return;
+  const { rows: ult } = await pool.query(
+    `SELECT DISTINCT ON (cuenta_id) cuenta_id, saldo_final::text FROM fin.extracto
+      WHERE cuenta_id = ANY($1::uuid[]) AND saldo_final IS NOT NULL AND hasta < $2::date ORDER BY cuenta_id, hasta DESC, importado_en DESC`,
+    [cuentas.map(x => x.id), saldoInicial.fecha]);
+  const igual = ult.filter(u => centavos(u.saldo_final) === centavos(saldoInicial.saldo)).map(u => u.cuenta_id);
+  const $p = v => '$' + Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (igual.length && !igual.includes(cuenta))
+    throw new ErrorUsuario(`El saldo inicial del archivo (${$p(saldoInicial.saldo)}) es el saldo final del último extracto de ${otra(igual[0])}, `
+      + `no el de esta cuenta: parece de la otra cuenta de Mercado Pago.`);
+}
+
 // Con la columna de saldo, cada fila tiene que cerrar con la anterior: saldo anterior + importe = saldo (en un archivo de
 // la fecha más nueva a la más vieja, al revés). Si casi todas cierran restando, los débitos y los créditos quedaron
 // cruzados al elegir las columnas (pasó con un extracto de Pago24: los cobros entraron como egresos y los cargos como
@@ -980,6 +1011,7 @@ async function importarExtracto(b) {
   }
   // Sin movimientos vale si trae los saldos: el período queda cubierto (un día sin movimientos en Mercado Pago).
   if (!lineas.length && !(saldoInicial && saldoFinal !== null)) throw new ErrorUsuario('El extracto no tiene movimientos ni saldos.');
+  if (b.formato === 'mercadopago') await exigirCuentaMercadoPago(cuenta, b.archivo, saldoInicial);
   const out = await enTransaccion(async c => {
     const { rows: [cu] } = await c.query('SELECT tipo FROM fin.cuenta WHERE id = $1::uuid', [cuenta]);
     if (!cu || cu.tipo !== 'banco') throw new ErrorUsuario('El extracto es de una cuenta bancaria.');

@@ -866,7 +866,11 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   La importación y el "Para resolver" son **`conciliar.js` + `conciliar.css`** (`Conc.importador`, `Conc.resolver`,
   `Conc.automatica`, `Conc.frenteExtracto`), compartidos con `conciliacion.html`. **El servidor rechaza un extracto en
   una cuenta que no es la de su procesador** (`exigirCuentaDelFormato`: Pago24 por sus conceptos, Mercado Pago por el
-  formato que reconoce la pantalla). En el Panel, para finanzas, "Proceso de ingresos" con lo que hay para resolver.
+  formato que reconoce la pantalla). **Con dos cuentas de Mercado Pago** (25/11/2026: el de SORELLE se importó en MERCADO PAGO CF y la
+  automática asentó 230 cargos ajenos; se deshicieron y se descartó) la marca no alcanza: `exigirCuentaMercadoPago` mira el número de
+  usuario del nombre del archivo (`reserve-release-<nro>-…`: si ya se importó uno con ese número en otra cuenta, va ahí) y, si no, el
+  saldo (el inicial del archivo tiene que ser el final del último extracto de la cuenta; si coincide con el de la otra, la rechaza).
+  En el Panel, para finanzas, "Proceso de ingresos" con lo que hay para resolver.
   **Con la columna de saldo, el servidor controla los signos** (`controlarSaldos`, 27/10/2026): cada fila tiene que cerrar con
   la anterior (saldo anterior + importe = saldo, en orden ascendente o descendente); si casi todas cierran restando, débitos y
   créditos quedaron cruzados al mapear y la importación se rechaza (pasó con el de Pago24 de Fer: los cobros entraron como
