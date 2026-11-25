@@ -875,8 +875,8 @@ async function abrirRendir(p) {
   $('#rTitulo').textContent = `Rendir efectivo · ${p.nombre}`;
   $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Si el local pagó gastos con la caja, cargalos abajo y el importe que llegó se calcula solo. Lo que se perdió va como diferencia.`;
   fR.fecha.value = hoy(); fR.concepto.value = '';
-  // Los días a rendir (pedido de Fer, 08/11/2026). Lo rendido cubre primero lo más viejo, así que se eligen en orden: tildar un día
-  // tilda los anteriores y destildarlo destilda los siguientes. El importe es la suma, y se puede corregir si llegó menos.
+  // Los días a rendir (pedido de Fer, 08/11/2026). Desde el 25/11/2026 se eligen sueltos: la rendición guarda qué días cubre
+  // (fin.efectivo_aplicado) y los que no se tildan siguen pendientes. El importe es la suma, y se puede corregir si llegó menos.
   const pend = p.dias.filter(d => centavos(d.efectivo_pendiente) > 0n).reverse();
   const antes = centavos(p.efectivo_a_rendir) - pend.reduce((t, d) => t + centavos(d.efectivo_pendiente), 0n);
   const filas = [...(antes > 0n ? [{ dia: null, imp: antes }] : []), ...pend.map(d => ({ dia: d.dia, imp: centavos(d.efectivo_pendiente) }))];
@@ -902,10 +902,14 @@ async function abrirRendir(p) {
     const ds = el_.filter(f => f.dia);
     rSel = { elegido: tot, filas: el_ };
     $('#rTotal').textContent = el_.length ? `${el_.length} día(s) · ${pesos(deCentavos(tot))}` : 'Ningún día elegido';
-    fR.concepto.placeholder = ds.length ? `Efectivo ${ds.length === 1 ? 'del ' + corta(ds[0].dia) : `del ${corta(ds[0].dia)} al ${corta(ds.at(-1).dia)}`}` : 'quién lo trajo, número de depósito…';
+    // Días seguidos: "del 05/11 al 08/11"; con huecos, la lista.
+    const seguidos = ds.every((d, k) => !k || sumarDias(ds[k - 1].dia, 1) === d.dia);
+    fR.concepto.placeholder = !ds.length ? 'quién lo trajo, número de depósito…'
+      : ds.length === 1 ? `Efectivo del ${corta(ds[0].dia)}`
+      : seguidos ? `Efectivo del ${corta(ds[0].dia)} al ${corta(ds.at(-1).dia)}` : `Efectivo de los días ${ds.map(d => corta(d.dia)).join(', ')}`;
     queda();
   };
-  marcas.forEach((m, i) => m.onchange = () => { marcas.forEach((o, j) => { if (m.checked ? j < i : j > i) o.checked = m.checked; }); sumar(); });
+  marcas.forEach(m => m.onchange = sumar);
   $('#rDias').replaceChildren(
     el('div', { className: 'dias-cab' }, el('b', { textContent: 'Días a rendir' }), el('span', { id: 'rTotal', className: 'mut' }),
       boton('Todos', () => { marcas.forEach(m => m.checked = true); sumar(); }), boton('Ninguno', () => { marcas.forEach(m => m.checked = false); sumar(); })),
@@ -973,7 +977,9 @@ fR.onsubmit = async e => {
   if (!gastos.length && !aCent(fR.importe.value)) return msg('Cargá el importe que llegó o los gastos que se pagaron con el efectivo.', 'mal', '#msgR');
   if (!confirmaParcial()) return fR.importe.focus();
   try {
-    const d = await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value, gastos,
+    // Los días elegidos con su pendiente: el servidor reparte lo rendido entre ellos, del más viejo al más nuevo.
+    const dias = rSel.filas.filter(f => f.dia).map(f => ({ dia: f.dia, importe: deCentavos(f.imp) }));
+    const d = await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value, gastos, dias,
       concepto: fR.concepto.value.trim() || (fR.concepto.placeholder.startsWith('Efectivo') ? fR.concepto.placeholder : '') } });
     const errs = d.comprobantes ? d.comprobantes.errores : [];
     $('#dlgRendir').close();

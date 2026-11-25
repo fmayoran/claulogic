@@ -829,10 +829,13 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   - **Efectivo**: queda en la cuenta "Efectivo · <sede>" hasta que llega; **rendir** (`POST /pos/efectivo/:id/rendir`)
     es una transferencia a mano a la caja central o un banco cuando la plata efectivamente ingresa, y lo que no va a
     llegar es una **diferencia** con motivo (faltante o sobrante, `/diferencia`). No se rinde ni falta más de lo que hay
-    a rendir. Lo rendido cubre primero los días más viejos. Al rendir se eligen los días (08/11/2026): en orden, tildar uno tilda
-    los anteriores; el importe es la suma (editable si llegó menos) y el detalle propone "Efectivo del dd/mm al dd/mm". **Rendición parcial**:
+    a rendir. Lo rendido cubre primero los días más viejos. Al rendir se eligen los días (08/11/2026); el importe es la suma (editable si llegó menos) y el detalle propone "Efectivo del dd/mm al dd/mm". **Rendición parcial**:
     el local puede usar parte del efectivo para gastos; se rinde menos y el resto queda pendiente en su cuenta de efectivo (el diálogo
     dice cuánto queda) hasta cargar esos gastos. Lo perdido, diferencia.
+    **Días sueltos** (pedido de Fer, 25/11/2026; migración 20261176): los días se tildan independientes. La rendición manda los días con su
+    pendiente y el servidor reparte lo rendido (los gastos primero, después la transferencia) del más viejo al más nuevo de los elegidos en
+    `fin.efectivo_aplicado` (movimiento, cuenta, día, importe; inmutable, deja de contar si se anula el movimiento). El pendiente de un día
+    (`/pos/cierre`) es su efectivo menos lo aplicado a él; lo rendido sin días (lo anterior, las diferencias de caja) sigue cubriendo lo más viejo.
     **Gastos pagados con el efectivo** (pedido de Fer, 25/11/2026: la diferencia entre lo cobrado y lo rendido eran gastos pagados por caja,
     y quedaba pendiente en el último día): en el mismo diálogo de rendir, "+ Agregar gasto" suma renglones con importe, rubro, proveedor
     opcional y detalle; el importe que llegó se calcula solo (días elegidos − gastos) mientras no se toque a mano, y con gastos puede ser

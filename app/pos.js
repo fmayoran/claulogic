@@ -1996,9 +1996,15 @@ r.get('/pos/cierre', h(async (req, res) => {
     // PedidosYa comparte la cuenta de efectivo con el sistema principal del local: el efectivo a rendir se muestra una sola
     // vez, en el principal.
     if (i.sistema === 'pedidosya') i.efectivo_a_rendir = '0.00';
+    // Lo rendido eligiendo días (migración 20261176) se descuenta de cada día; lo demás cubre primero lo más viejo.
+    const { rows: aplic } = i.cuenta_efectivo_id ? await pool.query(
+      `SELECT to_char(a.dia, 'YYYY-MM-DD') AS dia, SUM(a.importe)::text AS importe FROM fin.efectivo_aplicado a
+        WHERE a.cuenta_id = $1 AND NOT EXISTS (SELECT 1 FROM fin.movimiento_tes x WHERE x.anula_a = a.movimiento_id) GROUP BY a.dia`,
+      [i.cuenta_efectivo_id]) : { rows: [] };
+    const aplicado = new Map(aplic.map(a => [a.dia, centavos(a.importe)]));
     let falta = centavos(i.efectivo_a_rendir);
     for (const d of dias) {
-      const e = centavos(d.efectivo);
+      const e0 = centavos(d.efectivo) - (aplicado.get(d.dia) || 0n), e = e0 > 0n ? e0 : 0n;
       d.efectivo_pendiente = deCentavos(falta <= 0n || e === 0n ? 0n : falta >= e ? e : falta);
       falta -= e;
     }
@@ -2095,6 +2101,27 @@ r.post('/pos/efectivo/:integracion/rendir', h(async (req, res) => {
     if (!cu || !cu.activa || !['caja', 'banco'].includes(cu.tipo) || destino === integ.cuenta_efectivo_id) throw new ErrorUsuario('Elegí la caja o el banco donde entra el efectivo.');
   }
   const total = gastos.reduce((t, g) => t + centavos(g.importe), imp ? centavos(imp) : 0n);
+  // Los días que cubre (pedido de Fer, 25/11/2026: días sueltos). Cada uno con lo que se rinde de él; lo que pase de la suma de los días
+  // queda sin día y cubre lo más viejo, como antes.
+  const cola = (Array.isArray(req.body.dias) ? req.body.dias : []).map((d, i) => ({
+    dia: fecha(d.dia, { campo: `El día ${i + 1}`, requerido: true }),
+    // El pendiente de un día puede tener centavos (lo cobra el sistema de venta): va con punto decimal, como lo da el cierre.
+    resto: /^\d+(\.\d{1,2})?$/.test(String(d.importe)) && Number(d.importe) > 0 ? centavos(String(d.importe))
+      : (() => { throw new ErrorUsuario(`El importe del día ${i + 1} no es válido.`); })() }))
+    .sort((a, b) => a.dia.localeCompare(b.dia));
+  if (new Set(cola.map(d => d.dia)).size !== cola.length) throw new ErrorUsuario('Hay un día repetido.');
+  // Reparte un movimiento entre los días que quedan, del más viejo al más nuevo.
+  const aplicar = async (c, movId, importe) => {
+    let r = centavos(importe);
+    for (const d of cola) {
+      if (r <= 0n) break;
+      if (d.resto <= 0n) continue;
+      const x = r < d.resto ? r : d.resto;
+      await c.query('INSERT INTO fin.efectivo_aplicado (movimiento_id, cuenta_id, dia, importe) VALUES ($1, $2, $3, $4)',
+        [movId, integ.cuenta_efectivo_id, d.dia, deCentavos(x)]);
+      d.resto -= x; r -= x;
+    }
+  };
   const movs = await enTransaccion(async c => {
     await alcanzaEfectivo(c, integ, deCentavos(total), 'rendir');
     const ids = [];
@@ -2105,10 +2132,15 @@ r.post('/pos/efectivo/:integracion/rendir', h(async (req, res) => {
         `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES (COALESCE($1::date, current_date), $2, 'egreso', 0, $3, $4) RETURNING id`,
         [g.fecha, integ.cuenta_efectivo_id, g.importe, `Gasto pagado con el efectivo · ${integ.nombre}: ${g.concepto}`]);
       await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1, $2, $3)', [m.id, g.rubro_id, integ.sede_id]);
+      await aplicar(c, m.id, g.importe);
       ids.push({ id: m.id, proveedor_id: g.proveedor_id });
     }
-    if (imp) await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, COALESCE($4::date, current_date), $5)',
-      [integ.cuenta_efectivo_id, destino, imp, dia, `Rendición de efectivo · ${integ.nombre}` + (texto(req.body.concepto) ? ` · ${texto(req.body.concepto)}` : '')]);
+    if (imp) {
+      const { rows: [{ tr }] } = await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, COALESCE($4::date, current_date), $5) AS tr',
+        [integ.cuenta_efectivo_id, destino, imp, dia, `Rendición de efectivo · ${integ.nombre}` + (texto(req.body.concepto) ? ` · ${texto(req.body.concepto)}` : '')]);
+      const { rows: [sale] } = await c.query('SELECT id FROM fin.movimiento_tes WHERE transferencia_id = $1 AND cuenta_id = $2', [tr, integ.cuenta_efectivo_id]);
+      await aplicar(c, sale.id, imp);
+    }
     return ids;
   });
   // Con proveedor, su comprobante X pagado con el gasto (como en la grilla de egresos). Va aparte: si falla, el gasto ya quedó registrado.
