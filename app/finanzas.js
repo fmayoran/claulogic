@@ -621,7 +621,7 @@ r.get('/fin/libro-iva', h(async (req, res) => {
   if (!so) throw new ErrorUsuario('No existe esa sociedad.');
   const { rows } = await pool.query(
     `WITH c AS (
-       SELECT c.*, pv.nombre AS proveedor, pv.cuit, CASE WHEN c.tipo = 'nota_credito' THEN -1 ELSE 1 END AS signo
+       SELECT c.*, COALESCE(pv.razon_social, pv.nombre) AS proveedor, pv.cuit, CASE WHEN c.tipo = 'nota_credito' THEN -1 ELSE 1 END AS signo
          FROM fin.comprobante c JOIN logic.proveedor pv ON pv.id = c.proveedor_id
         WHERE c.estado = 'registrado' AND c.letra <> 'X' AND to_char(c.fecha, 'YYYY-MM') = $1 AND c.sociedad_id = $2)
      SELECT to_char(c.fecha, 'DD/MM/YYYY') AS fecha, c.tipo, c.letra, c.punto_venta, c.numero, c.cuit, c.proveedor, c.signo,

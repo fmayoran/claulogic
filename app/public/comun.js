@@ -701,21 +701,26 @@ function datosTransferencia(p) {
 function nuevoProveedor(nombreInicial = '') {
   return new Promise(resolve => {
     const f = el('form', { novalidate: true });
-    const nombre = el('input', { name: 'nombre', maxLength: 120, value: nombreInicial }), cuit = el('input', { name: 'cuit', placeholder: '30-12345678-9' });
+    const nombre = el('input', { name: 'nombre', maxLength: 120, value: nombreInicial, placeholder: 'como se lo conoce' }), cuit = el('input', { name: 'cuit', placeholder: '30-12345678-9' });
+    const rs = el('input', { name: 'razon_social', maxLength: 160, placeholder: 'la que figura en la factura' }), rsEt = el('span', { textContent: 'Razón social' });
+    cuit.addEventListener('input', () => { rsEt.textContent = cuit.value.trim() ? 'Razón social *' : 'Razón social'; });
     const cond = el('select', { name: 'condicion_iva' }), plazo = el('input', { name: 'plazo', inputMode: 'numeric', placeholder: 'sin plazo' });
     opciones(cond, [['responsable_inscripto', 'Responsable inscripto'], ['monotributo', 'Monotributo'], ['exento', 'Exento'], ['no_categorizado', 'No categorizado']], null, 'Sin indicar');
     const m = el('span', { className: 'msg' }), btn = el('button', { type: 'submit', className: 'prim', textContent: 'Crear proveedor' });
     let creado = null;
     const dlg = el('dialog', {}, el('h2', { textContent: 'Nuevo proveedor' }), f);
-    f.append(el('div', { className: 'fila' }, el('label', {}, 'Nombre *', nombre)),
+    f.append(el('div', { className: 'fila' }, el('label', {}, 'Nombre comercial *', nombre)),
       el('div', { className: 'fila' }, el('label', {}, 'CUIT', cuit), el('label', {}, 'Condición frente al IVA', cond)),
+      el('div', { className: 'fila' }, el('label', {}, rsEt, rs)),
       el('div', { className: 'fila' }, el('label', {}, 'Plazo de pago (días)', plazo)),
       el('div', { className: 'acciones' }, btn, el('button', { type: 'button', textContent: 'Cancelar', onclick: () => dlg.close() }), m),
       el('p', { className: 'ayuda', textContent: 'Contacto, teléfono y notas se completan después en Proveedores.' }));
     f.onsubmit = async e => {
-      e.preventDefault(); btn.disabled = true;
+      e.preventDefault();
+      if (cuit.value.trim() && !rs.value.trim()) { m.textContent = 'Con CUIT, cargá también la razón social.'; m.className = 'msg mal'; return rs.focus(); }
+      btn.disabled = true;
       try {
-        const body = { nombre: nombre.value, cuit: cuit.value, condicion_iva: cond.value, plazo_pago_dias: plazo.value };
+        const body = { nombre: nombre.value, razon_social: rs.value, cuit: cuit.value, condicion_iva: cond.value, plazo_pago_dias: plazo.value };
         const { id } = await api('proveedores', { method: 'POST', body });
         creado = { id, ...body, cuit: cuit.value.replace(/\D/g, '') || null, plazo_pago_dias: plazo.value || null, activo: true };
         dlg.close();

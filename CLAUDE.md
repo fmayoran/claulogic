@@ -317,6 +317,10 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
   270 comprobantes X armados desde los pagos recibieron el rubro de su egreso en el renglón (migración 20261156).
 - **Proveedor nuevo** desde la factura o la compra (`nuevoProveedor` en `comun.js`): lo mínimo, el resto en
   Proveedores. Alta y edición de proveedores: permiso `proveedor` = catálogo o finanzas.
+- **Nombre comercial y razón social** (pedido de Fer, 25/11/2026; migración 20261174): `logic.proveedor.nombre` es el nombre comercial,
+  obligatorio, con el que se lo ve en toda la app; `razon_social` es **obligatoria si tiene CUIT** (CHECK en la base) y es la que va en
+  el libro IVA compras y en las retenciones practicadas (`COALESCE(razon_social, nombre)`). En la grilla y la ficha aparece debajo del
+  nombre si es distinta; el buscador también la encuentra. El alta rápida (`nuevoProveedor`) la pide cuando se carga el CUIT.
 - **CUIT** validado con dígito verificador en la base y guardado sin guiones; único entre proveedores.
   Factura A exige CUIT del proveedor. Proveedor con condición IVA y plazo de pago (propone vencimiento).
   Producto con **alícuota habitual** (21 por defecto; 10,5 para carnes, frutas, verduras, harinas).

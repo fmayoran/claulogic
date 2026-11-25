@@ -88,9 +88,10 @@
   <form id="f" novalidate>
     <h2 id="titulo">Nuevo proveedor</h2>
     <div class="fila">
-      <label>Nombre *<input name="nombre" maxlength="120"></label>
+      <label>Nombre comercial *<input name="nombre" maxlength="120" placeholder="como se lo conoce"></label>
       <label>CUIT<input name="cuit" placeholder="30-12345678-9"></label>
     </div>
+    <div class="fila"><label id="rsLabel">Razón social<input name="razon_social" maxlength="160" placeholder="la que figura en la factura"></label></div>
     <div class="fila">
       <label>Condición frente al IVA<select name="condicion_iva">
         <option value="">Sin indicar</option><option value="responsable_inscripto">Responsable inscripto</option>
@@ -128,7 +129,7 @@
 <script>
 let proveedores = [], resumen = new Map(), yo = null, filtro = '', editando = null;
 const f = $('#f');
-const CAMPOS = ['nombre', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias', 'cbu', 'alias', 'banco', 'titular'];
+const CAMPOS = ['nombre', 'razon_social', 'cuit', 'contacto', 'telefono', 'email', 'notas', 'condicion_iva', 'plazo_pago_dias', 'cbu', 'alias', 'banco', 'titular'];
 const IVA = { responsable_inscripto: 'Responsable inscripto', monotributo: 'Monotributo', exento: 'Exento', no_categorizado: 'No categorizado' };
 const cuitFmt = c => c && c.length === 11 ? `${c.slice(0, 2)}-${c.slice(2, 10)}-${c.slice(10)}` : c || '';
 const fin = () => yo && yo.puede.finanzas;
@@ -145,7 +146,7 @@ function pintar() {
   let xs = proveedores.filter(p => filtro === 'inactivos' ? !p.activo : p.activo);
   if (filtro === 'saldo') xs = xs.filter(p => centavos(rs(p.id).saldo || '0') !== 0n);
   if (filtro === 'sincuit') xs = xs.filter(p => !p.cuit);
-  if (q) xs = xs.filter(p => [p.nombre, p.cuit, p.contacto, p.telefono, p.email, p.alias, p.cbu].filter(Boolean).join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q));
+  if (q) xs = xs.filter(p => [p.nombre, p.razon_social, p.cuit, p.contacto, p.telefono, p.email, p.alias, p.cbu].filter(Boolean).join(' ').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().includes(q));
   if (fin()) xs.sort((a, b) => Number(rs(b.id).comprado_30 || 0) - Number(rs(a.id).comprado_30 || 0) || String(rs(b.id).ultimo || '').localeCompare(String(rs(a.id).ultimo || '')) || a.nombre.localeCompare(b.nombre));
 
   const activos = proveedores.filter(p => p.activo);
@@ -165,7 +166,9 @@ function pintar() {
   filas($('#lista'), xs, p => {
     const r = rs(p.id), venc = centavos(r.vencido || '0') > 0n;
     const tr = el('tr', { className: 'ir' + (p.activo ? '' : ' inactivo') },
-      el('td', { className: 'prov' }, el('b', { textContent: p.nombre }), el('span', { className: 'cuit' }, p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : el('span', { className: 'tag aviso', textContent: 'Sin CUIT' }))),
+      el('td', { className: 'prov' }, el('b', { textContent: p.nombre }), el('span', { className: 'cuit' },
+        p.razon_social && p.razon_social.toLowerCase() !== p.nombre.toLowerCase() ? p.razon_social + ' · ' : '',
+        p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : el('span', { className: 'tag aviso', textContent: 'Sin CUIT' }))),
       td(IVA[p.condicion_iva] || '—'),
       td([p.contacto, p.telefono].filter(Boolean).join(' · ') || '—', 'wrap'),
       ...(fin() ? [td(r.ultimo ? fecha(r.ultimo) : '—'), td(centavos(r.comprado_30 || '0') ? pesos(r.comprado_30) : '—', 'num'),
@@ -180,17 +183,21 @@ function pintar() {
 }
 
 // ── Alta y edición, en un diálogo ──
+// Con CUIT, la razón social es obligatoria (va en el libro IVA): la etiqueta lo dice y se controla antes de guardar.
+const pintarRs = () => { $('#rsLabel').firstChild.textContent = f.cuit.value.trim() ? 'Razón social *' : 'Razón social'; };
+f.cuit.addEventListener('input', pintarRs);
 function editar(p) {
   editando = p ? p.id : null; f.reset(); msg('', '', '#msgF');
   $('#titulo').textContent = p ? p.nombre : 'Nuevo proveedor';
   for (const c of CAMPOS) f[c].value = p ? p[c] || '' : '';
-  f.activo.checked = p ? p.activo : true; $('#activoWrap').hidden = !p;
+  f.activo.checked = p ? p.activo : true; $('#activoWrap').hidden = !p; pintarRs();
   sinCambios(f);
   $('#dlgEditar').showModal(); f.nombre.focus();
 }
 f.onsubmit = async e => {
   e.preventDefault();
   const body = Object.fromEntries(CAMPOS.map(c => [c, f[c].value]));
+  if (body.cuit.trim() && !body.razon_social.trim()) { f.razon_social.focus(); return msg('Con CUIT, cargá también la razón social (la que figura en la factura).', 'mal', '#msgF'); }
   body.activo = editando ? f.activo.checked : true;
   $('#guardar').disabled = true;
   try {
@@ -213,7 +220,7 @@ async function verFicha(id) {
   fichaId = id; $('#vLista').hidden = true; $('#vFicha').hidden = false; window.scrollTo(0, 0);
   const r = resumen.get(id) || {};
   $('#fNombre').replaceChildren(p.nombre, p.activo ? '' : el('span', { className: 'tag', style: 'margin-left:8px;font-size:.8rem', textContent: 'inactivo' }));
-  $('#fSub').textContent = [p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : 'Sin CUIT', IVA[p.condicion_iva] || null, p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ');
+  $('#fSub').textContent = [p.razon_social && p.razon_social.toLowerCase() !== p.nombre.toLowerCase() ? p.razon_social : null, p.cuit ? 'CUIT ' + cuitFmt(p.cuit) : 'Sin CUIT', IVA[p.condicion_iva] || null, p.plazo_pago_dias ? `paga a ${p.plazo_pago_dias} días` : null].filter(Boolean).join(' · ');
   $('#fDatos').replaceChildren(...[['Contacto', p.contacto], ['Teléfono', p.telefono], ['Email', p.email], ['Notas', p.notas]].filter(([, v]) => v)
     .flatMap(([t, v]) => [el('dt', { textContent: t }), el('dd', { textContent: v })]));
   if (!$('#fDatos').children.length) $('#fDatos').replaceChildren(el('dd', { className: 'ayuda', textContent: 'Sin contacto cargado.' }));

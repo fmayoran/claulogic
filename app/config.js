@@ -205,14 +205,15 @@ r.put('/ubicaciones/:id', h(async (req, res) => {
 // ── Proveedores ──────────────────────────────────────────────────────────────────────────────
 r.get('/proveedores', h(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, nombre, cuit, contacto, telefono, email, notas, activo, condicion_iva, plazo_pago_dias, banco, titular, cbu, alias FROM logic.proveedor
+    `SELECT id, nombre, razon_social, cuit, contacto, telefono, email, notas, activo, condicion_iva, plazo_pago_dias, banco, titular, cbu, alias FROM logic.proveedor
       WHERE ($1 OR activo) ORDER BY activo DESC, nombre`, [req.query.inactivos === '1']);
   res.json({ ok: true, proveedores: rows });
 }));
 
 function leerProveedor(b) {
   const p = {
-    nombre: texto(b.nombre, { campo: 'el nombre', requerido: true }),
+    nombre: texto(b.nombre, { campo: 'el nombre comercial', requerido: true }),
+    razon_social: texto(b.razon_social),
     cuit: texto(b.cuit), contacto: texto(b.contacto), telefono: texto(b.telefono),
     email: texto(b.email), notas: texto(b.notas),
     activo: b.activo === undefined ? true : !!b.activo,
@@ -223,6 +224,8 @@ function leerProveedor(b) {
   };
   // El dígito verificador lo controla la base (fin.cuit_valido), que además lo guarda sin guiones.
   if (p.cuit && !/^\d{2}-?\d{8}-?\d$/.test(p.cuit)) throw new ErrorUsuario('El CUIT tiene que tener 11 dígitos.');
+  // Con CUIT, la razón social es obligatoria (va en el libro IVA); también lo controla la base.
+  if (p.cuit && !p.razon_social) throw new ErrorUsuario('Con CUIT, cargá también la razón social (la que figura en la factura).');
   if (p.plazo_pago_dias !== null && !/^\d+$/.test(p.plazo_pago_dias)) throw new ErrorUsuario('El plazo de pago va en días enteros.');
   if (p.cbu && !/^\d{22}$/.test(p.cbu)) throw new ErrorUsuario('El CBU o CVU tiene 22 dígitos.');
   if (p.alias && !/^[A-Za-z0-9.-]{6,20}$/.test(p.alias)) throw new ErrorUsuario('El alias va de 6 a 20 caracteres: letras, números, punto o guion.');
@@ -233,9 +236,9 @@ function leerProveedor(b) {
 r.post('/proveedores', h(async (req, res) => {
   const p = leerProveedor(req.body);
   const { rows: [n] } = await pool.query(
-    `INSERT INTO logic.proveedor (nombre, cuit, contacto, telefono, email, notas, activo, condicion_iva, plazo_pago_dias, banco, titular, cbu, alias)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
-    [p.nombre, p.cuit, p.contacto, p.telefono, p.email, p.notas, p.activo, p.condicion_iva, p.plazo_pago_dias, p.banco, p.titular, p.cbu, p.alias]);
+    `INSERT INTO logic.proveedor (nombre, cuit, contacto, telefono, email, notas, activo, condicion_iva, plazo_pago_dias, banco, titular, cbu, alias, razon_social)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+    [p.nombre, p.cuit, p.contacto, p.telefono, p.email, p.notas, p.activo, p.condicion_iva, p.plazo_pago_dias, p.banco, p.titular, p.cbu, p.alias, p.razon_social]);
   res.status(201).json({ ok: true, id: n.id });
 }));
 
@@ -243,10 +246,10 @@ r.put('/proveedores/:id', h(async (req, res) => {
   const p = leerProveedor(req.body);
   const { rowCount } = await pool.query(
     `UPDATE logic.proveedor SET nombre=$1, cuit=$2, contacto=$3, telefono=$4, email=$5, notas=$6, activo=$7,
-            condicion_iva=$9, plazo_pago_dias=$10, banco=$11, titular=$12, cbu=$13, alias=$14
+            condicion_iva=$9, plazo_pago_dias=$10, banco=$11, titular=$12, cbu=$13, alias=$14, razon_social=$15
       WHERE id=$8`,
     [p.nombre, p.cuit, p.contacto, p.telefono, p.email, p.notas, p.activo, req.params.id, p.condicion_iva, p.plazo_pago_dias,
-     p.banco, p.titular, p.cbu, p.alias]);
+     p.banco, p.titular, p.cbu, p.alias, p.razon_social]);
   if (!rowCount) return res.status(404).json({ ok: false, error: 'No existe ese proveedor.' });
   res.json({ ok: true, id: req.params.id });
 }));

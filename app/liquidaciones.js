@@ -299,7 +299,7 @@ r.post('/fin/liquidaciones', h(async (req, res) => {
     for (const f of facturas) {
       let { rows: [pv] } = await c.query('SELECT id FROM logic.proveedor WHERE cuit = $1', [f.emisor.cuit]);
       if (!pv) ({ rows: [pv] } = await c.query(
-        `INSERT INTO logic.proveedor (nombre, cuit, condicion_iva, notas) VALUES ($1, $2, 'responsable_inscripto', 'Alta automática desde la liquidación de PedidosYa') RETURNING id`,
+        `INSERT INTO logic.proveedor (nombre, razon_social, cuit, condicion_iva, notas) VALUES ($1, $1, $2, 'responsable_inscripto', 'Alta automática desde la liquidación de PedidosYa') RETURNING id`,
         [f.emisor.razon_social || `CUIT ${f.emisor.cuit}`, f.emisor.cuit]));
       const ya = await c.query(`SELECT 1 FROM fin.comprobante WHERE proveedor_id = $1 AND tipo = $2 AND letra = $3 AND punto_venta = $4 AND numero = $5 AND estado <> 'anulado'`,
         [pv.id, f.tipo, f.letra, f.punto_venta, f.numero]);

@@ -817,7 +817,7 @@ r.get('/fin/retenciones', h(async (req, res) => {
     [texto(req.query.sociedad, { campo: 'la sociedad', requerido: true })]);
   if (!so) throw new ErrorUsuario('No existe esa sociedad.');
   const { rows } = await pool.query(
-    `SELECT to_char(o.fecha, 'DD/MM/YYYY') AS fecha, o.numero, pv.nombre AS proveedor, pv.cuit, r.impuesto, r.jurisdiccion,
+    `SELECT to_char(o.fecha, 'DD/MM/YYYY') AS fecha, o.numero, COALESCE(pv.razon_social, pv.nombre) AS proveedor, pv.cuit, r.impuesto, r.jurisdiccion,
             r.regimen, r.certificado, r.importe::text,
             (SELECT SUM(a.importe) FILTER (WHERE c.tipo <> 'nota_credito') - COALESCE(SUM(a.importe) FILTER (WHERE c.tipo = 'nota_credito'), 0)
                FROM fin.orden_pago_aplicacion a JOIN fin.comprobante c ON c.id = a.comprobante_id WHERE a.orden_pago_id = o.id)::text AS base
