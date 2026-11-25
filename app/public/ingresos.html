@@ -102,7 +102,14 @@
   .fila-c .p{font-weight:700;font-variant-numeric:tabular-nums;} .fila-c .m{color:var(--mut);font-size:.82rem;text-align:right;}
   .pendientes-r{display:grid;gap:6px;margin:10px 0 0;padding:0;list-style:none;}
   .pendientes-r li{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 12px;border-radius:10px;background:var(--sel);font-size:.92rem;}
-  #dlgRendir,#dlgDif{width:min(460px,94vw);} #dlgRendir h2,#dlgDif h2{margin-top:0;}
+  #dlgRendir{width:min(640px,94vw);} #dlgDif{width:min(460px,94vw);}
+  /* Gastos pagados con el efectivo (25/11/2026): importe, rubro, proveedor opcional y detalle por renglón. */
+  .gastos-r{margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);}
+  .gastos-r .g-cab{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px;}
+  .gastos-r .g-fila{display:grid;grid-template-columns:110px minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:start;padding:6px 0;border-top:1px solid var(--line);}
+  .gastos-r .g-fila .g-det{grid-column:1 / -2;}
+  @media (max-width:600px){ .gastos-r .g-fila{grid-template-columns:minmax(0,1fr);} .gastos-r .g-fila > *{grid-column:1 / -1;}
+    .gastos-r .g-fila > button{order:5;justify-self:end;} } #dlgRendir h2,#dlgDif h2{margin-top:0;}
 </style>
 </head>
 <body>
@@ -171,6 +178,12 @@
     <h2 id="rTitulo">Rendir efectivo</h2>
     <p class="ayuda" id="rAyuda"></p>
     <div id="rDias" class="dias-rendir"></div>
+    <div class="gastos-r">
+      <div class="g-cab"><b>Gastos pagados con este efectivo</b><button type="button" class="chico" id="rGasto">+ Agregar gasto</button></div>
+      <p class="ayuda" style="margin:0">Lo que el local pagó con la caja (compras chicas, propinas, fletes…). Se registra como gasto del local y
+        no queda como diferencia.</p>
+      <div id="rGastos"></div>
+    </div>
     <div class="fila"><label>Importe que llegó *<input name="importe" inputmode="numeric"></label><label>Fecha *<input name="fecha" type="date"></label></div>
     <p class="ayuda" id="rQueda" hidden></p>
     <div class="fila"><label>Entra en *<select name="destino_id"></select></label></div>
@@ -860,7 +873,7 @@ async function abrirRendir(p) {
   const destinos = cuentas.filter(c => c.activa && ['caja', 'banco'].includes(c.tipo) && !efectivos.has(c.id));
   opciones(fR.destino_id, destinos.map(c => [c.id, c.nombre + (c.sede ? ` (${c.sede})` : '')]), (destinos.find(c => c.tipo === 'caja') || destinos[0] || {}).id);
   $('#rTitulo').textContent = `Rendir efectivo · ${p.nombre}`;
-  $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Cargá lo que efectivamente llegó. Si el local usó parte para gastos, rendí menos: el resto queda pendiente en su efectivo hasta cargar esos gastos. Lo que se perdió va como diferencia.`;
+  $('#rAyuda').textContent = `A rendir: ${pesos(p.efectivo_a_rendir)}. Si el local pagó gastos con la caja, cargalos abajo y el importe que llegó se calcula solo. Lo que se perdió va como diferencia.`;
   fR.fecha.value = hoy(); fR.concepto.value = '';
   // Los días a rendir (pedido de Fer, 08/11/2026). Lo rendido cubre primero lo más viejo, así que se eligen en orden: tildar un día
   // tilda los anteriores y destildarlo destilda los siguientes. El importe es la suma, y se puede corregir si llegó menos.
@@ -870,19 +883,22 @@ async function abrirRendir(p) {
   const marcas = filas.map(() => el('input', { type: 'checkbox', checked: true }));
   // Rendición parcial (pedido de Fer, 08/11/2026): el local puede usar parte del efectivo para gastos; se corrige el importe y lo que
   // no se rinde queda pendiente en su cuenta de efectivo (en los días más nuevos de los elegidos), hasta cargar esos gastos.
-  let elegido = 0n;
+  let elegido = 0n, importeTocado = false;
+  $('#rGastos').replaceChildren();
   const queda = () => {
-    const v = String(fR.importe.value).replace(/\./g, '').trim(), imp = /^\d+$/.test(v) ? BigInt(v) * 100n : null;
-    const q = imp === null ? 0n : elegido - imp;
-    $('#rQueda').hidden = !(imp !== null && imp > 0n && q !== 0n);
-    $('#rQueda').textContent = q > 0n ? `Quedan ${pesos(deCentavos(q))} de estos días pendientes de rendir en el efectivo del local (por ejemplo, gastos que pagó el local).`
+    const v = String(fR.importe.value).replace(/\./g, '').trim(), imp = v === '' ? 0n : /^\d+$/.test(v) ? BigInt(v) * 100n : null;
+    const g = totalGastos(), q = imp === null ? 0n : elegido - imp - g;
+    $('#rQueda').hidden = !(imp !== null && (imp > 0n || g > 0n) && q !== 0n);
+    $('#rQueda').textContent = q > 0n ? `Quedan ${pesos(deCentavos(q))} de estos días pendientes de rendir en el efectivo del local: si se usaron para pagar algo, cargalo arriba como gasto.`
       : `Es ${pesos(deCentavos(-q))} más que los días elegidos: cubre también los días siguientes.`;
   };
-  fR.importe.oninput = queda;
+  importeAuto = () => { if (!importeTocado) { const r = elegido - totalGastos(); fR.importe.value = r > 0n ? miles(deCentavos(r)) : ''; } queda(); };
+  fR.importe.oninput = () => { importeTocado = true; queda(); };
   const sumar = () => {
     const el_ = filas.filter((_, i) => marcas[i].checked), tot = el_.reduce((t, f) => t + f.imp, 0n);
     elegido = tot;
-    fR.importe.value = tot > 0n ? miles(deCentavos(tot)) : '';
+    importeTocado = false; const r = tot - totalGastos(); fR.importe.value = r > 0n ? miles(deCentavos(r)) : '';
+    rUltimoDia = (el_.filter(f => f.dia).at(-1) || {}).dia || null;
     const ds = el_.filter(f => f.dia);
     rSel = { elegido: tot, filas: el_ };
     $('#rTotal').textContent = el_.length ? `${el_.length} día(s) · ${pesos(deCentavos(tot))}` : 'Ningún día elegido';
@@ -899,27 +915,71 @@ async function abrirRendir(p) {
   sumar();
   $('#dlgRendir').showModal(); fR.importe.focus();
 }
+// ── Gastos pagados con el efectivo del local (pedido de Fer, 25/11/2026) ──
+// Cada gasto va con la fecha del último día elegido (es plata de esos días); sin días, la de la rendición.
+let importeAuto = () => {}, rUltimoDia = null, rubrosR = null, provsR = null;
+const aCent = v => { const x = String(v || '').replace(/\./g, '').trim(); return /^\d+$/.test(x) ? BigInt(x) * 100n : 0n; };
+const totalGastos = () => $$('#rGastos .g-fila').reduce((t, f) => t + aCent(f.querySelector('.g-imp').value), 0n);
+async function filaGasto() {
+  if (!rubrosR) {
+    const [{ rubros }, { proveedores }] = await Promise.all([api('fin/rubros'), api('proveedores')]);
+    rubrosR = rubros.filter(r => r.activo && r.linea !== 'ventas' && r.clave !== 'cmv').sort((a, b) => a.nombre.localeCompare(b.nombre));
+    provsR = proveedores.filter(p => p.activo);
+  }
+  const imp = el('input', { className: 'g-imp', inputMode: 'numeric', placeholder: 'Importe', 'aria-label': 'Importe del gasto' });
+  const rub = el('select', { className: 'g-rub', 'aria-label': 'Rubro del gasto' });
+  opciones(rub, rubrosR.map(r => [r.id, r.nombre]), null, 'Rubro…');
+  const prov = el('select', { className: 'g-prov', 'aria-label': 'Proveedor (opcional)' });
+  opcionesProveedor(prov, provsR, null, 'Sin proveedor', p => provsR.push(p));
+  const det = el('input', { className: 'g-det', placeholder: 'Detalle: qué se pagó *', 'aria-label': 'Detalle del gasto' });
+  const fila = el('div', { className: 'g-fila' }, imp, rub, prov, el('button', { type: 'button', className: 'chico', textContent: 'Quitar' }), det);
+  fila.querySelector('button').onclick = () => { fila.replaceWith(); importeAuto(); };
+  imp.addEventListener('input', importeAuto);
+  $('#rGastos').append(fila); imp.focus();
+}
+$('#rGasto').onclick = () => filaGasto().catch(e => msg(e.message, 'mal', '#msgR'));
+function leerGastos() {
+  const gs = [];
+  for (const f of $$('#rGastos .g-fila')) {
+    const g = { importe: f.querySelector('.g-imp').value.trim(), rubro_id: f.querySelector('.g-rub').value, proveedor_id: f.querySelector('.g-prov').value || null,
+      concepto: f.querySelector('.g-det').value.trim(), fecha: rUltimoDia || fR.fecha.value };
+    if (!g.importe && !g.rubro_id && !g.concepto) continue;
+    if (!aCent(g.importe)) throw new Error('Falta el importe de un gasto (en pesos, sin centavos).');
+    if (!g.rubro_id) throw new Error(`Falta el rubro del gasto "${g.concepto || pesos(deCentavos(aCent(g.importe)))}".`);
+    if (!g.concepto) throw new Error('Falta el detalle de un gasto: qué se pagó.');
+    gs.push(g);
+  }
+  return gs;
+}
+
 // Lo que se rinde de menos queda pendiente en los días más nuevos de los elegidos (pedido de Fer, 10/11/2026: dos veces se
 // rindió menos sin darse cuenta y el último día siguió pendiente). Se pide confirmación diciendo cuánto y en qué día(s).
 let rSel = { elegido: 0n, filas: [] };
 function confirmaParcial() {
   const v = String(fR.importe.value).replace(/\./g, '').trim();
   if (!/^\d+$/.test(v)) return true;
-  const imp = BigInt(v) * 100n, falta = rSel.elegido - imp;
+  const imp = BigInt(v) * 100n, falta = rSel.elegido - imp - totalGastos();
   if (falta <= 0n) return true;
   let resto = falta; const quedan = [];
   for (const f of [...rSel.filas].reverse()) { if (resto <= 0n) break; quedan.unshift(f.dia ? corta(f.dia) : 'lo anterior'); resto -= f.imp; }
-  return confirm(`Rendís ${pesos(deCentavos(imp))} de ${pesos(deCentavos(rSel.elegido))}: quedan ${pesos(deCentavos(falta))} pendientes en `
+  return confirm(`Rendís ${pesos(deCentavos(imp))}${totalGastos() ? ` y ${pesos(deCentavos(totalGastos()))} de gastos` : ''} de ${pesos(deCentavos(rSel.elegido))}: quedan ${pesos(deCentavos(falta))} pendientes en `
     + (quedan.length === 1 ? `el ${quedan[0]}` : `los días ${quedan.join(', ')}`) + '.\n\n¿Es una rendición parcial?\n\n'
     + 'Aceptar: rendir ese importe y dejar el resto pendiente.\nCancelar: volver y corregir el importe.');
 }
 fR.onsubmit = async e => {
   e.preventDefault();
+  let gastos;
+  try { gastos = leerGastos(); } catch (err) { return msg(err.message, 'mal', '#msgR'); }
+  if (!gastos.length && !aCent(fR.importe.value)) return msg('Cargá el importe que llegó o los gastos que se pagaron con el efectivo.', 'mal', '#msgR');
   if (!confirmaParcial()) return fR.importe.focus();
   try {
-    await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value,
+    const d = await api(`pos/efectivo/${actual.id}/rendir`, { method: 'POST', body: { importe: fR.importe.value, fecha: fR.fecha.value, destino_id: fR.destino_id.value, gastos,
       concepto: fR.concepto.value.trim() || (fR.concepto.placeholder.startsWith('Efectivo') ? fR.concepto.placeholder : '') } });
-    $('#dlgRendir').close(); msg(`Efectivo de ${actual.nombre} rendido.`, 'ok'); await refrescar();
+    const errs = d.comprobantes ? d.comprobantes.errores : [];
+    $('#dlgRendir').close();
+    msg(`Efectivo de ${actual.nombre} rendido${gastos.length ? `, con ${gastos.length} gasto(s) del local` : ''}.`
+      + (errs.length ? ` No se armó el comprobante de: ${errs.map(e => e.nombre + ' (' + e.error + ')').join('; ')}.` : ''), errs.length ? 'aviso' : 'ok');
+    await refrescar();
   } catch (err) { msg(err.message, 'mal', '#msgR'); }
 };
 $('#rCancelar').onclick = () => $('#dlgRendir').close();

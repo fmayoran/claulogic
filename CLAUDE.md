@@ -828,7 +828,14 @@ conciliación) → 4 integración POS → 5 tablero (food cost, CMV, teórico vs
     a rendir. Lo rendido cubre primero los días más viejos. Al rendir se eligen los días (08/11/2026): en orden, tildar uno tilda
     los anteriores; el importe es la suma (editable si llegó menos) y el detalle propone "Efectivo del dd/mm al dd/mm". **Rendición parcial**:
     el local puede usar parte del efectivo para gastos; se rinde menos y el resto queda pendiente en su cuenta de efectivo (el diálogo
-    dice cuánto queda) hasta cargar esos gastos (pendiente: pantalla de gastos del local que descuente de esa cuenta). Lo perdido, diferencia.
+    dice cuánto queda) hasta cargar esos gastos. Lo perdido, diferencia.
+    **Gastos pagados con el efectivo** (pedido de Fer, 25/11/2026: la diferencia entre lo cobrado y lo rendido eran gastos pagados por caja,
+    y quedaba pendiente en el último día): en el mismo diálogo de rendir, "+ Agregar gasto" suma renglones con importe, rubro, proveedor
+    opcional y detalle; el importe que llegó se calcula solo (días elegidos − gastos) mientras no se toque a mano, y con gastos puede ser
+    cero. `POST /pos/efectivo/:id/rendir` con `gastos`, en una transacción: cada gasto es un egreso de "Efectivo · <local>" con la fecha
+    del último día elegido, concepto "Gasto pagado con el efectivo · <local>: <detalle>", clasificado con su rubro y el local (los rubros
+    del centro van a la central por el trigger); después la transferencia de lo que llegó. Con proveedor, su comprobante X pagado
+    (`armarComprobantes`, aparte: si falla, el gasto queda y la pantalla lo avisa).
   - Etapas siguientes del rediseño: 2 acreditaciones esperadas por procesador y proyección en el flujo de caja; 3
     egresos desde el sistema (rubros, centro de costo, gastos sin factura, sueldos directos o globales a prorratear,
     transferencias propias, cajas chicas con rendición, la conciliación como confirmación); 4 estado de resultados

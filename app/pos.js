@@ -2072,21 +2072,49 @@ async function alcanzaEfectivo(c, integ, imp, que) {
 
 // Rendir efectivo: lo que llegó a la central (caja o banco) sale de la cuenta a rendir del punto de venta. Se hace
 // a mano, cuando la plata efectivamente ingresa (decisión de Fer). Montos en pesos enteros.
+// Gastos pagados con el efectivo (pedido de Fer, 25/11/2026: la diferencia entre lo cobrado y lo rendido eran gastos del local, y quedaba
+// pendiente en el último día). Se cargan en la misma rendición: cada uno es un egreso de la cuenta de efectivo del local, con su rubro y
+// el local (los rubros del centro van a la central, por el trigger de la clasificación), y con proveedor, su comprobante X pagado.
 r.post('/pos/efectivo/:integracion/rendir', h(async (req, res) => {
   if (!puede(req.usuario, 'finanzas')) throw new ErrorUsuario('Rendir efectivo es de finanzas.', 403);
   const integ = await integracion(pool, req, req.params.integracion);
   if (!integ.cuenta_efectivo_id) throw new ErrorUsuario('El punto de venta no tiene cuenta de efectivo.');
-  const destino = texto(req.body.destino_id, { campo: 'la cuenta donde entra', requerido: true });
-  const imp = monto(req.body.importe, { campo: 'El importe', requerido: true, positivo: true });
   const dia = fecha(req.body.fecha, { campo: 'La fecha' });
-  const { rows: [cu] } = await pool.query('SELECT tipo, activa FROM fin.cuenta WHERE id = $1::uuid', [destino]);
-  if (!cu || !cu.activa || !['caja', 'banco'].includes(cu.tipo) || destino === integ.cuenta_efectivo_id) throw new ErrorUsuario('Elegí la caja o el banco donde entra el efectivo.');
-  await enTransaccion(async c => {
-    await alcanzaEfectivo(c, integ, imp, 'rendir');
-    await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, COALESCE($4::date, current_date), $5)',
+  const gastos = (Array.isArray(req.body.gastos) ? req.body.gastos : []).map((g, i) => ({
+    importe: monto(g.importe, { campo: `El importe del gasto ${i + 1}`, requerido: true, positivo: true }),
+    rubro_id: texto(g.rubro_id, { campo: `el rubro del gasto ${i + 1}`, requerido: true }),
+    concepto: texto(g.concepto, { campo: `el detalle del gasto ${i + 1}`, requerido: true }),
+    proveedor_id: texto(g.proveedor_id),
+    fecha: fecha(g.fecha, { campo: `La fecha del gasto ${i + 1}` }) || dia }));
+  // Sin gastos, el importe que llegó es obligatorio; con gastos puede ser cero (todo se fue en gastos).
+  const imp = gastos.length && (req.body.importe == null || String(req.body.importe).trim() === '' || /^0+$/.test(String(req.body.importe).trim()))
+    ? null : monto(req.body.importe, { campo: 'El importe', requerido: true, positivo: true });
+  const destino = imp ? texto(req.body.destino_id, { campo: 'la cuenta donde entra', requerido: true }) : null;
+  if (destino) {
+    const { rows: [cu] } = await pool.query('SELECT tipo, activa FROM fin.cuenta WHERE id = $1::uuid', [destino]);
+    if (!cu || !cu.activa || !['caja', 'banco'].includes(cu.tipo) || destino === integ.cuenta_efectivo_id) throw new ErrorUsuario('Elegí la caja o el banco donde entra el efectivo.');
+  }
+  const total = gastos.reduce((t, g) => t + centavos(g.importe), imp ? centavos(imp) : 0n);
+  const movs = await enTransaccion(async c => {
+    await alcanzaEfectivo(c, integ, deCentavos(total), 'rendir');
+    const ids = [];
+    for (const g of gastos) {
+      const { rows: [ru] } = await c.query(`SELECT id FROM fin.rubro WHERE id = $1::uuid AND activo AND linea <> 'ventas' AND clave IS DISTINCT FROM 'cmv'`, [g.rubro_id]);
+      if (!ru) throw new ErrorUsuario(`El rubro de "${g.concepto}" no se puede usar para un gasto.`);
+      const { rows: [m] } = await c.query(
+        `INSERT INTO fin.movimiento_tes (fecha, cuenta_id, tipo, entrada, salida, concepto) VALUES (COALESCE($1::date, current_date), $2, 'egreso', 0, $3, $4) RETURNING id`,
+        [g.fecha, integ.cuenta_efectivo_id, g.importe, `Gasto pagado con el efectivo · ${integ.nombre}: ${g.concepto}`]);
+      await c.query('INSERT INTO fin.clasificacion (movimiento_id, rubro_id, sede_id) VALUES ($1, $2, $3)', [m.id, g.rubro_id, integ.sede_id]);
+      ids.push({ id: m.id, proveedor_id: g.proveedor_id });
+    }
+    if (imp) await c.query('SELECT fin.transferir($1::uuid, $2::uuid, $3::numeric, COALESCE($4::date, current_date), $5)',
       [integ.cuenta_efectivo_id, destino, imp, dia, `Rendición de efectivo · ${integ.nombre}` + (texto(req.body.concepto) ? ` · ${texto(req.body.concepto)}` : '')]);
+    return ids;
   });
-  res.status(201).json({ ok: true });
+  // Con proveedor, su comprobante X pagado con el gasto (como en la grilla de egresos). Va aparte: si falla, el gasto ya quedó registrado.
+  const conProv = movs.filter(m => m.proveedor_id);
+  const comprobantes = conProv.length ? await require('./finanzas').armarComprobantes(conProv.map(m => ({ proveedor_id: m.proveedor_id, pagos: [m.id] }))) : null;
+  res.status(201).json({ ok: true, gastos: movs.length, comprobantes });
 }));
 
 // Diferencia de caja: lo que falta (o sobra) del efectivo del punto de venta, con su motivo. Deja la cuenta a rendir
